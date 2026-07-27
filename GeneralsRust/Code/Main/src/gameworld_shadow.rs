@@ -775,6 +775,8 @@ impl GameWorldShadow {
                                     total_time: p.total_time,
                                     cost_supplies: p.cost.supplies,
                                     is_upgrade: p.is_upgrade(),
+                                    quantity_total: p.quantity_total.max(1),
+                                    quantity_produced: p.quantity_produced,
                                 })
                                 .collect();
                         }
@@ -1257,6 +1259,8 @@ impl GameWorldShadow {
                                 total_time: p.total_time,
                                 cost_supplies: p.cost.supplies,
                                 is_upgrade: p.is_upgrade(),
+                                quantity_total: p.quantity_total.max(1),
+                                quantity_produced: p.quantity_produced,
                             })
                             .collect();
                     }
@@ -2207,8 +2211,9 @@ impl GameWorldShadow {
                         supplies: it.cost_supplies,
                         power: 0,
                     },
-                    quantity_total: 1,
-                    quantity_produced: 0,
+                    // Wave 463: preserve C++ production quantity residual through GW writeback.
+                    quantity_total: it.quantity_total.max(1),
+                    quantity_produced: it.quantity_produced,
                     kind: if it.is_upgrade {
                         ProductionKind::Upgrade
                     } else {
@@ -2223,6 +2228,8 @@ impl GameWorldShadow {
                         || (a.total_time - b.total_time).abs() > 1e-5
                         || a.cost.supplies != b.cost.supplies
                         || a.kind != b.kind
+                        || a.quantity_total != b.quantity_total
+                        || a.quantity_produced != b.quantity_produced
                 });
             if queue_differs {
                 bd.production_queue = new_q;
@@ -3053,6 +3060,8 @@ impl GameWorldShadow {
                             total_time: it.total_time,
                             cost_supplies: it.cost.supplies,
                             is_upgrade: it.is_upgrade(),
+                            quantity_total: it.quantity_total.max(1),
+                            quantity_produced: it.quantity_produced,
                         })
                         .collect()
                 })
@@ -3091,6 +3100,8 @@ impl GameWorldShadow {
                     total_time: it.total_time,
                     cost_supplies: it.cost_supplies,
                     is_upgrade: it.is_upgrade,
+                    quantity_total: it.quantity_total.max(1),
+                    quantity_produced: it.quantity_produced,
                 })
                 .collect();
             self.world
@@ -8815,6 +8826,8 @@ mod tests {
                 total_time: 10.0,
                 cost_supplies: 100,
                 is_upgrade: false,
+                quantity_total: 1,
+                quantity_produced: 0,
             }],
             0.0,
             0.5, // half power
@@ -10234,6 +10247,8 @@ mod tests {
             total_time: 10.0,
             cost_supplies: 150,
             is_upgrade: false,
+            quantity_total: 1,
+            quantity_produced: 0,
         }];
         host_production_progress_log::record(oid, items.clone(), 0.0, 1.0);
 
@@ -14809,6 +14824,8 @@ mod tests {
                 total_time: 10.0,
                 cost_supplies: 150,
                 is_upgrade: false,
+                quantity_total: 1,
+                quantity_produced: 0,
             }],
             1.25,
             1.0,

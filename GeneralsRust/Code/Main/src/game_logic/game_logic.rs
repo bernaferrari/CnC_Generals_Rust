@@ -7057,6 +7057,8 @@ impl GameLogic {
                                     total_time: it.total_time,
                                     cost_supplies: it.cost.supplies,
                                     is_upgrade: it.is_upgrade(),
+                                    quantity_total: it.quantity_total.max(1),
+                                    quantity_produced: it.quantity_produced,
                                 }
                             })
                             .collect();

@@ -18,6 +18,10 @@ pub struct EntityProductionItem {
     pub cost_supplies: u32,
     /// Host PRODUCTION_UPGRADE residual.
     pub is_upgrade: bool,
+    /// C++ ProductionEntry::m_productionQuantityTotal residual (Wave 463).
+    pub quantity_total: u32,
+    /// C++ ProductionEntry::m_productionQuantityProduced residual (Wave 463).
+    pub quantity_produced: u32,
 }
 
 /// Identifier assigned to entities/things in the world.
