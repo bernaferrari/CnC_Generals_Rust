@@ -3435,6 +3435,10 @@ pub struct PresentationFrame {
     /// Wave 561: host fixed-step catch-up residual (`steps_run`) frozen at snapshot
     /// for runtime status without live dual-read mid-frame.
     pub logic_steps_run: u32,
+    /// Wave 564: host fixed-step budget residual frozen at snapshot.
+    pub logic_steps_budget_hit: bool,
+    /// Wave 564: host fixed-step accumulator residual (seconds) frozen at snapshot.
+    pub logic_steps_accumulated_seconds: f32,
     /// Wave 563: host ThingTemplate name keys frozen for train/UI residual
     /// contains checks without dual-reading live `GameLogic::templates` mid-frame.
     /// Sorted; capped. Fail-closed: not full template body freeze / playable_claim.
@@ -4695,8 +4699,13 @@ impl PresentationFrame {
             fow_shell_bypass,
             // Wave 557: freeze replay mode into presentation snapshot.
             in_replay_game: logic.isInReplayGame(),
-            // Wave 561: freeze fixed-step catch-up residual.
+            // Wave 561/564: freeze fixed-step diagnostics residual.
             logic_steps_run: logic.fixed_step_diagnostics().steps_run as u32,
+            // Wave 564
+            logic_steps_budget_hit: logic.fixed_step_diagnostics().budget_hit,
+            logic_steps_accumulated_seconds: logic
+                .fixed_step_diagnostics()
+                .accumulated_time_seconds,
             // Wave 563: freeze template name keys for presentation-owned contains residual.
             known_template_names: {
                 let mut names: Vec<String> = logic.templates.keys().cloned().collect();
@@ -4767,6 +4776,8 @@ impl PresentationFrame {
         self.fow_shell_bypass.hash(&mut h);
         self.in_replay_game.hash(&mut h);
         self.logic_steps_run.hash(&mut h);
+        self.logic_steps_budget_hit.hash(&mut h);
+        self.logic_steps_accumulated_seconds.to_bits().hash(&mut h);
         self.known_template_names.len().hash(&mut h);
         for n in &self.known_template_names {
             n.hash(&mut h);
@@ -12654,6 +12665,17 @@ mod tests {
         assert_eq!(
             snap.logic_steps_run,
             logic.fixed_step_diagnostics().steps_run as u32
+        );
+        assert_eq!(
+            snap.logic_steps_budget_hit,
+            logic.fixed_step_diagnostics().budget_hit
+        );
+        assert_eq!(
+            snap.logic_steps_accumulated_seconds.to_bits(),
+            logic
+                .fixed_step_diagnostics()
+                .accumulated_time_seconds
+                .to_bits()
         );
         assert!(
             snap.known_template_names.windows(2).all(|w| w[0] <= w[1]),

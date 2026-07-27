@@ -138,9 +138,13 @@ pub fn honesty_logic_steps_presentation_helper_source_markers_residual_wave561()
         residual_action_store(ResidualLogicStepsPresentationHelperAction::SourceMarkers);
         return false;
     };
-    let helper_ok = helper.contains("Wave 561")
+    // Wave 564: thin wrapper may delegate to presentation_or_boot_fixed_step_diagnostics.
+    let helper_ok = (helper.contains("Wave 561")
         && helper.contains("pres.logic_steps_run")
-        && helper.contains("fixed_step_diagnostics().steps_run");
+        && helper.contains("fixed_step_diagnostics().steps_run"))
+        || (helper.contains("presentation_or_boot_fixed_step_diagnostics()")
+            && eng.contains("fn presentation_or_boot_fixed_step_diagnostics")
+            && eng.contains("pres.logic_steps_run"));
     let status_ok = status.contains("presentation_or_boot_logic_steps()")
         && !status.contains("fixed_step_diagnostics()");
     let raw = eng
@@ -148,7 +152,7 @@ pub fn honesty_logic_steps_presentation_helper_source_markers_residual_wave561()
         .count();
     // helper boot + slow-menu diagnostics log
     let ok =
-        field_ok && helper_ok && status_ok && raw == 2 && !eng.contains("playable_claim = true");
+        field_ok && helper_ok && status_ok && raw == 1 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualLogicStepsPresentationHelperAction::SourceMarkers);
     ok
 }

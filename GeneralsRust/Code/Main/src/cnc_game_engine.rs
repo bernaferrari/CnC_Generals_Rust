@@ -15406,7 +15406,9 @@ impl CnCGameEngine {
                         .map(|last| last.elapsed() >= Duration::from_secs(2))
                         .unwrap_or(true)
                 {
-                    let fixed_diag = self.game_logic.fixed_step_diagnostics();
+                    // Wave 564: fixed-step residual prefers presentation freeze.
+                    let (fixed_steps, budget_hit, acc_s) =
+                        self.presentation_or_boot_fixed_step_diagnostics();
                     warn!(
                         "Slow menu tick: total={:?}, shell={:?}, commands={:?}, script_camera={:?}, camera={:?}, state={:?}, frame={}, fixed_steps={}, budget_hit={}, acc_ms={:.2}",
                         menu_tick_elapsed,
@@ -15416,9 +15418,9 @@ impl CnCGameEngine {
                         camera_elapsed,
                         self.current_state,
                         self.frame_counter,
-                        fixed_diag.steps_run,
-                        fixed_diag.budget_hit,
-                        fixed_diag.accumulated_time_seconds * 1000.0
+                        fixed_steps,
+                        budget_hit,
+                        acc_s * 1000.0
                     );
                     self.last_slow_menu_tick_log = Some(Instant::now());
                 }
@@ -18371,12 +18373,25 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host `fixed_step_diagnostics().steps_run`.
     #[inline]
     fn presentation_or_boot_logic_steps(&self) -> u32 {
-        // Wave 561: presentation freeze owns fixed-step catch-up residual when installed.
+        self.presentation_or_boot_fixed_step_diagnostics().0
+    }
+
+    /// Wave 564: presentation freeze owns full fixed-step diagnostics residual when
+    /// installed (`steps_run`, `budget_hit`, `accumulated_time_seconds`). Boot residual
+    /// without freeze uses host `fixed_step_diagnostics`.
+    #[inline]
+    fn presentation_or_boot_fixed_step_diagnostics(&self) -> (u32, bool, f32) {
+        // Wave 564: presentation freeze owns fixed-step diagnostics residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
-            return pres.logic_steps_run;
+            return (
+                pres.logic_steps_run,
+                pres.logic_steps_budget_hit,
+                pres.logic_steps_accumulated_seconds,
+            );
         }
         // Boot residual only.
-        self.game_logic.fixed_step_diagnostics().steps_run as u32
+        let d = self.game_logic.fixed_step_diagnostics();
+        (d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds)
     }
 
     /// Wave 563: presentation freeze owns template-name residual when installed.
