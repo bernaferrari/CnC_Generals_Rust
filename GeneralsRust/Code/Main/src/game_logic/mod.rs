@@ -389,6 +389,7 @@ pub mod host_live_host_production_complete_apply_helper_residual_wave595;
 pub mod host_live_host_render_ui_finalize_helper_residual_wave593;
 pub mod host_live_host_render_ui_overlays_helper_residual_wave592;
 pub mod host_live_host_render_ui_presentation_helper_residual_wave591;
+pub mod host_live_host_restart_pause_helper_residual_wave601;
 pub mod host_live_host_runtime_cmd_helper_residual_wave583;
 pub mod host_live_host_selection_map_helper_residual_wave579;
 pub mod host_live_host_silent_command_peel_residual_wave578;
@@ -2686,6 +2687,14 @@ pub use host_live_host_render_ui_presentation_helper_residual_wave591::{
     residual_host_render_ui_presentation_helper_last_action,
     residual_host_render_ui_presentation_helper_ok,
     simulate_live_host_render_ui_presentation_helper_honesty,
+};
+pub use host_live_host_restart_pause_helper_residual_wave601::{
+    honesty_host_restart_pause_helper_method_names_residual_wave601,
+    honesty_host_restart_pause_helper_nav_commands_residual_wave601,
+    honesty_host_restart_pause_helper_residual_pack_wave601,
+    honesty_host_restart_pause_helper_source_markers_residual_wave601,
+    residual_host_restart_pause_helper_last_action, residual_host_restart_pause_helper_ok,
+    simulate_live_host_restart_pause_helper_honesty,
 };
 pub use host_live_host_runtime_cmd_helper_residual_wave583::{
     honesty_host_runtime_cmd_helper_method_names_residual_wave583,
