@@ -109,10 +109,13 @@ pub fn honesty_camera_height_probe_source() -> bool {
     {
         return false;
     }
-    // Call sites pass None when presentation is installed.
-    eng.contains("if presentation.is_some()")
-        && eng.contains("if self.last_presentation_frame.is_some()")
-        && eng.matches("Some(game_logic)").count() >= 1
+    // Wave 458: bootstrap gates live logic via startup_camera_live_logic / presentation.is_some().
+    let Some(boot) = fn_body(eng, "fn bootstrap_camera_for_loaded_map(") else {
+        return false;
+    };
+    boot.contains("if presentation.is_some()")
+        && eng.contains("startup_camera_live_logic")
+        && (eng.contains("live_logic") || eng.matches("Some(game_logic)").count() >= 1)
 }
 
 /// Live residual: source honesty pack latches.
