@@ -318,6 +318,7 @@ pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
 pub mod host_live_ensure_presentation_env_instance_residual_wave474;
 pub mod host_live_entity_presentation_combat_ui_residual_wave489;
 pub mod host_live_entity_presentation_model_condition_residual_wave488;
+pub mod host_live_entity_presentation_structure_ui_residual_wave490;
 pub mod host_live_evacuate_contain_log_residual_wave201;
 pub mod host_live_exit_strategies_dual_world_empty_gate_residual_wave312;
 pub mod host_live_experience_tracker_dual_world_empty_gate_residual_wave420;
@@ -2256,6 +2257,22 @@ pub use host_live_entity_presentation_model_condition_residual_wave488::{
     ENTITY_PRESENTATION_MODEL_CONDITION_NAV_STEPS_WAVE488,
     ENTITY_PRESENTATION_MODEL_CONDITION_SOURCE_MARKERS_WAVE488,
     RUNTIME_HOST_ENTITY_PRESENTATION_MODEL_CONDITION_CMD_NAMES_WAVE488,
+};
+pub use host_live_entity_presentation_structure_ui_residual_wave490::{
+    honesty_entity_presentation_structure_ui_method_names_residual_wave490,
+    honesty_entity_presentation_structure_ui_nav_commands_residual_wave490,
+    honesty_entity_presentation_structure_ui_residual_pack_wave490,
+    honesty_entity_presentation_structure_ui_source_markers_residual_wave490,
+    residual_entity_presentation_structure_ui_last_action,
+    residual_entity_presentation_structure_ui_ok,
+    simulate_entity_presentation_structure_ui_entity_source,
+    simulate_entity_presentation_structure_ui_helpers,
+    simulate_live_entity_presentation_structure_ui_honesty,
+    ResidualEntityPresentationStructureUiAction,
+    ENTITY_PRESENTATION_STRUCTURE_UI_METHOD_NAMES_WAVE490,
+    ENTITY_PRESENTATION_STRUCTURE_UI_NAV_STEPS_WAVE490,
+    ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
+    RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
 };
 pub use host_live_production_door_model_condition_log_residual_wave486::{
     honesty_production_door_model_condition_log_method_names_residual_wave486,
