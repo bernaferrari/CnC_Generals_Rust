@@ -26100,6 +26100,47 @@ impl GameLogic {
     /// capture residual (kick passengers, deselect, idle, score).
     /// Wave 630: GameWorld AI-state writeback records ordinal changes; host
     /// applies moving/attacking combat-status residual for the new state.
+    /// Wave 631: GameWorld economy writeback records supply/power/radar/alive
+    /// changes; host applies presentation residual via host_economy_log and
+    /// radar log (GW decides absolute values; host still owns UI bookkeeping).
+    pub fn host_apply_economy_ready_completions(&mut self) -> usize {
+        // Wave 631: GameWorld economy writeback records supply/power/radar/alive
+        // changes; host applies presentation residual via host_economy_log and
+        // radar log (GW decides absolute values; host still owns UI bookkeeping).
+        let events = crate::game_logic::host_economy_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            if ev.supplies_changed || ev.power_changed {
+                crate::game_logic::host_economy_log::record(
+                    ev.player_id,
+                    ev.supplies,
+                    ev.power_available,
+                );
+                n = n.saturating_add(1);
+            }
+            if ev.radar_changed {
+                if let Some(player) = self.players.get_mut(&ev.player_id) {
+                    // Re-record radar residual for presentation without
+                    // re-applying absolute values (already writeback-synced).
+                    crate::game_logic::host_radar_log::record(
+                        player.id,
+                        player.radar_count,
+                        player.radar_disabled,
+                    );
+                    n = n.saturating_add(1);
+                }
+            }
+            let _ = (ev.alive_changed, ev.previous_alive, ev.is_alive);
+            let _ = (
+                ev.previous_supplies,
+                ev.previous_power,
+                ev.previous_radar_count,
+                ev.previous_radar_disabled,
+            );
+        }
+        n
+    }
+
     pub fn host_apply_ai_state_ready_completions(&mut self) -> usize {
         // Wave 630: GameWorld AI-state writeback records ordinal changes; host
         // applies moving/attacking combat-status residual for the new state.

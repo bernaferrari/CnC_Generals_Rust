@@ -1886,6 +1886,8 @@ impl GameWorldShadow {
     /// Write shadow player supplies/power onto host players (economy last writer).
     pub fn writeback_economy_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<crate::game_logic::host_economy_ready_log::HostEconomyReadyEvent> =
+            Vec::new();
         for (&hid, &gw) in &self.host_player_to_gw {
             let Some(pd) = self.world.player(gw) else {
                 continue;
@@ -1893,10 +1895,20 @@ impl GameWorldShadow {
             let Some(player) = logic.get_player_mut(hid) else {
                 continue;
             };
+            let prev_supplies = player.resources.supplies;
+            let prev_power = player.power_available;
+            let prev_radar = player.radar_count;
+            let prev_radar_dis = player.radar_disabled;
+            let prev_alive = player.is_alive;
             let mut dirty = false;
+            let mut supplies_changed = false;
+            let mut power_changed = false;
+            let mut radar_changed = false;
+            let mut alive_changed = false;
             if player.resources.supplies != pd.supplies {
                 player.resources.supplies = pd.supplies;
                 dirty = true;
+                supplies_changed = true;
             }
             // Economy authority: host pending delta is consumed by absolute writeback.
             if player.pending_supply_delta != 0 {
@@ -1906,6 +1918,7 @@ impl GameWorldShadow {
             if player.power_available != pd.power_available {
                 player.power_available = pd.power_available;
                 dirty = true;
+                power_changed = true;
             }
             if player.power_produced != pd.power_produced {
                 player.power_produced = pd.power_produced;
@@ -1918,14 +1931,17 @@ impl GameWorldShadow {
             if player.radar_count != pd.radar_count {
                 player.radar_count = pd.radar_count;
                 dirty = true;
+                radar_changed = true;
             }
             if player.radar_disabled != pd.radar_disabled {
                 player.radar_disabled = pd.radar_disabled;
                 dirty = true;
+                radar_changed = true;
             }
             if player.is_alive != pd.is_alive {
                 player.is_alive = pd.is_alive;
                 dirty = true;
+                alive_changed = true;
             }
             if (player.cash_bounty_percent - pd.cash_bounty_percent).abs() > 1e-6 {
                 player.cash_bounty_percent = pd.cash_bounty_percent;
@@ -1999,8 +2015,34 @@ impl GameWorldShadow {
                 }
             }
             if dirty {
+                // Wave 631: GameWorld economy last-write residual —
+                // host applies presentation bookkeeping from ready log.
+                if supplies_changed || power_changed || radar_changed || alive_changed {
+                    ready.push(
+                        crate::game_logic::host_economy_ready_log::HostEconomyReadyEvent {
+                            player_id: hid,
+                            previous_supplies: prev_supplies,
+                            supplies: player.resources.supplies,
+                            previous_power: prev_power,
+                            power_available: player.power_available,
+                            previous_radar_count: prev_radar,
+                            radar_count: player.radar_count,
+                            previous_radar_disabled: prev_radar_dis,
+                            radar_disabled: player.radar_disabled,
+                            previous_alive: prev_alive,
+                            is_alive: player.is_alive,
+                            supplies_changed,
+                            power_changed,
+                            radar_changed,
+                            alive_changed,
+                        },
+                    );
+                }
                 updated += 1;
             }
+        }
+        for ev in ready {
+            crate::game_logic::host_economy_ready_log::record(ev);
         }
         updated
     }
@@ -7980,6 +8022,8 @@ pub fn shadow_session_after_host_tick(
             let (_q, _a) = shadow.apply_host_economy_events(&econ_events);
         }
         econ_wb = shadow.writeback_economy_to_host(logic);
+        // Wave 631: drain economy ready log after GW writeback.
+        let _econ_ready = logic.host_apply_economy_ready_completions();
         let _upg_wb = shadow.writeback_completed_upgrades_to_host(logic);
         // Wave 624: drain upgrade-ready log after GW completed-upgrade writeback.
         let _upg_ready = logic.host_apply_upgrade_ready_completions();
@@ -9722,7 +9766,9 @@ mod tests {
             let p = logic.get_player_mut(pid).expect("p");
             p.shared_special_power_cooldowns.clear();
         }
-        assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
+        let _wb_econ = shadow.writeback_economy_to_host(&mut logic);
+        let _ = crate::game_logic::host_economy_ready_log::drain();
+        assert!(_wb_econ >= 1);
         let p = logic.get_player(pid).expect("p");
         assert!(
             p.shared_special_power_cooldowns
@@ -9788,7 +9834,9 @@ mod tests {
             p.unlocked_sciences.clear();
             p.is_alive = true;
         }
-        assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
+        let _wb_econ = shadow.writeback_economy_to_host(&mut logic);
+        let _ = crate::game_logic::host_economy_ready_log::drain();
+        assert!(_wb_econ >= 1);
         let p = logic.get_player(pid).expect("p");
         assert!(p.unlocked_sciences.iter().any(|s| s.contains("Paladin")));
         assert!(!p.is_alive);
@@ -9851,7 +9899,9 @@ mod tests {
             p.science_purchase_points = 0;
             p.cash_bounty_percent = 0.0;
         }
-        assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
+        let _wb_econ = shadow.writeback_economy_to_host(&mut logic);
+        let _ = crate::game_logic::host_economy_ready_log::drain();
+        assert!(_wb_econ >= 1);
         let p = logic.get_player(pid).expect("p");
         assert_eq!(p.rank_level, 3);
         assert_eq!(p.skill_points, 50);
@@ -9895,7 +9945,9 @@ mod tests {
             p.radar_count = 0;
             p.radar_disabled = true;
         }
-        assert!(shadow.writeback_economy_to_host(&mut logic) >= 1);
+        let _wb_econ = shadow.writeback_economy_to_host(&mut logic);
+        let _ = crate::game_logic::host_economy_ready_log::drain();
+        assert!(_wb_econ >= 1);
         let p = logic.get_player(pid).expect("p");
         assert_eq!(p.radar_count, 2);
         assert!(!p.radar_disabled);
@@ -11052,6 +11104,7 @@ mod tests {
             p.science_purchase_points = 4;
         }
         let wb = shadow.writeback_economy_to_host(&mut logic);
+        let _ = crate::game_logic::host_economy_ready_log::drain();
         assert!(wb >= 1);
         let host = logic.get_player(pid).expect("host");
         assert_eq!(host.rank_level, 5);
@@ -14748,6 +14801,7 @@ mod tests {
         };
         assert_eq!(sh, expect, "shadow supplies from economy log");
         let wb = shadow.writeback_economy_to_host(&mut logic);
+        let _ = crate::game_logic::host_economy_ready_log::drain();
         assert!(wb >= 1 || logic.get_player(hid).unwrap().resources.supplies == expect);
         assert_eq!(logic.get_player(hid).unwrap().resources.supplies, expect);
         assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
@@ -14776,6 +14830,7 @@ mod tests {
             p.resources.supplies = shadow_supplies.saturating_sub(1234);
         }
         let wb = shadow.writeback_economy_to_host(&mut logic);
+        let _ = crate::game_logic::host_economy_ready_log::drain();
         assert!(wb >= 1);
         assert_eq!(
             logic.get_player(hid).unwrap().resources.supplies,
