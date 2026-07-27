@@ -250,6 +250,10 @@ pub struct RenderableObject {
     pub captured: bool,
     /// Wave 512: C++ prone residual (Infantry goProne timer).
     pub prone: bool,
+    /// Wave 514: C++ Drawable emoticon residual name.
+    pub emoticon_name: String,
+    /// Wave 514: remaining logic frames for emoticon.
+    pub emoticon_frames_left: i32,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
     /// Host movement max speed residual.
@@ -1709,6 +1713,8 @@ pub enum PresentationFloatingTextKind {
     MoneyCrate,
     /// Combat HP damage residual (from DamageApplied events).
     CombatDamage,
+    /// Wave 514: Drawable emoticon residual (status bubble above unit).
+    Emoticon,
 }
 
 /// Snapshot-owned InGameUI::addFloatingText residual for dual-tick consumers.
@@ -3033,6 +3039,8 @@ impl PresentationFrame {
                 parachute_open: obj.is_parachute_open(),
                 captured: obj.has_captured_model_condition() || obj.is_private_captured(),
                 prone: obj.prone_timer > 0.0,
+                emoticon_name: obj.emoticon_name.clone(),
+                emoticon_frames_left: obj.emoticon_frames_left,
                 over_water: obj.over_water,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
@@ -3711,6 +3719,27 @@ impl PresentationFrame {
 
         // InGameUI floating text + MoneyPickUp Anim2D residual: freeze host registries.
         let mut floating_texts = collect_presentation_floating_texts(logic);
+        // Wave 514: active host emoticons → floating-text residual (presentation-only).
+        let frame_now = logic.get_frame();
+        for obj in logic.get_objects().values() {
+            if obj.emoticon_frames_left <= 0 || obj.emoticon_name.is_empty() {
+                continue;
+            }
+            if obj.status.destroyed || !obj.is_alive() {
+                continue;
+            }
+            let pos = obj.get_position();
+            floating_texts.push(PresentationFloatingText::from_parts(
+                PresentationFloatingTextKind::Emoticon,
+                obj.emoticon_name.clone(),
+                obj.emoticon_name.clone(),
+                glam::Vec3::new(pos.x, pos.y + 12.0, pos.z),
+                (255, 255, 200, 255),
+                0,
+                frame_now,
+                obj.id,
+            ));
+        }
         let world_anims = collect_presentation_world_anims(logic);
 
         let mut events = Vec::new();
@@ -6542,6 +6571,8 @@ impl PresentationFrame {
             parachute_open: ent.parachute_open,
             captured: false,
             prone: false,
+            emoticon_name: String::new(),
+            emoticon_frames_left: 0,
             over_water: false,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
