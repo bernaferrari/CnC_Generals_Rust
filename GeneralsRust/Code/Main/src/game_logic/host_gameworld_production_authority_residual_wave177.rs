@@ -96,10 +96,11 @@ pub fn honesty_production_authority_default_on_source() -> bool {
 /// Source residual: host production sole-tick skips full queue progress advance.
 pub fn honesty_host_production_sole_tick_source() -> bool {
     let src = include_str!("game_logic.rs");
+    // Wave 464: sole-tick host only try_complete; exit delay sole-ticks on GameWorld.
     src.contains("gameworld_production_sole_tick_enabled()")
-        && src.contains("tick_exit_delay")
         && src.contains("try_complete_production")
         && src.contains("update_production")
+        && src.contains("Wave 464: GameWorld sole-ticks queue progress + exit delay")
 }
 
 /// Source residual: writeback path exists for production last-writer.
@@ -108,6 +109,7 @@ pub fn honesty_production_writeback_source() -> bool {
     src.contains("pub fn writeback_production_to_host")
         && src.contains("pub fn tick_production_queues")
         && src.contains("ensure_gate_production_authority")
+        && src.contains("Wave 464: sole-tick factory exit delay")
 }
 
 /// Live residual: production authority enabled after gate ensure (default-on path).
