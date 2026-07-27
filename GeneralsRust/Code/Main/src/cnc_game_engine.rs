@@ -15999,12 +15999,8 @@ impl CnCGameEngine {
                 // Boot residual only.
                 self.game_logic.take_alliance_events()
             };
-        // Prefer presentation local_player residual when installed; live only boot/menu.
-        let local_player_id = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|f| f.local_player_id)
-            .or_else(|| self.game_logic.local_player_id());
+        // Wave 553: prefer presentation local_player residual when installed.
+        let local_player_id = self.presentation_or_boot_local_player_id();
         let mut observer_notified = false;
         for event in alliance_events {
             let is_local = local_player_id == Some(event.player_id);
@@ -16230,12 +16226,8 @@ impl CnCGameEngine {
                 self.game_hud.push_script_message(msg);
             }
             // Wave 462: prefer pipeline/last presentation sim clock residual.
-            ui_state.current_game_time = self
-                .render_pipeline
-                .presentation_frame()
-                .or(self.last_presentation_frame.as_ref())
-                .map(|p| p.total_play_time_seconds)
-                .unwrap_or_else(|| self.game_logic.get_total_play_time());
+            // Wave 553: via presentation_or_boot_total_play_time helper.
+            ui_state.current_game_time = self.presentation_or_boot_total_play_time();
             ui_state.fps = self.fps;
             ui_state.frame_time_ms = if self.fps > 0.0 {
                 1000.0 / self.fps
@@ -18295,6 +18287,35 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.isInShellGame()
+    }
+
+    /// Wave 553: presentation freeze owns total play-time residual when installed
+    /// (pipeline freeze preferred, then last frame). Boot residual without freeze
+    /// uses host `get_total_play_time`.
+    #[inline]
+    fn presentation_or_boot_total_play_time(&self) -> f32 {
+        // Wave 553: presentation freeze owns total play-time residual when installed.
+        if let Some(pres) = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref())
+        {
+            return pres.total_play_time_seconds;
+        }
+        // Boot residual only.
+        self.game_logic.get_total_play_time()
+    }
+
+    /// Wave 553: presentation freeze owns local player id residual when installed.
+    /// Boot residual without freeze uses host `local_player_id` probe.
+    #[inline]
+    fn presentation_or_boot_local_player_id(&self) -> Option<u32> {
+        // Wave 553: presentation freeze owns local player id residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return Some(pres.local_player_id);
+        }
+        // Boot residual only.
+        self.game_logic.local_player_id()
     }
 
     /// Wave 552: Menu residual — only trust freeze when it *affirms* shell-map
