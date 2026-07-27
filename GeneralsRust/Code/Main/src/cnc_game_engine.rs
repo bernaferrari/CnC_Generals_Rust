@@ -2100,22 +2100,15 @@ impl CnCGameEngine {
             (false, String::new())
         };
 
-        // Wave 546: presentation freeze owns host status map residual when installed
-        // (even if empty — no host dual-read mid-frame). Boot residual only without freeze.
-        let map_name = if let Some(pres) = self.last_presentation_frame.as_ref() {
-            let m = pres.world_env.map_name.trim();
-            if m.is_empty() {
+        // Wave 546/554: presentation freeze owns host status map residual when
+        // installed (even if empty — no host dual-read mid-frame). Empty → "-".
+        let map_name = {
+            let m = self.presentation_or_boot_map_name();
+            let t = m.trim();
+            if t.is_empty() {
                 "-".to_string()
             } else {
-                m.to_string()
-            }
-        } else {
-            // Menu/loading residual only.
-            let map_name = self.game_logic.get_current_map_name().trim();
-            if map_name.is_empty() {
-                "-".to_string()
-            } else {
-                map_name.to_string()
+                t.to_string()
             }
         };
 
@@ -18220,21 +18213,15 @@ impl CnCGameEngine {
     }
 
     fn restart_mission_from_ui(&mut self) {
-        // Prefer presentation residual for map/mode/faction when installed.
-        // Wave 545: presentation freeze owns restart map/faction residual when installed.
-        let (map, mode, faction) = if let Some(pres) = self.last_presentation_frame.as_ref() {
-            (
-                pres.world_env.map_name.clone(),
-                pres.game_mode,
-                pres.local_team.get_name().to_string(),
-            )
+        // Wave 545: presentation freeze owns restart map/faction residual.
+        // Wave 554: via presentation_or_boot_map_name / presentation_or_live_game_mode.
+        let map = self.presentation_or_boot_map_name();
+        let mode = self.presentation_or_live_game_mode();
+        let faction = if let Some(pres) = self.last_presentation_frame.as_ref() {
+            pres.local_team.get_name().to_string()
         } else {
-            (
-                self.game_logic.get_current_map_name().to_string(),
-                self.game_logic.game_mode(),
-                self.ui_local_player_team_name()
-                    .unwrap_or_else(|| "USA".to_string()),
-            )
+            self.ui_local_player_team_name()
+                .unwrap_or_else(|| "USA".to_string())
         };
 
         info!(
@@ -18318,6 +18305,30 @@ impl CnCGameEngine {
         self.game_logic.local_player_id()
     }
 
+    /// Wave 554: presentation freeze owns map-name residual when installed
+    /// (even if empty). Boot residual without freeze uses host map probe.
+    #[inline]
+    fn presentation_or_boot_map_name(&self) -> String {
+        // Wave 554: presentation freeze owns map-name residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.world_env.map_name.clone();
+        }
+        // Boot residual only.
+        self.game_logic.get_current_map_name().to_string()
+    }
+
+    /// Wave 554: presentation freeze owns AI difficulty residual when installed.
+    /// Boot residual without freeze uses host difficulty probe.
+    #[inline]
+    fn presentation_or_boot_ai_difficulty(&self) -> crate::ai::AIDifficulty {
+        // Wave 554: presentation freeze owns AI difficulty residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.ai_difficulty;
+        }
+        // Boot residual only.
+        self.game_logic.get_difficulty()
+    }
+
     /// Wave 552: Menu residual — only trust freeze when it *affirms* shell-map
     /// mode. Stale InGame frames (`fow_shell_bypass=false`) fall through to live
     /// `isInShellGame` so shell ticks are not suppressed after a match.
@@ -18359,26 +18370,19 @@ impl CnCGameEngine {
         description: &str,
         save_type: SaveFileType,
     ) -> SaveGameInfo {
-        // Wave 545: presentation freeze owns save metadata residual when installed
+        // Wave 545/554: presentation freeze owns save metadata residual when installed
         // (even if map_name empty — no host dual-read mid-frame). Boot residual only
-        // without a freeze.
-        let (map_name, difficulty, play_time, team_name) =
-            if let Some(pres) = self.last_presentation_frame.as_ref() {
-                (
-                    pres.world_env.map_name.clone(),
-                    Self::map_ai_difficulty_to_save(pres.ai_difficulty),
-                    std::time::Duration::from_secs_f32(pres.total_play_time_seconds),
-                    pres.local_team.get_name().to_string(),
-                )
-            } else {
-                (
-                    self.game_logic.get_current_map_name().to_string(),
-                    Self::map_ai_difficulty_to_save(self.game_logic.get_difficulty()),
-                    std::time::Duration::from_secs_f32(self.game_logic.get_total_play_time()),
-                    self.ui_local_player_team_name()
-                        .unwrap_or_else(|| "Neutral".to_string()),
-                )
-            };
+        // without a freeze (via presentation_or_boot_* helpers).
+        let map_name = self.presentation_or_boot_map_name();
+        let difficulty = Self::map_ai_difficulty_to_save(self.presentation_or_boot_ai_difficulty());
+        let play_time =
+            std::time::Duration::from_secs_f32(self.presentation_or_boot_total_play_time());
+        let team_name = if let Some(pres) = self.last_presentation_frame.as_ref() {
+            pres.local_team.get_name().to_string()
+        } else {
+            self.ui_local_player_team_name()
+                .unwrap_or_else(|| "Neutral".to_string())
+        };
 
         SaveGameInfo {
             filename: slot.to_string(),

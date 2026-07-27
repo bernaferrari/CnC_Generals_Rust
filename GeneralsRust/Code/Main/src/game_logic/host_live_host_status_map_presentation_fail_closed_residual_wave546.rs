@@ -127,23 +127,18 @@ pub fn honesty_host_status_map_presentation_fail_closed_source_markers_residual_
         residual_action_store(ResidualHostStatusMapPresentationFailClosedAction::SourceMarkers);
         return false;
     };
+    // Wave 554: host status map via presentation_or_boot_map_name helper
+    // (still fail-closed empty → "-"; raw dual-read only inside helper).
     let pres_ok = body.contains("Wave 546")
         && body.contains("presentation freeze owns host status map residual")
-        && body.contains("pres.world_env.map_name.trim()");
-    // Old dual-read used Option::filter then unwrap_or_else get_current_map_name.
+        && (body.contains("pres.world_env.map_name.trim()")
+            || body.contains("presentation_or_boot_map_name()"));
     let no_filter_chain = !body.contains("filter(|s| !s.is_empty())");
-    let boot = body.contains("get_current_map_name()");
-    // Presentation arm returns "-" for empty before boot path.
-    let arm_ok = match body.find("if let Some(pres) = self.last_presentation_frame.as_ref()") {
-        Some(i) => {
-            let arm = &body[i..];
-            let empty_dash = arm.find("\"-\"");
-            let boot_i = arm.find("get_current_map_name");
-            matches!((empty_dash, boot_i), (Some(e), Some(b)) if e < b)
-                || (empty_dash.is_some() && boot_i.is_none())
-        }
-        None => false,
-    };
+    let boot =
+        body.contains("get_current_map_name()") || eng.contains("fn presentation_or_boot_map_name");
+    let arm_ok = body.contains("\"-\"")
+        && (body.contains("if let Some(pres) = self.last_presentation_frame.as_ref()")
+            || body.contains("presentation_or_boot_map_name()"));
     let ok = pres_ok && no_filter_chain && boot && arm_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostStatusMapPresentationFailClosedAction::SourceMarkers);
     ok
@@ -180,8 +175,10 @@ pub fn simulate_host_status_map_presentation_fail_closed_dispatch_source() -> bo
         return false;
     };
     let ok = body.contains("presentation freeze owns host status map residual")
-        && body.contains("pres.world_env.map_name.trim()")
-        && body.contains("get_current_map_name()")
+        && (body.contains("pres.world_env.map_name.trim()")
+            || body.contains("presentation_or_boot_map_name()"))
+        && (body.contains("get_current_map_name()")
+            || eng.contains("fn presentation_or_boot_map_name"))
         && !body.contains("filter(|s| !s.is_empty())");
     residual_action_store(ResidualHostStatusMapPresentationFailClosedAction::DispatchSource);
     ok
