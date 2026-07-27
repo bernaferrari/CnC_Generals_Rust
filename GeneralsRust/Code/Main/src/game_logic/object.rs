@@ -6587,6 +6587,50 @@ impl Object {
         if had_sold_mc {
             bits |= 1u128 << sold_model_bit();
         }
+        // Wave 487: preserve combat/presentation bits refresh rebuild does not recompute.
+        use crate::game_logic::host_enum_table_residual::{
+            MC_BIT_BETWEEN_FIRING_SHOTS_A, MC_BIT_BETWEEN_FIRING_SHOTS_B,
+            MC_BIT_BETWEEN_FIRING_SHOTS_C, MC_BIT_FIRING_A, MC_BIT_FIRING_B, MC_BIT_FIRING_C,
+            MC_BIT_PREATTACK_A, MC_BIT_PREATTACK_B, MC_BIT_PREATTACK_C, MC_BIT_RELOADING_A,
+            MC_BIT_RELOADING_B, MC_BIT_RELOADING_C,
+        };
+        const WEAPON_MC_PRESERVE: [u32; 12] = [
+            MC_BIT_PREATTACK_A,
+            MC_BIT_FIRING_A,
+            MC_BIT_BETWEEN_FIRING_SHOTS_A,
+            MC_BIT_RELOADING_A,
+            MC_BIT_PREATTACK_B,
+            MC_BIT_FIRING_B,
+            MC_BIT_BETWEEN_FIRING_SHOTS_B,
+            MC_BIT_RELOADING_B,
+            MC_BIT_PREATTACK_C,
+            MC_BIT_FIRING_C,
+            MC_BIT_BETWEEN_FIRING_SHOTS_C,
+            MC_BIT_RELOADING_C,
+        ];
+        for b in WEAPON_MC_PRESERVE {
+            if (self.model_condition_bits & (1u128 << b)) != 0 {
+                bits |= 1u128 << b;
+            }
+        }
+        if let Some(bit) =
+            crate::game_logic::host_enum_table_residual::model_condition_bit_name_index("PRONE")
+        {
+            if (self.model_condition_bits & (1u128 << bit)) != 0 {
+                bits |= 1u128 << bit;
+            }
+        }
+        {
+            use crate::game_logic::host_neutron_missile_slow_death::{
+                MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+            };
+            if (self.model_condition_bits & (1u128 << MC_BIT_FRONTCRUSHED)) != 0 {
+                bits |= 1u128 << MC_BIT_FRONTCRUSHED;
+            }
+            if (self.model_condition_bits & (1u128 << MC_BIT_BACKCRUSHED)) != 0 {
+                bits |= 1u128 << MC_BIT_BACKCRUSHED;
+            }
+        }
         self.model_condition_bits = bits;
         self.record_host_model_condition();
     }
@@ -9195,6 +9239,7 @@ impl Object {
         use crate::game_logic::host_neutron_missile_slow_death::{
             MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
         };
+        let before = self.model_condition_bits;
         // Clear then set like C++ clearAndSetModelConditionFlags.
         self.model_condition_bits &= !(1u128 << MC_BIT_FRONTCRUSHED);
         self.model_condition_bits &= !(1u128 << MC_BIT_BACKCRUSHED);
@@ -9203,6 +9248,10 @@ impl Object {
         }
         if self.back_crushed {
             self.model_condition_bits |= 1u128 << MC_BIT_BACKCRUSHED;
+        }
+        // Wave 487: crush model bits must reach GW before model-condition writeback.
+        if self.model_condition_bits != before {
+            self.record_host_model_condition();
         }
     }
 
@@ -9636,6 +9685,8 @@ impl Object {
             crate::game_logic::host_enum_table_residual::model_condition_bit_name_index("PRONE")
         {
             self.model_condition_bits |= 1u128 << bit;
+            // Wave 487: prone model bit must reach GW before model-condition writeback.
+            self.record_host_model_condition();
         }
         // Stay in Idle while prone so orders can break it; timer clears the bit.
         if !matches!(
@@ -10608,6 +10659,7 @@ impl Object {
             MC_BIT_BETWEEN_FIRING_SHOTS_C,
             MC_BIT_RELOADING_C,
         ];
+        let before = self.model_condition_bits;
         for b in WEAPON_MC_BITS {
             self.model_condition_bits &= !(1u128 << b);
         }
@@ -10632,6 +10684,10 @@ impl Object {
             self.model_condition_bits |= 1u128 << WEAPON_MC_BITS[i];
         } else if self.status.is_firing_weapon {
             self.model_condition_bits |= 1u128 << WEAPON_MC_BITS[base + 1];
+        }
+        // Wave 487: weapon fire model bits must reach GW before model-condition writeback.
+        if self.model_condition_bits != before {
+            self.record_host_model_condition();
         }
     }
 
@@ -12965,6 +13021,8 @@ impl Object {
                     )
                 {
                     self.model_condition_bits &= !(1u128 << bit);
+                    // Wave 487: clear prone model bit into GW.
+                    self.record_host_model_condition();
                 }
             }
         }

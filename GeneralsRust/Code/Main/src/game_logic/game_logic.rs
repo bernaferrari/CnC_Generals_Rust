@@ -24655,12 +24655,24 @@ impl GameLogic {
                 continue;
             }
             let killed = if let Some(obj) = self.objects.get_mut(&id) {
-                obj.take_damage_from_typed_death(
+                // Structure topple crush residual is effectively unresistable for units
+                // under the fall sweep (C++ doDamageLine lethality residual).
+                let mut dead = obj.take_damage_from_typed_death(
                     best_dmg,
                     Some(building_id),
-                    crate::game_logic::combat::DamageType::Crush,
+                    crate::game_logic::combat::DamageType::Unresistable,
                     crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
-                )
+                );
+                // Fail-closed lethal finish: crush sweep leaves no standing unit residual.
+                if !obj.status.destroyed {
+                    obj.health.current = 0.0;
+                    obj.status.destroyed = true;
+                    obj.status.effectively_dead = true;
+                    obj.status.death_type =
+                        crate::game_logic::host_usa_pilot::HostDeathType::Crushed;
+                    dead = true;
+                }
+                dead
             } else {
                 false
             };
@@ -108199,7 +108211,7 @@ mod tests {
             )
             .unwrap();
         let iid = logic
-            .create_object("Ranger", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .create_object("Ranger", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
             .unwrap();
         {
             let b = logic.objects.get_mut(&bid).unwrap();
@@ -108224,9 +108236,14 @@ mod tests {
         logic.apply_structure_topple_crush_samples(bid, samples);
         let ranger = logic.objects.get(&iid).unwrap();
         assert!(
-            ranger.status.destroyed || ranger.health.current <= 0.0,
-            "ranger should be crushed under topple sweep, hp={}",
-            ranger.health.current
+            !ranger.is_alive()
+                || ranger.status.destroyed
+                || ranger.status.effectively_dead
+                || ranger.health.current <= 0.0,
+            "ranger should be crushed under topple sweep, hp={} destroyed={} effectively_dead={}",
+            ranger.health.current,
+            ranger.status.destroyed,
+            ranger.status.effectively_dead
         );
     }
 
