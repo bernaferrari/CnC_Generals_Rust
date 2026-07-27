@@ -151,8 +151,10 @@ pub fn honesty_host_production_complete_apply_helper_source_markers_residual_wav
         residual_action_store(ResidualHostProductionCompleteApplyHelperAction::SourceMarkers);
         return false;
     };
-    let update_ok = update.contains("Wave 595")
-        && update.contains("try_complete_production")
+    // Wave 613: collect lives in host_collect; update only delegates collect+apply.
+    let update_ok = (update.contains("Wave 595") || update.contains("Wave 613"))
+        && (update.contains("try_complete_production")
+            || update.contains("host_collect_production_completions"))
         && update.contains("self.apply_upgrade_production_completions(upgrade_completions)")
         && update.contains("self.apply_unit_production_completions(unit_completions)")
         && !update.contains("self.create_object(")
