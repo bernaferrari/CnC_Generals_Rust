@@ -305,6 +305,7 @@ pub mod host_live_countermeasures_dual_world_empty_gate_residual_wave328;
 pub mod host_live_crate_collide_dual_world_empty_gate_residual_wave303;
 pub mod host_live_damage_module_dual_world_empty_gate_residual_wave415;
 pub mod host_live_dead_model_preload_removed_residual_wave472;
+pub mod host_live_defeat_alliance_helper_residual_wave569;
 pub mod host_live_deliver_payload_ai_dual_world_empty_gate_residual_wave352;
 pub mod host_live_demo_trap_update_dual_world_empty_gate_residual_wave373;
 pub mod host_live_demoralize_power_dual_world_empty_gate_residual_wave403;
@@ -2357,6 +2358,14 @@ pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE478,
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
     RUNTIME_HOST_CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_CMD_NAMES_WAVE478,
+};
+pub use host_live_defeat_alliance_helper_residual_wave569::{
+    honesty_defeat_alliance_helper_method_names_residual_wave569,
+    honesty_defeat_alliance_helper_nav_commands_residual_wave569,
+    honesty_defeat_alliance_helper_residual_pack_wave569,
+    honesty_defeat_alliance_helper_source_markers_residual_wave569,
+    residual_defeat_alliance_helper_last_action, residual_defeat_alliance_helper_ok,
+    simulate_live_defeat_alliance_helper_honesty,
 };
 pub use host_live_diplomacy_presentation_helper_residual_wave558::{
     honesty_diplomacy_presentation_helper_method_names_residual_wave558,
