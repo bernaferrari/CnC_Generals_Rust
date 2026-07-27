@@ -420,6 +420,7 @@ pub mod host_live_power_plant_update_dual_world_empty_gate_residual_wave392;
 pub mod host_live_power_plant_upgrade_dual_world_empty_gate_residual_wave437;
 pub mod host_live_presentation_air_parachute_residual_wave505;
 pub mod host_live_presentation_append_missing_residual_wave192;
+pub mod host_live_presentation_body_disguise_stun_residual_wave508;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
@@ -2333,6 +2334,22 @@ pub use host_live_presentation_air_parachute_residual_wave505::{
     PRESENTATION_AIR_PARACHUTE_METHOD_NAMES_WAVE505, PRESENTATION_AIR_PARACHUTE_NAV_STEPS_WAVE505,
     PRESENTATION_AIR_PARACHUTE_SOURCE_MARKERS_WAVE505,
     RUNTIME_HOST_PRESENTATION_AIR_PARACHUTE_CMD_NAMES_WAVE505,
+};
+pub use host_live_presentation_body_disguise_stun_residual_wave508::{
+    honesty_presentation_body_disguise_stun_method_names_residual_wave508,
+    honesty_presentation_body_disguise_stun_nav_commands_residual_wave508,
+    honesty_presentation_body_disguise_stun_residual_pack_wave508,
+    honesty_presentation_body_disguise_stun_source_markers_residual_wave508,
+    residual_presentation_body_disguise_stun_last_action,
+    residual_presentation_body_disguise_stun_ok,
+    simulate_live_presentation_body_disguise_stun_honesty,
+    simulate_presentation_body_disguise_stun_input_source,
+    simulate_presentation_body_disguise_stun_stamp_source,
+    ResidualPresentationBodyDisguiseStunAction,
+    PRESENTATION_BODY_DISGUISE_STUN_METHOD_NAMES_WAVE508,
+    PRESENTATION_BODY_DISGUISE_STUN_NAV_STEPS_WAVE508,
+    PRESENTATION_BODY_DISGUISE_STUN_SOURCE_MARKERS_WAVE508,
+    RUNTIME_HOST_PRESENTATION_BODY_DISGUISE_STUN_CMD_NAMES_WAVE508,
 };
 pub use host_live_presentation_construction_disguise_residual_wave503::{
     honesty_presentation_construction_disguise_method_names_residual_wave503,

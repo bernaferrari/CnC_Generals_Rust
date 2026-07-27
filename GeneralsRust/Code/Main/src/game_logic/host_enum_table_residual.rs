@@ -535,6 +535,16 @@ pub fn captured_model_bit() -> u32 {
     model_condition_bit_name_index("CAPTURED").unwrap_or(0) as u32
 }
 
+/// C++ MODELCONDITION_DISGUISED residual bit index.
+pub fn disguised_model_bit() -> u32 {
+    model_condition_bit_name_index("DISGUISED").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_STUNNED residual bit index.
+pub fn stunned_model_bit() -> u32 {
+    model_condition_bit_name_index("STUNNED").unwrap_or(0) as u32
+}
+
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
 }
