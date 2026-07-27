@@ -15402,90 +15402,9 @@ impl CnCGameEngine {
 
                 #[cfg(feature = "game_client")]
                 {
-                    let early_menu_frame = self.menu_world_frames_rendered < 5;
-                    let t0 = std::time::Instant::now();
-                    {
-                        let gc = &mut self.game_client;
-                        if early_menu_frame {
-                            info!(
-                                "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
-                                self.menu_world_frames_rendered
-                            );
-                        }
-                        gc.ensure_shell_visible().ok();
-                        let t1 = std::time::Instant::now();
-                        if early_menu_frame {
-                            info!("Menu update_internal: calling gc.update_input");
-                        }
-                        // Wave 587: device bookkeeping on Main-injected state (same as InGame shell tick).
-                        // Not dual OS ownership — OS events already landed via inject_game_client_*.
-                        gc.update_input().ok();
-                        let t2 = std::time::Instant::now();
-                        if early_menu_frame {
-                            info!("Menu update_internal: calling gc.update_pre_draw_ui");
-                        }
-                        gc.update_pre_draw_ui().ok();
-                        let t3 = std::time::Instant::now();
-                        if early_menu_frame {
-                            info!("Menu update_internal: calling gc.update_post_draw_ui");
-                        }
-                        gc.update_post_draw_ui().ok();
-                        let _t4_pre = t3.elapsed();
-                        let _ = (t1, t2, t3, _t4_pre);
-                    }
-
-                    // Intercept MSG_NEW_GAME *before* pump moves it into the
-                    // crate command list. WND Skirmish/Campaign Start only
-                    // appends NewGame to the common message stream; without
-                    // this drain the windowed shell never reaches InGame.
-                    let t4 = std::time::Instant::now();
-                    if let Some((mode, faction, map, skirmish)) =
-                        self.take_pending_new_game_start_request()
-                    {
-                        info!(
-                            "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
-                            mode,
-                            faction,
-                            map,
-                            skirmish.is_some()
-                        );
-                        self.start_game_from_ui(mode, faction, map, skirmish);
+                    // Wave 588: Menu GameClient shell + NewGame drain residual via helper.
+                    if self.host_tick_game_client_menu_shell() {
                         return;
-                    }
-
-                    {
-                        let gc = &mut self.game_client;
-                        if early_menu_frame {
-                            info!("Menu update_internal: calling gc.pump_message_stream");
-                        }
-                        gc.pump_message_stream().ok();
-                    }
-
-                    // Secondary path: crate helpers may flag start after pump.
-                    if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
-                        gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                        if let Some((mode, faction, map, skirmish)) =
-                            self.build_start_request_from_pending_globals(None)
-                        {
-                            info!(
-                                "Menu start_new_game flag drain: mode={:?} map={}",
-                                mode, map
-                            );
-                            self.start_game_from_ui(mode, faction, map, skirmish);
-                            return;
-                        }
-                    }
-
-                    let t5 = std::time::Instant::now();
-                    let menu_gc_elapsed = t0.elapsed();
-                    if menu_gc_elapsed >= std::time::Duration::from_millis(50) || early_menu_frame {
-                        info!(
-                            "Menu GC update: total={:?} newgame_scan={:?} pump_tail={:?} frame={}",
-                            menu_gc_elapsed,
-                            t4.duration_since(t0),
-                            t5.duration_since(t4),
-                            self.frame_counter,
-                        );
                     }
                 }
                 // Headless / no-game_client builds still drain NewGame if present.
@@ -18447,6 +18366,99 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.templates.contains_key(name)
+    }
+
+    /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
+    ///
+    /// Advances Main-injected device state, shell/pre/post UI, then drains
+    /// MSG_NEW_GAME *before* `pump_message_stream` so WND Start reaches InGame.
+    /// Returns `true` when a match start was applied (caller should `return`).
+    ///
+    /// Distinct from InGame `host_tick_game_client_presentation_shell` (no FOW/pose;
+    /// NewGame intercept is Menu-only). Full `GameClient::update` stays disconnected.
+    #[cfg(feature = "game_client")]
+    fn host_tick_game_client_menu_shell(&mut self) -> bool {
+        // Wave 588: Menu shell residual.
+        let early_menu_frame = self.menu_world_frames_rendered < 5;
+        let t0 = std::time::Instant::now();
+        {
+            let gc = &mut self.game_client;
+            if early_menu_frame {
+                info!(
+                    "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
+                    self.menu_world_frames_rendered
+                );
+            }
+            let _ = gc.ensure_shell_visible();
+            let t1 = std::time::Instant::now();
+            if early_menu_frame {
+                info!("Menu update_internal: calling gc.update_input");
+            }
+            // Wave 587/588: device bookkeeping on Main-injected state (not dual OS poll).
+            let _ = gc.update_input();
+            let t2 = std::time::Instant::now();
+            if early_menu_frame {
+                info!("Menu update_internal: calling gc.update_pre_draw_ui");
+            }
+            let _ = gc.update_pre_draw_ui();
+            let t3 = std::time::Instant::now();
+            if early_menu_frame {
+                info!("Menu update_internal: calling gc.update_post_draw_ui");
+            }
+            let _ = gc.update_post_draw_ui();
+            let _ = (t1, t2, t3);
+        }
+
+        // Intercept MSG_NEW_GAME *before* pump moves it into the crate command list.
+        // WND Skirmish/Campaign Start only appends NewGame to the common message stream.
+        let t4 = std::time::Instant::now();
+        if let Some((mode, faction, map, skirmish)) = self.take_pending_new_game_start_request() {
+            info!(
+                "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
+                mode,
+                faction,
+                map,
+                skirmish.is_some()
+            );
+            self.start_game_from_ui(mode, faction, map, skirmish);
+            return true;
+        }
+
+        {
+            let gc = &mut self.game_client;
+            if early_menu_frame {
+                info!("Menu update_internal: calling gc.pump_message_stream");
+            }
+            let _ = gc.pump_message_stream();
+        }
+
+        // Secondary path: crate helpers may flag start after pump.
+        if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
+            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+            if let Some((mode, faction, map, skirmish)) =
+                self.build_start_request_from_pending_globals(None)
+            {
+                info!(
+                    "Menu start_new_game flag drain: mode={:?} map={}",
+                    mode, map
+                );
+                self.start_game_from_ui(mode, faction, map, skirmish);
+                return true;
+            }
+        }
+
+        let t5 = std::time::Instant::now();
+        let menu_gc_elapsed = t0.elapsed();
+        if menu_gc_elapsed >= std::time::Duration::from_millis(50) || early_menu_frame {
+            info!(
+                "Menu GC update: total={:?} newgame_scan={:?} pump_tail={:?} frame={}",
+                menu_gc_elapsed,
+                t4.duration_since(t0),
+                t5.duration_since(t4),
+                self.frame_counter,
+            );
+        }
+        false
     }
 
     /// Wave 586/587: GameClient presentation shell tick residual.
