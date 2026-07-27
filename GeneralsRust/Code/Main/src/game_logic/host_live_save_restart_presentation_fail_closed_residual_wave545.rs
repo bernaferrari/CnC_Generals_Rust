@@ -125,17 +125,20 @@ pub fn honesty_save_restart_presentation_fail_closed_source_markers_residual_wav
         residual_action_store(ResidualSaveRestartPresentationFailClosedAction::SourceMarkers);
         return false;
     };
+    // Wave 554: save/restart metadata via presentation_or_boot_* helpers
+    // (still fail-closed under freeze; raw dual-read only inside helpers).
     let save_ok = body.contains("Wave 545")
         && body.contains("presentation freeze owns save metadata residual")
-        && body.contains("pres.world_env.map_name.clone()")
-        && body.contains("get_current_map_name()")
-        // Must not filter empty map_name into dual-read under freeze.
-        && !body.contains("filter(|s| !s.is_empty())");
+        && !body.contains("filter(|s| !s.is_empty())")
+        && (body.contains("pres.world_env.map_name.clone()")
+            || body.contains("presentation_or_boot_map_name()"))
+        && (body.contains("get_current_map_name()")
+            || eng.contains("fn presentation_or_boot_map_name"));
     // Restart path
     let restart_ok = eng
         .contains("Wave 545: presentation freeze owns restart map/faction residual")
         && eng.contains("UI requested restart")
-        && eng.contains("pres.game_mode");
+        && (eng.contains("pres.game_mode") || eng.contains("presentation_or_live_game_mode()"));
     let ok = save_ok && restart_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualSaveRestartPresentationFailClosedAction::SourceMarkers);
     ok
@@ -172,8 +175,10 @@ pub fn simulate_save_restart_presentation_fail_closed_dispatch_source() -> bool 
         return false;
     };
     let ok = body.contains("presentation freeze owns save metadata residual")
-        && body.contains("pres.total_play_time_seconds")
-        && body.contains("get_current_map_name()")
+        && (body.contains("pres.total_play_time_seconds")
+            || body.contains("presentation_or_boot_total_play_time()"))
+        && (body.contains("get_current_map_name()")
+            || eng.contains("fn presentation_or_boot_map_name"))
         && eng.contains("presentation freeze owns restart map/faction residual");
     residual_action_store(ResidualSaveRestartPresentationFailClosedAction::DispatchSource);
     ok
