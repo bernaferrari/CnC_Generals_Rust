@@ -332,6 +332,7 @@ pub mod host_live_experience_tracker_dual_world_empty_gate_residual_wave420;
 pub mod host_live_fire_spread_update_dual_world_empty_gate_residual_wave447;
 pub mod host_live_fire_weapon_when_damaged_behavior_dual_world_empty_gate_residual_wave367;
 pub mod host_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_residual_wave427;
+pub mod host_live_fixed_step_diag_presentation_helper_residual_wave564;
 pub mod host_live_flammable_update_dual_world_empty_gate_residual_wave379;
 pub mod host_live_flight_deck_dual_world_empty_gate_residual_wave311;
 pub mod host_live_force_complete_authority_api_residual_wave224;
@@ -2411,6 +2412,15 @@ pub use host_live_entity_presentation_structure_ui_residual_wave490::{
     ENTITY_PRESENTATION_STRUCTURE_UI_NAV_STEPS_WAVE490,
     ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
     RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
+};
+pub use host_live_fixed_step_diag_presentation_helper_residual_wave564::{
+    honesty_fixed_step_diag_presentation_helper_method_names_residual_wave564,
+    honesty_fixed_step_diag_presentation_helper_nav_commands_residual_wave564,
+    honesty_fixed_step_diag_presentation_helper_residual_pack_wave564,
+    honesty_fixed_step_diag_presentation_helper_source_markers_residual_wave564,
+    residual_fixed_step_diag_presentation_helper_last_action,
+    residual_fixed_step_diag_presentation_helper_ok,
+    simulate_live_fixed_step_diag_presentation_helper_honesty,
 };
 pub use host_live_host_status_map_presentation_fail_closed_residual_wave546::{
     honesty_host_status_map_presentation_fail_closed_method_names_residual_wave546,
