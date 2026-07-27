@@ -435,6 +435,7 @@ pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
 pub mod host_live_presentation_garrison_contain_residual_wave504;
 pub mod host_live_presentation_host_fx_overlay_residual_wave498;
+pub mod host_live_presentation_jam_die_reload_pack_residual_wave513;
 pub mod host_live_presentation_mesh_combat_flags_residual_wave495;
 pub mod host_live_presentation_mesh_condition_resolve_residual_wave497;
 pub mod host_live_presentation_mesh_deploy_radar_residual_wave501;
@@ -2443,6 +2444,22 @@ pub use host_live_presentation_host_fx_overlay_residual_wave498::{
     PRESENTATION_HOST_FX_OVERLAY_NAV_STEPS_WAVE498,
     PRESENTATION_HOST_FX_OVERLAY_SOURCE_MARKERS_WAVE498,
     RUNTIME_HOST_PRESENTATION_HOST_FX_OVERLAY_CMD_NAMES_WAVE498,
+};
+pub use host_live_presentation_jam_die_reload_pack_residual_wave513::{
+    honesty_presentation_jam_die_reload_pack_method_names_residual_wave513,
+    honesty_presentation_jam_die_reload_pack_nav_commands_residual_wave513,
+    honesty_presentation_jam_die_reload_pack_residual_pack_wave513,
+    honesty_presentation_jam_die_reload_pack_source_markers_residual_wave513,
+    residual_presentation_jam_die_reload_pack_last_action,
+    residual_presentation_jam_die_reload_pack_ok,
+    simulate_live_presentation_jam_die_reload_pack_honesty,
+    simulate_presentation_jam_die_reload_pack_input_source,
+    simulate_presentation_jam_die_reload_pack_stamp_source,
+    ResidualPresentationJamDieReloadPackAction,
+    PRESENTATION_JAM_DIE_RELOAD_PACK_METHOD_NAMES_WAVE513,
+    PRESENTATION_JAM_DIE_RELOAD_PACK_NAV_STEPS_WAVE513,
+    PRESENTATION_JAM_DIE_RELOAD_PACK_SOURCE_MARKERS_WAVE513,
+    RUNTIME_HOST_PRESENTATION_JAM_DIE_RELOAD_PACK_CMD_NAMES_WAVE513,
 };
 pub use host_live_presentation_mesh_combat_flags_residual_wave495::{
     honesty_presentation_mesh_combat_flags_method_names_residual_wave495,
