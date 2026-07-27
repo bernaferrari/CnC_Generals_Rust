@@ -173,24 +173,24 @@ pub fn simulate_presentation_env_seed_gameworld_source() -> bool {
 
 pub fn simulate_presentation_env_seed_gameworld_callsites() -> bool {
     let src = cnc_source();
-    let with_shadow = src
-        .matches(
-            "Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic, self.gameworld_shadow.as_ref())",
-        )
-        .count()
-        + src.matches("self.gameworld_shadow.as_ref(),\n                    )").count();
-    // No two-arg ensure left for Self::ensure...
+    // Wave 467: call sites use ensure_presentation_env_seeded (mirrors last frame).
+    let seeded = src.matches("ensure_presentation_env_seeded()").count();
+    let def_ok = src.contains("fn ensure_presentation_env_seeded")
+        && src.contains("self.gameworld_shadow.as_ref()")
+        && src.contains("last_presentation_frame.is_none()");
+    // Free-fn ensure still takes shadow Option; no two-arg Self::ensure call sites remain.
     let mut two_arg = 0usize;
     let mut from = 0usize;
     while let Some(rel) = src[from..].find("Self::ensure_presentation_env_for_hints(") {
         let i = from + rel;
-        let win = &src[i..src.len().min(i + 220)];
-        if !win.contains("gameworld_shadow.as_ref()") && !win.contains("shadow:") {
+        let win = &src[i..src.len().min(i + 280)];
+        // Definition site includes param list with shadow: — skip fn definition.
+        if !win.contains("shadow:") && !win.contains("gameworld_shadow.as_ref()") {
             two_arg += 1;
         }
         from = i + 40;
     }
-    let ok = with_shadow >= 3 && two_arg == 0;
+    let ok = seeded >= 3 && def_ok && two_arg == 0;
     residual_action_store(ResidualPresentationEnvSeedGameworldAction::CallSites);
     ok
 }
