@@ -451,6 +451,7 @@ pub mod host_live_presentation_poison_defector_tint_residual_wave499;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_seed_residual_wave171;
+pub mod host_live_presentation_shock_power_jet_residual_wave519;
 pub mod host_live_presentation_stealth_mesh_residual_wave502;
 pub mod host_live_presentation_surrender_formation_residual_wave515;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
@@ -2443,6 +2444,14 @@ pub use host_live_presentation_formation_link_residual_wave516::{
     honesty_presentation_formation_link_source_markers_residual_wave516,
     residual_presentation_formation_link_last_action, residual_presentation_formation_link_ok,
     simulate_live_presentation_formation_link_honesty,
+};
+pub use host_live_presentation_shock_power_jet_residual_wave519::{
+    honesty_presentation_shock_power_jet_method_names_residual_wave519,
+    honesty_presentation_shock_power_jet_nav_commands_residual_wave519,
+    honesty_presentation_shock_power_jet_residual_pack_wave519,
+    honesty_presentation_shock_power_jet_source_markers_residual_wave519,
+    residual_presentation_shock_power_jet_last_action, residual_presentation_shock_power_jet_ok,
+    simulate_live_presentation_shock_power_jet_honesty,
 };
 pub use host_live_presentation_weapon_fire_slot_residual_wave517::{
     honesty_presentation_weapon_fire_slot_method_names_residual_wave517,

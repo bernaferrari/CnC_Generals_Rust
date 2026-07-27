@@ -605,6 +605,27 @@ pub fn armed_model_bit() -> u32 {
 pub fn jetafterburner_model_bit() -> u32 {
     model_condition_bit_name_index("JETAFTERBURNER").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_EXPLODED_FLAILING residual bit index.
+pub fn exploded_flailing_model_bit() -> u32 {
+    model_condition_bit_name_index("EXPLODED_FLAILING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_EXPLODED_BOUNCING residual bit index.
+pub fn exploded_bouncing_model_bit() -> u32 {
+    model_condition_bit_name_index("EXPLODED_BOUNCING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_SPLATTED residual bit index.
+pub fn splatted_model_bit() -> u32 {
+    model_condition_bit_name_index("SPLATTED").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_POWER_PLANT_UPGRADING residual bit index.
+pub fn power_plant_upgrading_model_bit() -> u32 {
+    model_condition_bit_name_index("POWER_PLANT_UPGRADING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_SMOLDERING residual bit index.
+pub fn smoldering_model_bit() -> u32 {
+    model_condition_bit_name_index("SMOLDERING").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_OVER_WATER residual bit index.
 pub fn over_water_model_bit() -> u32 {
     model_condition_bit_name_index("OVER_WATER").unwrap_or(0) as u32

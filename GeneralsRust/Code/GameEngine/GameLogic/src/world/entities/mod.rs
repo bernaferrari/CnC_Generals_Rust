@@ -484,6 +484,12 @@ pub struct Entity {
     pub selection_flash_remaining: u32,
     /// Host Object::shock_stun_frames residual.
     pub shock_stun_frames: u32,
+    /// C++ PowerPlantUpdate m_extended residual.
+    pub power_plant_rods_extended: bool,
+    /// Power plant rods done frame residual.
+    pub power_plant_rods_done_frame: u32,
+    /// Jet slow-death residual active.
+    pub jet_slow_death_active: bool,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1017,6 +1023,9 @@ impl EntityStore {
             armed: false,
             selection_flash_remaining: 0,
             shock_stun_frames: 0,
+            power_plant_rods_extended: false,
+            power_plant_rods_done_frame: 0,
+            jet_slow_death_active: false,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,

@@ -884,6 +884,12 @@ impl GameWorldShadow {
                     e.shock_allow_bounce = obj.shock_allow_bounce;
                     e.shock_grounded_once = obj.shock_grounded_once;
                     e.shock_was_airborne = obj.shock_was_airborne;
+                    e.shock_allow_bounce = obj.shock_allow_bounce;
+                    e.shock_grounded_once = obj.shock_grounded_once;
+                    e.shock_stun_frames = obj.shock_stun_frames;
+                    e.power_plant_rods_extended = obj.power_plant_rods_extended;
+                    e.power_plant_rods_done_frame = obj.power_plant_rods_done_frame;
+                    e.jet_slow_death_active = obj.jet_slow_death.is_some();
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
