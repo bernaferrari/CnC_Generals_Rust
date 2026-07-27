@@ -1029,6 +1029,7 @@ impl GameWorldShadow {
                     e.cheer_timer = obj.cheer_timer;
                     e.overcharge_enabled = obj.overcharge_enabled;
                     e.active_weapon_slot = obj.active_weapon_slot;
+                    e.weapon_fire_status = obj.weapon_fire_status as u8;
                     e.guard_radius = obj.guard_radius;
                     e.applied_upgrade_count =
                         obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
@@ -1397,6 +1398,7 @@ impl GameWorldShadow {
                 e.cheer_timer = obj.cheer_timer;
                 e.overcharge_enabled = obj.overcharge_enabled;
                 e.active_weapon_slot = obj.active_weapon_slot;
+                e.weapon_fire_status = obj.weapon_fire_status as u8;
                 e.guard_radius = obj.guard_radius;
                 e.applied_upgrade_count = obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
                 {

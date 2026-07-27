@@ -505,6 +505,59 @@ pub fn jetexhaust_model_bit() -> u32 {
 pub fn using_weapon_a_model_bit() -> u32 {
     model_condition_bit_name_index("USING_WEAPON_A").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_FIRING_A residual bit index from name table.
+pub fn firing_a_model_bit() -> u32 {
+    model_condition_bit_name_index("FIRING_A").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_FIRING_B residual bit index from name table.
+pub fn firing_b_model_bit() -> u32 {
+    model_condition_bit_name_index("FIRING_B").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_FIRING_C residual bit index from name table.
+pub fn firing_c_model_bit() -> u32 {
+    model_condition_bit_name_index("FIRING_C").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_A residual bit index from name table.
+pub fn between_firing_shots_a_model_bit() -> u32 {
+    model_condition_bit_name_index("BETWEEN_FIRING_SHOTS_A").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_B residual bit index from name table.
+pub fn between_firing_shots_b_model_bit() -> u32 {
+    model_condition_bit_name_index("BETWEEN_FIRING_SHOTS_B").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_C residual bit index from name table.
+pub fn between_firing_shots_c_model_bit() -> u32 {
+    model_condition_bit_name_index("BETWEEN_FIRING_SHOTS_C").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_PREATTACK_B residual bit index from name table.
+pub fn preattack_b_model_bit() -> u32 {
+    model_condition_bit_name_index("PREATTACK_B").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_PREATTACK_C residual bit index from name table.
+pub fn preattack_c_model_bit() -> u32 {
+    model_condition_bit_name_index("PREATTACK_C").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RELOADING_B residual bit index from name table.
+pub fn reloading_b_model_bit() -> u32 {
+    model_condition_bit_name_index("RELOADING_B").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RELOADING_C residual bit index from name table.
+pub fn reloading_c_model_bit() -> u32 {
+    model_condition_bit_name_index("RELOADING_C").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_USING_WEAPON_B residual bit index from name table.
+pub fn using_weapon_b_model_bit() -> u32 {
+    model_condition_bit_name_index("USING_WEAPON_B").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_USING_WEAPON_C residual bit index from name table.
+pub fn using_weapon_c_model_bit() -> u32 {
+    model_condition_bit_name_index("USING_WEAPON_C").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_PANICKING residual bit index from name table.
+pub fn panicking_model_bit() -> u32 {
+    model_condition_bit_name_index("PANICKING").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_WEAPONSET_VETERAN residual bit index.
 pub fn weaponset_veteran_model_bit() -> u32 {
     model_condition_bit_name_index("WEAPONSET_VETERAN").unwrap_or(0) as u32
