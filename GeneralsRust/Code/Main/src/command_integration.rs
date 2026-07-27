@@ -1,8 +1,9 @@
 use crate::command_system::{
     get_command_system, init_command_system, CommandMode, CommandType, GuardTarget, ModifierKeys,
-    MouseButton, MouseCommandContext,
+    MouseButton, MouseCommandContext, PresentationSelectedUnitHint, PresentationTargetHint,
 };
 use crate::game_logic::{GameLogic, ObjectId, ObjectType, Team};
+use crate::presentation_frame::{PresentationFrame, PresentationObjectType};
 use crate::ui::KeyCode as VirtualKeyCode;
 use crate::ui::{InputEvent, KeyEvent, MouseEvent};
 use glam::{Vec2, Vec3};
@@ -38,6 +39,10 @@ pub struct InputCommandProcessor {
     current_player_id: u32,
 
     selection_cycles: HashMap<u32, SelectionCycleState>,
+
+    /// Wave 531: optional presentation freeze for mouse classification / pick / box-select.
+    /// When installed, process_mouse_input is presentation-only (no GameLogic dual-read).
+    presentation_frame: Option<PresentationFrame>,
 }
 
 #[derive(Default)]
@@ -69,7 +74,18 @@ impl InputCommandProcessor {
             drag_threshold: 5.0,  // pixels
             current_player_id: 0, // Default to player 0
             selection_cycles: HashMap::new(),
+            presentation_frame: None,
         }
+    }
+
+    /// Wave 531: install/clear presentation freeze used by mouse command classification.
+    pub fn install_presentation_frame(&mut self, frame: Option<PresentationFrame>) {
+        self.presentation_frame = frame;
+    }
+
+    /// Wave 531: presentation freeze currently installed (if any).
+    pub fn presentation_frame(&self) -> Option<&PresentationFrame> {
+        self.presentation_frame.as_ref()
     }
 
     fn select_worker_cycle(&mut self, game_logic: &GameLogic, reverse: bool) -> bool {
@@ -366,18 +382,62 @@ impl InputCommandProcessor {
             _ => return None,
         };
 
+        // Wave 531: prefer presentation freeze for pick / selection / classification.
+        let selected_units = self.get_selected_units(game_logic);
+        let target_object = self.find_object_at_position(game_logic);
+        let (target_presentation, selected_presentation, box_units, similar_units, world_bounds) =
+            if let Some(frame) = self.presentation_frame.as_ref() {
+                let target_presentation =
+                    target_object.and_then(|id| self.presentation_target_hint(frame, id));
+                let selected_presentation =
+                    self.presentation_selected_unit_hints(frame, &selected_units);
+                let box_units = if self.is_dragging {
+                    if let (Some(start), Some(end)) =
+                        (self.drag_start_world, Some(self.mouse_world_pos))
+                    {
+                        let min_x = start.x.min(end.x);
+                        let max_x = start.x.max(end.x);
+                        let min_z = start.z.min(end.z);
+                        let max_z = start.z.max(end.z);
+                        frame.box_select_unit_ids(frame.local_team(), min_x, max_x, min_z, max_z)
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                let similar_units = target_object
+                    .map(|id| frame.similar_unit_ids(id, frame.local_team()))
+                    .unwrap_or_default();
+                (
+                    target_presentation,
+                    selected_presentation,
+                    box_units,
+                    similar_units,
+                    frame.world_env.world_bounds_vec3(),
+                )
+            } else {
+                (
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    game_logic.world_bounds(),
+                )
+            };
+
         // Create command context
         let context = MouseCommandContext {
             world_position: self.mouse_world_pos,
-            target_object: self.find_object_at_position(game_logic),
-            target_presentation: None,
-            selected_presentation: Vec::new(),
-            presentation_box_select_units: Vec::new(),
-            presentation_select_similar_units: Vec::new(),
+            target_object,
+            target_presentation,
+            selected_presentation,
+            presentation_box_select_units: box_units,
+            presentation_select_similar_units: similar_units,
             screen_position: self.mouse_screen_pos,
             viewport_size: Some(self.viewport_size),
-            world_min: Some(game_logic.world_bounds().0),
-            world_max: Some(game_logic.world_bounds().1),
+            world_min: Some(world_bounds.0),
+            world_max: Some(world_bounds.1),
             mouse_button,
             modifier_keys: self.modifier_keys,
             is_drag: self.is_dragging,
@@ -403,8 +463,12 @@ impl InputCommandProcessor {
             },
         };
 
-        // Get selected units for current player
-        let selected_units = self.get_selected_units(game_logic);
+        // Wave 531: presentation-only mouse path when frame installed (mirrors engine Wave 236).
+        let gl_for_classify = if self.presentation_frame.is_some() {
+            None
+        } else {
+            Some(&*game_logic)
+        };
 
         // Process mouse input through command system
         let command_system = get_command_system();
@@ -413,7 +477,7 @@ impl InputCommandProcessor {
                 &context,
                 &selected_units,
                 self.current_player_id,
-                Some(game_logic),
+                gl_for_classify,
             ) {
                 system.queue_command(command);
                 log::trace!("Command queued from mouse input");
@@ -709,6 +773,19 @@ impl InputCommandProcessor {
     fn find_object_at_position(&self, game_logic: &GameLogic) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 50.0;
 
+        // Wave 531: presentation-only pick when freeze installed.
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let player_team = Some(frame.local_team());
+            let has_selected_units = !self.get_selected_units(game_logic).is_empty();
+            return crate::unit_control::UnitControlSystem::pick_object_id_at_world_from_presentation(
+                frame,
+                self.mouse_world_pos,
+                player_team,
+                has_selected_units,
+                BASE_SELECTION_RADIUS,
+            );
+        }
+
         // Wave 246: world pick via GameLogic probe (no caller-side objects dual-walk).
         let player_team = game_logic.player_team(self.current_player_id);
         let has_selected_units = !game_logic
@@ -725,7 +802,131 @@ impl InputCommandProcessor {
     /// Get currently selected units for the current player
     fn get_selected_units(&self, game_logic: &GameLogic) -> Vec<ObjectId> {
         // Wave 245: selection via player_selected_objects probe.
+        // Wave 531: when presentation freeze is installed and host selection is empty,
+        // fall through to host probe only (selection still lives on GameLogic).
         game_logic.player_selected_objects(self.current_player_id)
+    }
+
+    /// Wave 531: build target classification freeze from presentation.
+    fn presentation_target_hint(
+        &self,
+        frame: &PresentationFrame,
+        id: ObjectId,
+    ) -> Option<PresentationTargetHint> {
+        let o = frame.objects.iter().find(|x| x.id == id && !x.destroyed)?;
+        let local = frame.local_team();
+        let is_neutral = o.team == Team::Neutral;
+        let is_enemy = o.team != local && !is_neutral;
+        let is_structure = o.object_type == PresentationObjectType::Building
+            || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Structure);
+        let is_resource =
+            PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Harvestable)
+                || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Resource)
+                || o.template_name.to_ascii_lowercase().contains("supply");
+        let n = o.template_name.to_ascii_lowercase();
+        let can_be_entered = n.contains("transport")
+            || n.contains("chinook")
+            || n.contains("bunker")
+            || n.contains("garrison")
+            || n.contains("overlord");
+        let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
+        let is_friendly = o.team == local && !is_neutral;
+        let provides_heal = n.contains("healpad")
+            || n.contains("heal_pad")
+            || n.contains("hospital")
+            || n.contains("ambulance");
+        let provides_aircraft_repair =
+            n.contains("airfield") || n.contains("helipad") || n.contains("airstrip");
+        let provides_vehicle_repair = n.contains("repair")
+            || n.contains("warfactory")
+            || n.contains("war_factory")
+            || n.contains("armsdealer")
+            || n.contains("propaganda")
+            || provides_aircraft_repair;
+        Some(PresentationTargetHint {
+            id,
+            is_alive: !o.destroyed && o.health_current > 0.0,
+            is_structure,
+            is_resource,
+            under_construction: o.under_construction,
+            sold: o.sold,
+            team: o.team,
+            is_enemy_of_local: is_enemy,
+            is_neutral,
+            template_name: o.template_name.clone(),
+            can_be_entered,
+            is_damaged,
+            is_friendly_of_local: is_friendly,
+            provides_vehicle_repair: is_structure && provides_vehicle_repair,
+            provides_aircraft_repair: is_structure && provides_aircraft_repair,
+            provides_heal: is_structure && provides_heal,
+        })
+    }
+
+    /// Wave 531: build selected-unit capability freeze from presentation.
+    fn presentation_selected_unit_hints(
+        &self,
+        frame: &PresentationFrame,
+        ids: &[ObjectId],
+    ) -> Vec<PresentationSelectedUnitHint> {
+        let mut out = Vec::with_capacity(ids.len());
+        for &id in ids {
+            let Some(o) = frame.objects.iter().find(|x| x.id == id) else {
+                continue;
+            };
+            if o.destroyed || o.health_current <= 0.0 {
+                continue;
+            }
+            let n = o.template_name.to_ascii_lowercase();
+            let is_worker = PresentationFrame::presentation_is_worker_like(o)
+                || n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("supplytruck")
+                || n.contains("supply_truck");
+            let can_attack = o.has_weapon;
+            let can_move = o.is_mobile;
+            let is_lotus =
+                crate::game_logic::host_hero_abilities::is_black_lotus_template(&o.template_name);
+            let is_hero = PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Hero)
+                || n.contains("colonel")
+                || n.contains("jarmen")
+                || n.contains("lotus");
+            let can_capture = n.contains("ranger")
+                || n.contains("rebel")
+                || n.contains("redguard")
+                || crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
+                    is_hero, is_lotus,
+                );
+            let can_repair = is_worker
+                || n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("construction");
+            let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
+            let is_vehicle =
+                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Vehicle)
+                    || o.object_type == PresentationObjectType::Vehicle;
+            let is_aircraft =
+                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Aircraft)
+                    || o.object_type == PresentationObjectType::Aircraft;
+            let is_infantry =
+                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Infantry)
+                    || o.object_type == PresentationObjectType::Infantry;
+            out.push(PresentationSelectedUnitHint {
+                id,
+                is_alive: true,
+                is_worker,
+                can_attack,
+                can_move,
+                can_capture,
+                template_name: o.template_name.clone(),
+                can_repair,
+                is_damaged,
+                is_vehicle,
+                is_aircraft,
+                is_infantry,
+            });
+        }
+        out
     }
 
     /// Reset all input state

@@ -276,6 +276,7 @@ pub mod host_live_command_executor_authority_api_residual_wave232;
 pub mod host_live_command_executor_more_authority_api_residual_wave233;
 pub mod host_live_command_formation_log_residual_wave204;
 pub mod host_live_command_guard_log_residual_wave198;
+pub mod host_live_command_integration_presentation_fill_residual_wave531;
 pub mod host_live_command_non_attack_order_target_residual_wave207;
 pub mod host_live_command_order_target_log_residual_wave205;
 pub mod host_live_command_player_probe_residual_wave242;
@@ -2252,6 +2253,15 @@ pub use host_live_combat_model_condition_channel_residual_wave487::{
     COMBAT_MODEL_CONDITION_CHANNEL_NAV_STEPS_WAVE487,
     COMBAT_MODEL_CONDITION_CHANNEL_SOURCE_MARKERS_WAVE487,
     RUNTIME_HOST_COMBAT_MODEL_CONDITION_CHANNEL_CMD_NAMES_WAVE487,
+};
+pub use host_live_command_integration_presentation_fill_residual_wave531::{
+    honesty_command_integration_presentation_fill_method_names_residual_wave531,
+    honesty_command_integration_presentation_fill_nav_commands_residual_wave531,
+    honesty_command_integration_presentation_fill_residual_pack_wave531,
+    honesty_command_integration_presentation_fill_source_markers_residual_wave531,
+    residual_command_integration_presentation_fill_last_action,
+    residual_command_integration_presentation_fill_ok,
+    simulate_live_command_integration_presentation_fill_honesty,
 };
 pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     honesty_construction_sole_tick_no_progress_stomp_method_names_residual_wave478,
