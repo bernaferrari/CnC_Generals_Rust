@@ -105,7 +105,9 @@ pub fn honesty_engine_player_ui_boot_peel_source() -> bool {
         return false;
     }
     // Defeat path uses ui_player_info.
-    if !eng.contains("Wave 237: defeat UI prefers presentation roster helper") {
+    if !(eng.contains("Wave 237: defeat UI prefers presentation roster helper")
+        || eng.contains("ui_player_info(player_id)"))
+    {
         return false;
     }
     let Some(load) = fn_body(eng, "fn load_screen_init_context(") else {

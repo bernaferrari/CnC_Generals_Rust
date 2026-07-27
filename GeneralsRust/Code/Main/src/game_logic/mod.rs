@@ -461,6 +461,7 @@ pub mod host_live_presentation_mesh_deploy_radar_residual_wave501;
 pub mod host_live_presentation_mesh_door_phase_residual_wave496;
 pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_mesh_turret_residual_wave494;
+pub mod host_live_presentation_mouse_and_defeat_gate_residual_wave542;
 pub mod host_live_presentation_move_attack_helper_residual_wave526;
 pub mod host_live_presentation_multi_door_smolder_residual_wave524;
 pub mod host_live_presentation_object_fx_particles_residual_wave500;
@@ -2493,6 +2494,15 @@ pub use host_live_presentation_firesound_stop_residual_wave528::{
     honesty_presentation_firesound_stop_source_markers_residual_wave528,
     residual_presentation_firesound_stop_last_action, residual_presentation_firesound_stop_ok,
     simulate_live_presentation_firesound_stop_honesty,
+};
+pub use host_live_presentation_mouse_and_defeat_gate_residual_wave542::{
+    honesty_presentation_mouse_and_defeat_gate_method_names_residual_wave542,
+    honesty_presentation_mouse_and_defeat_gate_nav_commands_residual_wave542,
+    honesty_presentation_mouse_and_defeat_gate_residual_pack_wave542,
+    honesty_presentation_mouse_and_defeat_gate_source_markers_residual_wave542,
+    residual_presentation_mouse_and_defeat_gate_last_action,
+    residual_presentation_mouse_and_defeat_gate_ok,
+    simulate_live_presentation_mouse_and_defeat_gate_honesty,
 };
 pub use host_live_presentation_particle_spawn_audio_residual_wave535::{
     honesty_presentation_particle_spawn_audio_method_names_residual_wave535,
