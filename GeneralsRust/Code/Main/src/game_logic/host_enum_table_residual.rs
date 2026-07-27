@@ -487,6 +487,11 @@ pub fn deployed_model_bit() -> u32 {
     model_condition_bit_name_index("DEPLOYED").unwrap_or(0) as u32
 }
 
+/// C++ MODELCONDITION_GARRISONED residual bit index from name table.
+pub fn garrisoned_model_bit() -> u32 {
+    model_condition_bit_name_index("GARRISONED").unwrap_or(0) as u32
+}
+
 /// C++ MODELCONDITION_CAPTURED residual bit index.
 pub fn captured_model_bit() -> u32 {
     model_condition_bit_name_index("CAPTURED").unwrap_or(0) as u32

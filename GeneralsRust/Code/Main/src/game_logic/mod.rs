@@ -428,6 +428,7 @@ pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
 pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
+pub mod host_live_presentation_garrison_contain_residual_wave504;
 pub mod host_live_presentation_host_fx_overlay_residual_wave498;
 pub mod host_live_presentation_mesh_combat_flags_residual_wave495;
 pub mod host_live_presentation_mesh_condition_resolve_residual_wave497;
@@ -2332,6 +2333,20 @@ pub use host_live_presentation_construction_disguise_residual_wave503::{
     PRESENTATION_CONSTRUCTION_DISGUISE_NAV_STEPS_WAVE503,
     PRESENTATION_CONSTRUCTION_DISGUISE_SOURCE_MARKERS_WAVE503,
     RUNTIME_HOST_PRESENTATION_CONSTRUCTION_DISGUISE_CMD_NAMES_WAVE503,
+};
+pub use host_live_presentation_garrison_contain_residual_wave504::{
+    honesty_presentation_garrison_contain_method_names_residual_wave504,
+    honesty_presentation_garrison_contain_nav_commands_residual_wave504,
+    honesty_presentation_garrison_contain_residual_pack_wave504,
+    honesty_presentation_garrison_contain_source_markers_residual_wave504,
+    residual_presentation_garrison_contain_last_action, residual_presentation_garrison_contain_ok,
+    simulate_live_presentation_garrison_contain_honesty,
+    simulate_presentation_garrison_contain_filter_source,
+    simulate_presentation_garrison_contain_stamp_source, ResidualPresentationGarrisonContainAction,
+    PRESENTATION_GARRISON_CONTAIN_METHOD_NAMES_WAVE504,
+    PRESENTATION_GARRISON_CONTAIN_NAV_STEPS_WAVE504,
+    PRESENTATION_GARRISON_CONTAIN_SOURCE_MARKERS_WAVE504,
+    RUNTIME_HOST_PRESENTATION_GARRISON_CONTAIN_CMD_NAMES_WAVE504,
 };
 pub use host_live_presentation_host_fx_overlay_residual_wave498::{
     honesty_presentation_host_fx_overlay_method_names_residual_wave498,

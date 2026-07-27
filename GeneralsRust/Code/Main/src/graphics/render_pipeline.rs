@@ -690,6 +690,7 @@ impl RenderPipeline {
     ) -> Vec<crate::presentation_frame::UnitRenderInput> {
         // Wave 502: stealth filter/alpha applied inside unit_render_inputs (presentation-only).
         // Wave 503: disguise mesh swap + construction bits via stamp helper.
+        // Wave 504: contained units filtered; garrisoned bits in stamp helper.
         frame.unit_render_inputs()
     }
 
@@ -1380,6 +1381,7 @@ impl RenderPipeline {
             // Wave 497: full stamped bits + body damage drive mesh key variants.
             // Wave 501: deployed + radar dish bits included in stamp helper.
             // Wave 503: construction scaffold bits included in stamp helper.
+            // Wave 504: GARRISONED bit included in stamp helper.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let sold_for_mesh =
