@@ -1856,6 +1856,10 @@ pub enum PresentationEvent {
         /// 0=Generic 1=Attack 2=Ally (host RadarKind residual).
         kind: u8,
     },
+    /// Wave 533: host EVA pulse (TheEva setShouldPlay residual) for presentation audio.
+    EvaAlert {
+        name: String,
+    },
     /// Combat residual: particle system spawned (host registry id + template).
     ParticleSystemSpawned {
         id: u32,
@@ -4468,6 +4472,10 @@ impl PresentationFrame {
                 supplies: ev.supplies,
                 power_available: ev.power_available,
             });
+        }
+        // Wave 533: EVA pulse drain (sibling of other host logs).
+        for ev in crate::game_logic::host_eva_log::take_last_drain() {
+            events.push(PresentationEvent::EvaAlert { name: ev.name });
         }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
@@ -8703,6 +8711,9 @@ impl PresentationFrame {
                 PresentationEvent::ParticleSystemSpawned { .. } => {}
                 PresentationEvent::WeaponFireLoopStarted { .. }
                 | PresentationEvent::WeaponFireLoopStopped { .. } => {}
+                PresentationEvent::EvaAlert { name } => {
+                    hud.push_info_message(&format!("EVA: {name}"));
+                }
             }
         }
     }
@@ -8712,6 +8723,7 @@ impl PresentationFrame {
     /// Wave 528: WeaponFireLoopStop is stop-only (no FireSound replay).
     /// Wave 529: RadarMessage → EVA/radar audio event names + snapshot position.
     /// Wave 530: OwnerChanged → BuildingCaptured/UnitHijacked audio residual.
+    /// Wave 533: EvaAlert → EVA_* audio event names from host_eva_log pulses.
     /// Fail-closed: not Miles/device spatial parity — names resolve via SoundEffectsTable.
     pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
         use crate::game_logic::AudioEventRequest;
@@ -8783,6 +8795,7 @@ impl PresentationFrame {
                 PresentationEvent::ParticleSystemSpawned { .. } => None,
                 PresentationEvent::OwnerChanged { .. } => None, // handled below (Wave 530)
                 PresentationEvent::RadarMessage { .. } => None, // handled below (Wave 529)
+                PresentationEvent::EvaAlert { .. } => None,     // handled below (Wave 533)
             };
             let Some((kind, obj)) = mapped else {
                 continue;
@@ -8821,6 +8834,18 @@ impl PresentationFrame {
             }
             out.push(req);
         }
+
+        // Wave 533: host EVA pulse audio residual (snapshot names, no live dual-read).
+        for ev in &self.events {
+            let PresentationEvent::EvaAlert { name } = ev else {
+                continue;
+            };
+            if name.is_empty() {
+                continue;
+            }
+            out.push(AudioEventRequest::new(name.as_str()).with_priority(180));
+        }
+
         // Wave 529: radar/EVA presentation audio residual (no GameLogic dual-write).
         // kind: 0=Generic 1=Attack 2=Ally; text also maps classic EVA phrases.
         for ev in &self.events {

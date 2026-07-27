@@ -68865,6 +68865,8 @@ impl GameLogic {
         self.eva_low_power_next_frame = self
             .frame
             .saturating_add(EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL);
+        // Wave 533: presentation EVA pulse residual.
+        crate::game_logic::host_eva_log::record("EVA_LowPower");
     }
 
     /// C++ TheEva->setShouldPlay(EVA_InsufficientFunds) residual (local player).
@@ -68886,6 +68888,8 @@ impl GameLogic {
         self.eva_insufficient_funds_next_frame = self
             .frame
             .saturating_add(EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL);
+        // Wave 533: presentation EVA pulse residual.
+        crate::game_logic::host_eva_log::record("EVA_InsufficientFunds");
     }
 
     pub fn honesty_eva_low_power_ok(&self) -> bool {
@@ -69032,11 +69036,15 @@ impl GameLogic {
                     gamelogic::helpers::EvaEvent::BaseUnderAttack,
                 );
                 self.eva_base_under_attack = self.eva_base_under_attack.saturating_add(1);
+                // Wave 533: presentation EVA pulse residual.
+                crate::game_logic::host_eva_log::record("EVA_BaseUnderAttack");
             } else if local_ally {
                 let _ = gamelogic::helpers::TheEva::set_should_play(
                     gamelogic::helpers::EvaEvent::AllyUnderAttack,
                 );
                 self.eva_ally_under_attack = self.eva_ally_under_attack.saturating_add(1);
+                // Wave 533: presentation EVA pulse residual.
+                crate::game_logic::host_eva_log::record("EVA_AllyUnderAttack");
             }
         }
         true
@@ -69078,10 +69086,21 @@ impl GameLogic {
                 gamelogic::helpers::EvaEvent::BuildingLost,
             );
             self.saboteur.record_eva_building_lost();
+            let _ = gamelogic::helpers::TheEva::set_should_play(
+                gamelogic::helpers::EvaEvent::BuildingLost,
+            );
+            self.saboteur.record_eva_building_lost();
+            // Wave 533: presentation EVA pulse residual.
+            crate::game_logic::host_eva_log::record("EVA_BuildingLost");
         } else if is_infantry || is_vehicle {
             let _ =
                 gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
+            let _ =
+                gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
+            self.saboteur.record_eva_unit_lost();
+            // Wave 533: presentation EVA pulse residual.
+            crate::game_logic::host_eva_log::record("EVA_UnitLost");
             // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) residual for spacebar jump.
             let msg = localization::localize("RADAR:UnitLost", "Unit lost");
             self.queue_radar_message_at(msg, death_pos, radar_notifications::RadarKind::Generic);
