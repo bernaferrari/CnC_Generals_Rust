@@ -248,6 +248,7 @@ pub mod host_live_baikonur_launch_power_dual_world_empty_gate_residual_wave400;
 pub mod host_live_base_regenerate_update_dual_world_empty_gate_residual_wave380;
 pub mod host_live_battle_bus_slow_death_behavior_dual_world_empty_gate_residual_wave414;
 pub mod host_live_bone_fx_update_dual_world_empty_gate_residual_wave404;
+pub mod host_live_boot_camera_helper_residual_wave572;
 pub mod host_live_boot_movie_helper_residual_wave567;
 pub mod host_live_boot_ui_message_helper_residual_wave566;
 pub mod host_live_bootstrap_camera_no_live_dual_read_residual_wave458;
@@ -2184,6 +2185,14 @@ pub use host_live_bone_fx_update_dual_world_empty_gate_residual_wave404::{
     honesty_live_bone_fx_update_dual_world_empty_gate_nav_commands_residual_wave404,
     honesty_live_bone_fx_update_dual_world_empty_gate_residual_pack_wave404,
     simulate_live_bone_fx_update_dual_world_empty_gate_honesty,
+};
+pub use host_live_boot_camera_helper_residual_wave572::{
+    honesty_boot_camera_helper_method_names_residual_wave572,
+    honesty_boot_camera_helper_nav_commands_residual_wave572,
+    honesty_boot_camera_helper_residual_pack_wave572,
+    honesty_boot_camera_helper_source_markers_residual_wave572,
+    residual_boot_camera_helper_last_action, residual_boot_camera_helper_ok,
+    simulate_live_boot_camera_helper_honesty,
 };
 pub use host_live_boot_movie_helper_residual_wave567::{
     honesty_boot_movie_helper_method_names_residual_wave567,
