@@ -692,6 +692,7 @@ impl RenderPipeline {
         // Wave 503: disguise mesh swap + construction bits via stamp helper.
         // Wave 504: contained units filtered; garrisoned bits in stamp helper.
         // Wave 505: parachuting/jetexhaust/using-weapon stamp via unit_render_inputs.
+        // Wave 506: weaponset veterancy stamp via unit_render_inputs.
         frame.unit_render_inputs()
     }
 
@@ -1384,6 +1385,7 @@ impl RenderPipeline {
             // Wave 503: construction scaffold bits included in stamp helper.
             // Wave 504: GARRISONED bit included in stamp helper.
             // Wave 505: parachuting/jetexhaust/using-weapon bits included in stamp helper.
+            // Wave 506: weaponset veterancy bits included in stamp helper.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let sold_for_mesh =

@@ -447,6 +447,7 @@ pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_presentation_stealth_mesh_residual_wave502;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
+pub mod host_live_presentation_weaponset_veterancy_residual_wave506;
 pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
 pub mod host_live_production_door_model_condition_log_residual_wave486;
@@ -2508,6 +2509,22 @@ pub use host_live_presentation_stealth_mesh_residual_wave502::{
     PRESENTATION_STEALTH_MESH_METHOD_NAMES_WAVE502, PRESENTATION_STEALTH_MESH_NAV_STEPS_WAVE502,
     PRESENTATION_STEALTH_MESH_SOURCE_MARKERS_WAVE502,
     RUNTIME_HOST_PRESENTATION_STEALTH_MESH_CMD_NAMES_WAVE502,
+};
+pub use host_live_presentation_weaponset_veterancy_residual_wave506::{
+    honesty_presentation_weaponset_veterancy_method_names_residual_wave506,
+    honesty_presentation_weaponset_veterancy_nav_commands_residual_wave506,
+    honesty_presentation_weaponset_veterancy_residual_pack_wave506,
+    honesty_presentation_weaponset_veterancy_source_markers_residual_wave506,
+    residual_presentation_weaponset_veterancy_last_action,
+    residual_presentation_weaponset_veterancy_ok,
+    simulate_live_presentation_weaponset_veterancy_honesty,
+    simulate_presentation_weaponset_veterancy_input_source,
+    simulate_presentation_weaponset_veterancy_stamp_source,
+    ResidualPresentationWeaponsetVeterancyAction,
+    PRESENTATION_WEAPONSET_VETERANCY_METHOD_NAMES_WAVE506,
+    PRESENTATION_WEAPONSET_VETERANCY_NAV_STEPS_WAVE506,
+    PRESENTATION_WEAPONSET_VETERANCY_SOURCE_MARKERS_WAVE506,
+    RUNTIME_HOST_PRESENTATION_WEAPONSET_VETERANCY_CMD_NAMES_WAVE506,
 };
 pub use host_live_production_door_model_condition_log_residual_wave486::{
     honesty_production_door_model_condition_log_method_names_residual_wave486,

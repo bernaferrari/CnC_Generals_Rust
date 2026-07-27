@@ -617,6 +617,8 @@ pub struct UnitRenderInput {
     pub object_type: PresentationObjectType,
     /// Wave 505: velocity residual for jet exhaust when moving.
     pub velocity: Vec3,
+    /// Wave 506: presentation veterancy residual for weaponset model bits.
+    pub veterancy: PresentationVeterancy,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -673,6 +675,7 @@ impl UnitRenderInput {
             airborne_target: ro.airborne_target,
             object_type: ro.object_type,
             velocity: ro.velocity,
+            veterancy: ro.veterancy,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -721,6 +724,7 @@ impl UnitRenderInput {
     /// Wave 503: stamp construction scaffold model-condition residual bits.
     /// Wave 504: stamp GARRISONED model-condition residual when occupied.
     /// Wave 505: stamp parachuting / jetexhaust / using-weapon residual bits.
+    /// Wave 506: stamp weaponset veterancy residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -835,6 +839,24 @@ impl UnitRenderInput {
                 bits |= 1u128 << use_wpn_b;
             } else {
                 bits &= !(1u128 << use_wpn_b);
+            }
+        }
+        // Wave 506: weaponset veterancy model-condition residual.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                weaponset_elite_model_bit, weaponset_hero_model_bit, weaponset_veteran_model_bit,
+            };
+            let vet_b = weaponset_veteran_model_bit();
+            let elite_b = weaponset_elite_model_bit();
+            let hero_b = weaponset_hero_model_bit();
+            bits &= !(1u128 << vet_b);
+            bits &= !(1u128 << elite_b);
+            bits &= !(1u128 << hero_b);
+            match self.veterancy {
+                PresentationVeterancy::Rookie => {}
+                PresentationVeterancy::Veteran => bits |= 1u128 << vet_b,
+                PresentationVeterancy::Elite => bits |= 1u128 << elite_b,
+                PresentationVeterancy::Heroic => bits |= 1u128 << hero_b,
             }
         }
         bits
@@ -8409,6 +8431,7 @@ mod tests {
             airborne_target: false,
             object_type: PresentationObjectType::Neutral,
             velocity: Vec3::ZERO,
+            veterancy: PresentationVeterancy::Rookie,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };

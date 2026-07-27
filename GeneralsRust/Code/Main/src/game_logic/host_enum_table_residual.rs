@@ -505,6 +505,20 @@ pub fn jetexhaust_model_bit() -> u32 {
 pub fn using_weapon_a_model_bit() -> u32 {
     model_condition_bit_name_index("USING_WEAPON_A").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_WEAPONSET_VETERAN residual bit index.
+pub fn weaponset_veteran_model_bit() -> u32 {
+    model_condition_bit_name_index("WEAPONSET_VETERAN").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_WEAPONSET_ELITE residual bit index.
+pub fn weaponset_elite_model_bit() -> u32 {
+    model_condition_bit_name_index("WEAPONSET_ELITE").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_WEAPONSET_HERO residual bit index.
+pub fn weaponset_hero_model_bit() -> u32 {
+    model_condition_bit_name_index("WEAPONSET_HERO").unwrap_or(0) as u32
+}
 
 /// C++ MODELCONDITION_CAPTURED residual bit index.
 pub fn captured_model_bit() -> u32 {
