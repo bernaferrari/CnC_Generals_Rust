@@ -26092,6 +26092,24 @@ impl GameLogic {
     /// Wave 626: under construction sole-tick, GameWorld writeback records
     /// producers whose CONSTRUCTION_COMPLETE clear deadline elapsed; host clears
     /// the model bit and counts residual.
+    /// Wave 627: GameWorld production-door writeback records phase changes;
+    /// host applies door model-condition residual for the new phase.
+    pub fn host_apply_production_door_ready_completions(&mut self) -> usize {
+        // Wave 627: GameWorld production-door writeback records phase changes;
+        // host applies door model-condition residual for the new phase.
+        let events = crate::game_logic::host_production_door_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.producer) else {
+                continue;
+            };
+            if obj.apply_production_door_phase_residual(ev.new_phase) {
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
     pub fn host_apply_construction_complete_clear_ready_completions(&mut self) -> usize {
         // Wave 626: under construction sole-tick, GameWorld writeback records
         // producers whose CONSTRUCTION_COMPLETE clear deadline elapsed; host clears

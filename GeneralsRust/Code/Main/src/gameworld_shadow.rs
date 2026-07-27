@@ -2328,6 +2328,7 @@ impl GameWorldShadow {
 
     pub fn writeback_production_door_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut transitions: Vec<(ObjectId, u8, u8, u32, bool)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2335,6 +2336,7 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            let prev_phase = obj.production_door_phase;
             let changed = obj.production_door_phase != ent.production_door_phase
                 || obj.production_door_phase_end_frame != ent.production_door_phase_end_frame
                 || obj.production_door_hold_open != ent.production_door_hold_open;
@@ -2344,7 +2346,21 @@ impl GameWorldShadow {
             obj.production_door_phase = ent.production_door_phase;
             obj.production_door_phase_end_frame = ent.production_door_phase_end_frame;
             obj.production_door_hold_open = ent.production_door_hold_open;
+            // Wave 627: GameWorld production-door phase last-write residual —
+            // host applies door model bits from ready log on phase change.
+            if prev_phase != obj.production_door_phase {
+                transitions.push((
+                    ObjectId(hid),
+                    prev_phase,
+                    obj.production_door_phase,
+                    obj.production_door_phase_end_frame,
+                    obj.production_door_hold_open,
+                ));
+            }
             updated += 1;
+        }
+        for (oid, prev, next, end, hold) in transitions {
+            crate::game_logic::host_production_door_ready_log::record(oid, prev, next, end, hold);
         }
         updated
     }
@@ -7778,6 +7794,8 @@ pub fn shadow_session_after_host_tick(
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
     let _ = shadow.writeback_production_door_to_host(logic);
+    // Wave 627: drain production-door ready log after GW writeback.
+    let _door_ready = logic.host_apply_production_door_ready_completions();
     let _ = shadow.writeback_body_damage_to_host(logic);
     // Wave 623: drain body-damage ready log after GW body-state writeback.
     let _body_ready = logic.host_apply_body_damage_ready_completions();
