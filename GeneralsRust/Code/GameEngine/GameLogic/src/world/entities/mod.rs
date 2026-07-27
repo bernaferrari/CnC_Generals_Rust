@@ -569,6 +569,8 @@ pub struct Entity {
     pub overcharge_enabled: bool,
     /// Host Object::active_weapon_slot residual.
     pub active_weapon_slot: u8,
+    /// C++ WeaponFireStatus ordinal residual (Ready/OutOfAmmo/Between/Reload/PreAttack).
+    pub weapon_fire_status: u8,
     /// Host Object::guard_radius residual.
     pub guard_radius: f32,
     /// Host Object::applied_upgrades.len residual.
@@ -1054,6 +1056,7 @@ impl EntityStore {
             formation_offset: [0.0, 0.0],
             overcharge_enabled: false,
             active_weapon_slot: 0,
+            weapon_fire_status: 0,
             guard_radius: 0.0,
             applied_upgrade_count: 0,
             applied_upgrade_names: Vec::new(),

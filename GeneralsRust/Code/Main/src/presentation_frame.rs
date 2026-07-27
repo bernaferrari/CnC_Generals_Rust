@@ -518,6 +518,12 @@ pub struct RenderableObject {
     pub is_detector: bool,
     /// Host Object::active_weapon_slot residual.
     pub active_weapon_slot: u8,
+    /// Wave 517: C++ WeaponFireStatus ordinal residual (Ready/OutOfAmmo/Between/Reload/PreAttack).
+    pub weapon_fire_status: u8,
+    /// Wave 517: C++ loco/AI panicking residual.
+    pub is_panicking: bool,
+    /// Wave 517: C++ moving_backwards residual.
+    pub moving_backwards: bool,
     /// Host Object::overcharge_enabled residual.
     pub overcharge_enabled: bool,
     /// Host Object::show_health_bar residual.
@@ -599,6 +605,14 @@ pub struct UnitRenderInput {
     pub moving: bool,
     pub attacking: bool,
     pub is_firing_weapon: bool,
+    /// Wave 517: active weapon slot residual (0=A,1=B,2=C).
+    pub active_weapon_slot: u8,
+    /// Wave 517: WeaponFireStatus ordinal residual.
+    pub weapon_fire_status: u8,
+    /// Wave 517: panicking residual.
+    pub is_panicking: bool,
+    /// Wave 517: moving_backwards residual.
+    pub moving_backwards: bool,
     /// Wave 497: body damage ordinal for mesh variant resolve (0..3).
     pub body_damage_state: u8,
     /// Wave 499: C++ TINT_STATUS_POISONED residual.
@@ -705,6 +719,10 @@ impl UnitRenderInput {
             moving: ro.moving,
             attacking: ro.attacking,
             is_firing_weapon: ro.is_firing_weapon,
+            active_weapon_slot: ro.active_weapon_slot,
+            weapon_fire_status: ro.weapon_fire_status,
+            is_panicking: ro.is_panicking,
+            moving_backwards: ro.moving_backwards,
             body_damage_state: ro.body_damage_state,
             poison_tinted: ro.poison_tinted,
             defector_flash: ro.defector_flash,
@@ -810,8 +828,77 @@ impl UnitRenderInput {
         if self.attacking {
             bits |= 1u128 << MC_BIT_ATTACKING;
         }
-        if self.is_firing_weapon {
-            bits |= 1u128 << MC_BIT_FIRING_A;
+        // Wave 517: slot-aware FIRING / BETWEEN / PREATTACK / RELOADING + PANICKING.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                between_firing_shots_a_model_bit, between_firing_shots_b_model_bit,
+                between_firing_shots_c_model_bit, firing_a_model_bit, firing_b_model_bit,
+                firing_c_model_bit, panicking_model_bit, preattack_a_model_bit,
+                preattack_b_model_bit, preattack_c_model_bit, reloading_a_model_bit,
+                reloading_b_model_bit, reloading_c_model_bit, using_weapon_a_model_bit,
+                using_weapon_b_model_bit, using_weapon_c_model_bit,
+            };
+            // WeaponFireStatus ordinal: 0 Ready, 1 OutOfAmmo, 2 Between, 3 Reloading, 4 PreAttack
+            let status = self.weapon_fire_status;
+            let slot = self.active_weapon_slot; // 0=A,1=B,2=C residual
+            let (fire_b, between_b, pre_b, reload_b, use_b) = match slot {
+                1 => (
+                    firing_b_model_bit(),
+                    between_firing_shots_b_model_bit(),
+                    preattack_b_model_bit(),
+                    reloading_b_model_bit(),
+                    using_weapon_b_model_bit(),
+                ),
+                2 => (
+                    firing_c_model_bit(),
+                    between_firing_shots_c_model_bit(),
+                    preattack_c_model_bit(),
+                    reloading_c_model_bit(),
+                    using_weapon_c_model_bit(),
+                ),
+                _ => (
+                    firing_a_model_bit(),
+                    between_firing_shots_a_model_bit(),
+                    preattack_a_model_bit(),
+                    reloading_a_model_bit(),
+                    using_weapon_a_model_bit(),
+                ),
+            };
+            // clear slot banks then set
+            for b in [
+                firing_a_model_bit(),
+                firing_b_model_bit(),
+                firing_c_model_bit(),
+                between_firing_shots_a_model_bit(),
+                between_firing_shots_b_model_bit(),
+                between_firing_shots_c_model_bit(),
+                preattack_a_model_bit(),
+                preattack_b_model_bit(),
+                preattack_c_model_bit(),
+                reloading_a_model_bit(),
+                reloading_b_model_bit(),
+                reloading_c_model_bit(),
+                using_weapon_a_model_bit(),
+                using_weapon_b_model_bit(),
+                using_weapon_c_model_bit(),
+                panicking_model_bit(),
+            ] {
+                bits &= !(1u128 << b);
+            }
+            bits |= 1u128 << use_b;
+            if self.is_firing_weapon {
+                bits |= 1u128 << fire_b;
+            } else if status == 2 {
+                bits |= 1u128 << between_b;
+            } else if status == 3 {
+                bits |= 1u128 << reload_b;
+            } else if status == 4 || (self.attacking && !self.is_firing_weapon) {
+                bits |= 1u128 << pre_b;
+            }
+            if self.is_panicking {
+                bits |= 1u128 << panicking_model_bit();
+            }
+            let _ = self.moving_backwards; // freeze residual; no dedicated ZH model bit
         }
         // Clear door-1 bank then set active phase bit (C++ door model condition residual).
         let open_b = door_1_opening_model_bit();
@@ -905,11 +992,34 @@ impl UnitRenderInput {
             } else {
                 bits &= !(1u128 << jet_b);
             }
-            let use_wpn_b = using_weapon_a_model_bit();
-            if self.is_firing_weapon || self.using_ability {
-                bits |= 1u128 << use_wpn_b;
-            } else {
-                bits &= !(1u128 << use_wpn_b);
+            // Wave 517: slot-aware USING_WEAPON_A/B/C (preserve B/C when active).
+            {
+                use crate::game_logic::host_enum_table_residual::{
+                    using_weapon_a_model_bit, using_weapon_b_model_bit, using_weapon_c_model_bit,
+                };
+                let a = using_weapon_a_model_bit();
+                let b = using_weapon_b_model_bit();
+                let c = using_weapon_c_model_bit();
+                bits &= !(1u128 << a);
+                bits &= !(1u128 << b);
+                bits &= !(1u128 << c);
+                let use_b = match self.active_weapon_slot {
+                    1 => b,
+                    2 => c,
+                    _ => a,
+                };
+                if self.is_firing_weapon || self.using_ability || self.weapon_fire_status != 1 {
+                    // Keep using-weapon pose while not out-of-ammo residual.
+                    if self.is_firing_weapon
+                        || self.using_ability
+                        || self.attacking
+                        || self.weapon_fire_status == 2
+                        || self.weapon_fire_status == 3
+                        || self.weapon_fire_status == 4
+                    {
+                        bits |= 1u128 << use_b;
+                    }
+                }
             }
         }
         // Wave 506: weaponset veterancy model-condition residual.
@@ -1094,11 +1204,25 @@ impl UnitRenderInput {
             } else {
                 bits &= !(1u128 << prone_b);
             }
-            let pre_b = preattack_a_model_bit();
-            if self.attacking && !self.is_firing_weapon {
-                bits |= 1u128 << pre_b;
-            } else {
-                bits &= !(1u128 << pre_b);
+            // Wave 517: slot-aware PREATTACK_A/B/C.
+            {
+                use crate::game_logic::host_enum_table_residual::{
+                    preattack_a_model_bit, preattack_b_model_bit, preattack_c_model_bit,
+                };
+                let a = preattack_a_model_bit();
+                let b = preattack_b_model_bit();
+                let c = preattack_c_model_bit();
+                bits &= !(1u128 << a);
+                bits &= !(1u128 << b);
+                bits &= !(1u128 << c);
+                let pre_b = match self.active_weapon_slot {
+                    1 => b,
+                    2 => c,
+                    _ => a,
+                };
+                if (self.attacking && !self.is_firing_weapon) || self.weapon_fire_status == 4 {
+                    bits |= 1u128 << pre_b;
+                }
             }
             let tur_b = turret_rotate_model_bit();
             if !self.is_structure
@@ -1128,14 +1252,28 @@ impl UnitRenderInput {
             } else {
                 bits &= !(1u128 << die_b);
             }
-            let reload_b = reloading_a_model_bit();
-            if !self.is_firing_weapon
-                && self.continuous_fire_coast_until_frame > self.logic_frame
-                && self.continuous_fire_coast_until_frame > 0
+            // Wave 517: slot-aware RELOADING_A/B/C (coast residual or WeaponFireStatus::ReloadingClip).
             {
-                bits |= 1u128 << reload_b;
-            } else {
-                bits &= !(1u128 << reload_b);
+                use crate::game_logic::host_enum_table_residual::{
+                    reloading_a_model_bit, reloading_b_model_bit, reloading_c_model_bit,
+                };
+                let a = reloading_a_model_bit();
+                let b = reloading_b_model_bit();
+                let c = reloading_c_model_bit();
+                bits &= !(1u128 << a);
+                bits &= !(1u128 << b);
+                bits &= !(1u128 << c);
+                let reload_b = match self.active_weapon_slot {
+                    1 => b,
+                    2 => c,
+                    _ => a,
+                };
+                let coast = !self.is_firing_weapon
+                    && self.continuous_fire_coast_until_frame > self.logic_frame
+                    && self.continuous_fire_coast_until_frame > 0;
+                if coast || self.weapon_fire_status == 3 {
+                    bits |= 1u128 << reload_b;
+                }
             }
             // Deploy-style residual: DEPLOYED already stamped; packing/unpacking
             // door-adjacent residual when structure door is mid-cycle and not deployed.
@@ -3335,6 +3473,10 @@ impl PresentationFrame {
                 .unwrap_or_default(),
                 is_detector: obj.is_detector,
                 active_weapon_slot: obj.active_weapon_slot,
+                // Wave 517: weapon fire status + panic/backwards for slot-aware mesh bits.
+                weapon_fire_status: obj.weapon_fire_status as u8,
+                is_panicking: obj.is_panicking,
+                moving_backwards: obj.moving_backwards,
                 overcharge_enabled: obj.overcharge_enabled,
                 show_health_bar: obj.show_health_bar,
                 guard_radius: obj.guard_radius,
@@ -6023,6 +6165,18 @@ impl PresentationFrame {
                 obj.active_weapon_slot = ent.active_weapon_slot;
                 dirty = true;
             }
+            if obj.weapon_fire_status != ent.weapon_fire_status {
+                obj.weapon_fire_status = ent.weapon_fire_status;
+                dirty = true;
+            }
+            if obj.is_panicking != ent.is_panicking {
+                obj.is_panicking = ent.is_panicking;
+                dirty = true;
+            }
+            if obj.moving_backwards != ent.moving_backwards {
+                obj.moving_backwards = ent.moving_backwards;
+                dirty = true;
+            }
             if (obj.guard_radius - ent.guard_radius).abs() > 1e-3 {
                 obj.guard_radius = ent.guard_radius;
                 dirty = true;
@@ -6816,6 +6970,9 @@ impl PresentationFrame {
             command_set_name: ent.command_set_override.clone(),
             is_detector: ent.is_detector,
             active_weapon_slot: ent.active_weapon_slot,
+            weapon_fire_status: ent.weapon_fire_status,
+            is_panicking: ent.is_panicking,
+            moving_backwards: ent.moving_backwards,
             overcharge_enabled: ent.overcharge_enabled,
             show_health_bar: true,
             // Wave 490: guard/mine/kind presentation from GW entity.
@@ -8773,6 +8930,10 @@ mod tests {
             moving: false,
             attacking: false,
             is_firing_weapon: false,
+            active_weapon_slot: 0,
+            weapon_fire_status: 0,
+            is_panicking: false,
+            moving_backwards: false,
             body_damage_state: 0,
             poison_tinted: false,
             defector_flash: false,
