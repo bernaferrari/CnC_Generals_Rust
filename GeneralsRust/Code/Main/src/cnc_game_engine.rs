@@ -15346,99 +15346,8 @@ impl CnCGameEngine {
         // State-based update logic - matches C++ GameEngine::update() conditional updates
         match self.current_state {
             GameState::Menu => {
-                self.cleanup_sound_effects();
-                let menu_tick_started = Instant::now();
-                let shell_update_started = Instant::now();
-                // Wave 552: menu residual via presentation_affirms_shell_or_boot
-                // (stale InGame freeze does not suppress shell ticks).
-                let in_shell = self.presentation_affirms_shell_or_boot();
-                if in_shell && !self.game_paused {
-                    // Keep shell map/scripts alive in menu without allowing large fixed-step
-                    // catch-up loops to block the UI thread.
-                    self.host_update_shell_with_budget(dt, 1);
-                    // Wave 568: shell/menu script FPS residual via helper.
-                    self.apply_shell_script_fps_limit_residual();
-                }
-                let shell_elapsed = shell_update_started.elapsed();
-
-                // C++ shell/menu parity: menu-frame script camera requests must still drive
-                // the shell-map viewport even when not in InGame state.
-                let process_commands_started = Instant::now();
-                // Wave 582: shell/menu command residual via helper.
-                self.host_process_shell_menu_commands();
-                let process_commands_elapsed = process_commands_started.elapsed();
-                let script_camera_started = Instant::now();
-                self.apply_pending_script_camera_requests();
-                let script_camera_elapsed = script_camera_started.elapsed();
-                let camera_started = Instant::now();
-                self.update_camera(visual_dt);
-                let camera_elapsed = camera_started.elapsed();
-
-                let menu_tick_elapsed = menu_tick_started.elapsed();
-                if menu_tick_elapsed >= Duration::from_millis(40)
-                    && self
-                        .last_slow_menu_tick_log
-                        .map(|last| last.elapsed() >= Duration::from_secs(2))
-                        .unwrap_or(true)
-                {
-                    // Wave 564: fixed-step residual prefers presentation freeze.
-                    let (fixed_steps, budget_hit, acc_s) =
-                        self.presentation_or_boot_fixed_step_diagnostics();
-                    warn!(
-                        "Slow menu tick: total={:?}, shell={:?}, commands={:?}, script_camera={:?}, camera={:?}, state={:?}, frame={}, fixed_steps={}, budget_hit={}, acc_ms={:.2}",
-                        menu_tick_elapsed,
-                        shell_elapsed,
-                        process_commands_elapsed,
-                        script_camera_elapsed,
-                        camera_elapsed,
-                        self.current_state,
-                        self.frame_counter,
-                        fixed_steps,
-                        budget_hit,
-                        acc_s * 1000.0
-                    );
-                    self.last_slow_menu_tick_log = Some(Instant::now());
-                }
-
-                if !self.pending_shell_model_prewarm.is_empty()
-                    && self
-                        .last_shell_prewarm_log
-                        .map(|last| last.elapsed() >= Duration::from_millis(2_000))
-                        .unwrap_or(true)
-                {
-                    let missing_models = self.render_pipeline.debug_last_model_missing();
-                    let missing_samples = self.render_pipeline.debug_last_missing_model_samples();
-                    debug!(
-                        "Shell prewarm progress: pending_models={} render_items={} missing_models={} budget_skips={}",
-                        self.pending_shell_model_prewarm.len(),
-                        self.render_pipeline.debug_render_item_count(),
-                        missing_models,
-                        self.render_pipeline.debug_last_model_budget_skips()
-                    );
-                    if missing_models > 0 && !missing_samples.is_empty() {
-                        debug!(
-                            "Shell prewarm missing model samples: {}",
-                            missing_samples.join(", ")
-                        );
-                    }
-                    self.last_shell_prewarm_log = Some(Instant::now());
-                }
-
-                self.set_runtime_ui_state_projection(UISystemState::MainMenu);
-
-                #[cfg(feature = "game_client")]
-                {
-                    // Wave 588: Menu GameClient shell + NewGame drain residual via helper.
-                    if self.host_tick_game_client_menu_shell() {
-                        return;
-                    }
-                }
-                // Headless / no-game_client builds still drain NewGame if present.
-                #[cfg(not(feature = "game_client"))]
-                if let Some((mode, faction, map, skirmish)) =
-                    self.take_pending_new_game_start_request()
-                {
-                    self.start_game_from_ui(mode, faction, map, skirmish);
+                // Wave 605: Menu client residual via host helper.
+                if self.host_tick_menu_client_residuals(visual_dt, dt) {
                     return;
                 }
                 return;
@@ -17718,6 +17627,109 @@ impl CnCGameEngine {
     fn restart_mission_from_ui(&mut self) {
         // Wave 601: thin wrapper — restart via host helper.
         self.host_restart_mission_from_ui();
+    }
+
+    /// Wave 605: Menu-state client residual.
+    ///
+    /// Shell map tick + script FPS, menu commands, script camera, camera, slow-tick
+    /// diagnostics, shell prewarm logs, MainMenu UI projection, and GameClient menu
+    /// shell / NewGame drain. Returns `true` when a NewGame start consumed the frame.
+    fn host_tick_menu_client_residuals(&mut self, visual_dt: f32, dt: f32) -> bool {
+        // Wave 605: Menu client residual.
+        self.cleanup_sound_effects();
+        let menu_tick_started = Instant::now();
+        let shell_update_started = Instant::now();
+        // Wave 552: menu residual via presentation_affirms_shell_or_boot
+        // (stale InGame freeze does not suppress shell ticks).
+        let in_shell = self.presentation_affirms_shell_or_boot();
+        if in_shell && !self.game_paused {
+            // Keep shell map/scripts alive in menu without allowing large fixed-step
+            // catch-up loops to block the UI thread.
+            self.host_update_shell_with_budget(dt, 1);
+            // Wave 568: shell/menu script FPS residual via helper.
+            self.apply_shell_script_fps_limit_residual();
+        }
+        let shell_elapsed = shell_update_started.elapsed();
+
+        // C++ shell/menu parity: menu-frame script camera requests must still drive
+        // the shell-map viewport even when not in InGame state.
+        let process_commands_started = Instant::now();
+        // Wave 582: shell/menu command residual via helper.
+        self.host_process_shell_menu_commands();
+        let process_commands_elapsed = process_commands_started.elapsed();
+        let script_camera_started = Instant::now();
+        self.apply_pending_script_camera_requests();
+        let script_camera_elapsed = script_camera_started.elapsed();
+        let camera_started = Instant::now();
+        self.update_camera(visual_dt);
+        let camera_elapsed = camera_started.elapsed();
+
+        let menu_tick_elapsed = menu_tick_started.elapsed();
+        if menu_tick_elapsed >= Duration::from_millis(40)
+            && self
+                .last_slow_menu_tick_log
+                .map(|last| last.elapsed() >= Duration::from_secs(2))
+                .unwrap_or(true)
+        {
+            // Wave 564: fixed-step residual prefers presentation freeze.
+            let (fixed_steps, budget_hit, acc_s) =
+                self.presentation_or_boot_fixed_step_diagnostics();
+            warn!(
+                "Slow menu tick: total={:?}, shell={:?}, commands={:?}, script_camera={:?}, camera={:?}, state={:?}, frame={}, fixed_steps={}, budget_hit={}, acc_ms={:.2}",
+                menu_tick_elapsed,
+                shell_elapsed,
+                process_commands_elapsed,
+                script_camera_elapsed,
+                camera_elapsed,
+                self.current_state,
+                self.frame_counter,
+                fixed_steps,
+                budget_hit,
+                acc_s * 1000.0
+            );
+            self.last_slow_menu_tick_log = Some(Instant::now());
+        }
+
+        if !self.pending_shell_model_prewarm.is_empty()
+            && self
+                .last_shell_prewarm_log
+                .map(|last| last.elapsed() >= Duration::from_millis(2_000))
+                .unwrap_or(true)
+        {
+            let missing_models = self.render_pipeline.debug_last_model_missing();
+            let missing_samples = self.render_pipeline.debug_last_missing_model_samples();
+            debug!(
+                "Shell prewarm progress: pending_models={} render_items={} missing_models={} budget_skips={}",
+                self.pending_shell_model_prewarm.len(),
+                self.render_pipeline.debug_render_item_count(),
+                missing_models,
+                self.render_pipeline.debug_last_model_budget_skips()
+            );
+            if missing_models > 0 && !missing_samples.is_empty() {
+                debug!(
+                    "Shell prewarm missing model samples: {}",
+                    missing_samples.join(", ")
+                );
+            }
+            self.last_shell_prewarm_log = Some(Instant::now());
+        }
+
+        self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+
+        #[cfg(feature = "game_client")]
+        {
+            // Wave 588: Menu GameClient shell + NewGame drain residual via helper.
+            if self.host_tick_game_client_menu_shell() {
+                return true;
+            }
+        }
+        // Headless / no-game_client builds still drain NewGame if present.
+        #[cfg(not(feature = "game_client"))]
+        if let Some((mode, faction, map, skirmish)) = self.take_pending_new_game_start_request() {
+            self.start_game_from_ui(mode, faction, map, skirmish);
+            return true;
+        }
+        false
     }
 
     /// Wave 604: Loading-state client residual.
