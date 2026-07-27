@@ -19388,7 +19388,14 @@ impl CnCGameEngine {
         }
     }
 
+    /// Wave 611: via `host_quick_save_from_hotkey`.
     fn quick_save_from_hotkey(&mut self, source: &str) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_quick_save_from_hotkey(source)
+    }
+
+    fn host_quick_save_from_hotkey(&mut self, source: &str) {
+        // Wave 611: host residual helper.
         // Prefer presentation game_mode residual when installed.
         let mode = self.presentation_or_live_game_mode();
         if !matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish) {
@@ -19455,7 +19462,14 @@ impl CnCGameEngine {
         let _ = self.load_game_from_ui("quicksave");
     }
 
+    /// Wave 611: via `host_save_game_from_ui`.
     fn save_game_from_ui(&mut self, slot: &str, display_name: &str) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_save_game_from_ui(slot, display_name)
+    }
+
+    fn host_save_game_from_ui(&mut self, slot: &str, display_name: &str) {
+        // Wave 611: host residual helper.
         let slot = slot.trim();
         if slot.is_empty() {
             return;
@@ -19474,7 +19488,14 @@ impl CnCGameEngine {
         }
     }
 
+    /// Wave 611: via `host_load_game_from_ui`.
     fn load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_load_game_from_ui(slot)
+    }
+
+    fn host_load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
+        // Wave 611: host residual helper.
         let slot = slot.trim();
         if slot.is_empty() {
             return Err("empty save slot".into());
@@ -19558,6 +19579,7 @@ impl CnCGameEngine {
     }
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
+    /// Wave 611: via `host_start_game_from_ui`.
     fn start_game_from_ui(
         &mut self,
         mode: GameMode,
@@ -19565,6 +19587,19 @@ impl CnCGameEngine {
         map: String,
         skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
     ) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_start_game_from_ui(mode, faction, map, skirmish)
+    }
+
+    /// Restart the simulation with UI-selected parameters and refresh view/minimap.
+    fn host_start_game_from_ui(
+        &mut self,
+        mode: GameMode,
+        faction: String,
+        map: String,
+        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
+    ) {
+        // Wave 611: host residual helper.
         // Show loading screen before starting map load (matches C++ loading screen flow)
         #[cfg(feature = "game_client")]
         self.prepare_cpp_load_screen_for_mode(mode, false);
@@ -20468,7 +20503,14 @@ impl CnCGameEngine {
         self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
     }
 
+    /// Wave 611: via `host_center_camera_on`.
     fn center_camera_on(&mut self, world_pos: Vec3) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_center_camera_on(world_pos)
+    }
+
+    fn host_center_camera_on(&mut self, world_pos: Vec3) {
+        // Wave 611: host residual helper.
         let clamped = self.clamp_to_world_bounds(world_pos);
         // Wave 460: prefer presentation-frozen height grid; live terrain only when
         // no PresentationFrame is installed (boot residual).
@@ -22777,7 +22819,14 @@ impl CnCGameEngine {
         }
     }
 
+    /// Wave 611: via `host_stop_all_friendly_units`.
     fn stop_all_friendly_units(&mut self) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_stop_all_friendly_units()
+    }
+
+    fn host_stop_all_friendly_units(&mut self) {
+        // Wave 611: host residual helper.
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;

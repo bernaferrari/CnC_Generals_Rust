@@ -2446,6 +2446,11 @@ use crate::game_logic::host_live_host_ui_selection_startup_helper_residual_wave6
     honesty_host_ui_selection_startup_helper_nav_commands_residual_wave610,
     simulate_live_host_ui_selection_startup_helper_honesty,
 };
+use crate::game_logic::host_live_host_start_save_load_helper_residual_wave611::{
+    honesty_host_start_save_load_helper_method_names_residual_wave611,
+    honesty_host_start_save_load_helper_nav_commands_residual_wave611,
+    simulate_live_host_start_save_load_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5994,6 +5999,9 @@ pub struct ShellSmokeResult {
     pub host_ui_selection_startup_helper_method_names_wave610_ok: bool,
     pub host_ui_selection_startup_helper_nav_commands_wave610_ok: bool,
     pub host_ui_selection_startup_helper_live_wave610_ok: bool,
+    pub host_start_save_load_helper_method_names_wave611_ok: bool,
+    pub host_start_save_load_helper_nav_commands_wave611_ok: bool,
+    pub host_start_save_load_helper_live_wave611_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9395,6 +9403,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_ui_selection_startup_helper_nav_commands_residual_wave610();
     let host_ui_selection_startup_helper_live_wave610_ok =
         simulate_live_host_ui_selection_startup_helper_honesty();
+    let host_start_save_load_helper_method_names_wave611_ok =
+        honesty_host_start_save_load_helper_method_names_residual_wave611();
+    let host_start_save_load_helper_nav_commands_wave611_ok =
+        honesty_host_start_save_load_helper_nav_commands_residual_wave611();
+    let host_start_save_load_helper_live_wave611_ok =
+        simulate_live_host_start_save_load_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11214,6 +11228,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_ui_selection_startup_helper_method_names_wave610_ok,
         host_ui_selection_startup_helper_nav_commands_wave610_ok,
         host_ui_selection_startup_helper_live_wave610_ok,
+        host_start_save_load_helper_method_names_wave611_ok,
+        host_start_save_load_helper_nav_commands_wave611_ok,
+        host_start_save_load_helper_live_wave611_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -20634,6 +20651,21 @@ mod tests {
         assert!(
             r.host_ui_selection_startup_helper_live_wave610_ok,
             "host ui selection startup helper live residual wave610: {}",
+            r.detail
+        );
+        assert!(
+            r.host_start_save_load_helper_method_names_wave611_ok,
+            "host start save load helper method names residual pack wave611: {}",
+            r.detail
+        );
+        assert!(
+            r.host_start_save_load_helper_nav_commands_wave611_ok,
+            "host start save load helper nav commands residual pack wave611: {}",
+            r.detail
+        );
+        assert!(
+            r.host_start_save_load_helper_live_wave611_ok,
+            "host start save load helper live residual wave611: {}",
             r.detail
         );
         assert!(
