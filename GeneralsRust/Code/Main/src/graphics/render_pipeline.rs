@@ -1373,11 +1373,15 @@ impl RenderPipeline {
             let object_id = u.id;
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
             // Wave 491: mesh pass honors sold model-condition residual from presentation.
+            // Wave 495: stamp moving/attacking/firing bits then honor sold residual.
+            let model_bits = u.model_condition_bits_with_combat_flags();
+            let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let sold_for_mesh =
                 crate::game_logic::host_enum_table_residual::host_model_condition_has(
-                    u.model_condition_bits,
+                    model_bits,
                     crate::game_logic::host_enum_table_residual::sold_model_bit(),
                 );
+            let _combat_model_bits = model_bits; // residual: combat bits available for mesh variants
             let model_name_owned =
                 crate::assets::mesh_asset_resolve::model_key_with_presentation_state(
                     &u.model_key,
