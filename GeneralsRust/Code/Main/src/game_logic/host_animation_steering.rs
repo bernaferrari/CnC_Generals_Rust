@@ -26,6 +26,7 @@ pub fn anim_steer_ms_to_frames(ms: u32) -> u32 {
 
 /// Current turn animation residual (C++ ModelConditionFlagType subset).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum HostAnimSteerTurnAnim {
     #[default]
     Invalid,

@@ -548,6 +548,9 @@ pub struct RenderableObject {
     pub power_plant_rods_done_frame: u32,
     /// Wave 519: jet slow-death residual active.
     pub jet_slow_death_active: bool,
+    /// Wave 520: C++ AnimationSteeringUpdate turn anim ordinal residual
+    /// (0 invalid, 1 CTR, 2 CTL, 3 LTC, 4 RTC).
+    pub anim_steer_turn: u8,
     /// Host Object::show_health_bar residual.
     pub show_health_bar: bool,
     /// Host Object::guard_radius residual.
@@ -659,6 +662,8 @@ pub struct UnitRenderInput {
     pub power_plant_rods_done_frame: u32,
     /// Wave 519: jet slow-death active residual.
     pub jet_slow_death_active: bool,
+    /// Wave 520: animation steering turn anim ordinal residual.
+    pub anim_steer_turn: u8,
     /// Wave 497: body damage ordinal for mesh variant resolve (0..3).
     pub body_damage_state: u8,
     /// Wave 499: C++ TINT_STATUS_POISONED residual.
@@ -782,6 +787,7 @@ impl UnitRenderInput {
             power_plant_rods_extended: ro.power_plant_rods_extended,
             power_plant_rods_done_frame: ro.power_plant_rods_done_frame,
             jet_slow_death_active: ro.jet_slow_death_active,
+            anim_steer_turn: ro.anim_steer_turn,
             poison_tinted: ro.poison_tinted,
             defector_flash: ro.defector_flash,
             is_deployed: ro.is_deployed,
@@ -1177,6 +1183,28 @@ impl UnitRenderInput {
             }
             if self.jet_slow_death_active {
                 bits |= 1u128 << jet_ab;
+            }
+        }
+        // Wave 520: AnimationSteeringUpdate CENTER/LEFT/RIGHT turn model-condition residual.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                center_to_left_model_bit, center_to_right_model_bit, left_to_center_model_bit,
+                right_to_center_model_bit,
+            };
+            let ctl = center_to_left_model_bit();
+            let ctr = center_to_right_model_bit();
+            let ltc = left_to_center_model_bit();
+            let rtc = right_to_center_model_bit();
+            for b in [ctl, ctr, ltc, rtc] {
+                bits &= !(1u128 << b);
+            }
+            // 0 invalid, 1 CTR, 2 CTL, 3 LTC, 4 RTC
+            match self.anim_steer_turn {
+                1 => bits |= 1u128 << ctr,
+                2 => bits |= 1u128 << ctl,
+                3 => bits |= 1u128 << ltc,
+                4 => bits |= 1u128 << rtc,
+                _ => {}
             }
         }
 
@@ -3636,6 +3664,12 @@ impl PresentationFrame {
                 power_plant_rods_extended: obj.power_plant_rods_extended,
                 power_plant_rods_done_frame: obj.power_plant_rods_done_frame,
                 jet_slow_death_active: obj.jet_slow_death.is_some(),
+                // Wave 520: AnimationSteeringUpdate turn anim residual.
+                anim_steer_turn: obj
+                    .animation_steering
+                    .as_ref()
+                    .map(|s| s.current_turn_anim as u8)
+                    .unwrap_or(0),
                 show_health_bar: obj.show_health_bar,
                 guard_radius: obj.guard_radius,
                 has_mine: obj.mine_data.is_some(),
@@ -6363,6 +6397,10 @@ impl PresentationFrame {
                 obj.jet_slow_death_active = ent.jet_slow_death_active;
                 dirty = true;
             }
+            if obj.anim_steer_turn != ent.anim_steer_turn {
+                obj.anim_steer_turn = ent.anim_steer_turn;
+                dirty = true;
+            }
             if obj.active_weapon_slot != ent.active_weapon_slot {
                 obj.active_weapon_slot = ent.active_weapon_slot;
                 dirty = true;
@@ -7187,6 +7225,7 @@ impl PresentationFrame {
             power_plant_rods_extended: ent.power_plant_rods_extended,
             power_plant_rods_done_frame: ent.power_plant_rods_done_frame,
             jet_slow_death_active: ent.jet_slow_death_active,
+            anim_steer_turn: ent.anim_steer_turn,
             show_health_bar: true,
             // Wave 490: guard/mine/kind presentation from GW entity.
             guard_radius: ent.guard_radius,
@@ -9159,6 +9198,7 @@ mod tests {
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
             jet_slow_death_active: false,
+            anim_steer_turn: 0,
             body_damage_state: 0,
             poison_tinted: false,
             defector_flash: false,

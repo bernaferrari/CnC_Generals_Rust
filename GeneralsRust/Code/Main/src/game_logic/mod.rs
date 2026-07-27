@@ -419,6 +419,7 @@ pub mod host_live_pow_truck_behavior_dual_world_empty_gate_residual_wave366;
 pub mod host_live_power_plant_update_dual_world_empty_gate_residual_wave392;
 pub mod host_live_power_plant_upgrade_dual_world_empty_gate_residual_wave437;
 pub mod host_live_presentation_air_parachute_residual_wave505;
+pub mod host_live_presentation_anim_steer_residual_wave520;
 pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_body_disguise_stun_residual_wave508;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
@@ -2346,6 +2347,14 @@ pub use host_live_presentation_air_parachute_residual_wave505::{
     PRESENTATION_AIR_PARACHUTE_SOURCE_MARKERS_WAVE505,
     RUNTIME_HOST_PRESENTATION_AIR_PARACHUTE_CMD_NAMES_WAVE505,
 };
+pub use host_live_presentation_anim_steer_residual_wave520::{
+    honesty_presentation_anim_steer_method_names_residual_wave520,
+    honesty_presentation_anim_steer_nav_commands_residual_wave520,
+    honesty_presentation_anim_steer_residual_pack_wave520,
+    honesty_presentation_anim_steer_source_markers_residual_wave520,
+    residual_presentation_anim_steer_last_action, residual_presentation_anim_steer_ok,
+    simulate_live_presentation_anim_steer_honesty,
+};
 pub use host_live_presentation_body_disguise_stun_residual_wave508::{
     honesty_presentation_body_disguise_stun_method_names_residual_wave508,
     honesty_presentation_body_disguise_stun_nav_commands_residual_wave508,
@@ -2453,6 +2462,7 @@ pub use host_live_presentation_shock_power_jet_residual_wave519::{
     residual_presentation_shock_power_jet_last_action, residual_presentation_shock_power_jet_ok,
     simulate_live_presentation_shock_power_jet_honesty,
 };
+
 pub use host_live_presentation_weapon_fire_slot_residual_wave517::{
     honesty_presentation_weapon_fire_slot_method_names_residual_wave517,
     honesty_presentation_weapon_fire_slot_nav_commands_residual_wave517,
