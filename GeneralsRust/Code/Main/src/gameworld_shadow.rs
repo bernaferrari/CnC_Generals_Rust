@@ -3105,6 +3105,11 @@ impl GameWorldShadow {
             };
             self.production_power_factor_by_host
                 .insert(ev.producer.0, ev.power_factor.max(0.01));
+            // Wave 477: sole-tick power-factor-only events must not stomp GW queue/exit.
+            if ev.power_factor_only {
+                n += 1;
+                continue;
+            }
             let items: Vec<EntityProductionItem> = ev
                 .items
                 .iter()
@@ -7400,7 +7405,7 @@ pub fn shadow_session_after_host_tick(
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
     let _pp_applied = shadow.apply_host_production_progress_events(&production_progress_events);
-    // Sole progress tick under PRODUCTION_AUTHORITY (host skips advance).
+    // Sole progress tick under PRODUCTION_AUTHORITY (host skips advance; Wave 477 no progress stomp).
     let _prod_tick = shadow
         .tick_production_queues(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
     let production_door_events = crate::game_logic::host_production_door_log::drain();
