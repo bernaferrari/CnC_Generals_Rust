@@ -13045,9 +13045,13 @@ impl CnCGameEngine {
                 .render_pipeline
                 .presentation_frame()
                 .or(self.last_presentation_frame.as_ref());
+            // Wave 540: prefer presentation fow_shell_bypass when freeze present.
+            let in_shell_camera = startup_camera_presentation
+                .map(|p| p.fow_shell_bypass)
+                .unwrap_or_else(|| self.game_logic.isInShellGame());
             (self.camera_target, self.camera_position, self.camera_zoom) =
                 Self::bootstrap_camera_for_loaded_map(
-                    self.game_logic.isInShellGame(),
+                    in_shell_camera,
                     self.current_player_id,
                     startup_camera_defaults,
                     startup_camera_presentation,
@@ -18591,9 +18595,13 @@ impl CnCGameEngine {
             .render_pipeline
             .presentation_frame()
             .or(self.last_presentation_frame.as_ref());
+        // Wave 540: prefer presentation fow_shell_bypass when freeze present.
+        let in_shell_camera = startup_camera_presentation
+            .map(|p| p.fow_shell_bypass)
+            .unwrap_or_else(|| self.game_logic.isInShellGame());
         (self.camera_target, self.camera_position, self.camera_zoom) =
             Self::bootstrap_camera_for_loaded_map(
-                self.game_logic.isInShellGame(),
+                in_shell_camera,
                 self.current_player_id,
                 startup_camera_defaults,
                 startup_camera_presentation,
