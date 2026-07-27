@@ -573,6 +573,7 @@ pub mod host_live_turret_ai_dual_world_empty_gate_residual_wave338;
 pub mod host_live_turret_dual_world_empty_gate_residual_wave276;
 pub mod host_live_ui_command_selection_presentation_only_residual_wave219;
 pub mod host_live_ui_helpers_presentation_only_residual_wave215;
+pub mod host_live_ui_player_info_presentation_fail_closed_residual_wave549;
 pub mod host_live_ui_producer_presentation_only_residual_wave214;
 pub mod host_live_ui_selected_presentation_fail_closed_residual_wave543;
 pub mod host_live_ui_selection_seed_presentation_fail_closed_residual_wave544;
@@ -2570,6 +2571,15 @@ pub use host_live_save_restart_presentation_fail_closed_residual_wave545::{
     residual_save_restart_presentation_fail_closed_last_action,
     residual_save_restart_presentation_fail_closed_ok,
     simulate_live_save_restart_presentation_fail_closed_honesty,
+};
+pub use host_live_ui_player_info_presentation_fail_closed_residual_wave549::{
+    honesty_ui_player_info_presentation_fail_closed_method_names_residual_wave549,
+    honesty_ui_player_info_presentation_fail_closed_nav_commands_residual_wave549,
+    honesty_ui_player_info_presentation_fail_closed_residual_pack_wave549,
+    honesty_ui_player_info_presentation_fail_closed_source_markers_residual_wave549,
+    residual_ui_player_info_presentation_fail_closed_last_action,
+    residual_ui_player_info_presentation_fail_closed_ok,
+    simulate_live_ui_player_info_presentation_fail_closed_honesty,
 };
 pub use host_live_ui_selected_presentation_fail_closed_residual_wave543::{
     honesty_ui_selected_presentation_fail_closed_method_names_residual_wave543,

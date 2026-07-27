@@ -17177,15 +17177,16 @@ impl CnCGameEngine {
             .unwrap_or(crate::game_logic::Team::USA)
     }
 
-    /// Wave 234: player roster probe prefers presentation freeze.
+    /// Wave 234/549: player roster probe prefers presentation freeze.
+    /// When freeze is installed, missing player_info fails closed (no host
+    /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
     fn ui_player_info(
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
         if let Some(frame) = self.last_presentation_frame.as_ref() {
-            if let Some(p) = frame.player_info(player_id).cloned() {
-                return Some(p);
-            }
+            // Wave 549: presentation freeze owns player roster residual — even if miss.
+            return frame.player_info(player_id).cloned();
         }
         // Wave 240: boot residual via field probes (no &Player expose).
         if !self.game_logic.player_exists(player_id) {
