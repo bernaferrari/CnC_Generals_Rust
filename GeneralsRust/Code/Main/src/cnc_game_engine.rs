@@ -15976,8 +15976,12 @@ impl CnCGameEngine {
                 self.ui_manager.game_hud_mut().push_info_message(&message);
                 // Wave 539: presentation freeze → HUD radar + audio (no GameLogic dual-write).
                 self.notify_presentation_ui_message(&message);
+            } else if self.last_presentation_frame.is_some() {
+                // Wave 542: freeze installed but roster miss — fail-closed id-only
+                // (no GameLogic dual-write mid-frame).
+                info!("Player {} has been defeated", player_id);
             } else if let Some(player) = self.ui_player_info(player_id) {
-                // Wave 237: defeat UI prefers presentation roster helper (boot fallback inside).
+                // Wave 237: defeat UI prefers presentation roster helper (boot residual only; no presentation freeze).
                 let message = localization::localize_with_args(
                     "hud.message.player_defeated",
                     "{player} has been defeated!",
@@ -16102,6 +16106,15 @@ impl CnCGameEngine {
                     VictoryCondition::Draw => self.show_victory_screen(None),
                 }
             }
+        }
+    }
+
+    /// Wave 542: mouse command classification is presentation-only when freeze installed.
+    fn presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
+        if self.last_presentation_frame.is_some() {
+            None
+        } else {
+            Some(&self.game_logic)
         }
     }
 
@@ -19522,11 +19535,7 @@ impl CnCGameEngine {
             &context,
             &selected,
             self.current_player_id,
-            if self.last_presentation_frame.is_some() {
-                None
-            } else {
-                Some(&self.game_logic)
-            },
+            self.presentation_mouse_game_logic(),
         );
 
         if let Some(mut command) = command {
@@ -22717,11 +22726,7 @@ impl CnCGameEngine {
             &context,
             &selected,
             self.current_player_id,
-            if self.last_presentation_frame.is_some() {
-                None
-            } else {
-                Some(&self.game_logic)
-            },
+            self.presentation_mouse_game_logic(),
         );
 
         if let Some(mut command) = command {
@@ -23180,11 +23185,7 @@ impl CnCGameEngine {
             &context,
             &selected,
             self.current_player_id,
-            if self.last_presentation_frame.is_some() {
-                None
-            } else {
-                Some(&self.game_logic)
-            },
+            self.presentation_mouse_game_logic(),
         );
         match cmd.map(|c| c.command_type) {
             Some(crate::command_system::CommandType::AttackObject { .. }) => {
