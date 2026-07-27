@@ -6799,19 +6799,27 @@ impl GameLogic {
                     // Prior freeze without rate residual stalled builds — rate is logged.
                     let sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
                     let projected = if sole {
+                        // Last writeback percent (GW sole-ticks); host does not advance.
                         obj.construction_percent
                     } else {
                         (obj.construction_percent + effective_rate * dt).min(1.0)
                     };
                     if !sole {
                         obj.construction_percent = projected;
+                        crate::game_logic::host_construction_progress_log::record(
+                            id,
+                            projected,
+                            obj.status.under_construction,
+                            effective_rate,
+                        );
+                    } else {
+                        // Wave 478: publish dozer/power rate only — no percent stomp.
+                        crate::game_logic::host_construction_progress_log::record_rate_only(
+                            id,
+                            obj.status.under_construction,
+                            effective_rate,
+                        );
                     }
-                    crate::game_logic::host_construction_progress_log::record(
-                        id,
-                        projected,
-                        obj.status.under_construction,
-                        effective_rate,
-                    );
 
                     if projected >= 1.0 {
                         obj.construction_percent = 1.0;

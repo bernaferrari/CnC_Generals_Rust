@@ -12,6 +12,8 @@ pub struct HostConstructionProgressEvent {
     /// Host residual: base_rate * dozers * power (units: fraction per second).
     /// Used by GameWorld sole-tick under CONSTRUCTION_AUTHORITY.
     pub effective_rate: f32,
+    /// Wave 478: when true, apply effective_rate only (GW sole-ticks percent).
+    pub rate_only: bool,
 }
 
 thread_local! {
@@ -25,6 +27,20 @@ pub fn record(object: ObjectId, percent: f32, under_construction: bool, effectiv
             percent: percent.clamp(-1.0, 1.0),
             under_construction,
             effective_rate,
+            rate_only: false,
+        });
+    });
+}
+
+/// Wave 478: sole-tick residual — publish dozer/power rate without percent stomp.
+pub fn record_rate_only(object: ObjectId, under_construction: bool, effective_rate: f32) {
+    LOG.with(|log| {
+        log.borrow_mut().push(HostConstructionProgressEvent {
+            object,
+            percent: 0.0,
+            under_construction,
+            effective_rate,
+            rate_only: true,
         });
     });
 }

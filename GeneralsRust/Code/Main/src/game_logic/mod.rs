@@ -287,6 +287,7 @@ pub mod host_live_command_unit_probe_residual_wave244;
 pub mod host_live_construct_economy_probe_residual_wave243;
 pub mod host_live_construct_spawn_pose_authority_api_residual_wave227;
 pub mod host_live_construction_placement_dual_world_empty_gate_residual_wave454;
+pub mod host_live_construction_sole_tick_no_progress_stomp_residual_wave478;
 pub mod host_live_contain_module_overrides_fail_closed_residual_wave449;
 pub mod host_live_control_group_camera_presentation_only_residual_wave216;
 pub mod host_live_core_sim_dual_world_empty_gate_residual_wave450;
@@ -2155,6 +2156,21 @@ pub use host_live_camera_bootstrap_presentation_only_residual_wave473::{
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_NAV_STEPS_WAVE473,
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_SOURCE_MARKERS_WAVE473,
     RUNTIME_HOST_CAMERA_BOOTSTRAP_PRESENTATION_ONLY_CMD_NAMES_WAVE473,
+};
+pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
+    honesty_construction_sole_tick_no_progress_stomp_method_names_residual_wave478,
+    honesty_construction_sole_tick_no_progress_stomp_nav_commands_residual_wave478,
+    honesty_construction_sole_tick_no_progress_stomp_residual_pack_wave478,
+    residual_construction_sole_tick_no_progress_stomp_last_action,
+    residual_construction_sole_tick_no_progress_stomp_ok,
+    simulate_construction_sole_tick_no_progress_stomp_host_source,
+    simulate_construction_sole_tick_no_progress_stomp_shadow_source,
+    simulate_live_construction_sole_tick_no_progress_stomp_honesty,
+    ResidualConstructionSoleTickNoProgressStompAction,
+    CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_METHOD_NAMES_WAVE478,
+    CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE478,
+    CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
+    RUNTIME_HOST_CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_CMD_NAMES_WAVE478,
 };
 pub use host_live_ensure_presentation_env_instance_residual_wave474::{
     honesty_ensure_presentation_env_instance_method_names_residual_wave474,
