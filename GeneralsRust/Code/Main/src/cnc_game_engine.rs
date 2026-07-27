@@ -13068,6 +13068,7 @@ impl CnCGameEngine {
                 &self.game_logic,
                 active_map_name.as_str(),
             );
+            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
             if let Err(err) = Self::reinitialize_minimap_renderer(
                 &mut self.render_pipeline,
                 &self.graphics_system,
@@ -18372,6 +18373,10 @@ impl CnCGameEngine {
                         &self.game_logic,
                         save_info.map_name.as_str(),
                     );
+                    Self::ensure_presentation_env_for_hints(
+                        &mut self.render_pipeline,
+                        &self.game_logic,
+                    );
                     if let Err(err) = Self::reinitialize_minimap_renderer(
                         &mut self.render_pipeline,
                         &self.graphics_system,
@@ -18506,6 +18511,7 @@ impl CnCGameEngine {
             &self.game_logic,
             map_name.as_str(),
         );
+        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
         if let Err(err) = Self::reinitialize_minimap_renderer(
             &mut self.render_pipeline,
             &self.graphics_system,
@@ -18857,7 +18863,13 @@ impl CnCGameEngine {
         graphics_system: &GraphicsSystem,
         game_logic: &mut GameLogic,
     ) -> anyhow::Result<()> {
-        let mut world_bounds = game_logic.world_bounds();
+        // Wave 457: prefer presentation freeze for minimap world bounds
+        // Host GameLogic override remains only when heightmap size repairs degenerate bounds.
+        let mut world_bounds = if let Some(pres) = render_pipeline.presentation_frame() {
+            pres.world_env.world_bounds_vec3()
+        } else {
+            game_logic.world_bounds()
+        };
         render_pipeline.initialize_minimap_renderer(
             graphics_system.device_arc(),
             graphics_system.queue_arc(),
@@ -18870,6 +18882,11 @@ impl CnCGameEngine {
             if let Some((w, h)) = render_pipeline.heightmap_world_size() {
                 game_logic.override_world_size(w, h);
                 world_bounds = game_logic.world_bounds();
+                // Stamp repaired bounds into presentation freeze when installed.
+                if let Some(pres) = render_pipeline.presentation_frame_mut() {
+                    pres.world_env.world_min = world_bounds.0.to_array();
+                    pres.world_env.world_max = world_bounds.1.to_array();
+                }
             }
         }
 
