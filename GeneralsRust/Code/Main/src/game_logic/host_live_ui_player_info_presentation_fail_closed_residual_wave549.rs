@@ -123,7 +123,9 @@ pub fn honesty_ui_player_info_presentation_fail_closed_method_names_residual_wav
 
 pub fn honesty_ui_player_info_presentation_fail_closed_source_markers_residual_wave549() -> bool {
     let eng = eng_source();
-    let Some(body) = fn_body(eng, "fn ui_player_info(") else {
+    let Some(body) =
+        fn_body(eng, "fn host_ui_player_info(").or_else(|| fn_body(eng, "fn ui_player_info("))
+    else {
         residual_action_store(ResidualUiPlayerInfoPresentationFailClosedAction::SourceMarkers);
         return false;
     };
@@ -178,7 +180,9 @@ pub fn simulate_ui_player_info_presentation_fail_closed_collect_source() -> bool
 
 pub fn simulate_ui_player_info_presentation_fail_closed_dispatch_source() -> bool {
     let eng = eng_source();
-    let Some(body) = fn_body(eng, "fn ui_player_info(") else {
+    let Some(body) =
+        fn_body(eng, "fn host_ui_player_info(").or_else(|| fn_body(eng, "fn ui_player_info("))
+    else {
         residual_action_store(ResidualUiPlayerInfoPresentationFailClosedAction::DispatchSource);
         return false;
     };

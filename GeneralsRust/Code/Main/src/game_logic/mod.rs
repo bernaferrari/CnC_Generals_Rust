@@ -402,6 +402,7 @@ pub mod host_live_host_status_map_presentation_fail_closed_residual_wave546;
 pub mod host_live_host_status_selected_presentation_fail_closed_residual_wave547;
 pub mod host_live_host_template_spawn_helper_residual_wave581;
 pub mod host_live_host_tick_mutation_helper_residual_wave584;
+pub mod host_live_host_ui_presentation_drain_helper_residual_wave607;
 pub mod host_live_host_ui_shell_world_helper_residual_wave585;
 pub mod host_live_hotkey_move_attack_selection_presentation_only_residual_wave221;
 pub mod host_live_hotkey_selection_camera_presentation_only_residual_wave226;
@@ -2801,6 +2802,15 @@ pub use host_live_host_tick_mutation_helper_residual_wave584::{
     honesty_host_tick_mutation_helper_source_markers_residual_wave584,
     residual_host_tick_mutation_helper_last_action, residual_host_tick_mutation_helper_ok,
     simulate_live_host_tick_mutation_helper_honesty,
+};
+pub use host_live_host_ui_presentation_drain_helper_residual_wave607::{
+    honesty_host_ui_presentation_drain_helper_method_names_residual_wave607,
+    honesty_host_ui_presentation_drain_helper_nav_commands_residual_wave607,
+    honesty_host_ui_presentation_drain_helper_residual_pack_wave607,
+    honesty_host_ui_presentation_drain_helper_source_markers_residual_wave607,
+    residual_host_ui_presentation_drain_helper_last_action,
+    residual_host_ui_presentation_drain_helper_ok,
+    simulate_live_host_ui_presentation_drain_helper_honesty,
 };
 pub use host_live_host_ui_shell_world_helper_residual_wave585::{
     honesty_host_ui_shell_world_helper_method_names_residual_wave585,

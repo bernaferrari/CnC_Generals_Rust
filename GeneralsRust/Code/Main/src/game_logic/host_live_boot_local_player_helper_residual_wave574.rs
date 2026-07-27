@@ -122,7 +122,9 @@ pub fn honesty_boot_local_player_helper_source_markers_residual_wave574() -> boo
         residual_action_store(ResidualBootLocalPlayerHelperAction::SourceMarkers);
         return false;
     };
-    let Some(ui) = fn_body(eng, "fn local_player_id_for_ui(") else {
+    let Some(ui) = fn_body(eng, "fn host_local_player_id_for_ui(")
+        .or_else(|| fn_body(eng, "fn local_player_id_for_ui("))
+    else {
         residual_action_store(ResidualBootLocalPlayerHelperAction::SourceMarkers);
         return false;
     };
@@ -165,7 +167,9 @@ pub fn simulate_boot_local_player_helper_collect_source() -> bool {
 
 pub fn simulate_boot_local_player_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let Some(ui) = fn_body(eng, "fn local_player_id_for_ui(") else {
+    let Some(ui) = fn_body(eng, "fn host_local_player_id_for_ui(")
+        .or_else(|| fn_body(eng, "fn local_player_id_for_ui("))
+    else {
         residual_action_store(ResidualBootLocalPlayerHelperAction::DispatchSource);
         return false;
     };

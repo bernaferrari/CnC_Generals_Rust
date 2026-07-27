@@ -119,7 +119,11 @@ pub fn honesty_script_msg_helper_source_markers_residual_wave570() -> bool {
     let eng = eng_source();
     let pf = pf_source();
     let field_ok = pf.contains("pub new_script_messages: Vec<String>");
-    let Some(body) = fn_body(eng, "fn take_presentation_or_boot_new_script_messages(") else {
+    let Some(body) = fn_body(
+        eng,
+        "fn host_take_presentation_or_boot_new_script_messages(",
+    )
+    .or_else(|| fn_body(eng, "fn take_presentation_or_boot_new_script_messages(")) else {
         residual_action_store(ResidualScriptMsgHelperAction::SourceMarkers);
         return false;
     };

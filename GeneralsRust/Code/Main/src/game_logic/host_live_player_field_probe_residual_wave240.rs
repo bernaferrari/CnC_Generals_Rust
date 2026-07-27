@@ -113,7 +113,9 @@ pub fn honesty_player_field_probe_source() -> bool {
     {
         return false;
     }
-    let Some(local) = fn_body(eng, "fn local_player_id_for_ui(") else {
+    let Some(local) = fn_body(eng, "fn host_local_player_id_for_ui(")
+        .or_else(|| fn_body(eng, "fn local_player_id_for_ui("))
+    else {
         return false;
     };
     // Wave 574: boot path may be boot_local_player_id_from_host helper.
@@ -126,7 +128,9 @@ pub fn honesty_player_field_probe_source() -> bool {
     if !local_ok {
         return false;
     }
-    let Some(info) = fn_body(eng, "fn ui_player_info(") else {
+    let Some(info) =
+        fn_body(eng, "fn host_ui_player_info(").or_else(|| fn_body(eng, "fn ui_player_info("))
+    else {
         return false;
     };
     // Wave 573: boot probes live in boot_player_info_from_host; ui_player_info remains fail-closed.
