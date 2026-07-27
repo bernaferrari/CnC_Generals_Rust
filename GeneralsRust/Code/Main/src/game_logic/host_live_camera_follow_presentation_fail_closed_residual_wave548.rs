@@ -2,6 +2,9 @@
 //! closed under a presentation freeze — uses `camera_follow_position.is_some()`
 //! and does **not** dual-read `camera_follow_object_id`. Boot residual without
 //! freeze unchanged. Command authority still writes `set_camera_follow_object`.
+//!
+//! Wave 583: toggle peels through `presentation_or_boot_camera_follow_active` +
+//! `host_set_camera_follow_object` (freeze/boot split lives in the helper).
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 547 host status selected presentation fail-closed residual.
@@ -25,6 +28,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_CAMERA_FOLLOW_PRESENTATION_FAIL_CLOSED_METHOD_NAMES_WAVE548: &[&str] = &[
     "toggle_camera_follow_selection",
+    "presentation_or_boot_camera_follow_active",
+    "host_set_camera_follow_object",
     "last_presentation_frame",
     "camera_follow_position",
     "camera_follow_object_id",
@@ -128,14 +133,22 @@ pub fn honesty_camera_follow_presentation_fail_closed_source_markers_residual_wa
         residual_action_store(ResidualCameraFollowPresentationFailClosedAction::SourceMarkers);
         return false;
     };
-    let wave = body.contains("Wave 548")
-        && body.contains("presentation freeze owns follow-active residual");
-    let pres = body.contains("pres.camera_follow_position.is_some()");
-    let boot = body.contains("camera_follow_object_id().is_some()");
-    // Under freeze arm, camera_follow_object_id must not appear before boot None arm.
-    let freeze_arm_ok = match body.find("match self.last_presentation_frame.as_ref()") {
+    // Wave 548 intent + Wave 583 peel through presentation_or_boot helper.
+    let wave = (body.contains("Wave 548") || body.contains("Wave 583"))
+        && (body.contains("presentation freeze owns follow-active residual")
+            || body.contains("presentation_or_boot_camera_follow_active"));
+    let via_helper = body.contains("presentation_or_boot_camera_follow_active()")
+        && body.contains("host_set_camera_follow_object");
+    let Some(helper) = fn_body(eng, "fn presentation_or_boot_camera_follow_active(") else {
+        residual_action_store(ResidualCameraFollowPresentationFailClosedAction::SourceMarkers);
+        return false;
+    };
+    let pres = helper.contains("pres.camera_follow_position.is_some()");
+    let boot = helper.contains("camera_follow_object_id().is_some()");
+    // Under freeze arm of helper, camera_follow_object_id must not appear before boot None arm.
+    let freeze_arm_ok = match helper.find("match self.last_presentation_frame.as_ref()") {
         Some(i) => {
-            let arm = &body[i..];
+            let arm = &helper[i..];
             let some_pres = arm.find("Some(pres)");
             let none_boot = arm.find("None =>");
             let id_in_some = match (some_pres, none_boot) {
@@ -146,7 +159,12 @@ pub fn honesty_camera_follow_presentation_fail_closed_source_markers_residual_wa
         }
         None => false,
     };
-    let ok = wave && pres && boot && freeze_arm_ok && !eng.contains("playable_claim = true");
+    let ok = wave
+        && via_helper
+        && pres
+        && boot
+        && freeze_arm_ok
+        && !eng.contains("playable_claim = true");
     residual_action_store(ResidualCameraFollowPresentationFailClosedAction::SourceMarkers);
     ok
 }
@@ -180,10 +198,16 @@ pub fn simulate_camera_follow_presentation_fail_closed_dispatch_source() -> bool
         residual_action_store(ResidualCameraFollowPresentationFailClosedAction::DispatchSource);
         return false;
     };
-    let ok = body.contains("presentation freeze owns follow-active residual")
-        && body.contains("pres.camera_follow_position.is_some()")
-        && body.contains("set_camera_follow_object")
-        && body.contains("camera_follow_object_id().is_some()");
+    let Some(helper) = fn_body(eng, "fn presentation_or_boot_camera_follow_active(") else {
+        residual_action_store(ResidualCameraFollowPresentationFailClosedAction::DispatchSource);
+        return false;
+    };
+    let ok = (body.contains("presentation freeze owns follow-active residual")
+        || body.contains("presentation_or_boot_camera_follow_active"))
+        && body.contains("presentation_or_boot_camera_follow_active()")
+        && body.contains("host_set_camera_follow_object")
+        && helper.contains("pres.camera_follow_position.is_some()")
+        && helper.contains("camera_follow_object_id().is_some()");
     residual_action_store(ResidualCameraFollowPresentationFailClosedAction::DispatchSource);
     ok
 }

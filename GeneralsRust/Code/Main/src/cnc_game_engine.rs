@@ -9735,7 +9735,7 @@ impl CnCGameEngine {
                         unfinished.sort_by_key(|id| id.0);
                         for id in unfinished.into_iter().take(2) {
                             // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).
-                            if self.game_logic.force_complete_construction(id) {
+                            if self.host_force_complete_construction(id) {
                                 force_completed.push(id);
                             }
                         }
@@ -9865,7 +9865,7 @@ impl CnCGameEngine {
                             .or_else(|| any.into_iter().next());
                         if let Some(id) = pick {
                             // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).
-                            let _ = self.game_logic.ensure_barracks_building_data(id);
+                            let _ = self.host_ensure_barracks_building_data(id);
                         }
                         pick.or_else(|| {
                             self.last_presentation_frame
@@ -9970,8 +9970,7 @@ impl CnCGameEngine {
                         if !ids.is_empty() {
                             self.host_set_selection(self.current_player_id, ids);
                         }
-                        self.game_logic
-                            .command_move(self.current_player_id, glam::Vec3::new(x, y, z));
+                        self.host_command_move(self.current_player_id, glam::Vec3::new(x, y, z));
                         self.runtime_host_last_gameplay_cmd =
                             format!("move_ok:n={selected}:x={x:.1}:y={y:.1}:z={z:.1}");
                     }
@@ -10027,7 +10026,7 @@ impl CnCGameEngine {
                             None
                         };
                         if let Some(tid) = enemy {
-                            self.game_logic.command_attack(self.current_player_id, tid);
+                            self.host_command_attack(self.current_player_id, tid);
                             self.runtime_host_last_gameplay_cmd = format!("attack_ok:{}", tid.0);
                         } else {
                             self.runtime_host_last_gameplay_cmd = "attack_fail_no_enemy".into();
@@ -10044,7 +10043,7 @@ impl CnCGameEngine {
                     let n = self.selected_objects.len();
                     if n > 0 {
                         // Stop only selection when present.
-                        self.game_logic.command_stop(self.current_player_id);
+                        self.host_command_stop(self.current_player_id);
                         self.runtime_host_last_gameplay_cmd = format!("stop_ok:selected:{n}");
                     } else {
                         self.stop_all_friendly_units();
@@ -10110,9 +10109,8 @@ impl CnCGameEngine {
                     if targets.is_empty() {
                         self.runtime_host_last_gameplay_cmd = "sell_fail_no_structure".into();
                     } else {
-                        self.game_logic
-                            .select_objects(self.current_player_id, targets.clone());
-                        self.selected_objects = targets.clone();
+                        // Wave 583: selection residual via host_set_selection.
+                        self.host_set_selection(self.current_player_id, targets.clone());
                         self.issue_named_command_from_ui("Command_Sell");
                         self.runtime_host_last_gameplay_cmd = format!("sell_ok:{}", targets[0].0);
                     }
@@ -10181,9 +10179,8 @@ impl CnCGameEngine {
                     let mut last = requested.clone();
                     'outer: for pid in producers {
                         for name in candidates {
-                            self.game_logic
-                                .select_objects(self.current_player_id, vec![pid]);
-                            self.selected_objects = vec![pid];
+                            // Wave 583: selection residual via host_set_selection.
+                            self.host_set_selection(self.current_player_id, vec![pid]);
                             let cmd = crate::command_system::GameCommand {
                                 command_type: crate::command_system::CommandType::QueueUpgrade {
                                     upgrade_name: name.to_string(),
@@ -10946,12 +10943,12 @@ impl CnCGameEngine {
                             self.runtime_host_last_gameplay_cmd =
                                 format!("control_group_recall_fail_empty:{}", group);
                         } else {
-                            self.selected_objects = alive.clone();
-                            self.game_logic
-                                .select_objects(self.current_player_id, alive.clone());
+                            // Wave 583: selection residual via host_set_selection.
+                            let alive_n = alive.len();
+                            self.host_set_selection(self.current_player_id, alive);
                             self.last_control_group_select = Some((group, Instant::now()));
                             self.runtime_host_last_gameplay_cmd =
-                                format!("control_group_recall_ok:{}:{}", group, alive.len());
+                                format!("control_group_recall_ok:{}:{}", group, alive_n);
                         }
                     } else {
                         self.runtime_host_last_gameplay_cmd =
@@ -11051,10 +11048,10 @@ impl CnCGameEngine {
                     let player_team = frame.local_team();
                     let boxed: Vec<ObjectId> =
                         frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z);
-                    self.selected_objects = boxed.clone();
-                    self.game_logic
-                        .select_objects(self.current_player_id, boxed.clone());
-                    self.runtime_host_last_gameplay_cmd = format!("box_select_ok:{}", boxed.len());
+                    // Wave 583: selection residual via host_set_selection.
+                    let boxed_n = boxed.len();
+                    self.host_set_selection(self.current_player_id, boxed);
+                    self.runtime_host_last_gameplay_cmd = format!("box_select_ok:{}", boxed_n);
                 }
             }
             "select_similar" | "double_click_select" => {
@@ -11405,7 +11402,7 @@ impl CnCGameEngine {
                     };
 
                     // FOW residual: load_map + per-frame update_main_crate_vision already ran.
-                    let lbc = self.game_logic.legal_build_code_at_for_builder(
+                    let lbc = self.host_legal_build_code_at_for_builder(
                         team,
                         loc,
                         &template,
@@ -11418,7 +11415,7 @@ impl CnCGameEngine {
                             for dz in -6..=6 {
                                 let p =
                                     loc + glam::Vec3::new(dx as f32 * 15.0, 0.0, dz as f32 * 15.0);
-                                if self.game_logic.is_location_legal_to_build_for_builder(
+                                if self.host_is_location_legal_to_build_for_builder(
                                     team,
                                     p,
                                     &template,
@@ -16451,12 +16448,9 @@ impl CnCGameEngine {
             self.sync_eva_messages_from_presentation(&pres);
             return;
         }
-        self.sync_eva_messages_from_host_counts(
-            self.game_logic.eva_low_power_count(),
-            self.game_logic.eva_insufficient_funds_count(),
-            self.game_logic.eva_base_under_attack_count(),
-            self.game_logic.eva_ally_under_attack_count(),
-        );
+        // Wave 583: boot residual EVA counters via helper bundle.
+        let (lp, funds, base, ally) = self.boot_eva_counter_bundle_from_host();
+        self.sync_eva_messages_from_host_counts(lp, funds, base, ally);
     }
 
     fn sync_eva_messages_from_presentation(
@@ -16967,20 +16961,6 @@ impl CnCGameEngine {
             .find(|o| o.id == id)
     }
 
-    /// Wave 574: boot residual local player id for UI (no presentation freeze).
-    /// Prefer current_player_id when it exists; else min_player_id fallback.
-
-    /// Wave 575: host pause dual-write — keep engine `game_paused` and host
-    /// `GameLogic::set_paused` in lockstep. Presentation residual still uses this
-    /// for popup.pause (authoritative host pause, not a dual-read).
-    #[inline]
-
-    /// Wave 576: host command flush residual — process_commands then Command SFX.
-    /// Keeps UI-issued command feedback paired (no mid-frame dual-write beyond host).
-    #[inline]
-
-    /// Wave 577: host camera jump residual — clamp, set camera_target XZ, request focus.
-    /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// Wave 580: host cancel-production residual — GameLogic cancel + construction
     /// panel queue head sync (presentation HUD residual).
     #[inline]
@@ -18543,6 +18523,106 @@ impl CnCGameEngine {
         self.game_logic.templates.contains_key(name)
     }
 
+    /// Wave 583: host force-complete construction residual (runtime train honesty).
+    #[inline]
+    fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 583: host construction force-complete residual.
+        self.game_logic.force_complete_construction(id)
+    }
+
+    /// Wave 583: host barracks building-data residual (producer pick path).
+    #[inline]
+    fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 583: host barracks ensure residual.
+        self.game_logic.ensure_barracks_building_data(id)
+    }
+
+    /// Wave 583: host attack command residual (runtime honesty path).
+    #[inline]
+    fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
+        // Wave 583: host attack residual.
+        self.game_logic.command_attack(player_id, target);
+    }
+
+    /// Wave 583: host stop-selected residual (runtime honesty path).
+    #[inline]
+    fn host_command_stop(&mut self, player_id: u32) {
+        // Wave 583: host stop residual.
+        self.game_logic.command_stop(player_id);
+    }
+
+    /// Wave 583: host attack-move residual (minimap/right-click fallback).
+    #[inline]
+    fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
+        // Wave 583: host attack-move residual.
+        self.game_logic.command_attack_move(player_id, dest);
+    }
+
+    /// Wave 583: host move residual (minimap/right-click fallback).
+    #[inline]
+    fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
+        // Wave 583: host move residual.
+        self.game_logic.command_move(player_id, dest);
+    }
+
+    /// Wave 583: host legal-build probe residual (construct honesty path).
+    #[inline]
+    fn host_legal_build_code_at_for_builder(
+        &self,
+        team: crate::game_logic::Team,
+        loc: glam::Vec3,
+        template: &str,
+        builder: Option<crate::game_logic::ObjectId>,
+    ) -> u32 {
+        // Wave 583: host legal build-code residual.
+        self.game_logic
+            .legal_build_code_at_for_builder(team, loc, template, builder)
+    }
+
+    /// Wave 583: host legal-build location residual (construct honesty path).
+    #[inline]
+    fn host_is_location_legal_to_build_for_builder(
+        &self,
+        team: crate::game_logic::Team,
+        loc: glam::Vec3,
+        template: &str,
+        builder: Option<crate::game_logic::ObjectId>,
+    ) -> bool {
+        // Wave 583: host legal location residual.
+        self.game_logic
+            .is_location_legal_to_build_for_builder(team, loc, template, builder)
+    }
+
+    /// Wave 583: host camera-follow write residual.
+    #[inline]
+    fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
+        // Wave 583: host camera follow residual.
+        self.game_logic.set_camera_follow_object(id);
+    }
+
+    /// Wave 583: presentation freeze owns follow-active residual when installed.
+    /// Boot residual without freeze uses host camera_follow_object_id probe.
+    #[inline]
+    fn presentation_or_boot_camera_follow_active(&self) -> bool {
+        // Wave 583: presentation freeze owns follow-active residual when installed.
+        match self.last_presentation_frame.as_ref() {
+            Some(pres) => pres.camera_follow_position.is_some(),
+            None => self.game_logic.camera_follow_object_id().is_some(),
+        }
+    }
+
+    /// Wave 583: boot residual EVA counter bundle (no presentation freeze).
+    #[inline]
+    fn boot_eva_counter_bundle_from_host(&self) -> (u32, u32, u32, u32) {
+        // Wave 583: boot residual EVA counters via host probes.
+        (
+            self.game_logic.eva_low_power_count(),
+            self.game_logic.eva_insufficient_funds_count(),
+            self.game_logic.eva_base_under_attack_count(),
+            self.game_logic.eva_ally_under_attack_count(),
+        )
+    }
+
     /// Wave 582: host production enqueue residual (train honesty path boundary).
     #[inline]
     fn host_enqueue_production(
@@ -19951,11 +20031,9 @@ impl CnCGameEngine {
 
         // Fail-closed fallback residual: move if context path produced nothing.
         if self.sticky_auto_attack {
-            self.game_logic
-                .command_attack_move(self.current_player_id, clamped);
+            self.host_command_attack_move(self.current_player_id, clamped);
         } else {
-            self.game_logic
-                .command_move(self.current_player_id, clamped);
+            self.host_command_move(self.current_player_id, clamped);
         }
         self.play_sound_effect(SoundType::Command);
     }
@@ -20239,9 +20317,8 @@ impl CnCGameEngine {
                         (selection, center)
                     };
 
-                    self.game_logic
-                        .select_objects(self.current_player_id, selection.clone());
-                    self.selected_objects = selection.clone();
+                    // Wave 583: selection residual via host_set_selection.
+                    self.host_set_selection(self.current_player_id, selection.clone());
                     self.play_sound_effect(SoundType::Select);
 
                     // Double-tap residual: second press of same group within 500ms centers camera.
@@ -20391,8 +20468,8 @@ impl CnCGameEngine {
                         self.game_logic.destroy_object(id);
                     }
                     self.selected_objects.clear();
-                    self.game_logic
-                        .select_objects(self.current_player_id, Vec::new());
+                    // Wave 583: clear selection residual via host_set_selection.
+                    self.host_set_selection(self.current_player_id, Vec::new());
                 } else if self.cancel_selected_production_queue_head() {
                     // Producer selection: Delete cancels queue head residual.
                 } else {
@@ -21815,9 +21892,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} repairing", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -21839,9 +21915,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         let msg = format!("Selected {} idle military", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
@@ -21863,9 +21938,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         let msg = format!("Selected {} harvesters", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
@@ -21887,9 +21961,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} idle harvesters", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -21953,9 +22026,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} structures", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22081,9 +22153,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} attacking", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22158,9 +22229,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} moving", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22182,9 +22252,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!(
             "Selected {} occupied transports",
@@ -22240,9 +22309,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} garrisoned", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22313,9 +22381,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(&msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, selection.clone());
-        self.selected_objects = selection;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
         self.last_control_group_select = Some((group_num, Instant::now()));
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Control group {group_num}");
@@ -22338,9 +22405,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} stealthed", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22362,9 +22428,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} veterans", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22386,9 +22451,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} docked aircraft", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22468,9 +22532,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} patrolling", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22492,9 +22555,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} gathering", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22560,9 +22622,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} guarding", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22594,9 +22655,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} combat units", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22619,9 +22679,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, selection.clone());
-        self.selected_objects = selection;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} on screen", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22670,9 +22729,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, ids.clone());
-        self.selected_objects = ids;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
         let msg = format!("Selected {} constructing", self.selected_objects.len());
         self.game_hud.push_info_message(&msg);
@@ -22683,12 +22741,10 @@ impl CnCGameEngine {
         // Wave 548: presentation freeze owns follow-active residual when installed
         // (`camera_follow_position`; no live `camera_follow_object_id` dual-read).
         // Command authority still writes `set_camera_follow_object` for host follow state.
-        let follow_active = match self.last_presentation_frame.as_ref() {
-            Some(pres) => pres.camera_follow_position.is_some(),
-            None => self.game_logic.camera_follow_object_id().is_some(),
-        };
+        // Wave 583: follow-active via presentation_or_boot helper.
+        let follow_active = self.presentation_or_boot_camera_follow_active();
         if follow_active {
-            self.game_logic.set_camera_follow_object(None);
+            self.host_set_camera_follow_object(None);
             let msg = "Camera follow off";
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -22701,7 +22757,7 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         };
-        self.game_logic.set_camera_follow_object(Some(id));
+        self.host_set_camera_follow_object(Some(id));
         let msg = "Camera follow on";
         self.game_hud.push_info_message(msg);
         self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -22716,9 +22772,8 @@ impl CnCGameEngine {
         let team = frame.local_team();
         let selection = frame.alive_selectable_friendly_ids(team);
 
-        self.game_logic
-            .select_objects(self.current_player_id, selection.clone());
-        self.selected_objects = selection;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -22731,9 +22786,8 @@ impl CnCGameEngine {
         let team = frame.local_team();
         let selection = frame.alive_selectable_friendly_aircraft_ids(team);
 
-        self.game_logic
-            .select_objects(self.current_player_id, selection.clone());
-        self.selected_objects = selection;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
         if !self.selected_objects.is_empty() {
             self.play_sound_effect(SoundType::Select);
         }
@@ -22753,9 +22807,8 @@ impl CnCGameEngine {
         if selection.is_empty() {
             return;
         }
-        self.game_logic
-            .select_objects(self.current_player_id, selection.clone());
-        self.selected_objects = selection;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -22813,9 +22866,8 @@ impl CnCGameEngine {
                     self.toggle_select_object(object_id);
                 } else {
                     // Select this object
-                    self.game_logic
-                        .select_objects(self.current_player_id, vec![object_id]);
-                    self.selected_objects = vec![object_id];
+                    // Wave 583: selection residual via host_set_selection.
+                    self.host_set_selection(self.current_player_id, vec![object_id]);
                     self.play_sound_effect(SoundType::Select);
                 }
             } else if let Some(template) = self.pending_structure_placement.clone() {
@@ -22864,9 +22916,8 @@ impl CnCGameEngine {
         } else {
             selection.push(object_id);
         }
-        self.game_logic
-            .select_objects(self.current_player_id, selection.clone());
-        self.selected_objects = selection;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -22918,9 +22969,8 @@ impl CnCGameEngine {
             .unwrap_or_default();
 
         if !similar_units.is_empty() {
-            self.game_logic
-                .select_objects(self.current_player_id, similar_units.clone());
-            self.selected_objects = similar_units;
+            // Wave 583: selection residual via host_set_selection.
+            self.host_set_selection(self.current_player_id, similar_units);
             self.play_sound_effect(SoundType::Select);
             info!(
                 "Selected {} similar units ({})",
@@ -22958,8 +23008,8 @@ impl CnCGameEngine {
                 let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
                 if !shift_down {
                     self.selected_objects.clear();
-                    self.game_logic
-                        .select_objects(self.current_player_id, Vec::new());
+                    // Wave 583: clear selection residual via host_set_selection.
+                    self.host_set_selection(self.current_player_id, Vec::new());
                 }
             }
             return;
@@ -22999,9 +23049,8 @@ impl CnCGameEngine {
             }
         }
 
-        self.game_logic
-            .select_objects(self.current_player_id, selection.clone());
-        self.selected_objects = selection;
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -23084,11 +23133,9 @@ impl CnCGameEngine {
 
         // Fail-closed fallback residual: move if context path produced nothing.
         if self.sticky_auto_attack {
-            self.game_logic
-                .command_attack_move(self.current_player_id, mouse_pos);
+            self.host_command_attack_move(self.current_player_id, mouse_pos);
         } else {
-            self.game_logic
-                .command_move(self.current_player_id, mouse_pos);
+            self.host_command_move(self.current_player_id, mouse_pos);
         }
         self.play_sound_effect(SoundType::Command);
     }
