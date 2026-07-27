@@ -3969,6 +3969,7 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            let was_ready = obj.special_power_ready;
             let changed = obj.special_power_ready != ent.special_power_ready
                 || (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining)
                     .abs()
@@ -3980,6 +3981,16 @@ impl GameWorldShadow {
             obj.special_power_ready = ent.special_power_ready;
             obj.special_power_cooldown_remaining = ent.special_power_cooldown_remaining.max(0.0);
             obj.special_power_cooldown = ent.special_power_cooldown.max(0.0);
+            // Wave 618: GameWorld sole-tick SP ready residual — host EVA/UI can drain.
+            if crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled()
+                && !was_ready
+                && ent.special_power_ready
+            {
+                crate::game_logic::host_special_power_ready_log::record(
+                    ObjectId(hid),
+                    ent.special_power_cooldown_remaining.max(0.0),
+                );
+            }
             updated += 1;
         }
         updated

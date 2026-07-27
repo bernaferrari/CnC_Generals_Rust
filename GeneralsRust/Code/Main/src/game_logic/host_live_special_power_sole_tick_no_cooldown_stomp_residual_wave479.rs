@@ -122,7 +122,10 @@ fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 
 /// Host sole-tick SP branch body (search marker window).
 fn host_sp_sole_window(src: &str) -> Option<&str> {
-    let start = src.find("gameworld_special_power_sole_tick_enabled()")?;
+    // Prefer Wave 479 marker on GameLogic::tick_shared_special_power_timers sole branch.
+    let marker = "Wave 479: do not republish full cooldown snapshots each frame";
+    let start = src.find(marker)?;
+    let start = start.saturating_sub(160);
     Some(&src[start..src.len().min(start + 900)])
 }
 
