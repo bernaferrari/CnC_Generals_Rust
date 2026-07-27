@@ -19322,10 +19322,21 @@ impl CnCGameEngine {
 
     fn center_camera_on(&mut self, world_pos: Vec3) {
         let clamped = self.clamp_to_world_bounds(world_pos);
-        let ground_height = self
-            .game_logic
-            .terrain_height_at(clamped)
-            .unwrap_or(self.camera_target.y);
+        // Wave 460: prefer presentation-frozen height grid; live terrain only when
+        // no PresentationFrame is installed (boot residual).
+        let ground_height = if let Some(pres) = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref())
+        {
+            pres.world_env
+                .sample_height(clamped.x, clamped.z)
+                .unwrap_or(self.camera_target.y)
+        } else {
+            self.game_logic
+                .terrain_height_at(clamped)
+                .unwrap_or(self.camera_target.y)
+        };
         self.camera_target.x = clamped.x;
         self.camera_target.y = ground_height;
         self.camera_target.z = clamped.z;
@@ -19487,9 +19498,13 @@ impl CnCGameEngine {
     }
 
     fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
-        // Prefer presentation world_env when installed (camera follow / scroll clamp).
-        // Boot residual without a frame still uses host GameLogic bounds.
-        let (world_min, world_max) = if let Some(frame) = self.last_presentation_frame.as_ref() {
+        // Wave 460: prefer pipeline or last presentation world_env when installed
+        // (camera follow / scroll clamp). Boot residual without a frame still uses host.
+        let (world_min, world_max) = if let Some(frame) = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref())
+        {
             frame.world_env.world_bounds_vec3()
         } else {
             self.game_logic.world_bounds()

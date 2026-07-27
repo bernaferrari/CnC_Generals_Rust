@@ -254,6 +254,7 @@ pub mod host_live_bridge_scaffold_dual_world_empty_gate_residual_wave335;
 pub mod host_live_bridge_tower_dual_world_empty_gate_residual_wave318;
 pub mod host_live_build_placement_dual_world_empty_gate_residual_wave418;
 pub mod host_live_bunker_buster_dual_world_empty_gate_residual_wave334;
+pub mod host_live_camera_center_presentation_height_residual_wave460;
 pub mod host_live_camera_height_probe_residual_wave241;
 pub mod host_live_carpet_bomb_power_dual_world_empty_gate_residual_wave440;
 pub mod host_live_cave_contain_dual_world_empty_gate_residual_wave279;
@@ -2122,6 +2123,21 @@ pub use host_live_bunker_buster_dual_world_empty_gate_residual_wave334::{
     honesty_live_bunker_buster_dual_world_empty_gate_nav_commands_residual_wave334,
     honesty_live_bunker_buster_dual_world_empty_gate_residual_pack_wave334,
     simulate_live_bunker_buster_dual_world_empty_gate_honesty,
+};
+pub use host_live_camera_center_presentation_height_residual_wave460::{
+    honesty_camera_center_presentation_height_method_names_residual_wave460,
+    honesty_camera_center_presentation_height_nav_commands_residual_wave460,
+    honesty_camera_center_presentation_height_residual_pack_wave460,
+    residual_camera_center_presentation_height_last_action,
+    residual_camera_center_presentation_height_ok,
+    simulate_camera_center_presentation_height_source,
+    simulate_camera_clamp_presentation_bounds_source,
+    simulate_live_camera_center_presentation_height_honesty,
+    ResidualCameraCenterPresentationHeightAction,
+    CAMERA_CENTER_PRESENTATION_HEIGHT_METHOD_NAMES_WAVE460,
+    CAMERA_CENTER_PRESENTATION_HEIGHT_NAV_STEPS_WAVE460,
+    CAMERA_CENTER_PRESENTATION_HEIGHT_SOURCE_MARKERS_WAVE460,
+    RUNTIME_HOST_CAMERA_CENTER_PRESENTATION_HEIGHT_CMD_NAMES_WAVE460,
 };
 pub use host_live_camera_height_probe_residual_wave241::{
     honesty_live_camera_height_probe_method_names_residual_wave241,
