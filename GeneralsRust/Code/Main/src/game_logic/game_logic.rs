@@ -24295,6 +24295,17 @@ impl GameLogic {
         self.mark_object_for_destruction(id, None);
     }
 
+    /// Wave 482: sell residual kill (parked aircraft) — queue remove without
+    /// SlowDeath/Topple deferral peels used for combat deaths.
+    fn destroy_object_for_sell_residual(&mut self, id: ObjectId) {
+        self.maybe_notify_special_power_completion(id);
+        self.maybe_apply_dam_die(id);
+        let _ = self.apply_ocl_random_force(id);
+        self.maybe_apply_upgrade_die(id);
+        self.objects_to_destroy
+            .push_back(DestructionEvent { id, killer: None });
+    }
+
     /// C++ FireWeaponWhenDeadBehavior::onDie residual — death weapon splash.
     fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) {
         use crate::game_logic::host_fire_weapon_when_dead::{
@@ -24400,17 +24411,27 @@ impl GameLogic {
         let _ = self.apply_ocl_random_force(id);
         // C++ UpgradeDie::onDie residual — free producer's upgrade slot.
         self.maybe_apply_upgrade_die(id);
-        // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
-        if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
-            return;
-        }
-        // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
-        if self.try_begin_slow_death_instead_of_destroy(id, killer) {
-            return;
-        }
-        // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
-        if self.try_begin_keep_object_die_instead_of_destroy(id, killer) {
-            return;
+        // Wave 482: BuildAssistant sell finish removes the object immediately.
+        // Do not defer into StructureTopple/Collapse / SlowDeath / KeepObjectDie —
+        // those combat-death peels left sold structures alive forever in host-only tests.
+        let sold = self
+            .objects
+            .get(&id)
+            .map(|o| o.status.sold)
+            .unwrap_or(false);
+        if !sold {
+            // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
+            if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
+                return;
+            }
+            // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
+            if self.try_begin_slow_death_instead_of_destroy(id, killer) {
+                return;
+            }
+            // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
+            if self.try_begin_keep_object_die_instead_of_destroy(id, killer) {
+                return;
+            }
         }
         self.objects_to_destroy
             .push_back(DestructionEvent { id, killer });
@@ -67688,7 +67709,7 @@ impl GameLogic {
                     })
                     .unwrap_or(false);
                 if kill {
-                    self.destroy_object(uid);
+                    self.destroy_object_for_sell_residual(uid);
                     self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(1);
                     continue;
                 }
@@ -67804,9 +67825,13 @@ impl GameLogic {
                 })
                 .collect();
             for pid in parked {
-                self.destroy_object(pid);
+                self.destroy_object_for_sell_residual(pid);
                 self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(1);
             }
+        }
+        // Wave 482: flush sell residual kills (parked aircraft) same frame.
+        if self.sell_parked_units_killed > 0 {
+            self.process_destroy_list();
         }
     }
 
