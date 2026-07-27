@@ -2231,6 +2231,11 @@ use crate::game_logic::host_live_boot_movie_helper_residual_wave567::{
     honesty_boot_movie_helper_nav_commands_residual_wave567,
     simulate_live_boot_movie_helper_honesty,
 };
+use crate::game_logic::host_live_script_fps_helper_residual_wave568::{
+    honesty_script_fps_helper_method_names_residual_wave568,
+    honesty_script_fps_helper_nav_commands_residual_wave568,
+    simulate_live_script_fps_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5650,6 +5655,9 @@ pub struct ShellSmokeResult {
     pub boot_movie_helper_method_names_wave567_ok: bool,
     pub boot_movie_helper_nav_commands_wave567_ok: bool,
     pub boot_movie_helper_live_wave567_ok: bool,
+    pub script_fps_helper_method_names_wave568_ok: bool,
+    pub script_fps_helper_nav_commands_wave568_ok: bool,
+    pub script_fps_helper_live_wave568_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8807,6 +8815,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let boot_movie_helper_nav_commands_wave567_ok =
         honesty_boot_movie_helper_nav_commands_residual_wave567();
     let boot_movie_helper_live_wave567_ok = simulate_live_boot_movie_helper_honesty();
+    let script_fps_helper_method_names_wave568_ok =
+        honesty_script_fps_helper_method_names_residual_wave568();
+    let script_fps_helper_nav_commands_wave568_ok =
+        honesty_script_fps_helper_nav_commands_residual_wave568();
+    let script_fps_helper_live_wave568_ok = simulate_live_script_fps_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10497,6 +10510,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         boot_movie_helper_method_names_wave567_ok,
         boot_movie_helper_nav_commands_wave567_ok,
         boot_movie_helper_live_wave567_ok,
+        script_fps_helper_method_names_wave568_ok,
+        script_fps_helper_nav_commands_wave568_ok,
+        script_fps_helper_live_wave568_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19272,6 +19288,21 @@ mod tests {
         assert!(
             r.boot_movie_helper_live_wave567_ok,
             "boot movie helper live residual wave567: {}",
+            r.detail
+        );
+        assert!(
+            r.script_fps_helper_method_names_wave568_ok,
+            "script FPS helper method names residual pack wave568: {}",
+            r.detail
+        );
+        assert!(
+            r.script_fps_helper_nav_commands_wave568_ok,
+            "script FPS helper nav commands residual pack wave568: {}",
+            r.detail
+        );
+        assert!(
+            r.script_fps_helper_live_wave568_ok,
+            "script FPS helper live residual wave568: {}",
             r.detail
         );
         assert!(
