@@ -2168,7 +2168,7 @@ impl CnCGameEngine {
             startup_phase: self.startup_loading_phase.clone(),
             map: map_name,
             frame: self.frame_counter,
-            logic_frame: self.game_logic.get_frame(),
+            logic_frame: self.presentation_or_boot_logic_frame(),
             logic_steps: self.game_logic.fixed_step_diagnostics().steps_run as u32,
             under_construction,
             match_damage_applied: self.match_damage_applied,
@@ -18351,6 +18351,18 @@ impl CnCGameEngine {
         out
     }
 
+    /// Wave 560: presentation freeze owns logic-frame residual when installed.
+    /// Boot residual without freeze uses host `get_frame`.
+    #[inline]
+    fn presentation_or_boot_logic_frame(&self) -> u32 {
+        // Wave 560: presentation freeze owns logic-frame residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.frame.0;
+        }
+        // Boot residual only.
+        self.game_logic.get_frame()
+    }
+
     /// Wave 555: presentation freeze owns unlocked-sciences residual when installed.
     /// Boot residual without freeze uses host probe API.
     #[inline]
@@ -18988,9 +19000,11 @@ impl CnCGameEngine {
         // Wave 455/466: freeze host map env into PresentationFrame once (with optional
         // GameWorld overlay), then env apply is presentation-only.
         if self.render_pipeline.presentation_frame().is_none() {
+            // Wave 560: local_player_id must be current player (not logic frame).
+            // Passing get_frame() mis-binds FOW/local team residual on seed.
             let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
                 &self.game_logic,
-                self.game_logic.get_frame() as u32,
+                self.current_player_id,
                 self.gameworld_shadow.as_ref(),
             );
             self.render_pipeline.set_presentation_frame(Some(env_frame));
