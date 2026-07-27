@@ -370,6 +370,7 @@ pub mod host_live_hive_structure_body_dual_world_empty_gate_residual_wave389;
 pub mod host_live_horde_update_dual_world_empty_gate_residual_wave378;
 pub mod host_live_host_beacon_presentation_residual_wave211;
 pub mod host_live_host_camera_start_helper_residual_wave577;
+pub mod host_live_host_cancel_selection_helper_residual_wave580;
 pub mod host_live_host_command_flush_helper_residual_wave576;
 pub mod host_live_host_pause_team_helper_residual_wave575;
 pub mod host_live_host_selection_map_helper_residual_wave579;
@@ -2501,6 +2502,14 @@ pub use host_live_host_camera_start_helper_residual_wave577::{
     honesty_host_camera_start_helper_source_markers_residual_wave577,
     residual_host_camera_start_helper_last_action, residual_host_camera_start_helper_ok,
     simulate_live_host_camera_start_helper_honesty,
+};
+pub use host_live_host_cancel_selection_helper_residual_wave580::{
+    honesty_host_cancel_selection_helper_method_names_residual_wave580,
+    honesty_host_cancel_selection_helper_nav_commands_residual_wave580,
+    honesty_host_cancel_selection_helper_residual_pack_wave580,
+    honesty_host_cancel_selection_helper_source_markers_residual_wave580,
+    residual_host_cancel_selection_helper_last_action, residual_host_cancel_selection_helper_ok,
+    simulate_live_host_cancel_selection_helper_honesty,
 };
 pub use host_live_host_command_flush_helper_residual_wave576::{
     honesty_host_command_flush_helper_method_names_residual_wave576,

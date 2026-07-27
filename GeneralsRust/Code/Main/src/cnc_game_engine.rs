@@ -9955,9 +9955,7 @@ impl CnCGameEngine {
                         }
                     });
                     if let Some(id) = pick {
-                        self.selected_objects = vec![id];
-                        self.game_logic
-                            .select_objects(self.current_player_id, vec![id]);
+                        self.host_set_selection(self.current_player_id, vec![id]);
                         self.runtime_host_last_gameplay_cmd = format!("select_ok:{}", id.0);
                     } else {
                         self.runtime_host_last_gameplay_cmd = "select_fail_no_mobile".into();
@@ -10023,9 +10021,7 @@ impl CnCGameEngine {
                             };
                         }
                         if !attackers.is_empty() {
-                            self.selected_objects = attackers.clone();
-                            self.game_logic
-                                .select_objects(self.current_player_id, attackers);
+                            self.host_set_selection(self.current_player_id, attackers.clone());
                         }
                     }
                     // Wave 221: selection count via presentation-first ui_selected_ids.
@@ -10254,9 +10250,7 @@ impl CnCGameEngine {
                                 None
                             };
                             if let Some(id) = id {
-                                self.selected_objects = vec![id];
-                                self.game_logic
-                                    .select_objects(self.current_player_id, vec![id]);
+                                self.host_set_selection(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -10292,9 +10286,7 @@ impl CnCGameEngine {
                                 None
                             };
                             if let Some(id) = id {
-                                self.selected_objects = vec![id];
-                                self.game_logic
-                                    .select_objects(self.current_player_id, vec![id]);
+                                self.host_set_selection(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -10477,9 +10469,8 @@ impl CnCGameEngine {
                     if mobile_sel.len() < 2 {
                         self.runtime_host_last_gameplay_cmd = "formation_fail_need_two".into();
                     } else {
-                        self.selected_objects = mobile_sel.clone();
-                        self.game_logic
-                            .select_objects(self.current_player_id, mobile_sel.clone());
+                        // Wave 580: host selection residual via helper.
+                        self.host_set_selection(self.current_player_id, mobile_sel.clone());
                         self.issue_named_command_from_ui("Command_CreateFormation");
                         self.runtime_host_last_gameplay_cmd =
                             format!("formation_ok:{}", mobile_sel.len());
@@ -10625,9 +10616,7 @@ impl CnCGameEngine {
                                 None
                             };
                             if let Some(id) = id {
-                                self.selected_objects = vec![id];
-                                self.game_logic
-                                    .select_objects(self.current_player_id, vec![id]);
+                                self.host_set_selection(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -10774,9 +10763,7 @@ impl CnCGameEngine {
                                 None
                             };
                             if let Some(id) = id {
-                                self.selected_objects = vec![id];
-                                self.game_logic
-                                    .select_objects(self.current_player_id, vec![id]);
+                                self.host_set_selection(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -11252,9 +11239,7 @@ impl CnCGameEngine {
                                 None
                             };
                             if let Some(id) = id {
-                                self.selected_objects = vec![id];
-                                self.game_logic
-                                    .select_objects(self.current_player_id, vec![id]);
+                                self.host_set_selection(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -11398,9 +11383,7 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = "construct_fail_no_dozer".into();
                         return;
                     };
-                    self.selected_objects = vec![builder];
-                    self.game_logic
-                        .select_objects(self.current_player_id, vec![builder]);
+                    self.host_set_selection(self.current_player_id, vec![builder]);
 
                     // Location: explicit xyz, else near builder / local CC.
                     let loc = if let (Some(x), Some(z)) = (
@@ -17013,6 +16996,30 @@ impl CnCGameEngine {
 
     /// Wave 577: host camera jump residual — clamp, set camera_target XZ, request focus.
     /// Wave 579: host selection residual — keep GameLogic selection and engine
+    /// Wave 580: host cancel-production residual — GameLogic cancel + construction
+    /// panel queue head sync (presentation HUD residual).
+    #[inline]
+    fn host_cancel_production_and_sync_hud(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        template_name: String,
+    ) -> bool {
+        // Wave 580: cancel + HUD building_queue residual.
+        if !self.game_logic.cancel_production(id, template_name.clone()) {
+            return false;
+        }
+        let panel = &mut self.game_hud.construction_panel;
+        if let Some(idx) = panel
+            .building_queue
+            .iter()
+            .rposition(|q| q.item_name == template_name)
+        {
+            panel.building_queue.remove(idx);
+        }
+        true
+    }
+
+    /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
     #[inline]
     fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
@@ -17512,17 +17519,9 @@ impl CnCGameEngine {
             let Some(template_name) = head_name else {
                 continue;
             };
-            if self.game_logic.cancel_production(id, template_name.clone()) {
+            // Wave 580: host cancel + HUD residual via helper.
+            if self.host_cancel_production_and_sync_hud(id, template_name) {
                 any = true;
-                // Keep dual HUD presentation queue residual in sync.
-                let panel = &mut self.game_hud.construction_panel;
-                if let Some(idx) = panel
-                    .building_queue
-                    .iter()
-                    .rposition(|q| q.item_name == template_name)
-                {
-                    panel.building_queue.remove(idx);
-                }
             }
         }
         if any {
@@ -17550,18 +17549,11 @@ impl CnCGameEngine {
                 let Some(template_name) = head_name else {
                     break;
                 };
-                if !self.game_logic.cancel_production(id, template_name.clone()) {
+                // Wave 580: host cancel + HUD residual via helper.
+                if !self.host_cancel_production_and_sync_hud(id, template_name) {
                     break;
                 }
                 any = true;
-                let panel = &mut self.game_hud.construction_panel;
-                if let Some(idx) = panel
-                    .building_queue
-                    .iter()
-                    .rposition(|q| q.item_name == template_name)
-                {
-                    panel.building_queue.remove(idx);
-                }
             }
         }
         if any {
@@ -21348,9 +21340,7 @@ impl CnCGameEngine {
             all[all.len() - 1]
         };
 
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -21396,9 +21386,7 @@ impl CnCGameEngine {
             workers[workers.len() - 1]
         };
 
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -21446,9 +21434,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == next && !o.destroyed)
             .map(|o| o.position);
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
@@ -21584,9 +21570,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == next && !o.destroyed)
             .map(|o| o.position);
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
@@ -21630,9 +21614,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == next && !o.destroyed)
             .map(|o| o.position);
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
@@ -21761,9 +21743,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == next && !o.destroyed)
             .map(|o| o.position);
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
@@ -22003,9 +21983,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == next && !o.destroyed)
             .map(|o| o.position);
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
@@ -22085,9 +22063,7 @@ impl CnCGameEngine {
             .into_iter()
             .next();
         if let Some(id) = id {
-            self.selected_objects = vec![id];
-            self.game_logic
-                .select_objects(self.current_player_id, vec![id]);
+            self.host_set_selection(self.current_player_id, vec![id]);
         }
     }
 
@@ -22418,9 +22394,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == next && !o.destroyed)
             .map(|o| o.position);
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
@@ -22515,9 +22489,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == next && !o.destroyed)
             .map(|o| o.position);
-        self.selected_objects = vec![next];
-        self.game_logic
-            .select_objects(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
