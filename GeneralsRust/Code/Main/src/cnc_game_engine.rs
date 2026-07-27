@@ -2136,15 +2136,19 @@ impl CnCGameEngine {
             1.0
         };
 
-        // Object-roster stats are presentation-only (no live get_objects dual-read).
+        // Object-roster stats are presentation-owned when freeze installed (no live
+        // get_objects dual-read). Wave 547: selection count prefers engine selection
+        // residual first (command authority), then presentation freeze fail-closed
+        // (no empty-presentation fallthrough that re-reads a second residual mid-frame).
+        // Boot residual without freeze: engine selection only.
         let (local_mobile_units, under_construction, selected_count, sample_unit_pos) =
             if let Some(frame) = self.last_presentation_frame.as_ref() {
                 let team = frame.local_team();
-                let n = frame.count_selected_friendlies(team);
-                let selected = if n > 0 {
-                    n
-                } else {
+                let selected = if !self.selected_objects.is_empty() {
                     self.selected_objects.len() as u32
+                } else {
+                    // Wave 547: presentation freeze owns selection count residual.
+                    frame.count_selected_friendlies(team)
                 };
                 (
                     frame.count_mobile_friendlies(team),
