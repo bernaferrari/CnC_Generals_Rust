@@ -293,6 +293,7 @@ pub mod host_live_command_unit_more_authority_api_residual_wave231;
 pub mod host_live_command_unit_probe_residual_wave244;
 pub mod host_live_construct_economy_probe_residual_wave243;
 pub mod host_live_construct_spawn_pose_authority_api_residual_wave227;
+pub mod host_live_construct_template_presentation_helper_residual_wave565;
 pub mod host_live_construction_placement_dual_world_empty_gate_residual_wave454;
 pub mod host_live_construction_sole_tick_no_progress_stomp_residual_wave478;
 pub mod host_live_contain_module_overrides_fail_closed_residual_wave449;
@@ -2313,6 +2314,15 @@ pub use host_live_command_integration_presentation_fill_residual_wave531::{
     residual_command_integration_presentation_fill_last_action,
     residual_command_integration_presentation_fill_ok,
     simulate_live_command_integration_presentation_fill_honesty,
+};
+pub use host_live_construct_template_presentation_helper_residual_wave565::{
+    honesty_construct_template_presentation_helper_method_names_residual_wave565,
+    honesty_construct_template_presentation_helper_nav_commands_residual_wave565,
+    honesty_construct_template_presentation_helper_residual_pack_wave565,
+    honesty_construct_template_presentation_helper_source_markers_residual_wave565,
+    residual_construct_template_presentation_helper_last_action,
+    residual_construct_template_presentation_helper_ok,
+    simulate_live_construct_template_presentation_helper_honesty,
 };
 pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     honesty_construction_sole_tick_no_progress_stomp_method_names_residual_wave478,
