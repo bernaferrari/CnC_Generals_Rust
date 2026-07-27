@@ -2146,6 +2146,11 @@ use crate::game_logic::host_live_visual_speed_presentation_helper_residual_wave5
     honesty_visual_speed_presentation_helper_nav_commands_residual_wave550,
     simulate_live_visual_speed_presentation_helper_honesty,
 };
+use crate::game_logic::host_live_time_frozen_presentation_helper_residual_wave551::{
+    honesty_time_frozen_presentation_helper_method_names_residual_wave551,
+    honesty_time_frozen_presentation_helper_nav_commands_residual_wave551,
+    simulate_live_time_frozen_presentation_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5514,6 +5519,9 @@ pub struct ShellSmokeResult {
     pub visual_speed_presentation_helper_method_names_wave550_ok: bool,
     pub visual_speed_presentation_helper_nav_commands_wave550_ok: bool,
     pub visual_speed_presentation_helper_live_wave550_ok: bool,
+    pub time_frozen_presentation_helper_method_names_wave551_ok: bool,
+    pub time_frozen_presentation_helper_nav_commands_wave551_ok: bool,
+    pub time_frozen_presentation_helper_live_wave551_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8571,6 +8579,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_visual_speed_presentation_helper_nav_commands_residual_wave550();
     let visual_speed_presentation_helper_live_wave550_ok =
         simulate_live_visual_speed_presentation_helper_honesty();
+    let time_frozen_presentation_helper_method_names_wave551_ok =
+        honesty_time_frozen_presentation_helper_method_names_residual_wave551();
+    let time_frozen_presentation_helper_nav_commands_wave551_ok =
+        honesty_time_frozen_presentation_helper_nav_commands_residual_wave551();
+    let time_frozen_presentation_helper_live_wave551_ok =
+        simulate_live_time_frozen_presentation_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10210,6 +10224,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         visual_speed_presentation_helper_method_names_wave550_ok,
         visual_speed_presentation_helper_nav_commands_wave550_ok,
         visual_speed_presentation_helper_live_wave550_ok,
+        time_frozen_presentation_helper_method_names_wave551_ok,
+        time_frozen_presentation_helper_nav_commands_wave551_ok,
+        time_frozen_presentation_helper_live_wave551_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18730,6 +18747,21 @@ mod tests {
         assert!(
             r.visual_speed_presentation_helper_live_wave550_ok,
             "visual speed presentation helper live residual wave550: {}",
+            r.detail
+        );
+        assert!(
+            r.time_frozen_presentation_helper_method_names_wave551_ok,
+            "time frozen presentation helper method names residual pack wave551: {}",
+            r.detail
+        );
+        assert!(
+            r.time_frozen_presentation_helper_nav_commands_wave551_ok,
+            "time frozen presentation helper nav commands residual pack wave551: {}",
+            r.detail
+        );
+        assert!(
+            r.time_frozen_presentation_helper_live_wave551_ok,
+            "time frozen presentation helper live residual wave551: {}",
             r.detail
         );
         assert!(

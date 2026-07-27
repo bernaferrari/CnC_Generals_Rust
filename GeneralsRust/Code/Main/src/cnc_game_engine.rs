@@ -15675,11 +15675,7 @@ impl CnCGameEngine {
             // (update_combat drain/step + update_movement). Engine must not run a
             // second mid-frame CombatSystem/PathfindingSystem mover.
             // Wave 250: prefer presentation freeze residual when a frame is installed.
-            let time_frozen = self
-                .last_presentation_frame
-                .as_ref()
-                .map(|p| p.time_frozen_for_simulation)
-                .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation());
+            let time_frozen = self.presentation_or_boot_time_frozen();
             if !time_frozen {
                 // Hit SFX residual: prefer presentation audio events; legacy direct
                 // Hit playback removed with dual CombatSystem step.
@@ -15749,12 +15745,7 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 // Wave 250: prefer presentation freeze residual when a frame is installed.
-                let visual_delta = if self
-                    .last_presentation_frame
-                    .as_ref()
-                    .map(|p| p.time_frozen_for_simulation)
-                    .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation())
-                {
+                let visual_delta = if self.presentation_or_boot_time_frozen() {
                     0.0
                 } else {
                     game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
@@ -16312,11 +16303,7 @@ impl CnCGameEngine {
 
         // Execute the main game render pipeline using the WW3D frame.
         // Wave 250: prefer presentation freeze residual when a frame is installed.
-        let time_frozen = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.time_frozen_for_simulation)
-            .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation());
+        let time_frozen = self.presentation_or_boot_time_frozen();
         // Wave 251: prefer presentation visual speed residual when a frame is installed.
         let visual_speed = self.presentation_or_boot_visual_speed();
         let render_time_delta = if time_frozen {
@@ -18293,6 +18280,18 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.visual_speed_multiplier()
+    }
+
+    /// Wave 551: presentation freeze owns time-frozen residual when installed.
+    /// Boot residual without freeze uses host GameLogic probe.
+    #[inline]
+    fn presentation_or_boot_time_frozen(&self) -> bool {
+        // Wave 551: presentation freeze owns time-frozen residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.time_frozen_for_simulation;
+        }
+        // Boot residual only.
+        self.game_logic.is_time_frozen_for_simulation()
     }
 
     fn map_ai_difficulty_to_save(difficulty: crate::ai::AIDifficulty) -> GameDifficulty {
@@ -23035,12 +23034,7 @@ impl CnCGameEngine {
         }
 
         // Wave 250: prefer presentation freeze residual when a frame is installed.
-        let shake_dt = if self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.time_frozen_for_simulation)
-            .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation())
-        {
+        let shake_dt = if self.presentation_or_boot_time_frozen() {
             0.0
         } else {
             dt

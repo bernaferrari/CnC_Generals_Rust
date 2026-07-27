@@ -88,15 +88,20 @@ pub fn honesty_presentation_time_frozen_probe_source() -> bool {
     if !pf.contains("pub time_frozen_for_simulation: bool") {
         return false;
     }
-    // Wave 250 markers on all four consumer sites.
-    let markers = eng.matches("Wave 250").count();
-    if markers < 3 {
-        return false;
-    }
-    eng.contains("p.time_frozen_for_simulation")
+    // Wave 551: call sites centralized via presentation_or_boot_time_frozen
+    // (still presentation-first; raw dual-read only inside helper).
+    let consumer_ok = (eng.matches("Wave 250").count() >= 3
+        && eng.contains("p.time_frozen_for_simulation")
         && eng.contains("render_time_delta")
         && eng.contains("visual_delta")
-        && eng.contains("shake_dt")
+        && eng.contains("shake_dt"))
+        || (eng.contains("fn presentation_or_boot_time_frozen")
+            && eng.contains("Wave 551")
+            && eng.contains("presentation_or_boot_time_frozen()")
+            && eng.contains("render_time_delta")
+            && eng.contains("visual_delta")
+            && eng.contains("shake_dt"));
+    consumer_ok
 }
 
 /// Live residual: source honesty pack latches.
