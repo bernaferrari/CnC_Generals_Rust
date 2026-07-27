@@ -6575,13 +6575,15 @@ impl GameLogic {
                 Some(&mut self.countermeasures),
                 self.frame,
             );
-            self.flush_countermeasure_flare_spawns();
-            self.update_countermeasure_flare_objects();
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),
             );
             hits
         };
+        // Wave 470: countermeasure flare spawn/object residual stays host-owned
+        // even when GameWorld sole-integrates projectile flight.
+        self.flush_countermeasure_flare_spawns();
+        self.update_countermeasure_flare_objects();
         self.drain_historic_bonus_firestorms();
 
         if !projectile_hits.is_empty() {

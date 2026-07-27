@@ -426,6 +426,7 @@ pub mod host_live_production_quantity_writeback_residual_wave463;
 pub mod host_live_production_update_complete_dual_world_empty_gate_residual_wave365;
 pub mod host_live_production_update_dual_world_empty_gate_residual_wave326;
 pub mod host_live_production_update_dual_world_empty_gate_residual_wave376;
+pub mod host_live_projectile_authority_flare_host_residual_wave470;
 pub mod host_live_projectile_stream_update_dual_world_empty_gate_residual_wave372;
 pub mod host_live_propaganda_center_behavior_dual_world_empty_gate_residual_wave364;
 pub mod host_live_propaganda_tower_behavior_dual_world_empty_gate_residual_wave363;
@@ -3252,6 +3253,20 @@ pub use host_live_production_update_dual_world_empty_gate_residual_wave376::{
     honesty_live_production_update_dual_world_empty_gate_nav_commands_residual_wave376,
     honesty_live_production_update_dual_world_empty_gate_residual_pack_wave376,
     simulate_live_production_update_dual_world_empty_gate_honesty_wave376,
+};
+pub use host_live_projectile_authority_flare_host_residual_wave470::{
+    honesty_projectile_authority_flare_host_method_names_residual_wave470,
+    honesty_projectile_authority_flare_host_nav_commands_residual_wave470,
+    honesty_projectile_authority_flare_host_residual_pack_wave470,
+    residual_projectile_authority_flare_host_last_action,
+    residual_projectile_authority_flare_host_ok,
+    simulate_live_projectile_authority_flare_host_honesty,
+    simulate_projectile_authority_defer_source, simulate_projectile_authority_flare_host_source,
+    ResidualProjectileAuthorityFlareHostAction,
+    PROJECTILE_AUTHORITY_FLARE_HOST_METHOD_NAMES_WAVE470,
+    PROJECTILE_AUTHORITY_FLARE_HOST_NAV_STEPS_WAVE470,
+    PROJECTILE_AUTHORITY_FLARE_HOST_SOURCE_MARKERS_WAVE470,
+    RUNTIME_HOST_PROJECTILE_AUTHORITY_FLARE_HOST_CMD_NAMES_WAVE470,
 };
 pub use host_live_projectile_stream_update_dual_world_empty_gate_residual_wave372::{
     honesty_live_projectile_stream_update_dual_world_empty_gate_method_names_residual_wave372,
