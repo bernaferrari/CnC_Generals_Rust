@@ -2306,6 +2306,11 @@ use crate::game_logic::host_live_host_enqueue_shell_cmd_helper_residual_wave582:
     honesty_host_enqueue_shell_cmd_helper_nav_commands_residual_wave582,
     simulate_live_host_enqueue_shell_cmd_helper_honesty,
 };
+use crate::game_logic::host_live_host_runtime_cmd_helper_residual_wave583::{
+    honesty_host_runtime_cmd_helper_method_names_residual_wave583,
+    honesty_host_runtime_cmd_helper_nav_commands_residual_wave583,
+    simulate_live_host_runtime_cmd_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5770,6 +5775,9 @@ pub struct ShellSmokeResult {
     pub host_enqueue_shell_cmd_helper_method_names_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_live_wave582_ok: bool,
+    pub host_runtime_cmd_helper_method_names_wave583_ok: bool,
+    pub host_runtime_cmd_helper_nav_commands_wave583_ok: bool,
+    pub host_runtime_cmd_helper_live_wave583_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9007,6 +9015,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_enqueue_shell_cmd_helper_nav_commands_residual_wave582();
     let host_enqueue_shell_cmd_helper_live_wave582_ok =
         simulate_live_host_enqueue_shell_cmd_helper_honesty();
+    let host_runtime_cmd_helper_method_names_wave583_ok =
+        honesty_host_runtime_cmd_helper_method_names_residual_wave583();
+    let host_runtime_cmd_helper_nav_commands_wave583_ok =
+        honesty_host_runtime_cmd_helper_nav_commands_residual_wave583();
+    let host_runtime_cmd_helper_live_wave583_ok = simulate_live_host_runtime_cmd_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10742,6 +10755,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_enqueue_shell_cmd_helper_method_names_wave582_ok,
         host_enqueue_shell_cmd_helper_nav_commands_wave582_ok,
         host_enqueue_shell_cmd_helper_live_wave582_ok,
+        host_runtime_cmd_helper_method_names_wave583_ok,
+        host_runtime_cmd_helper_nav_commands_wave583_ok,
+        host_runtime_cmd_helper_live_wave583_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19742,6 +19758,21 @@ mod tests {
         assert!(
             r.host_enqueue_shell_cmd_helper_live_wave582_ok,
             "host enqueue/shell cmd helper live residual wave582: {}",
+            r.detail
+        );
+        assert!(
+            r.host_runtime_cmd_helper_method_names_wave583_ok,
+            "host runtime cmd helper method names residual pack wave583: {}",
+            r.detail
+        );
+        assert!(
+            r.host_runtime_cmd_helper_nav_commands_wave583_ok,
+            "host runtime cmd helper nav commands residual pack wave583: {}",
+            r.detail
+        );
+        assert!(
+            r.host_runtime_cmd_helper_live_wave583_ok,
+            "host runtime cmd helper live residual wave583: {}",
             r.detail
         );
         assert!(
