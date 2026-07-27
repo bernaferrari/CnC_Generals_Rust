@@ -18318,6 +18318,39 @@ impl CnCGameEngine {
         self.game_logic.isInReplayGame()
     }
 
+    /// Wave 558: presentation freeze owns diplomacy roster residual when installed.
+    /// Boot residual without freeze uses host player_* probes (no get_players dual-read).
+    #[inline]
+    fn presentation_or_boot_diplomacy_players(
+        &self,
+    ) -> Vec<crate::presentation_frame::PresentationPlayerInfo> {
+        // Wave 558: presentation freeze owns diplomacy roster residual when installed.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return frame.players.clone();
+        }
+        // Boot residual only — Wave 240 field probes (no &Player expose).
+        let mut out = Vec::new();
+        for id in self.game_logic.player_ids() {
+            let team = self
+                .game_logic
+                .player_team(id)
+                .unwrap_or(crate::game_logic::Team::USA);
+            out.push(crate::presentation_frame::PresentationPlayerInfo {
+                id,
+                name: self.game_logic.player_name(id).unwrap_or_default(),
+                team,
+                is_alive: self.game_logic.player_is_alive(id),
+                is_local: self.game_logic.player_is_local(id) || id == self.current_player_id,
+                is_ai: self.game_logic.ai_manager_contains_player(id),
+                color_rgb: self
+                    .game_logic
+                    .player_color_rgb(id)
+                    .unwrap_or((255, 255, 255)),
+            });
+        }
+        out
+    }
+
     /// Wave 555: presentation freeze owns unlocked-sciences residual when installed.
     /// Boot residual without freeze uses host probe API.
     #[inline]
@@ -21018,68 +21051,39 @@ impl CnCGameEngine {
         let local_id = self.current_player_id as i32;
         self.diplomacy_panel.set_local_player_id(local_id);
         let mut rows = Vec::new();
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            for p in &frame.players {
-                let status = if p.is_alive {
-                    DiplomacyPlayerStatus::Active
-                } else {
-                    DiplomacyPlayerStatus::Defeated
-                };
-                let relationship = if p.id == self.current_player_id {
-                    DiplomacyRelation::Allied
-                } else if p.team
-                    == frame
-                        .players
-                        .iter()
-                        .find(|x| x.id == self.current_player_id)
-                        .map(|x| x.team)
-                        .unwrap_or(p.team)
-                {
-                    DiplomacyRelation::Allied
-                } else {
-                    DiplomacyRelation::Enemy
-                };
-                rows.push(DiplomacyPlayerEntry {
-                    player_id: p.id as i32,
-                    name: p.name.clone(),
-                    side: format!("{:?}", p.team),
-                    team: match p.team {
-                        crate::game_logic::Team::USA => 0,
-                        crate::game_logic::Team::China => 1,
-                        crate::game_logic::Team::GLA => 2,
-                        _ => -1,
-                    },
-                    status,
-                    relationship,
-                    is_muted: false,
-                });
-            }
-        } else {
-            for id in self.game_logic.player_ids() {
-                // Wave 240: diplomacy roster via player field probes (no get_players dual-read).
-                let team = self
-                    .game_logic
-                    .player_team(id)
-                    .unwrap_or(crate::game_logic::Team::USA);
-                rows.push(DiplomacyPlayerEntry {
-                    player_id: id as i32,
-                    name: self.game_logic.player_name(id).unwrap_or_default(),
-                    side: format!("{:?}", team),
-                    team: match team {
-                        crate::game_logic::Team::USA => 0,
-                        crate::game_logic::Team::China => 1,
-                        crate::game_logic::Team::GLA => 2,
-                        _ => -1,
-                    },
-                    status: DiplomacyPlayerStatus::Active,
-                    relationship: if id == self.current_player_id {
-                        DiplomacyRelation::Allied
-                    } else {
-                        DiplomacyRelation::Enemy
-                    },
-                    is_muted: false,
-                });
-            }
+        // Wave 558: presentation freeze owns diplomacy roster residual when installed.
+        let players = self.presentation_or_boot_diplomacy_players();
+        let local_team = players
+            .iter()
+            .find(|x| x.id == self.current_player_id)
+            .map(|x| x.team);
+        for p in &players {
+            let status = if p.is_alive {
+                DiplomacyPlayerStatus::Active
+            } else {
+                DiplomacyPlayerStatus::Defeated
+            };
+            let relationship = if p.id == self.current_player_id {
+                DiplomacyRelation::Allied
+            } else if local_team == Some(p.team) {
+                DiplomacyRelation::Allied
+            } else {
+                DiplomacyRelation::Enemy
+            };
+            rows.push(DiplomacyPlayerEntry {
+                player_id: p.id as i32,
+                name: p.name.clone(),
+                side: format!("{:?}", p.team),
+                team: match p.team {
+                    crate::game_logic::Team::USA => 0,
+                    crate::game_logic::Team::China => 1,
+                    crate::game_logic::Team::GLA => 2,
+                    _ => -1,
+                },
+                status,
+                relationship,
+                is_muted: false,
+            });
         }
         self.diplomacy_panel.set_players(rows);
         // Keep panel layout in sync with window.
