@@ -2432,6 +2432,7 @@ impl GameWorldShadow {
 
     pub fn writeback_rebuild_producer_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let host_frame = logic.get_frame();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2448,22 +2449,34 @@ impl GameWorldShadow {
                 || obj.rebuild_reconstructing_id.map(|id| id.0) != ent.rebuild_reconstructing_id
                 || obj.producer_id.map(|id| id.0) != ent.producer_id
                 || obj.construction_complete_clear_frame != ent.construction_complete_clear_frame;
-            if !changed {
-                continue;
+            if changed {
+                obj.is_rebuild_hole = ent.is_rebuild_hole;
+                obj.rebuild_template_name = if ent.rebuild_template_name.is_empty() {
+                    None
+                } else {
+                    Some(ent.rebuild_template_name.clone())
+                };
+                obj.rebuild_ready_frame = ent.rebuild_ready_frame;
+                obj.rebuild_spawner_id = ent.rebuild_spawner_id.map(ObjectId);
+                obj.rebuild_worker_id = ent.rebuild_worker_id.map(ObjectId);
+                obj.rebuild_reconstructing_id = ent.rebuild_reconstructing_id.map(ObjectId);
+                obj.producer_id = ent.producer_id.map(ObjectId);
+                obj.construction_complete_clear_frame = ent.construction_complete_clear_frame;
+                updated += 1;
             }
-            obj.is_rebuild_hole = ent.is_rebuild_hole;
-            obj.rebuild_template_name = if ent.rebuild_template_name.is_empty() {
-                None
-            } else {
-                Some(ent.rebuild_template_name.clone())
-            };
-            obj.rebuild_ready_frame = ent.rebuild_ready_frame;
-            obj.rebuild_spawner_id = ent.rebuild_spawner_id.map(ObjectId);
-            obj.rebuild_worker_id = ent.rebuild_worker_id.map(ObjectId);
-            obj.rebuild_reconstructing_id = ent.rebuild_reconstructing_id.map(ObjectId);
-            obj.producer_id = ent.producer_id.map(ObjectId);
-            obj.construction_complete_clear_frame = ent.construction_complete_clear_frame;
-            updated += 1;
+            // Wave 620: GameWorld sole-tick rebuild-ready residual —
+            // hole ready when ready_frame reached and not already reconstructing.
+            // Record every coupled frame (not only when fields dirty) so host can drain.
+            if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
+                let ready_frame = obj.rebuild_ready_frame;
+                if obj.is_rebuild_hole
+                    && obj.rebuild_reconstructing_id.is_none()
+                    && ready_frame > 0
+                    && host_frame >= ready_frame
+                {
+                    crate::game_logic::host_rebuild_ready_log::record(ObjectId(hid), ready_frame);
+                }
+            }
         }
         updated
     }
