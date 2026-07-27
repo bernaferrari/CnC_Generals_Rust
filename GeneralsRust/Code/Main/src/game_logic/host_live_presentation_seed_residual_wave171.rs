@@ -23,6 +23,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// Live presentation seed residual method names.
 pub const LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171: &[&str] = &[
     "seed_presentation_after_match_start",
+    "host_seed_presentation_after_match_start",
     "PresentationFrame::build_for_engine",
     "GameLogic::load_map",
     "build_for_engine",
@@ -48,15 +49,19 @@ pub const RUNTIME_HOST_LIVE_PRESENTATION_SEED_CMD_NAMES_WAVE171: &[&str] = &[
 
 /// Honesty: method names residual pack.
 pub fn honesty_live_presentation_seed_method_names_residual_wave171() -> bool {
-    LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171.len() == 5
+    LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171.len() == 6
         && residual_name_index(
             LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171,
-            "PresentationFrame::build_for_engine",
+            "host_seed_presentation_after_match_start",
         ) == Some(1)
         && residual_name_index(
             LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171,
+            "PresentationFrame::build_for_engine",
+        ) == Some(2)
+        && residual_name_index(
+            LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171,
             "presentation_live_fallback_honesty_ok",
-        ) == Some(4)
+        ) == Some(5)
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
@@ -82,18 +87,20 @@ pub fn honesty_live_presentation_seed_residual_pack_wave171() -> bool {
 /// Source residual: engine seeds presentation after match start from GameLogic.
 pub fn honesty_seed_presentation_after_match_start_source() -> bool {
     let src = include_str!("../cnc_game_engine.rs");
-    let i = match src.find("fn seed_presentation_after_match_start") {
+    // Wave 590: real seed body lives in host_seed_presentation_after_match_start.
+    let i = match src.find("fn host_seed_presentation_after_match_start(&mut self)") {
         Some(i) => i,
-        None => match src.find("seed_presentation_after_match_start") {
+        None => match src.find("fn seed_presentation_after_match_start") {
             Some(i) => i,
             None => return false,
         },
     };
     let body = &src[i..src.len().min(i + 2000)];
-    // Wave 195: seed uses build_for_engine (host residual + GW objects).
+    // Wave 195/590: seed uses build_for_engine (host residual + GW objects).
     body.contains("build_for_engine")
         && (body.contains("sync_from_host") || body.contains("gameworld_shadow"))
         && body.contains("&self.game_logic")
+        && src.contains("host_seed_presentation_after_match_start()")
 }
 
 /// Source residual: render execute stays presentation-only (no live GameLogic arg).

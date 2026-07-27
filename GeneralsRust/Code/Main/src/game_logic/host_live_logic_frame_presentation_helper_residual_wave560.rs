@@ -27,6 +27,7 @@ pub const LIVE_LOGIC_FRAME_PRESENTATION_HELPER_METHOD_NAMES_WAVE560: &[&str] = &
     "presentation_or_boot_logic_frame",
     "runtime_host_status_snapshot",
     "ensure_presentation_env_for_hints",
+    "host_ensure_presentation_env_for_hints",
     "current_player_id",
     "Wave 560",
     "playable_claim = false",
@@ -130,7 +131,9 @@ pub fn honesty_logic_frame_presentation_helper_source_markers_residual_wave560()
         residual_action_store(ResidualLogicFramePresentationHelperAction::SourceMarkers);
         return false;
     };
-    let Some(env) = fn_body(eng, "fn ensure_presentation_env_for_hints(") else {
+    let Some(env) = fn_body(eng, "fn host_ensure_presentation_env_for_hints(")
+        .or_else(|| fn_body(eng, "fn ensure_presentation_env_for_hints("))
+    else {
         residual_action_store(ResidualLogicFramePresentationHelperAction::SourceMarkers);
         return false;
     };
@@ -178,7 +181,9 @@ pub fn simulate_logic_frame_presentation_helper_dispatch_source() -> bool {
         residual_action_store(ResidualLogicFramePresentationHelperAction::DispatchSource);
         return false;
     };
-    let Some(env) = fn_body(eng, "fn ensure_presentation_env_for_hints(") else {
+    let Some(env) = fn_body(eng, "fn host_ensure_presentation_env_for_hints(")
+        .or_else(|| fn_body(eng, "fn ensure_presentation_env_for_hints("))
+    else {
         residual_action_store(ResidualLogicFramePresentationHelperAction::DispatchSource);
         return false;
     };

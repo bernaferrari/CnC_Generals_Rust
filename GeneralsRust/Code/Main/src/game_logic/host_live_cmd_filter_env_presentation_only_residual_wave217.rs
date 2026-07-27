@@ -126,6 +126,7 @@ pub fn honesty_env_hints_presentation_only_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
     // Wave 455/466: presentation-only env apply; seed passes GameWorld shadow.
     eng.contains("fn ensure_presentation_env_for_hints")
+        && eng.contains("fn host_ensure_presentation_env_for_hints")
         && eng.contains("Wave 455: presentation-only env boundary")
         && (eng.contains("self.gameworld_shadow.as_ref()")
             || eng.contains("ensure_presentation_env_seeded"))

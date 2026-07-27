@@ -191,11 +191,18 @@ pub fn honesty_ensure_presentation_env_instance_nav_commands_residual_wave474() 
 
 pub fn simulate_ensure_presentation_env_instance_source() -> bool {
     let src = cnc_source();
-    let Some(body) = function_body(src, "fn ensure_presentation_env_for_hints(") else {
+    // Wave 590: thin wrapper delegates to host_ensure_presentation_env_for_hints.
+    let Some(wrap) = function_body(src, "fn ensure_presentation_env_for_hints(") else {
         return false;
     };
-    let ok = body.contains("Wave 474: instance seed only")
-        && body.contains("&mut self")
+    let wrap_ok = wrap.contains("host_ensure_presentation_env_for_hints")
+        && wrap.contains("&mut self")
+        && !wrap.contains("game_logic: &GameLogic");
+    let Some(body) = function_body(src, "fn host_ensure_presentation_env_for_hints(") else {
+        return false;
+    };
+    let ok = wrap_ok
+        && (body.contains("Wave 474") || body.contains("Wave 590"))
         && body.contains("self.gameworld_shadow.as_ref()")
         && body.contains("&self.game_logic")
         && body.contains("build_for_engine")
