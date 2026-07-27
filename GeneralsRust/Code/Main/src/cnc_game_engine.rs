@@ -13065,10 +13065,10 @@ impl CnCGameEngine {
             Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
             Self::apply_heightmap_hint(&mut self.render_pipeline);
             Self::apply_skybox_hint(&mut self.render_pipeline);
+            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
             Self::sync_render_terrain_visual(
                 &mut self.render_pipeline,
                 &self.graphics_system,
-                &self.game_logic,
                 active_map_name.as_str(),
             );
             Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
@@ -18380,10 +18380,13 @@ impl CnCGameEngine {
                     );
                     Self::apply_heightmap_hint(&mut self.render_pipeline);
                     Self::apply_skybox_hint(&mut self.render_pipeline);
+                    Self::ensure_presentation_env_for_hints(
+                        &mut self.render_pipeline,
+                        &self.game_logic,
+                    );
                     Self::sync_render_terrain_visual(
                         &mut self.render_pipeline,
                         &self.graphics_system,
-                        &self.game_logic,
                         save_info.map_name.as_str(),
                     );
                     Self::ensure_presentation_env_for_hints(
@@ -18518,10 +18521,10 @@ impl CnCGameEngine {
         Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
         Self::apply_heightmap_hint(&mut self.render_pipeline);
         Self::apply_skybox_hint(&mut self.render_pipeline);
+        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
         Self::sync_render_terrain_visual(
             &mut self.render_pipeline,
             &self.graphics_system,
-            &self.game_logic,
             map_name.as_str(),
         );
         Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
@@ -18796,26 +18799,20 @@ impl CnCGameEngine {
     fn sync_render_terrain_visual(
         render_pipeline: &mut RenderPipeline,
         graphics_system: &GraphicsSystem,
-        game_logic: &GameLogic,
         map_name: &str,
     ) {
-        // Freeze world env (bounds/hint/roads) for this load so heightmap + road bake
-        // prefer presentation residual rather than re-querying live GameLogic mid-sync.
-        // Only seed when no presentation is set yet (map-load path).
-        if render_pipeline.presentation_frame().is_none() {
-            // Wave 201: single presentation builder (no shadow in this free fn → host residual only).
-            let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
-                game_logic,
-                game_logic.get_frame() as u32,
-                None,
-            );
-            render_pipeline.set_presentation_frame(Some(env_frame));
-        }
-
-        let bounds = render_pipeline
+        // Wave 459: presentation-only terrain visual sync (no live GameLogic dual-read).
+        // Call sites must seed presentation via ensure_presentation_env_for_hints first.
+        let Some(bounds) = render_pipeline
             .presentation_frame()
             .map(|p| p.world_env.world_bounds_vec3())
-            .unwrap_or_else(|| game_logic.world_bounds());
+        else {
+            warn!(
+                "No presentation frame for terrain visual sync on '{}'; skipping",
+                map_name
+            );
+            return;
+        };
 
         let hint_loaded = if render_pipeline.heightmap_hint().is_some() {
             match render_pipeline.load_heightmap_from_hint(
@@ -18837,7 +18834,7 @@ impl CnCGameEngine {
         };
 
         if !hint_loaded {
-            // Presentation frame is seeded above with runtime_heightmap freeze.
+            // Presentation frame is seeded by caller with runtime_heightmap freeze.
             // Pass None so terrain visual bake cannot dual-read live GameLogic.
             match render_pipeline.load_heightmap_from_runtime_terrain(
                 &graphics_system.device_arc(),
@@ -18859,7 +18856,7 @@ impl CnCGameEngine {
             }
         }
 
-        // Presentation already seeded above; pass None so road bake cannot dual-read.
+        // Presentation already seeded by caller; road bake cannot dual-read live GameLogic.
         if let Err(err) = render_pipeline.sync_runtime_map_roads() {
             warn!(
                 "Failed to sync runtime map roads for '{}': {}",

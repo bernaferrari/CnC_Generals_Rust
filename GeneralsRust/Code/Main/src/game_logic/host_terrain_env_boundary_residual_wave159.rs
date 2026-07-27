@@ -8,7 +8,7 @@
 //! Sources (repo architecture + cnc_game_engine.rs):
 //! - apply_heightmap_hint / apply_skybox_hint presentation-only (Wave 455)
 //! - ensure_presentation_env_for_hints seeds freeze when missing
-//! - sync_render_terrain_visual seeds PresentationFrame when missing
+//! - sync_render_terrain_visual presentation-only (Wave 459; seed via ensure_*)
 //!
 //! Fail-closed:
 //! - Not full elimination of GameLogic from map-load seed path
@@ -44,7 +44,7 @@ pub const TERRAIN_ENV_BOUNDARY_METHOD_NAMES_WAVE159: &[&str] = &[
 pub const TERRAIN_ENV_BOUNDARY_SOURCE_MARKERS_WAVE159: &[&str] = &[
     "Wave 455: presentation-only env boundary",
     "ensure_presentation_env_for_hints",
-    "Only seed when no presentation is set yet",
+    "Wave 459: presentation-only terrain visual sync",
     "world_env.heightmap_hint",
 ];
 
@@ -150,11 +150,14 @@ pub fn simulate_terrain_env_boundary_sync_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[at..src.len().min(at + 1500)];
-    let ok = body.contains("Only seed when no presentation is set yet")
-        && body.contains("presentation_frame().is_none()")
-        && body.contains("PresentationFrame::build_for_engine")
-        && body.contains("set_presentation_frame");
+    let body = &src[at..src.len().min(at + 2000)];
+    // Wave 459: sync is presentation-only; seeding lives in ensure_presentation_env_for_hints.
+    let ok = body.contains("Wave 459: presentation-only terrain visual sync")
+        && body.contains("presentation_frame()")
+        && body.contains("world_bounds_vec3")
+        && !body.contains("game_logic: &GameLogic")
+        && !body.contains("PresentationFrame::build_for_engine")
+        && src.contains("fn ensure_presentation_env_for_hints");
     residual_teb_action_store(ResidualTerrainEnvBoundaryAction::SyncSource);
     ok
 }

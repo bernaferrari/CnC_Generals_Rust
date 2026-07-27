@@ -475,6 +475,7 @@ pub mod host_live_team_dual_world_empty_gate_residual_wave256;
 pub mod host_live_tech_building_behavior_dual_world_empty_gate_residual_wave436;
 pub mod host_live_tensile_formation_dual_world_empty_gate_residual_wave322;
 pub mod host_live_terrain_dual_world_empty_gate_residual_wave341;
+pub mod host_live_terrain_visual_presentation_only_residual_wave459;
 pub mod host_live_tn_guard_dual_world_empty_gate_residual_wave375;
 pub mod host_live_topple_update_dual_world_empty_gate_residual_wave371;
 pub mod host_live_transition_damage_fx_dual_world_empty_gate_residual_wave416;
@@ -3460,6 +3461,20 @@ pub use host_live_terrain_dual_world_empty_gate_residual_wave341::{
     honesty_live_terrain_dual_world_empty_gate_nav_commands_residual_wave341,
     honesty_live_terrain_dual_world_empty_gate_residual_pack_wave341,
     simulate_live_terrain_dual_world_empty_gate_honesty,
+};
+pub use host_live_terrain_visual_presentation_only_residual_wave459::{
+    honesty_terrain_visual_presentation_only_method_names_residual_wave459,
+    honesty_terrain_visual_presentation_only_nav_commands_residual_wave459,
+    honesty_terrain_visual_presentation_only_residual_pack_wave459,
+    residual_terrain_visual_presentation_only_last_action,
+    residual_terrain_visual_presentation_only_ok,
+    simulate_live_terrain_visual_presentation_only_honesty,
+    simulate_terrain_visual_presentation_only_callsites,
+    simulate_terrain_visual_presentation_only_source, ResidualTerrainVisualPresentationOnlyAction,
+    RUNTIME_HOST_TERRAIN_VISUAL_PRESENTATION_ONLY_CMD_NAMES_WAVE459,
+    TERRAIN_VISUAL_PRESENTATION_ONLY_METHOD_NAMES_WAVE459,
+    TERRAIN_VISUAL_PRESENTATION_ONLY_NAV_STEPS_WAVE459,
+    TERRAIN_VISUAL_PRESENTATION_ONLY_SOURCE_MARKERS_WAVE459,
 };
 pub use host_live_tn_guard_dual_world_empty_gate_residual_wave375::{
     honesty_live_tn_guard_dual_world_empty_gate_method_names_residual_wave375,
