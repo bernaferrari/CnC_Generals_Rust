@@ -262,6 +262,7 @@ pub struct RenderableObject {
     pub formation_offset: glam::Vec2,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
+    /// Wave 526: MOVING/ATTACKING via name-table helpers.
     /// Wave 525: FRONTCRUSHED/BACKCRUSHED/PREORDER/USER_1/USER_2 residual.
     /// Wave 524: multi-door DOOR_2..4 banks + SMOLDERING residual.
     /// Wave 523: stamp STUNNED_FLAILING / SECOND_LIFE / POST_COLLAPSE / SPECIAL_DAMAGED.
@@ -924,15 +925,20 @@ impl UnitRenderInput {
     /// Wave 515: stamp RAISING_FLAG from is_surrendered residual.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
-            deployed_model_bit, radar_extending_model_bit, radar_upgraded_model_bit,
-            MC_BIT_ATTACKING, MC_BIT_FIRING_A, MC_BIT_MOVING,
+            attacking_model_bit, deployed_model_bit, moving_model_bit, radar_extending_model_bit,
+            radar_upgraded_model_bit,
         };
         let mut bits = self.model_condition_bits;
+        // Wave 526: MOVING/ATTACKING via name-table helpers (parity with MC_BIT_*).
+        let move_b = moving_model_bit();
+        let atk_b = attacking_model_bit();
+        bits &= !(1u128 << move_b);
+        bits &= !(1u128 << atk_b);
         if self.moving {
-            bits |= 1u128 << MC_BIT_MOVING;
+            bits |= 1u128 << move_b;
         }
         if self.attacking {
-            bits |= 1u128 << MC_BIT_ATTACKING;
+            bits |= 1u128 << atk_b;
         }
         // Wave 517: slot-aware FIRING / BETWEEN / PREATTACK / RELOADING + PANICKING.
         {

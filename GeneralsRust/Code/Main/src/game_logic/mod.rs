@@ -448,6 +448,7 @@ pub mod host_live_presentation_mesh_deploy_radar_residual_wave501;
 pub mod host_live_presentation_mesh_door_phase_residual_wave496;
 pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_mesh_turret_residual_wave494;
+pub mod host_live_presentation_move_attack_helper_residual_wave526;
 pub mod host_live_presentation_multi_door_smolder_residual_wave524;
 pub mod host_live_presentation_object_fx_particles_residual_wave500;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
@@ -2376,6 +2377,16 @@ pub use host_live_presentation_crush_user_residual_wave525::{
     residual_presentation_crush_user_last_action, residual_presentation_crush_user_ok,
     simulate_live_presentation_crush_user_honesty,
 };
+pub use host_live_presentation_move_attack_helper_residual_wave526::{
+    honesty_presentation_move_attack_helper_method_names_residual_wave526,
+    honesty_presentation_move_attack_helper_nav_commands_residual_wave526,
+    honesty_presentation_move_attack_helper_residual_pack_wave526,
+    honesty_presentation_move_attack_helper_source_markers_residual_wave526,
+    residual_presentation_move_attack_helper_last_action,
+    residual_presentation_move_attack_helper_ok,
+    simulate_live_presentation_move_attack_helper_honesty,
+};
+
 pub use host_live_presentation_multi_door_smolder_residual_wave524::{
     honesty_presentation_multi_door_smolder_method_names_residual_wave524,
     honesty_presentation_multi_door_smolder_nav_commands_residual_wave524,
