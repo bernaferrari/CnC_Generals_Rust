@@ -519,6 +519,16 @@ pub fn weaponset_elite_model_bit() -> u32 {
 pub fn weaponset_hero_model_bit() -> u32 {
     model_condition_bit_name_index("WEAPONSET_HERO").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_OVER_WATER residual bit index.
+pub fn over_water_model_bit() -> u32 {
+    model_condition_bit_name_index("OVER_WATER").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_RIDER1..RIDER8 residual bit index for passenger slot `n` (1..=8).
+pub fn rider_model_bit(slot: u8) -> u32 {
+    let n = slot.clamp(1, 8);
+    model_condition_bit_name_index(&format!("RIDER{n}")).unwrap_or(0) as u32
+}
 
 /// C++ MODELCONDITION_CAPTURED residual bit index.
 pub fn captured_model_bit() -> u32 {
