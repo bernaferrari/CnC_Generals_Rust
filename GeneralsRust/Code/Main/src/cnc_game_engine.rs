@@ -23475,10 +23475,6 @@ impl CnCGameEngine {
 
     /// Path following is authoritative in `GameLogic::update_movement`.
     /// Retained as a no-op compatibility hook for older call sites.
-    #[allow(dead_code)]
-    fn update_unit_pathfinding(&mut self, _dt: f32, _game_logic: &mut GameLogic) {
-        // Intentionally empty: dual mid-frame path step removed.
-    }
 
     /// Legacy render stub -- NOT called from the active render path.
     /// Actual rendering is handled by RenderPipeline::execute() -> ForwardPass::render()

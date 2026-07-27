@@ -389,6 +389,7 @@ pub mod host_live_path_following_dual_world_empty_gate_residual_wave424;
 pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pathfind_dual_world_empty_gate_residual_wave262;
 pub mod host_live_pathfind_dual_world_empty_gate_residual_wave426;
+pub mod host_live_pathfind_midframe_stub_removed_residual_wave469;
 pub mod host_live_physics_update_dual_world_empty_gate_residual_wave316;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
 pub mod host_live_player_dual_world_empty_gate_residual_wave268;
@@ -2982,6 +2983,20 @@ pub use host_live_pathfind_dual_world_empty_gate_residual_wave426::{
     honesty_live_pathfind_dual_world_empty_gate_nav_commands_residual_wave426,
     honesty_live_pathfind_dual_world_empty_gate_residual_pack_wave426,
     simulate_live_pathfind_dual_world_empty_gate_honesty_wave426,
+};
+pub use host_live_pathfind_midframe_stub_removed_residual_wave469::{
+    honesty_pathfind_midframe_stub_removed_method_names_residual_wave469,
+    honesty_pathfind_midframe_stub_removed_nav_commands_residual_wave469,
+    honesty_pathfind_midframe_stub_removed_residual_pack_wave469,
+    residual_pathfind_midframe_stub_removed_last_action,
+    residual_pathfind_midframe_stub_removed_ok,
+    simulate_live_pathfind_midframe_stub_removed_honesty,
+    simulate_pathfind_midframe_stub_removed_engine_source,
+    simulate_pathfind_midframe_stub_removed_host_source, ResidualPathfindMidframeStubRemovedAction,
+    PATHFIND_MIDFRAME_STUB_REMOVED_METHOD_NAMES_WAVE469,
+    PATHFIND_MIDFRAME_STUB_REMOVED_NAV_STEPS_WAVE469,
+    PATHFIND_MIDFRAME_STUB_REMOVED_SOURCE_MARKERS_WAVE469,
+    RUNTIME_HOST_PATHFIND_MIDFRAME_STUB_REMOVED_CMD_NAMES_WAVE469,
 };
 pub use host_live_physics_update_dual_world_empty_gate_residual_wave316::{
     honesty_live_physics_update_dual_world_empty_gate_method_names_residual_wave316,
