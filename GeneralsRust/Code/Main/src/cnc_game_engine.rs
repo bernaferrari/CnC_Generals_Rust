@@ -15815,7 +15815,18 @@ impl CnCGameEngine {
     /// Client `EvaMessage::from_name` expects table tokens (`LOWPOWER`, …).
     /// Wave 538/539: presentation-only radar ping + GUIMessageReceived SFX.
     /// Fail-closed: does not dual-write GameLogic mid-frame.
+    /// Wave 606: via `host_notify_presentation_ui_message`.
     fn notify_presentation_ui_message(&mut self, message: &str) {
+        // Wave 606: thin wrapper — presentation UI notify via host helper.
+        self.host_notify_presentation_ui_message(message);
+    }
+
+    /// Wave 606: host presentation UI message residual.
+    ///
+    /// Wave 536/537/538/539: presentation-only radar ping + GUIMessageReceived SFX.
+    /// Fail-closed: does not dual-write GameLogic mid-frame.
+    fn host_notify_presentation_ui_message(&mut self, message: &str) {
+        // Wave 606: host presentation UI notify residual.
         self.game_hud
             .add_radar_message(message, None, crate::ui::RadarPingKind::Generic);
         self.ui_manager.game_hud_mut().add_radar_message(
@@ -24024,8 +24035,21 @@ impl CnCGameEngine {
 
     /// Feed Main-owned OS keyboard state into GameClient Keyboard device residual.
     /// Main still owns command translation / hotkeys.
+    /// Wave 606: via `host_inject_game_client_key`.
     #[cfg(feature = "game_client")]
     fn inject_game_client_key(&self, physical_key: &winit::keyboard::PhysicalKey, pressed: bool) {
+        // Wave 606: thin wrapper — OS key inject via host helper.
+        self.host_inject_game_client_key(physical_key, pressed);
+    }
+
+    /// Wave 606: host OS→GameClient key inject residual.
+    #[cfg(feature = "game_client")]
+    fn host_inject_game_client_key(
+        &self,
+        physical_key: &winit::keyboard::PhysicalKey,
+        pressed: bool,
+    ) {
+        // Wave 606: host OS key inject residual.
         if let Some(code) = Self::to_game_client_key_code(physical_key) {
             game_client::input::keyboard::with_keyboard(|kb| {
                 let _ = kb.handle_key_simple(code, pressed);
@@ -24119,15 +24143,33 @@ impl CnCGameEngine {
     /// Feed Main-owned OS mouse state into GameClient Mouse device residual.
     /// Main still owns command translation; this keeps client device state honest
     /// for presentation-shell UI without dual OS event ownership.
+    /// Wave 606: via `host_inject_game_client_mouse_move`.
     #[cfg(feature = "game_client")]
     fn inject_game_client_mouse_move(&self, x: f32, y: f32) {
+        // Wave 606: thin wrapper — OS mouse move inject via host helper.
+        self.host_inject_game_client_mouse_move(x, y);
+    }
+
+    /// Wave 606: host OS→GameClient mouse-move inject residual.
+    #[cfg(feature = "game_client")]
+    fn host_inject_game_client_mouse_move(&self, x: f32, y: f32) {
+        // Wave 606: host OS mouse move inject residual.
         game_client::input::mouse::with_mouse(|mouse| {
             let _ = mouse.handle_mouse_move(x, y);
         });
     }
 
+    /// Wave 606: via `host_inject_game_client_mouse_button`.
     #[cfg(feature = "game_client")]
     fn inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
+        // Wave 606: thin wrapper — OS mouse button inject via host helper.
+        self.host_inject_game_client_mouse_button(button, pressed);
+    }
+
+    /// Wave 606: host OS→GameClient mouse-button inject residual.
+    #[cfg(feature = "game_client")]
+    fn host_inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
+        // Wave 606: host OS mouse button inject residual.
         use game_client::input::mouse::MouseButton as GcMouseButton;
         use std::time::Instant;
         let gc_btn = match button {
@@ -24143,8 +24185,17 @@ impl CnCGameEngine {
         });
     }
 
+    /// Wave 606: via `host_inject_game_client_mouse_scroll`.
     #[cfg(feature = "game_client")]
     fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
+        // Wave 606: thin wrapper — OS mouse scroll inject via host helper.
+        self.host_inject_game_client_mouse_scroll(delta_y);
+    }
+
+    /// Wave 606: host OS→GameClient mouse-scroll inject residual.
+    #[cfg(feature = "game_client")]
+    fn host_inject_game_client_mouse_scroll(&self, delta_y: f32) {
+        // Wave 606: host OS mouse scroll inject residual.
         game_client::input::mouse::with_mouse(|mouse| {
             let _ = mouse.handle_scroll_lines(delta_y);
         });

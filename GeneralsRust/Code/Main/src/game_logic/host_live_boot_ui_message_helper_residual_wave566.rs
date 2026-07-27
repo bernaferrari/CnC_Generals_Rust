@@ -127,7 +127,9 @@ pub fn honesty_boot_ui_message_helper_source_markers_residual_wave566() -> bool 
         residual_action_store(ResidualBootUiMessageHelperAction::SourceMarkers);
         return false;
     };
-    let Some(pres) = fn_body(eng, "fn notify_presentation_ui_message(") else {
+    let Some(pres) = fn_body(eng, "fn host_notify_presentation_ui_message(")
+        .or_else(|| fn_body(eng, "fn notify_presentation_ui_message("))
+    else {
         residual_action_store(ResidualBootUiMessageHelperAction::SourceMarkers);
         return false;
     };
