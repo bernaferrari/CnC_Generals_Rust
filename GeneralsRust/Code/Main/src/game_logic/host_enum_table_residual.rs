@@ -601,6 +601,40 @@ pub fn special_cheering_model_bit() -> u32 {
 pub fn carrying_model_bit() -> u32 {
     model_condition_bit_name_index("CARRYING").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_CONTINUOUS_FIRE_SLOW residual bit index.
+pub fn continuous_fire_slow_model_bit() -> u32 {
+    model_condition_bit_name_index("CONTINUOUS_FIRE_SLOW").unwrap_or(84) as u32
+}
+
+/// C++ MODELCONDITION_CONTINUOUS_FIRE_MEAN residual bit index.
+pub fn continuous_fire_mean_model_bit() -> u32 {
+    model_condition_bit_name_index("CONTINUOUS_FIRE_MEAN").unwrap_or(85) as u32
+}
+
+/// C++ MODELCONDITION_CONTINUOUS_FIRE_FAST residual bit index.
+pub fn continuous_fire_fast_model_bit() -> u32 {
+    model_condition_bit_name_index("CONTINUOUS_FIRE_FAST").unwrap_or(86) as u32
+}
+
+/// C++ MODELCONDITION_PRONE residual bit index.
+pub fn prone_model_bit() -> u32 {
+    model_condition_bit_name_index("PRONE").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_PREATTACK_A residual bit index.
+pub fn preattack_a_model_bit() -> u32 {
+    model_condition_bit_name_index("PREATTACK_A").unwrap_or(35) as u32
+}
+
+/// C++ MODELCONDITION_RELOADING_A residual bit index.
+pub fn reloading_a_model_bit() -> u32 {
+    model_condition_bit_name_index("RELOADING_A").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_TURRET_ROTATE residual bit index.
+pub fn turret_rotate_model_bit() -> u32 {
+    model_condition_bit_name_index("TURRET_ROTATE").unwrap_or(0) as u32
+}
 
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
