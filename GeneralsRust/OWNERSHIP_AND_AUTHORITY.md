@@ -179,6 +179,7 @@ Remaining engine residual after host update:
   - Transform ready log: GW writeback → `host_transform_ready_log` → host movement presentation bookkeeping (Wave 636)
   - Movement ready log: GW writeback → `host_movement_ready_log` → host path presentation bookkeeping (Wave 637)
   - Attack-target ready log: GW writeback → `host_attack_target_ready_log` → host attack residual (Wave 638)
+  - Move-target ready log: GW writeback → `host_move_target_ready_log` → host move residual (Wave 639)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
