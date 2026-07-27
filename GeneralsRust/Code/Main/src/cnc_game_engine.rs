@@ -15142,8 +15142,7 @@ impl CnCGameEngine {
             GameState::Menu => {
                 info!("Entering Menu state — transition_to_state start");
                 // C++ shell menus keep the shell map simulation alive behind the UI.
-                self.game_paused = false;
-                self.game_logic.set_paused(false);
+                self.set_host_paused(false);
                 self.active_menu_shell_hook = None;
                 info!("Menu transition: calling hide_gameplay_layouts");
                 self.hide_gameplay_layouts();
@@ -15170,8 +15169,7 @@ impl CnCGameEngine {
             GameState::InGame => {
                 info!("Entering InGame state");
                 // Start game logic, enable input
-                self.game_paused = false;
-                self.game_logic.set_paused(false);
+                self.set_host_paused(false);
                 // C++ hides the shell when a match begins. Leaving layouts visible can
                 // re-init MainMenu on shell ticks and bounce status mid-match. Prefer
                 // hide_shell over a pop-loop (pop can re-enter layout shutdown/init).
@@ -15193,8 +15191,7 @@ impl CnCGameEngine {
             GameState::Paused => {
                 info!("Entering Paused state");
                 // Freeze game logic, show pause menu
-                self.game_paused = true;
-                self.game_logic.set_paused(true);
+                self.set_host_paused(true);
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::PauseMenu);
                 self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
@@ -15204,8 +15201,7 @@ impl CnCGameEngine {
             }
             GameState::Victory => {
                 info!("Entering Victory state - match won");
-                self.game_paused = true;
-                self.game_logic.set_paused(true);
+                self.set_host_paused(true);
                 if self.ui_manager.current_screen() != Some(crate::ui::Screen::Victory) {
                     self.ui_manager
                         .show_match_result(true, self.current_player_id);
@@ -15214,8 +15210,7 @@ impl CnCGameEngine {
             }
             GameState::Defeat => {
                 info!("Entering Defeat state - match lost");
-                self.game_paused = true;
-                self.game_logic.set_paused(true);
+                self.set_host_paused(true);
                 if self.ui_manager.current_screen() != Some(crate::ui::Screen::Victory) {
                     self.ui_manager
                         .show_match_result(false, self.current_player_id);
@@ -17012,6 +17007,17 @@ impl CnCGameEngine {
 
     /// Wave 574: boot residual local player id for UI (no presentation freeze).
     /// Prefer current_player_id when it exists; else min_player_id fallback.
+
+    /// Wave 575: host pause dual-write — keep engine `game_paused` and host
+    /// `GameLogic::set_paused` in lockstep. Presentation residual still uses this
+    /// for popup.pause (authoritative host pause, not a dual-read).
+    #[inline]
+    fn set_host_paused(&mut self, paused: bool) {
+        // Wave 575: paired host pause residual.
+        self.game_paused = paused;
+        self.game_logic.set_paused(paused);
+    }
+
     fn boot_local_player_id_from_host(&self) -> u32 {
         // Wave 574: boot residual via player_exists / min_player_id probes.
         if self.game_logic.player_exists(self.current_player_id) {
@@ -17094,14 +17100,14 @@ impl CnCGameEngine {
     }
 
     #[inline]
+    /// Wave 575: local team name via presentation_or_boot_local_team (freeze prefer).
     fn ui_local_player_team_name(&self) -> Option<String> {
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            return Some(frame.local_team().get_name().to_string());
-        }
-        // Wave 240: boot residual via player_team probe.
-        self.game_logic
-            .player_team(self.current_player_id)
-            .map(|t| t.get_name().to_string())
+        // Wave 575: prefer presentation-or-boot local team residual.
+        Some(
+            self.presentation_or_boot_local_team()
+                .get_name()
+                .to_string(),
+        )
     }
 
     /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
@@ -18031,8 +18037,7 @@ impl CnCGameEngine {
         // Wave 571: presentation freeze owns popup/music residual when installed.
         for popup in &pres.pending_popup_messages {
             if popup.pause {
-                self.game_paused = true;
-                self.game_logic.set_paused(true);
+                self.set_host_paused(true);
             }
             if popup.pause_music {
                 if let Some(sink) = self.background_music.take() {
@@ -18056,8 +18061,7 @@ impl CnCGameEngine {
         // Wave 571: boot residual only.
         for popup in self.game_logic.take_popup_message_requests() {
             if popup.pause {
-                self.game_paused = true;
-                self.game_logic.set_paused(true);
+                self.set_host_paused(true);
             }
             if popup.pause_music {
                 if let Some(sink) = self.background_music.take() {
@@ -18718,8 +18722,7 @@ impl CnCGameEngine {
                     slot, save_info.map_name, save_info.display_name
                 );
 
-                self.game_logic.set_paused(false);
-                self.game_paused = false;
+                self.set_host_paused(false);
                 self.match_over = false;
                 self.victory_summary = None;
                 self.selected_objects.clear();
@@ -18845,8 +18848,7 @@ impl CnCGameEngine {
         }
 
         // Reset transient state.
-        self.game_logic.set_paused(false);
-        self.game_paused = false;
+        self.set_host_paused(false);
         self.match_over = false;
         self.victory_summary = None;
         self.selected_objects.clear();
@@ -23908,9 +23910,7 @@ impl CnCGameEngine {
     }
 
     fn toggle_pause(&mut self) {
-        self.game_paused = !self.game_paused;
-
-        self.game_logic.set_paused(self.game_paused);
+        self.set_host_paused(!self.game_paused);
 
         info!(
             "Game {}",

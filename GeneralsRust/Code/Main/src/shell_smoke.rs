@@ -2266,6 +2266,11 @@ use crate::game_logic::host_live_boot_local_player_helper_residual_wave574::{
     honesty_boot_local_player_helper_nav_commands_residual_wave574,
     simulate_live_boot_local_player_helper_honesty,
 };
+use crate::game_logic::host_live_host_pause_team_helper_residual_wave575::{
+    honesty_host_pause_team_helper_method_names_residual_wave575,
+    honesty_host_pause_team_helper_nav_commands_residual_wave575,
+    simulate_live_host_pause_team_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5706,6 +5711,9 @@ pub struct ShellSmokeResult {
     pub boot_local_player_helper_method_names_wave574_ok: bool,
     pub boot_local_player_helper_nav_commands_wave574_ok: bool,
     pub boot_local_player_helper_live_wave574_ok: bool,
+    pub host_pause_team_helper_method_names_wave575_ok: bool,
+    pub host_pause_team_helper_nav_commands_wave575_ok: bool,
+    pub host_pause_team_helper_live_wave575_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8898,6 +8906,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let boot_local_player_helper_nav_commands_wave574_ok =
         honesty_boot_local_player_helper_nav_commands_residual_wave574();
     let boot_local_player_helper_live_wave574_ok = simulate_live_boot_local_player_helper_honesty();
+    let host_pause_team_helper_method_names_wave575_ok =
+        honesty_host_pause_team_helper_method_names_residual_wave575();
+    let host_pause_team_helper_nav_commands_wave575_ok =
+        honesty_host_pause_team_helper_nav_commands_residual_wave575();
+    let host_pause_team_helper_live_wave575_ok = simulate_live_host_pause_team_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10609,6 +10622,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         boot_local_player_helper_method_names_wave574_ok,
         boot_local_player_helper_nav_commands_wave574_ok,
         boot_local_player_helper_live_wave574_ok,
+        host_pause_team_helper_method_names_wave575_ok,
+        host_pause_team_helper_nav_commands_wave575_ok,
+        host_pause_team_helper_live_wave575_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19489,6 +19505,21 @@ mod tests {
         assert!(
             r.boot_local_player_helper_live_wave574_ok,
             "boot local player helper live residual wave574: {}",
+            r.detail
+        );
+        assert!(
+            r.host_pause_team_helper_method_names_wave575_ok,
+            "host pause/team helper method names residual pack wave575: {}",
+            r.detail
+        );
+        assert!(
+            r.host_pause_team_helper_nav_commands_wave575_ok,
+            "host pause/team helper nav commands residual pack wave575: {}",
+            r.detail
+        );
+        assert!(
+            r.host_pause_team_helper_live_wave575_ok,
+            "host pause/team helper live residual wave575: {}",
             r.detail
         );
         assert!(
