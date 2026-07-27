@@ -482,6 +482,11 @@ pub fn sold_model_bit() -> u32 {
     model_condition_bit_name_index("SOLD").unwrap_or(0) as u32
 }
 
+/// C++ MODELCONDITION_DEPLOYED residual bit index from name table.
+pub fn deployed_model_bit() -> u32 {
+    model_condition_bit_name_index("DEPLOYED").unwrap_or(0) as u32
+}
+
 /// C++ MODELCONDITION_CAPTURED residual bit index.
 pub fn captured_model_bit() -> u32 {
     model_condition_bit_name_index("CAPTURED").unwrap_or(0) as u32

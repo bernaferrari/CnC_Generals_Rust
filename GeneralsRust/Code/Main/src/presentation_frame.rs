@@ -585,6 +585,12 @@ pub struct UnitRenderInput {
     pub poison_tinted: bool,
     /// Wave 499: C++ DefectionHelper flash residual.
     pub defector_flash: bool,
+    /// Wave 501: C++ OBJECT_STATUS_DEPLOYED residual.
+    pub is_deployed: bool,
+    /// Wave 501: structure radar dish active residual.
+    pub radar_active: bool,
+    /// Wave 501: radar extend animation complete residual.
+    pub radar_extend_complete: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -626,6 +632,9 @@ impl UnitRenderInput {
             body_damage_state: ro.body_damage_state,
             poison_tinted: ro.poison_tinted,
             defector_flash: ro.defector_flash,
+            is_deployed: ro.is_deployed,
+            radar_active: ro.radar_active,
+            radar_extend_complete: ro.radar_extend_complete,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -670,10 +679,13 @@ impl UnitRenderInput {
 
     /// Wave 495: ensure combat motion flags are present in model-condition bits.
     /// Wave 496: also stamp production-door phase bits for structure mesh residual.
+    /// Wave 501: stamp deployed + radar dish model-condition residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
-            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
-            door_1_waiting_to_close_model_bit, MC_BIT_ATTACKING, MC_BIT_FIRING_A, MC_BIT_MOVING,
+            deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
+            door_1_waiting_open_model_bit, door_1_waiting_to_close_model_bit,
+            radar_extending_model_bit, radar_upgraded_model_bit, MC_BIT_ATTACKING, MC_BIT_FIRING_A,
+            MC_BIT_MOVING,
         };
         let mut bits = self.model_condition_bits;
         if self.moving {
@@ -700,6 +712,27 @@ impl UnitRenderInput {
             3 => bits |= 1u128 << wait_close_b,
             4 => bits |= 1u128 << close_b,
             _ => {}
+        }
+        // Wave 501: deployed / radar dish residual bits for mesh subobject selection.
+        let dep_b = deployed_model_bit();
+        if self.is_deployed {
+            bits |= 1u128 << dep_b;
+        } else {
+            bits &= !(1u128 << dep_b);
+        }
+        let radar_ext_b = radar_extending_model_bit();
+        let radar_up_b = radar_upgraded_model_bit();
+        if self.radar_extend_complete {
+            // Extend finished → upgraded dish pose residual.
+            bits |= 1u128 << radar_up_b;
+            bits &= !(1u128 << radar_ext_b);
+        } else if self.radar_active {
+            // Dish animating / active without complete → extending residual.
+            bits |= 1u128 << radar_ext_b;
+            bits &= !(1u128 << radar_up_b);
+        } else {
+            bits &= !(1u128 << radar_up_b);
+            bits &= !(1u128 << radar_ext_b);
         }
         bits
     }
@@ -8218,6 +8251,9 @@ mod tests {
             body_damage_state: 0,
             poison_tinted: false,
             defector_flash: false,
+            is_deployed: false,
+            radar_active: false,
+            radar_extend_complete: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
