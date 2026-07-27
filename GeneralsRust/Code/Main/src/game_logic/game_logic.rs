@@ -26078,6 +26078,23 @@ impl GameLogic {
     }
 
     pub fn process_destroy_list(&mut self) {
+        // Wave 621: under damage authority, GameWorld health writeback records
+        // lethal IDs; host marks them here before draining the destroy queue.
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
+            for ev in crate::game_logic::host_destroy_ready_log::drain() {
+                if self.objects_to_destroy.iter().any(|e| e.id == ev.object) {
+                    continue;
+                }
+                let lethal = self
+                    .objects
+                    .get(&ev.object)
+                    .map(|o| o.status.destroyed || o.health.current <= 0.0)
+                    .unwrap_or(false);
+                if lethal {
+                    self.mark_object_for_destruction(ev.object, None);
+                }
+            }
+        }
         let mut destroyed_structure = false;
         while let Some(event) = self.objects_to_destroy.pop_front() {
             self.pending_special_abilities.remove(&event.id);
