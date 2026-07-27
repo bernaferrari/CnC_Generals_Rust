@@ -7031,7 +7031,18 @@ impl GameLogic {
             }
         }
 
-        // C++ ProductionUpdate PRODUCTION_UPGRADE complete residual.
+        // Wave 595: host production complete/spawn apply residual.
+        self.apply_upgrade_production_completions(upgrade_completions);
+        self.apply_unit_production_completions(unit_completions);
+    }
+
+    /// Wave 595: host upgrade production completion residual (still host-side under
+    /// PRODUCTION_AUTHORITY; GameWorld sole-ticks queue progress only).
+    fn apply_upgrade_production_completions(
+        &mut self,
+        upgrade_completions: Vec<(Team, String, ObjectId)>,
+    ) {
+        // Wave 595: host upgrade production completion residual.
         for (team, upgrade_name, producer_id) in upgrade_completions {
             // Door + construction-complete flash residual on producer.
             if let Some(prod) = self.objects.get_mut(&producer_id) {
@@ -7069,7 +7080,15 @@ impl GameLogic {
                 }
             }
         }
+    }
 
+    /// Wave 595: host unit production completion residual — spawn, door, exit delay,
+    /// rally path. GameWorld sole-ticks progress; host still completes/spawns.
+    fn apply_unit_production_completions(
+        &mut self,
+        unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
+    ) {
+        // Wave 595: host unit production completion residual.
         for (team, template, mut spawn_pos, rally, producer_id) in unit_completions {
             // Push spawn a bit off the footprint center to reduce stacking.
             let jitter_dir = Vec3::new(
