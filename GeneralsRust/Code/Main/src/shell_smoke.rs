@@ -2206,6 +2206,11 @@ use crate::game_logic::host_live_combat_kill_particle_observe_residual_wave562::
     honesty_combat_kill_particle_observe_nav_commands_residual_wave562,
     simulate_live_combat_kill_particle_observe_honesty,
 };
+use crate::game_logic::host_live_template_name_presentation_helper_residual_wave563::{
+    honesty_template_name_presentation_helper_method_names_residual_wave563,
+    honesty_template_name_presentation_helper_nav_commands_residual_wave563,
+    simulate_live_template_name_presentation_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5610,6 +5615,9 @@ pub struct ShellSmokeResult {
     pub combat_kill_particle_observe_method_names_wave562_ok: bool,
     pub combat_kill_particle_observe_nav_commands_wave562_ok: bool,
     pub combat_kill_particle_observe_live_wave562_ok: bool,
+    pub template_name_presentation_helper_method_names_wave563_ok: bool,
+    pub template_name_presentation_helper_nav_commands_wave563_ok: bool,
+    pub template_name_presentation_helper_live_wave563_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8739,6 +8747,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_combat_kill_particle_observe_nav_commands_residual_wave562();
     let combat_kill_particle_observe_live_wave562_ok =
         simulate_live_combat_kill_particle_observe_honesty();
+    let template_name_presentation_helper_method_names_wave563_ok =
+        honesty_template_name_presentation_helper_method_names_residual_wave563();
+    let template_name_presentation_helper_nav_commands_wave563_ok =
+        honesty_template_name_presentation_helper_nav_commands_residual_wave563();
+    let template_name_presentation_helper_live_wave563_ok =
+        simulate_live_template_name_presentation_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10414,6 +10428,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         combat_kill_particle_observe_method_names_wave562_ok,
         combat_kill_particle_observe_nav_commands_wave562_ok,
         combat_kill_particle_observe_live_wave562_ok,
+        template_name_presentation_helper_method_names_wave563_ok,
+        template_name_presentation_helper_nav_commands_wave563_ok,
+        template_name_presentation_helper_live_wave563_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19114,6 +19131,21 @@ mod tests {
         assert!(
             r.combat_kill_particle_observe_live_wave562_ok,
             "combat kill particle observe live residual wave562: {}",
+            r.detail
+        );
+        assert!(
+            r.template_name_presentation_helper_method_names_wave563_ok,
+            "template name presentation helper method names residual pack wave563: {}",
+            r.detail
+        );
+        assert!(
+            r.template_name_presentation_helper_nav_commands_wave563_ok,
+            "template name presentation helper nav commands residual pack wave563: {}",
+            r.detail
+        );
+        assert!(
+            r.template_name_presentation_helper_live_wave563_ok,
+            "template name presentation helper live residual wave563: {}",
             r.detail
         );
         assert!(

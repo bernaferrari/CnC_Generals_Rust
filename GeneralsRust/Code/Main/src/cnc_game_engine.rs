@@ -9880,9 +9880,10 @@ impl CnCGameEngine {
                         "USARanger",
                         "GoldenRanger",
                     ];
+                    // Wave 563: template residual prefers presentation freeze names.
                     let template = unit_candidates
                         .iter()
-                        .find(|n| self.game_logic.templates.contains_key(**n))
+                        .find(|n| self.presentation_or_boot_has_template(**n))
                         .map(|s| (*s).to_string())
                         .unwrap_or(requested);
                     if let Some(pid) = producer {
@@ -9909,7 +9910,10 @@ impl CnCGameEngine {
                         let mut ok_name = None;
                         let mut last_fail = template.clone();
                         for name in try_names {
-                            if !self.game_logic.templates.contains_key(name) {
+                            // Wave 563: freeze owns known names; host still sees mid-command inserts.
+                            if !self.presentation_or_boot_has_template(name)
+                                && !self.game_logic.templates.contains_key(name)
+                            {
                                 continue;
                             }
                             if self.game_logic.enqueue_production(pid, name.to_string()) {
@@ -18373,6 +18377,18 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.fixed_step_diagnostics().steps_run as u32
+    }
+
+    /// Wave 563: presentation freeze owns template-name residual when installed.
+    /// Boot residual without freeze uses host `templates.contains_key`.
+    #[inline]
+    fn presentation_or_boot_has_template(&self, name: &str) -> bool {
+        // Wave 563: presentation freeze owns template-name residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.has_template_name(name);
+        }
+        // Boot residual only.
+        self.game_logic.templates.contains_key(name)
     }
 
     /// Wave 555: presentation freeze owns unlocked-sciences residual when installed.
