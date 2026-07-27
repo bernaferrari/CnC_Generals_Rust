@@ -9887,16 +9887,8 @@ impl CnCGameEngine {
                         .map(|s| (*s).to_string())
                         .unwrap_or(requested);
                     if let Some(pid) = producer {
-                        if !self.game_logic.templates.contains_key("GoldenRanger") {
-                            let mut tpl = crate::game_logic::ThingTemplate::new("GoldenRanger");
-                            tpl.set_health(120.0);
-                            tpl.set_cost(100, 0);
-                            tpl.build_time = 0.05;
-                            tpl.add_kind_of(crate::game_logic::KindOf::Infantry);
-                            tpl.add_kind_of(crate::game_logic::KindOf::Selectable);
-                            tpl.add_kind_of(crate::game_logic::KindOf::Attackable);
-                            self.game_logic.templates.insert("GoldenRanger".into(), tpl);
-                        }
+                        // Wave 581: GoldenRanger host template residual via helper.
+                        self.host_ensure_golden_ranger_template();
                         // Wave 240: supplies floor via probe (no &mut Player dual-read).
                         self.game_logic
                             .ensure_player_min_supplies(self.current_player_id, 25_000);
@@ -9911,9 +9903,8 @@ impl CnCGameEngine {
                         let mut last_fail = template.clone();
                         for name in try_names {
                             // Wave 563: freeze owns known names; host still sees mid-command inserts.
-                            if !self.presentation_or_boot_has_template(name)
-                                && !self.game_logic.templates.contains_key(name)
-                            {
+                            // Wave 581: freeze OR live host insert residual.
+                            if !self.presentation_or_live_has_template(name) {
                                 continue;
                             }
                             if self.game_logic.enqueue_production(pid, name.to_string()) {
@@ -10449,15 +10440,9 @@ impl CnCGameEngine {
                             while mobile_sel.len() < 2 {
                                 let n = mobile_sel.len() as f32 + 1.0;
                                 let pos = anchor + glam::Vec3::new(24.0 * n, 0.0, 0.0);
-                                let spawned = self
-                                    .game_logic
-                                    .create_object(&template, team, pos)
-                                    .or_else(|| {
-                                        self.game_logic.create_object(
-                                            "AmericaInfantryRanger",
-                                            team,
-                                            pos,
-                                        )
+                                let spawned =
+                                    self.host_create_object(&template, team, pos).or_else(|| {
+                                        self.host_create_object("AmericaInfantryRanger", team, pos)
                                     });
                                 match spawned {
                                     Some(id) => mobile_sel.push(id),
@@ -11366,12 +11351,11 @@ impl CnCGameEngine {
                         };
                         for name in ["USA_Dozer", "AmericaVehicleDozer", "GoldenDozer"] {
                             // Wave 565: freeze owns known names; host still sees live inserts.
-                            if !self.presentation_or_boot_has_template(name)
-                                && !self.game_logic.templates.contains_key(name)
-                            {
+                            // Wave 581: freeze OR live host insert residual.
+                            if !self.presentation_or_live_has_template(name) {
                                 continue;
                             }
-                            if let Some(id) = self.game_logic.create_object(name, team, spawn_at) {
+                            if let Some(id) = self.host_create_object(name, team, spawn_at) {
                                 builders.push(id);
                                 spawned_builder_pose = Some((id, spawn_at));
                                 break;
@@ -18525,9 +18509,50 @@ impl CnCGameEngine {
         self.game_logic.templates.contains_key(name)
     }
 
-    /// Wave 555: presentation freeze owns unlocked-sciences residual when installed.
-    /// Boot residual without freeze uses host probe API.
+    /// Wave 581: ensure GoldenRanger host template residual for train honesty path.
+    fn host_ensure_golden_ranger_template(&mut self) {
+        // Wave 581: mid-command host insert residual.
+        if self.game_logic.templates.contains_key("GoldenRanger") {
+            return;
+        }
+        let mut tpl = crate::game_logic::ThingTemplate::new("GoldenRanger");
+        tpl.set_health(120.0);
+        tpl.set_cost(100, 0);
+        tpl.build_time = 0.05;
+        tpl.add_kind_of(crate::game_logic::KindOf::Infantry);
+        tpl.add_kind_of(crate::game_logic::KindOf::Selectable);
+        tpl.add_kind_of(crate::game_logic::KindOf::Attackable);
+        self.game_logic.templates.insert("GoldenRanger".into(), tpl);
+    }
+
+    /// Wave 581: template residual for train/construct mid-command host inserts.
+    /// Prefer freeze known names; if freeze misses, allow live host `templates`
+    /// (inserts after last PresentationFrame). Boot without freeze uses host only.
     #[inline]
+    fn presentation_or_live_has_template(&self, name: &str) -> bool {
+        // Wave 581: freeze known names OR live host insert residual.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            if pres.has_template_name(name) {
+                return true;
+            }
+            // Mid-command host insert residual (not yet frozen).
+            return self.game_logic.templates.contains_key(name);
+        }
+        // Boot residual only.
+        self.game_logic.templates.contains_key(name)
+    }
+
+    /// Wave 581: host create_object residual (thin authority spawn boundary).
+    #[inline]
+    fn host_create_object(
+        &mut self,
+        name: &str,
+        team: crate::game_logic::Team,
+        spawn_at: glam::Vec3,
+    ) -> Option<crate::game_logic::ObjectId> {
+        // Wave 581: host spawn residual.
+        self.game_logic.create_object(name, team, spawn_at)
+    }
 
     /// Wave 555: presentation freeze owns local team residual when installed.
     /// Boot residual without freeze uses host player_team probe.
