@@ -601,6 +601,10 @@ pub struct UnitRenderInput {
     pub disguised: bool,
     /// Wave 503: disguise template name for mesh key swap.
     pub disguise_as_template: Option<String>,
+    /// Wave 504: structure occupant count residual (garrisoned model bit).
+    pub occupant_count: u16,
+    /// Wave 504: container id when this unit is inside another object.
+    pub contained_by: Option<ObjectId>,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -650,6 +654,8 @@ impl UnitRenderInput {
             construction_percent: ro.construction_percent,
             disguised: ro.disguised,
             disguise_as_template: ro.disguise_as_template.clone(),
+            occupant_count: ro.occupant_count,
+            contained_by: ro.contained_by,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -696,6 +702,7 @@ impl UnitRenderInput {
     /// Wave 496: also stamp production-door phase bits for structure mesh residual.
     /// Wave 501: stamp deployed + radar dish model-condition residual bits.
     /// Wave 503: stamp construction scaffold model-condition residual bits.
+    /// Wave 504: stamp GARRISONED model-condition residual when occupied.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -774,6 +781,16 @@ impl UnitRenderInput {
                 } else {
                     bits |= 1u128 << complete_b;
                 }
+            }
+        }
+        // Wave 504: garrisoned structure residual bit when occupants present.
+        {
+            use crate::game_logic::host_enum_table_residual::garrisoned_model_bit;
+            let g_b = garrisoned_model_bit();
+            if self.occupant_count > 0 {
+                bits |= 1u128 << g_b;
+            } else {
+                bits &= !(1u128 << g_b);
             }
         }
         bits
@@ -3811,6 +3828,7 @@ impl PresentationFrame {
     /// Includes local-player FOW alpha for skip/darkening without mid-render queries.
     pub fn unit_render_inputs(&self) -> Vec<UnitRenderInput> {
         // Wave 502: stealth mesh residual from frozen presentation only.
+        // Wave 504: skip contained_by units; stamp garrisoned bits on structures.
         // Enemy effectively-stealthed units are omitted from the main mesh pass
         // (C++ auto-target / draw residual: not a legal observe target).
         // Local-team stealthed units keep a translucent FOW alpha residual.
@@ -3820,6 +3838,10 @@ impl PresentationFrame {
             .iter()
             .filter(|o| !o.destroyed && !o.engine_bridged)
             .filter(|o| {
+                // Wave 504: contained units are not drawn as free world meshes.
+                if o.contained_by.is_some() {
+                    return false;
+                }
                 if o.effectively_stealthed && o.team != local_team {
                     false
                 } else {
@@ -8334,6 +8356,8 @@ mod tests {
             construction_percent: 0.0,
             disguised: false,
             disguise_as_template: None,
+            occupant_count: 0,
+            contained_by: None,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
