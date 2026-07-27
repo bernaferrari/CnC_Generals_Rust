@@ -2103,6 +2103,7 @@ impl GameWorldShadow {
             return 0;
         }
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2114,8 +2115,20 @@ impl GameWorldShadow {
             if obj.target == host_target {
                 continue;
             }
-            obj.set_target(host_target);
+            let prev = obj.target;
+            // Direct assign — avoid set_target residual re-entry during writeback
+            // (AI/status residual is host-applied from ready log).
+            obj.target = host_target;
+            if host_target.is_some() {
+                obj.target_location = None;
+            }
+            // Wave 638: GameWorld attack-target last-write residual —
+            // host applies AI/status/attack-log bookkeeping from ready log.
+            ready.push((ObjectId(hid), prev, host_target));
             updated += 1;
+        }
+        for (oid, prev, next) in ready {
+            crate::game_logic::host_attack_target_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -7794,6 +7807,8 @@ pub fn shadow_session_after_host_tick(
         let _ad = shadow.apply_ai_decisions_as_world_mutations(&ai_decision_events);
         // Last-write host attack target / AI state / move from GameWorld.
         let _ = shadow.writeback_attack_targets_to_host(logic);
+        // Wave 638: drain attack-target ready log after GW writeback.
+        let _atk_ready = logic.host_apply_attack_target_ready_completions();
         let _ = shadow.writeback_ai_state_to_host(logic);
         // Wave 630: drain AI-state ready log after GW writeback.
         let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
@@ -7885,6 +7900,8 @@ pub fn shadow_session_after_host_tick(
     // Attack-target channel is always bidirectional once session is live: shadow mutations
     // (and host bulk resync above) settle, then writeback keeps host Object::target aligned.
     let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
+    // Wave 638: drain attack-target ready log after GW writeback.
+    let _atk_ready = logic.host_apply_attack_target_ready_completions();
     let _ = shadow.writeback_fire_intent_to_host(logic);
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
     // Pose last-writer after all SetTransform mutations this session.
@@ -14327,6 +14344,7 @@ mod tests {
         assert!(shadow.queue_set_attack_target_for_host(a, Some(b)));
         let _ = shadow.apply_pending();
         let n = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         assert!(n >= 1, "expected host target writeback");
         assert_eq!(logic.get_objects().get(&a).unwrap().target, Some(b));
@@ -14334,6 +14352,7 @@ mod tests {
         assert!(shadow.queue_set_attack_target_for_host(a, None));
         let _ = shadow.apply_pending();
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         assert_eq!(logic.get_objects().get(&a).unwrap().target, None);
     }
@@ -17052,6 +17071,7 @@ mod tests {
         // Host still has no target until writeback.
         assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.target, Some(vid));
         match prev {
@@ -17132,6 +17152,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         // Host already holds the target; writeback is a no-op when equal.
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17202,6 +17223,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(
             logic.get_objects().get(&attacker).unwrap().target,
             Some(next)
@@ -17288,6 +17310,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17426,6 +17449,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         // Writeback should land on whoever logged AttackTarget (occ if ordered, else engagetest).
         let hit = logic
             .get_objects()
@@ -17512,6 +17536,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&mid).unwrap().target, Some(eid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17580,6 +17605,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17650,6 +17676,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&attacker).unwrap().target, Some(to));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17771,6 +17798,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17839,6 +17867,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17898,6 +17927,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17986,6 +18016,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(
             logic.get_objects().get(&usa_unit).unwrap().target,
             Some(enemy)
@@ -18056,6 +18087,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.apply_pending();
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -18620,6 +18652,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         // set_target(None) residual also idles host; either writeback path is enough.
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.target.is_none());
@@ -19683,6 +19716,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.apply_pending();
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert!(
             logic.get_objects().get(&oid).unwrap().target.is_none(),
             "host remains clear after stop + GameWorld stop apply"
