@@ -2194,6 +2194,7 @@ impl GameWorldShadow {
     /// Last-writer residual after SetTransform / apply_host_positions channel.
     pub fn writeback_transforms_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut n = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2211,8 +2212,14 @@ impl GameWorldShadow {
             if dx > 1e-3 || dy > 1e-3 || dz > 1e-3 || d_o > 1e-3 {
                 obj.set_position(glam::Vec3::new(p.x, p.y, p.z));
                 obj.set_orientation(ent.transform.orientation);
+                // Wave 636: GameWorld transform last-write residual —
+                // host applies movement/presentation bookkeeping from ready log.
+                ready.push(ObjectId(hid));
                 n += 1;
             }
+        }
+        for oid in ready {
+            crate::game_logic::host_transform_ready_log::record(oid);
         }
         n
     }
@@ -7881,6 +7888,8 @@ pub fn shadow_session_after_host_tick(
         }
     }
     let _pose_wb = shadow.writeback_transforms_to_host(logic);
+    // Wave 636: drain transform ready log after GW writeback.
+    let _xf_ready = logic.host_apply_transform_ready_completions();
     // Movement authority: always last-write velocity/path/move_target/moving after step
     // (do not gate on damage-channel auth — path frames often have empty damage logs).
     if gameworld_movement_authority_enabled() {
@@ -8417,6 +8426,7 @@ mod tests {
             assert!(p.x.abs() < 0.1, "pre-writeback host x={}", p.x);
         }
         let n = shadow.writeback_transforms_to_host(&mut logic);
+        let _ = crate::game_logic::host_transform_ready_log::drain();
         assert!(n >= 1, "writeback count {n}");
         let p = logic.get_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
@@ -13497,6 +13507,7 @@ mod tests {
         );
         // Writeback pose to host as last-writer.
         assert!(shadow.writeback_transforms_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_transform_ready_log::drain();
         let host_x = logic.get_objects().get(&oid).expect("o").get_position().x;
         assert!(
             (host_x - after).abs() < 1e-3,
