@@ -423,6 +423,7 @@ pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_body_disguise_stun_residual_wave508;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
+pub mod host_live_presentation_burn_cheer_carry_residual_wave511;
 pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
 pub mod host_live_presentation_env_only_residual_wave455;
@@ -2352,6 +2353,20 @@ pub use host_live_presentation_body_disguise_stun_residual_wave508::{
     PRESENTATION_BODY_DISGUISE_STUN_NAV_STEPS_WAVE508,
     PRESENTATION_BODY_DISGUISE_STUN_SOURCE_MARKERS_WAVE508,
     RUNTIME_HOST_PRESENTATION_BODY_DISGUISE_STUN_CMD_NAMES_WAVE508,
+};
+pub use host_live_presentation_burn_cheer_carry_residual_wave511::{
+    honesty_presentation_burn_cheer_carry_method_names_residual_wave511,
+    honesty_presentation_burn_cheer_carry_nav_commands_residual_wave511,
+    honesty_presentation_burn_cheer_carry_residual_pack_wave511,
+    honesty_presentation_burn_cheer_carry_source_markers_residual_wave511,
+    residual_presentation_burn_cheer_carry_last_action, residual_presentation_burn_cheer_carry_ok,
+    simulate_live_presentation_burn_cheer_carry_honesty,
+    simulate_presentation_burn_cheer_carry_input_source,
+    simulate_presentation_burn_cheer_carry_stamp_source, ResidualPresentationBurnCheerCarryAction,
+    PRESENTATION_BURN_CHEER_CARRY_METHOD_NAMES_WAVE511,
+    PRESENTATION_BURN_CHEER_CARRY_NAV_STEPS_WAVE511,
+    PRESENTATION_BURN_CHEER_CARRY_SOURCE_MARKERS_WAVE511,
+    RUNTIME_HOST_PRESENTATION_BURN_CHEER_CARRY_CMD_NAMES_WAVE511,
 };
 pub use host_live_presentation_capture_load_overcharge_residual_wave510::{
     honesty_presentation_capture_load_overcharge_method_names_residual_wave510,
