@@ -1397,6 +1397,7 @@ impl RenderPipeline {
             let model_hint_owned = Some(model_name_owned.clone());
             let snapshot_fow = Some(u.fow_visibility);
             let selection_flash_intensity = u.selection_flash_intensity();
+            // Wave 499: defector_flash folded into selection_flash_intensity(); poison via apply_poison_tint.
             let team_color = u.team_color;
 
             alive_objects += 1;
@@ -1613,6 +1614,10 @@ impl RenderPipeline {
                                         team_color,
                                     );
                                 }
+                                // Wave 499: presentation poison tint residual (no live GameLogic).
+                                if u.poison_tinted {
+                                    render_item.apply_poison_tint();
+                                }
 
                                 self.render_items.push(render_item);
                             }
@@ -1666,6 +1671,10 @@ impl RenderPipeline {
                                         selection_flash_intensity,
                                         team_color,
                                     );
+                                }
+                                // Wave 499: presentation poison tint residual (no live GameLogic).
+                                if u.poison_tinted {
+                                    render_item.apply_poison_tint();
                                 }
 
                                 self.render_items.push(render_item);

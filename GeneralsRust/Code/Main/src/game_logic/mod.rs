@@ -435,6 +435,7 @@ pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_mesh_turret_residual_wave494;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
+pub mod host_live_presentation_poison_defector_tint_residual_wave499;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_seed_residual_wave171;
@@ -2398,6 +2399,22 @@ pub use host_live_presentation_mesh_turret_residual_wave494::{
     PRESENTATION_MESH_TURRET_METHOD_NAMES_WAVE494, PRESENTATION_MESH_TURRET_NAV_STEPS_WAVE494,
     PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494,
     RUNTIME_HOST_PRESENTATION_MESH_TURRET_CMD_NAMES_WAVE494,
+};
+pub use host_live_presentation_poison_defector_tint_residual_wave499::{
+    honesty_presentation_poison_defector_tint_method_names_residual_wave499,
+    honesty_presentation_poison_defector_tint_nav_commands_residual_wave499,
+    honesty_presentation_poison_defector_tint_residual_pack_wave499,
+    honesty_presentation_poison_defector_tint_source_markers_residual_wave499,
+    residual_presentation_poison_defector_tint_last_action,
+    residual_presentation_poison_defector_tint_ok,
+    simulate_live_presentation_poison_defector_tint_honesty,
+    simulate_presentation_poison_defector_tint_input_source,
+    simulate_presentation_poison_defector_tint_render_source,
+    ResidualPresentationPoisonDefectorTintAction,
+    PRESENTATION_POISON_DEFECTOR_TINT_METHOD_NAMES_WAVE499,
+    PRESENTATION_POISON_DEFECTOR_TINT_NAV_STEPS_WAVE499,
+    PRESENTATION_POISON_DEFECTOR_TINT_SOURCE_MARKERS_WAVE499,
+    RUNTIME_HOST_PRESENTATION_POISON_DEFECTOR_TINT_CMD_NAMES_WAVE499,
 };
 pub use host_live_production_door_model_condition_log_residual_wave486::{
     honesty_production_door_model_condition_log_method_names_residual_wave486,
