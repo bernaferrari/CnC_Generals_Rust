@@ -12129,18 +12129,22 @@ impl CnCGameEngine {
     }
 
     fn bootstrap_camera_for_loaded_map(
-        game_logic: &GameLogic,
+        // Wave 458: live GameLogic only when presentation freeze is missing.
+        game_logic: Option<&GameLogic>,
+        is_shell_game: bool,
         current_player_id: u32,
         defaults: StartupCameraDefaults,
-        // Wave 223: prefer presentation freeze for bounds/base/heights when installed.
         presentation: Option<&crate::presentation_frame::PresentationFrame>,
     ) -> (Vec3, Vec3, f32) {
         const DEFAULT_VIEW_WIDTH: f32 = 640.0;
         const DEFAULT_VIEW_HEIGHT: f32 = 480.0;
+        let _ = (DEFAULT_VIEW_WIDTH, DEFAULT_VIEW_HEIGHT); // retained for C++ parity docs
         let (world_min, world_max) = if let Some(pres) = presentation {
             pres.world_env.world_bounds_vec3()
+        } else if let Some(gl) = game_logic {
+            gl.world_bounds()
         } else {
-            game_logic.world_bounds()
+            (Vec3::new(-500.0, 0.0, -500.0), Vec3::new(500.0, 0.0, 500.0))
         };
         let world_center = Vec3::new(
             (world_min.x + world_max.x) * 0.5,
@@ -12151,11 +12155,12 @@ impl CnCGameEngine {
         let metadata_initial_camera: Option<Vec3> = if let Some(pres) = presentation {
             // Prefer frozen camera_focus residual when installed.
             pres.camera_focus.map(|f| Vec3::new(f[0], f[1], f[2]))
-        } else {
-            game_logic
-                .last_parsed_map_settings()
+        } else if let Some(gl) = game_logic {
+            gl.last_parsed_map_settings()
                 .and_then(|meta| meta.initial_camera_position)
                 .map(|pos| Vec3::new(pos.x, pos.y, pos.z))
+        } else {
+            None
         };
         let metadata_target = metadata_initial_camera.map(|pos| Vec2::new(pos.x, pos.y));
 
@@ -12166,18 +12171,19 @@ impl CnCGameEngine {
             )
         };
         let team_target = if let Some(pres) = presentation {
-            // Wave 223: frozen local team base; no live get_player/team_base dual-read.
+            // Wave 223/458: frozen local team base; no live get_player/team_base dual-read.
             pres.local_team_base_position
                 .map(|pos| Vec2::new(pos.x, pos.z))
-        } else {
+        } else if let Some(gl) = game_logic {
             // Wave 239: boot residual via player_team probe (no &Player expose).
-            game_logic
-                .player_team(current_player_id)
-                .and_then(|team| game_logic.team_base_position(team))
+            gl.player_team(current_player_id)
+                .and_then(|team| gl.team_base_position(team))
                 .map(|pos| Vec2::new(pos.x, pos.z))
+        } else {
+            None
         };
         let focus_2d = clamp_focus_to_world(Self::select_startup_camera_focus(
-            game_logic.isInShellGame(),
+            is_shell_game,
             metadata_target,
             team_target,
             Vec2::new(world_center.x, world_center.z),
@@ -12186,24 +12192,21 @@ impl CnCGameEngine {
         // Match C++ W3DView::lookAt(): unlike the old 2D View::lookAt(), the W3D path writes the
         // requested world coordinate directly into m_pos and builds the camera transform from that.
         let terrain_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
-        let (camera_anchor_ground_height, terrain_height_max) = // Wave 241: no live dual-read when presentation freeze is installed.
-        Self::sample_startup_camera_heights(
-            if presentation.is_some() {
-                None
-            } else {
-                Some(game_logic)
-            },
+        // Wave 458: no live dual-read when presentation freeze is installed.
+        let live_logic = if presentation.is_some() {
+            None
+        } else {
+            game_logic
+        };
+        let (camera_anchor_ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
+            live_logic,
             terrain_target,
             world_center.y,
             presentation,
         );
         let focus_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
         let (focus_ground_height, _) = Self::sample_startup_camera_heights(
-            if presentation.is_some() {
-                None
-            } else {
-                Some(game_logic)
-            },
+            live_logic,
             focus_target,
             world_center.y,
             presentation,
@@ -13081,13 +13084,23 @@ impl CnCGameEngine {
             Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
             Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
             let startup_camera_defaults = Self::configured_startup_camera_defaults();
+            // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
+            let startup_camera_presentation = self
+                .render_pipeline
+                .presentation_frame()
+                .or(self.last_presentation_frame.as_ref());
+            let startup_camera_live_logic = if startup_camera_presentation.is_some() {
+                None
+            } else {
+                Some(&self.game_logic)
+            };
             (self.camera_target, self.camera_position, self.camera_zoom) =
                 Self::bootstrap_camera_for_loaded_map(
-                    &self.game_logic,
+                    startup_camera_live_logic,
+                    self.game_logic.isInShellGame(),
                     self.current_player_id,
                     startup_camera_defaults,
-                    // Wave 223: pass presentation freeze when installed.
-                    self.last_presentation_frame.as_ref(),
+                    startup_camera_presentation,
                 );
             self.sync_orbit_from_camera_transform();
         }
@@ -18525,13 +18538,23 @@ impl CnCGameEngine {
         Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
 
         let startup_camera_defaults = Self::configured_startup_camera_defaults();
+        // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
+        let startup_camera_presentation = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref());
+        let startup_camera_live_logic = if startup_camera_presentation.is_some() {
+            None
+        } else {
+            Some(&self.game_logic)
+        };
         (self.camera_target, self.camera_position, self.camera_zoom) =
             Self::bootstrap_camera_for_loaded_map(
-                &self.game_logic,
+                startup_camera_live_logic,
+                self.game_logic.isInShellGame(),
                 self.current_player_id,
                 startup_camera_defaults,
-                // Wave 223: pass presentation freeze when installed.
-                self.last_presentation_frame.as_ref(),
+                startup_camera_presentation,
             );
         self.sync_orbit_from_camera_transform();
         // Dual-tick residual close: map load → presentation seed → InGame HUD/units

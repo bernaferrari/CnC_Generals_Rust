@@ -247,6 +247,7 @@ pub mod host_live_baikonur_launch_power_dual_world_empty_gate_residual_wave400;
 pub mod host_live_base_regenerate_update_dual_world_empty_gate_residual_wave380;
 pub mod host_live_battle_bus_slow_death_behavior_dual_world_empty_gate_residual_wave414;
 pub mod host_live_bone_fx_update_dual_world_empty_gate_residual_wave404;
+pub mod host_live_bootstrap_camera_no_live_dual_read_residual_wave458;
 pub mod host_live_bootstrap_camera_presentation_only_residual_wave223;
 pub mod host_live_bridge_behavior_dual_world_empty_gate_residual_wave301;
 pub mod host_live_bridge_scaffold_dual_world_empty_gate_residual_wave335;
@@ -2069,6 +2070,21 @@ pub use host_live_bone_fx_update_dual_world_empty_gate_residual_wave404::{
     honesty_live_bone_fx_update_dual_world_empty_gate_nav_commands_residual_wave404,
     honesty_live_bone_fx_update_dual_world_empty_gate_residual_pack_wave404,
     simulate_live_bone_fx_update_dual_world_empty_gate_honesty,
+};
+pub use host_live_bootstrap_camera_no_live_dual_read_residual_wave458::{
+    honesty_bootstrap_camera_no_live_dual_read_method_names_residual_wave458,
+    honesty_bootstrap_camera_no_live_dual_read_nav_commands_residual_wave458,
+    honesty_bootstrap_camera_no_live_dual_read_residual_pack_wave458,
+    residual_bootstrap_camera_no_live_dual_read_last_action,
+    residual_bootstrap_camera_no_live_dual_read_ok,
+    simulate_bootstrap_camera_no_live_dual_read_callsites,
+    simulate_bootstrap_camera_no_live_dual_read_source,
+    simulate_live_bootstrap_camera_no_live_dual_read_honesty,
+    ResidualBootstrapCameraNoLiveDualReadAction,
+    BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_METHOD_NAMES_WAVE458,
+    BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_NAV_STEPS_WAVE458,
+    BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_SOURCE_MARKERS_WAVE458,
+    RUNTIME_HOST_BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_CMD_NAMES_WAVE458,
 };
 pub use host_live_bootstrap_camera_presentation_only_residual_wave223::{
     honesty_live_bootstrap_camera_presentation_only_method_names_residual_wave223,

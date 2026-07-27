@@ -86,17 +86,20 @@ pub fn honesty_bootstrap_camera_presentation_only_source() -> bool {
         return false;
     };
     let rest = &eng[i..];
-    let end = rest.find("\n    fn ").unwrap_or(rest.len().min(4500));
+    let end = rest.find("\n    fn ").unwrap_or(rest.len().min(5500));
     let body = &rest[..end];
-    body.contains("Wave 223")
-        && body.contains("presentation: Option<&crate::presentation_frame::PresentationFrame>")
+    // Wave 458 supersedes Wave 223 call-site dual-read: live GameLogic is Option and
+    // call sites prefer pipeline presentation freeze.
+    body.contains("presentation: Option<&crate::presentation_frame::PresentationFrame>")
         && body.contains("local_team_base_position")
         && body.contains("world_bounds_vec3")
         && body.contains("sample_startup_camera_heights")
-        && body.contains("presentation,")
-        && eng.contains("self.last_presentation_frame.as_ref()")
+        && body.contains("game_logic: Option<&GameLogic>")
+        && body.contains("is_shell_game: bool")
+        && eng.contains("startup_camera_presentation")
+        && eng.contains("startup_camera_live_logic")
         && eng
-            .matches("Wave 223: pass presentation freeze when installed")
+            .matches("Wave 458: prefer pipeline presentation freeze")
             .count()
             >= 2
 }
