@@ -6407,6 +6407,24 @@ impl Object {
 
     /// C++ ProductionUpdate clear CONSTRUCTION_COMPLETE after duration.
     /// Returns true when the bit was cleared this tick.
+    /// Wave 626: clear CONSTRUCTION_COMPLETE model bit after GW deadline writeback.
+    ///
+    /// Returns true when the bit was cleared (or deadline consumed).
+    pub(crate) fn apply_construction_complete_clear_residual(&mut self) -> bool {
+        use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
+        let bit = construction_complete_model_bit();
+        let had_bit = (self.model_condition_bits & (1u128 << bit)) != 0;
+        let had_deadline = self.construction_complete_clear_frame > 0;
+        if !had_bit && !had_deadline {
+            return false;
+        }
+        self.model_condition_bits &= !(1u128 << bit);
+        self.construction_complete_clear_frame = 0;
+        self.record_host_rebuild_producer();
+        self.refresh_model_condition_bits();
+        true
+    }
+
     pub fn tick_construction_complete_clear(&mut self, now: u32) -> bool {
         if self.construction_complete_clear_frame == 0 {
             return false;

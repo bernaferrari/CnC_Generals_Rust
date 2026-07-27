@@ -6882,9 +6882,13 @@ impl GameLogic {
                     radar_extend_done.push(id);
                 }
                 let _ = obj.tick_production_door(self.frame);
-                if obj.tick_construction_complete_clear(self.frame) {
-                    self.construction_complete_clears =
-                        self.construction_complete_clears.saturating_add(1);
+                // Wave 626: under construction sole-tick, GW ready-log owns clear
+                // residual; host tick still advances non-sole path.
+                if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
+                    if obj.tick_construction_complete_clear(self.frame) {
+                        self.construction_complete_clears =
+                            self.construction_complete_clears.saturating_add(1);
+                    }
                 }
             }
         }
@@ -26085,6 +26089,31 @@ impl GameLogic {
     /// apply full host upgrade residual (unlocks, EVA, radar, status bits).
     /// Wave 625: GameWorld radar-extend complete writeback records ready IDs;
     /// host applies upgraded model residual and complete counter.
+    /// Wave 626: under construction sole-tick, GameWorld writeback records
+    /// producers whose CONSTRUCTION_COMPLETE clear deadline elapsed; host clears
+    /// the model bit and counts residual.
+    pub fn host_apply_construction_complete_clear_ready_completions(&mut self) -> usize {
+        // Wave 626: under construction sole-tick, GameWorld writeback records
+        // producers whose CONSTRUCTION_COMPLETE clear deadline elapsed; host clears
+        // the model bit and counts residual.
+        if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
+            return 0;
+        }
+        let events = crate::game_logic::host_construction_complete_clear_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.producer) else {
+                continue;
+            };
+            if obj.apply_construction_complete_clear_residual() {
+                self.construction_complete_clears =
+                    self.construction_complete_clears.saturating_add(1);
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
     pub fn host_apply_radar_extend_ready_completions(&mut self) -> usize {
         // Wave 625: GameWorld radar-extend complete writeback records ready IDs;
         // host applies upgraded model residual and complete counter.

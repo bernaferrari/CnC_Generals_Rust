@@ -2515,6 +2515,14 @@ impl GameWorldShadow {
                 {
                     crate::game_logic::host_rebuild_ready_log::record(ObjectId(hid), ready_frame);
                 }
+                // Wave 626: construction-complete clear deadline elapsed residual.
+                let clear_at = obj.construction_complete_clear_frame;
+                if clear_at > 0 && host_frame >= clear_at {
+                    crate::game_logic::host_construction_complete_clear_ready_log::record(
+                        ObjectId(hid),
+                        clear_at,
+                    );
+                }
             }
         }
         updated
@@ -7779,6 +7787,8 @@ pub fn shadow_session_after_host_tick(
     let _radar_ready = logic.host_apply_radar_extend_ready_completions();
     let _ = shadow.writeback_shock_stun_to_host(logic);
     let _ = shadow.writeback_rebuild_producer_to_host(logic);
+    // Wave 626: drain construction-complete-clear ready log after GW writeback.
+    let _ccc_ready = logic.host_apply_construction_complete_clear_ready_completions();
     let _ = shadow.writeback_sole_healing_to_host(logic);
     let _ = shadow.writeback_hijacker_to_host(logic);
     let _ = shadow.writeback_ai_mood_to_host(logic);
