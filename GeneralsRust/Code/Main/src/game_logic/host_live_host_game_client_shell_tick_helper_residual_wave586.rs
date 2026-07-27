@@ -2,6 +2,8 @@
 //! through `host_tick_game_client_presentation_shell`. Full `GameClient::update`
 //! remains intentionally disconnected (Main owns OS input/commands, presentation
 //! audio dispatch, sole RenderPipeline present; avoids client frame-timing sleep).
+//! Wave 587: helper also runs `update_input` as device bookkeeping on Main-injected
+//! THE_MOUSE/THE_KEYBOARD (not a second OS poll).
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 585 UI/shell/world helper residual.
@@ -26,6 +28,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_GAME_CLIENT_SHELL_TICK_HELPER_METHOD_NAMES_WAVE586: &[&str] = &[
     "host_tick_game_client_presentation_shell",
     "update_presentation_shell",
+    "update_input",
     "apply_presentation_shroud_to_drawables",
     "apply_presentation_pose_to_drawables",
     "GameClient::update",
@@ -131,13 +134,14 @@ pub fn honesty_host_game_client_shell_tick_helper_source_markers_residual_wave58
         residual_action_store(ResidualHostGameClientShellTickHelperAction::SourceMarkers);
         return false;
     };
-    let body_ok = body.contains("Wave 586")
+    let body_ok = (body.contains("Wave 586") || body.contains("Wave 587"))
         && body.contains("update_presentation_shell")
         && body.contains("apply_presentation_shroud_to_drawables")
         && body.contains("apply_presentation_pose_to_drawables")
         && body.contains("apply_presentation_cinematic_letterbox")
         && body.contains("presentation_or_boot_time_frozen")
-        // Must not call full GameClient::update from the helper.
+        // Wave 587: device bookkeeping allowed; full update() still forbidden.
+        && body.contains("update_input()")
         && !body.contains("game_client.update()");
     // Disconnect rationale (frame sleep / ownership) lives on the helper docs.
     let docs_ok = eng.contains("finish_frame_timing` sleeps")
@@ -182,6 +186,7 @@ pub fn simulate_host_game_client_shell_tick_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_tick_game_client_presentation_shell()")
         && eng.contains("update_presentation_shell(visual_delta)")
+        && eng.contains("update_input()")
         && !eng.contains("self.game_client.update()");
     residual_action_store(ResidualHostGameClientShellTickHelperAction::DispatchSource);
     ok

@@ -125,7 +125,8 @@ Host `GameLogic::update_simulation` now owns path follow, projectile drain/step,
 Remaining engine residual after host update:
 - GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host completes/spawns))
 - Presentation build + client/render orchestration (`host_tick_game_client_presentation_shell`; full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep)
-- Input translation and audio device ownership
+- Input: OS → `inject_game_client_*` → device `update_input` bookkeeping inside shell tick (Wave 587; not dual OS poll); Main still owns command translation
+- Audio device ownership (presentation dispatch + background music)
 
 ### Host dual-read close (Wave 585–586)
 

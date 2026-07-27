@@ -15417,6 +15417,8 @@ impl CnCGameEngine {
                         if early_menu_frame {
                             info!("Menu update_internal: calling gc.update_input");
                         }
+                        // Wave 587: device bookkeeping on Main-injected state (same as InGame shell tick).
+                        // Not dual OS ownership — OS events already landed via inject_game_client_*.
                         gc.update_input().ok();
                         let t2 = std::time::Instant::now();
                         if early_menu_frame {
@@ -18447,13 +18449,16 @@ impl CnCGameEngine {
         self.game_logic.templates.contains_key(name)
     }
 
-    /// Wave 586: GameClient presentation shell tick residual.
+    /// Wave 586/587: GameClient presentation shell tick residual.
     ///
-    /// Host path applies frozen presentation FOW/pose/cinematic residual, then
-    /// `update_presentation_shell` (local drawable modules + UI/message pump).
+    /// Host path:
+    /// 1. advances client device residual from Main-injected THE_MOUSE/THE_KEYBOARD
+    ///    (`update_input` = device frame bookkeeping only — **not** a second OS poll)
+    /// 2. applies frozen presentation FOW/pose/cinematic residual
+    /// 3. `update_presentation_shell` (local drawable modules + UI/message pump)
     ///
     /// Full `GameClient::update()` stays disconnected on purpose:
-    /// - Main owns OS intake → commands (no dual `update_input` ownership)
+    /// - Main owns OS intake → inject_* → commands (no dual OS event ownership)
     /// - Main owns audio dispatch from PresentationFrame (no dual `update_audio`)
     /// - Main `RenderPipeline` is sole 3D present (no dual `draw_display`)
     /// - full `update()` also `finish_frame_timing` sleeps — would double-pace host frames
@@ -18461,6 +18466,12 @@ impl CnCGameEngine {
     /// `OBJECT_REGISTRY` is populated (opt-in bridge); production host keeps it empty.
     #[cfg(feature = "game_client")]
     fn host_tick_game_client_presentation_shell(&mut self) {
+        // Wave 587: process Main-injected device state before shell UI residual.
+        // inject_game_client_* already wrote THE_MOUSE/THE_KEYBOARD from OS events;
+        // update_input only runs Keyboard/Mouse::update bookkeeping (no second OS poll).
+        if let Err(e) = self.game_client.update_input() {
+            log::trace!("GameClient device update failed (non-fatal): {e}");
+        }
         // Wave 586: presentation freeze residual when a frame is installed.
         let visual_delta = if self.presentation_or_boot_time_frozen() {
             0.0
