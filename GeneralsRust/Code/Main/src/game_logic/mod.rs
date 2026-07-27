@@ -317,6 +317,7 @@ pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
 pub mod host_live_ensure_presentation_env_instance_residual_wave474;
 pub mod host_live_entity_presentation_combat_ui_residual_wave489;
+pub mod host_live_entity_presentation_ground_bridge_residual_wave493;
 pub mod host_live_entity_presentation_mesh_fow_residual_wave492;
 pub mod host_live_entity_presentation_model_condition_residual_wave488;
 pub mod host_live_entity_presentation_structure_ui_residual_wave490;
@@ -2243,6 +2244,22 @@ pub use host_live_entity_presentation_combat_ui_residual_wave489::{
     ENTITY_PRESENTATION_COMBAT_UI_NAV_STEPS_WAVE489,
     ENTITY_PRESENTATION_COMBAT_UI_SOURCE_MARKERS_WAVE489,
     RUNTIME_HOST_ENTITY_PRESENTATION_COMBAT_UI_CMD_NAMES_WAVE489,
+};
+pub use host_live_entity_presentation_ground_bridge_residual_wave493::{
+    honesty_entity_presentation_ground_bridge_method_names_residual_wave493,
+    honesty_entity_presentation_ground_bridge_nav_commands_residual_wave493,
+    honesty_entity_presentation_ground_bridge_residual_pack_wave493,
+    honesty_entity_presentation_ground_bridge_source_markers_residual_wave493,
+    residual_entity_presentation_ground_bridge_last_action,
+    residual_entity_presentation_ground_bridge_ok,
+    simulate_entity_presentation_ground_bridge_command_set,
+    simulate_entity_presentation_ground_bridge_entity_source,
+    simulate_live_entity_presentation_ground_bridge_honesty,
+    ResidualEntityPresentationGroundBridgeAction,
+    ENTITY_PRESENTATION_GROUND_BRIDGE_METHOD_NAMES_WAVE493,
+    ENTITY_PRESENTATION_GROUND_BRIDGE_NAV_STEPS_WAVE493,
+    ENTITY_PRESENTATION_GROUND_BRIDGE_SOURCE_MARKERS_WAVE493,
+    RUNTIME_HOST_ENTITY_PRESENTATION_GROUND_BRIDGE_CMD_NAMES_WAVE493,
 };
 pub use host_live_entity_presentation_mesh_fow_residual_wave492::{
     honesty_entity_presentation_mesh_fow_method_names_residual_wave492,
