@@ -15910,27 +15910,8 @@ impl CnCGameEngine {
                     sink.stop();
                 }
             }
-            // Boot residual movies (no presentation frame).
-            #[cfg(feature = "game_client")]
-            {
-                if let Some(name) = self.game_logic.take_pending_movie() {
-                    let _ =
-                        game_client::core::script_action_handler::play_script_display_movie(&name);
-                }
-                if let Some(name) = self.game_logic.take_pending_radar_movie() {
-                    let started = game_client::helpers::TheInGameUI::play_movie(&name);
-                    if !started {
-                        let _ = game_client::core::script_action_handler::play_script_display_movie(
-                            &name,
-                        );
-                    }
-                }
-            }
-            #[cfg(not(feature = "game_client"))]
-            {
-                let _ = self.game_logic.take_pending_movie();
-                let _ = self.game_logic.take_pending_radar_movie();
-            }
+            // Wave 567: boot residual movies via helper (no presentation frame).
+            self.apply_boot_movie_residual();
         }
 
         // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow.
@@ -18060,6 +18041,7 @@ impl CnCGameEngine {
 
     /// Play presentation-frozen script/radar movies (C++ script display residual).
     /// Drains live pending movie queues after apply. Fail-closed: not full BINK parity.
+    /// Wave 567: pairs with `apply_boot_movie_residual` for freeze/boot split.
     fn apply_presentation_movie_residual(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
@@ -18084,6 +18066,31 @@ impl CnCGameEngine {
         }
         let _ = self.game_logic.take_pending_movie();
         let _ = self.game_logic.take_pending_radar_movie();
+    }
+
+    /// Wave 567: boot residual movies when no presentation freeze is installed.
+    /// Presentation path uses `apply_presentation_movie_residual` (peek freeze + drain).
+    /// Fail-closed: not full BINK parity / playable_claim.
+    fn apply_boot_movie_residual(&mut self) {
+        // Wave 567: boot residual only — host take_pending_* dual-read.
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(name) = self.game_logic.take_pending_movie() {
+                let _ = game_client::core::script_action_handler::play_script_display_movie(&name);
+            }
+            if let Some(name) = self.game_logic.take_pending_radar_movie() {
+                let started = game_client::helpers::TheInGameUI::play_movie(&name);
+                if !started {
+                    let _ =
+                        game_client::core::script_action_handler::play_script_display_movie(&name);
+                }
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = self.game_logic.take_pending_movie();
+            let _ = self.game_logic.take_pending_radar_movie();
+        }
     }
 
     /// Apply camera residual frozen on `PresentationFrame` (no live take dual-read).
