@@ -257,6 +257,7 @@ pub mod host_live_bunker_buster_dual_world_empty_gate_residual_wave334;
 pub mod host_live_camera_bootstrap_presentation_only_residual_wave473;
 pub mod host_live_camera_center_presentation_height_residual_wave460;
 pub mod host_live_camera_height_probe_residual_wave241;
+pub mod host_live_cancel_all_production_queue_refresh_residual_wave484;
 pub mod host_live_carpet_bomb_power_dual_world_empty_gate_residual_wave440;
 pub mod host_live_cave_contain_dual_world_empty_gate_residual_wave279;
 pub mod host_live_chinook_ai_dual_world_empty_gate_residual_wave349;
@@ -2161,6 +2162,22 @@ pub use host_live_camera_bootstrap_presentation_only_residual_wave473::{
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_NAV_STEPS_WAVE473,
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_SOURCE_MARKERS_WAVE473,
     RUNTIME_HOST_CAMERA_BOOTSTRAP_PRESENTATION_ONLY_CMD_NAMES_WAVE473,
+};
+pub use host_live_cancel_all_production_queue_refresh_residual_wave484::{
+    honesty_cancel_all_production_queue_refresh_method_names_residual_wave484,
+    honesty_cancel_all_production_queue_refresh_nav_commands_residual_wave484,
+    honesty_cancel_all_production_queue_refresh_residual_pack_wave484,
+    honesty_cancel_all_production_queue_refresh_source_markers_residual_wave484,
+    residual_cancel_all_production_queue_refresh_last_action,
+    residual_cancel_all_production_queue_refresh_ok,
+    simulate_cancel_all_production_queue_refresh_apply_source,
+    simulate_cancel_all_production_queue_refresh_cancel_all_source,
+    simulate_live_cancel_all_production_queue_refresh_honesty,
+    ResidualCancelAllProductionQueueRefreshAction,
+    CANCEL_ALL_PRODUCTION_QUEUE_REFRESH_METHOD_NAMES_WAVE484,
+    CANCEL_ALL_PRODUCTION_QUEUE_REFRESH_NAV_STEPS_WAVE484,
+    CANCEL_ALL_PRODUCTION_QUEUE_REFRESH_SOURCE_MARKERS_WAVE484,
+    RUNTIME_HOST_CANCEL_ALL_PRODUCTION_QUEUE_REFRESH_CMD_NAMES_WAVE484,
 };
 pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     honesty_construction_sole_tick_no_progress_stomp_method_names_residual_wave478,

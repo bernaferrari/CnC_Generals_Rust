@@ -66422,11 +66422,13 @@ impl GameLogic {
 
         let mut refund = Resources::default();
         let mut cancelled_any = false;
+        let mut cancelled_names: Vec<String> = Vec::new();
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 for item in building.production_queue.drain(..) {
                     refund.supplies = refund.supplies.saturating_add(item.cost.supplies);
                     refund.power += item.cost.power;
+                    cancelled_names.push(item.template_name);
                     cancelled_any = true;
                 }
             }
@@ -66441,6 +66443,15 @@ impl GameLogic {
                     player.effective_supplies(),
                     player.power_available,
                 );
+            }
+            // Wave 484: sole-tick skips per-frame progress log — Cancel refreshes
+            // GW producer queue snapshot after host drain (sell/death/cancel-all).
+            if cancelled_names.is_empty() {
+                crate::game_logic::host_production_log::record_cancel(producer_id, String::new());
+            } else {
+                for name in cancelled_names {
+                    crate::game_logic::host_production_log::record_cancel(producer_id, name);
+                }
             }
         }
 
