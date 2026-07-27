@@ -317,6 +317,7 @@ pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
 pub mod host_live_ensure_presentation_env_instance_residual_wave474;
 pub mod host_live_entity_presentation_combat_ui_residual_wave489;
+pub mod host_live_entity_presentation_mesh_fow_residual_wave492;
 pub mod host_live_entity_presentation_model_condition_residual_wave488;
 pub mod host_live_entity_presentation_structure_ui_residual_wave490;
 pub mod host_live_evacuate_contain_log_residual_wave201;
@@ -2242,6 +2243,20 @@ pub use host_live_entity_presentation_combat_ui_residual_wave489::{
     ENTITY_PRESENTATION_COMBAT_UI_NAV_STEPS_WAVE489,
     ENTITY_PRESENTATION_COMBAT_UI_SOURCE_MARKERS_WAVE489,
     RUNTIME_HOST_ENTITY_PRESENTATION_COMBAT_UI_CMD_NAMES_WAVE489,
+};
+pub use host_live_entity_presentation_mesh_fow_residual_wave492::{
+    honesty_entity_presentation_mesh_fow_method_names_residual_wave492,
+    honesty_entity_presentation_mesh_fow_nav_commands_residual_wave492,
+    honesty_entity_presentation_mesh_fow_residual_pack_wave492,
+    honesty_entity_presentation_mesh_fow_source_markers_residual_wave492,
+    residual_entity_presentation_mesh_fow_last_action, residual_entity_presentation_mesh_fow_ok,
+    simulate_entity_presentation_mesh_fow_entity_source,
+    simulate_entity_presentation_mesh_fow_mesh_scale,
+    simulate_live_entity_presentation_mesh_fow_honesty, ResidualEntityPresentationMeshFowAction,
+    ENTITY_PRESENTATION_MESH_FOW_METHOD_NAMES_WAVE492,
+    ENTITY_PRESENTATION_MESH_FOW_NAV_STEPS_WAVE492,
+    ENTITY_PRESENTATION_MESH_FOW_SOURCE_MARKERS_WAVE492,
+    RUNTIME_HOST_ENTITY_PRESENTATION_MESH_FOW_CMD_NAMES_WAVE492,
 };
 pub use host_live_entity_presentation_model_condition_residual_wave488::{
     honesty_entity_presentation_model_condition_method_names_residual_wave488,
