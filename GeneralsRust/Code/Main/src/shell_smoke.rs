@@ -2171,6 +2171,11 @@ use crate::game_logic::host_live_science_team_presentation_helper_residual_wave5
     honesty_science_team_presentation_helper_nav_commands_residual_wave555,
     simulate_live_science_team_presentation_helper_honesty,
 };
+use crate::game_logic::host_live_victory_presentation_helper_residual_wave556::{
+    honesty_victory_presentation_helper_method_names_residual_wave556,
+    honesty_victory_presentation_helper_nav_commands_residual_wave556,
+    simulate_live_victory_presentation_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5554,6 +5559,9 @@ pub struct ShellSmokeResult {
     pub science_team_presentation_helper_method_names_wave555_ok: bool,
     pub science_team_presentation_helper_nav_commands_wave555_ok: bool,
     pub science_team_presentation_helper_live_wave555_ok: bool,
+    pub victory_presentation_helper_method_names_wave556_ok: bool,
+    pub victory_presentation_helper_nav_commands_wave556_ok: bool,
+    pub victory_presentation_helper_live_wave556_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8641,6 +8649,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_science_team_presentation_helper_nav_commands_residual_wave555();
     let science_team_presentation_helper_live_wave555_ok =
         simulate_live_science_team_presentation_helper_honesty();
+    let victory_presentation_helper_method_names_wave556_ok =
+        honesty_victory_presentation_helper_method_names_residual_wave556();
+    let victory_presentation_helper_nav_commands_wave556_ok =
+        honesty_victory_presentation_helper_nav_commands_residual_wave556();
+    let victory_presentation_helper_live_wave556_ok =
+        simulate_live_victory_presentation_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10295,6 +10309,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         science_team_presentation_helper_method_names_wave555_ok,
         science_team_presentation_helper_nav_commands_wave555_ok,
         science_team_presentation_helper_live_wave555_ok,
+        victory_presentation_helper_method_names_wave556_ok,
+        victory_presentation_helper_nav_commands_wave556_ok,
+        victory_presentation_helper_live_wave556_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18890,6 +18907,21 @@ mod tests {
         assert!(
             r.science_team_presentation_helper_live_wave555_ok,
             "science/team presentation helper live residual wave555: {}",
+            r.detail
+        );
+        assert!(
+            r.victory_presentation_helper_method_names_wave556_ok,
+            "victory presentation helper method names residual pack wave556: {}",
+            r.detail
+        );
+        assert!(
+            r.victory_presentation_helper_nav_commands_wave556_ok,
+            "victory presentation helper nav commands residual pack wave556: {}",
+            r.detail
+        );
+        assert!(
+            r.victory_presentation_helper_live_wave556_ok,
+            "victory presentation helper live residual wave556: {}",
             r.detail
         );
         assert!(
