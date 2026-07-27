@@ -10209,8 +10209,7 @@ impl CnCGameEngine {
                                 modifier_keys: crate::command_system::ModifierKeys::default(),
                             };
                             // Prefer queue path if available on engine
-                            self.game_logic.queue_command(cmd);
-                            self.game_logic.process_commands();
+                            self.host_queue_and_process_command_silent(cmd);
                             // Honesty: if host upgrade log / queue advanced, count ok.
                             // Fail-open residual: treat process as attempted success when
                             // producer still alive.
@@ -16792,8 +16791,7 @@ impl CnCGameEngine {
                 selected_units: selected,
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
-        self.game_logic.process_commands();
-        self.play_sound_effect(SoundType::Command);
+        self.host_process_commands_with_command_sound();
     }
 
     fn cancel_structure_placement_from_ui(&mut self) {
@@ -17012,6 +17010,35 @@ impl CnCGameEngine {
     /// `GameLogic::set_paused` in lockstep. Presentation residual still uses this
     /// for popup.pause (authoritative host pause, not a dual-read).
     #[inline]
+
+    /// Wave 576: host command flush residual — process_commands then Command SFX.
+    /// Keeps UI-issued command feedback paired (no mid-frame dual-write beyond host).
+    #[inline]
+    fn host_process_commands_with_command_sound(&mut self) {
+        // Wave 576: process + Command SFX residual.
+        self.game_logic.process_commands();
+        self.play_sound_effect(SoundType::Command);
+    }
+
+    /// Wave 576: queue a GameCommand then flush with Command SFX.
+    #[inline]
+    fn host_queue_and_process_command(&mut self, command: crate::command_system::GameCommand) {
+        // Wave 576: queue + process + Command SFX residual.
+        self.game_logic.queue_command(command);
+        self.host_process_commands_with_command_sound();
+    }
+
+    /// Wave 576: queue + process without Command SFX (upgrade/honesty residual paths).
+    #[inline]
+    fn host_queue_and_process_command_silent(
+        &mut self,
+        command: crate::command_system::GameCommand,
+    ) {
+        // Wave 576: silent queue+process residual.
+        self.game_logic.queue_command(command);
+        self.game_logic.process_commands();
+    }
+
     fn set_host_paused(&mut self, paused: bool) {
         // Wave 575: paired host pause residual.
         self.game_paused = paused;
@@ -19855,9 +19882,7 @@ impl CnCGameEngine {
                     };
                 }
             }
-            self.game_logic.queue_command(command);
-            self.game_logic.process_commands();
-            self.play_sound_effect(SoundType::Command);
+            self.host_queue_and_process_command(command);
             return;
         }
 
@@ -20254,8 +20279,7 @@ impl CnCGameEngine {
                                 alt: false,
                             },
                         });
-                    self.game_logic.process_commands();
-                    self.play_sound_effect(SoundType::Command);
+                    self.host_process_commands_with_command_sound();
                     let msg = "Force-attack ground";
                     self.game_hud.push_info_message(msg);
                     self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -21502,8 +21526,7 @@ impl CnCGameEngine {
                 selected_units: builders,
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
-        self.game_logic.process_commands();
-        self.play_sound_effect(SoundType::Command);
+        self.host_process_commands_with_command_sound();
         let msg = "Resuming construction";
         self.game_hud.push_info_message(msg);
         self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -22075,8 +22098,7 @@ impl CnCGameEngine {
                     alt: false,
                 },
             });
-        self.game_logic.process_commands();
-        self.play_sound_effect(SoundType::Command);
+        self.host_process_commands_with_command_sound();
         let msg = format!("Stopped {} units", ids.len());
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
@@ -22842,8 +22864,7 @@ impl CnCGameEngine {
                     alt: false,
                 },
             });
-        self.game_logic.process_commands();
-        self.play_sound_effect(SoundType::Command);
+        self.host_process_commands_with_command_sound();
     }
 
     fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
@@ -23021,9 +23042,7 @@ impl CnCGameEngine {
                     };
                 }
             }
-            self.game_logic.queue_command(command);
-            self.game_logic.process_commands();
-            self.play_sound_effect(SoundType::Command);
+            self.host_queue_and_process_command(command);
             return;
         }
 
