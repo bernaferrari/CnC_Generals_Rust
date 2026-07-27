@@ -2731,9 +2731,14 @@ impl GameWorldShadow {
             }
             // Wave 617: GameWorld sole-tick construction-ready residual —
             // finished builds (percent>=1, still under_construction) for host complete.
+            // Wave 619: sell-finish ready residual (sold + percent <= -0.5).
             if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
                 if obj.status.under_construction && pct + 1e-6 >= 1.0 {
                     crate::game_logic::host_construction_ready_log::record(ObjectId(hid), pct);
+                }
+                // SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL = -0.5
+                if obj.status.sold && pct <= -0.5 + 1e-6 {
+                    crate::game_logic::host_sell_ready_log::record(ObjectId(hid), pct);
                 }
             }
             if dirty {
