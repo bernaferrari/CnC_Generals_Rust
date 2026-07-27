@@ -139,8 +139,9 @@ pub fn honesty_render_ui_pipeline_presentation_nav_commands_residual_wave462() -
 /// Residual: render UI prefers pipeline presentation before live update_ui_state.
 pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
     let src = cnc_source();
-    let marker = "GameUIState is built from PresentationFrame only";
-    // Prefer production consumer (second occurrence if tests embed the marker).
+    // Wave 591: real consumer lives in host_build_render_ui_state_from_presentation.
+    let marker =
+        "fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState";
     let mut at = None;
     let mut from = 0usize;
     while let Some(rel) = src[from..].find(marker) {
@@ -150,8 +151,9 @@ pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
     let Some(i) = at else {
         return false;
     };
-    let win = &src[i..src.len().min(i + 1600)];
-    let ok = win.contains("Wave 462: prefer pipeline freeze, then last_presentation_frame")
+    let win = &src[i..src.len().min(i + 2200)];
+    let ok = win.contains("Wave 591")
+        && win.contains("Wave 462: prefer pipeline freeze, then last_presentation_frame")
         && win.contains("presentation_frame()")
         && win.contains("or_else(|| self.last_presentation_frame.clone())")
         && win.contains("apply_to_ui_state")
@@ -161,9 +163,14 @@ pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
         // presentation branch must not call live update first
         && win
             .find("Boot/loading residual only")
-            .map(|b| !win[..b].contains("update_ui_state(self.current_player_id)")
-                && !win[..b].contains("host_update_ui_state(self.current_player_id)"))
-            .unwrap_or(false);
+            .map(|b| {
+                !win[..b].contains("update_ui_state(self.current_player_id)")
+                    && !win[..b].contains("host_update_ui_state(self.current_player_id)")
+            })
+            .unwrap_or(false)
+        && src.contains("self.host_build_render_ui_state_from_presentation()")
+        // marker retained for production presentation consumer docs
+        && src.contains("GameUIState is built from PresentationFrame only");
     residual_action_store(ResidualRenderUiPipelinePresentationAction::UiSource);
     ok
 }

@@ -127,6 +127,7 @@ Remaining engine residual after host update:
 - Presentation build + client/render orchestration:
   - Post-logic finalize: `host_finalize_presentation_after_logic` (build + audio dispatch + particle mirror + FPS; Wave 589)
   - Seeds: match-start / boot-render / pipeline-env via host presentation seed helpers (Wave 590)
+  - Render UI consumer: `host_build_render_ui_state_from_presentation` (pipeline/last freeze → UI/HUD/ControlBar; Wave 591)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

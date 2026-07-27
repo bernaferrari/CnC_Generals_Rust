@@ -169,12 +169,18 @@ mod tests {
     #[test]
     fn render_ui_state_prefers_presentation_without_live_update() {
         let src = include_str!("cnc_game_engine.rs");
-        // Locate the render() consumer, not this test's string literal.
-        let marker = "GameUIState is built from PresentationFrame only";
-        let i = src
-            .find(marker)
-            .expect("render presentation UI consumer marker");
-        let window = &src[i..(i + 700).min(src.len())];
+        // Wave 591: real consumer lives in host_build_render_ui_state_from_presentation.
+        // Prefer last production def (tests may embed the signature string).
+        let marker =
+            "fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState";
+        let mut i = None;
+        let mut from = 0usize;
+        while let Some(rel) = src[from..].find(marker) {
+            i = Some(from + rel);
+            from = from + rel + marker.len();
+        }
+        let i = i.expect("render presentation UI consumer helper");
+        let window = &src[i..(i + 2000).min(src.len())];
         assert!(
             window.contains("GameUIState::default()") && window.contains("pres.apply_to_ui_state"),
             "InGame render must build UI state from PresentationFrame default+apply"
@@ -184,14 +190,20 @@ mod tests {
                 && window.contains("update_ui_state(self.current_player_id)"),
             "boot residual may still call update_ui_state without presentation"
         );
-        // Ensure the presentation branch does not call update_ui_state first.
+        // Ensure the presentation branch does not call live update_ui_state first.
+        // Comments may mention update_ui_state; require no host/live call before boot arm.
         let branch_end = window
             .find("Boot/loading residual only")
             .unwrap_or(window.len());
         let presentation_branch = &window[..branch_end];
         assert!(
-            !presentation_branch.contains("update_ui_state"),
+            !presentation_branch.contains("host_update_ui_state(")
+                && !presentation_branch.contains("self.update_ui_state("),
             "presentation branch must not call live update_ui_state"
+        );
+        assert!(
+            src.contains("self.host_build_render_ui_state_from_presentation()"),
+            "render path must call host render UI presentation helper"
         );
     }
 
@@ -15828,31 +15840,8 @@ impl CnCGameEngine {
         if !matches!(self.current_state, GameState::Loading | GameState::Menu) {
             // Production presentation consumer: when a post-logic snapshot exists,
             // GameUIState is built from PresentationFrame only (no live object walks).
-            // Wave 462: prefer pipeline freeze, then last_presentation_frame.
-            // Boot residual: update_ui_state only when no frame is installed yet.
-            // ControlBar selection panel health is presentation-owned.
-            let mut ui_state = if let Some(pres) = self
-                .render_pipeline
-                .presentation_frame()
-                .cloned()
-                .or_else(|| self.last_presentation_frame.clone())
-            {
-                let mut ui = crate::ui::GameUIState::default();
-                pres.apply_to_ui_state(&mut ui);
-                self.apply_presentation_to_huds(&pres);
-                // Presentation audio already dispatched; SFX dual-path retired.
-                self.sync_eva_messages_from_presentation(&pres);
-                #[cfg(feature = "game_client")]
-                {
-                    pres.apply_to_control_bar(&mut self.control_bar);
-                }
-                // Keep last_presentation aligned with pipeline freeze when it was the source.
-                self.last_presentation_frame = Some(pres);
-                ui
-            } else {
-                // Boot/loading residual only.
-                self.host_update_ui_state(self.current_player_id)
-            };
+            // Wave 591: render UI presentation consumer via host helper.
+            let mut ui_state = self.host_build_render_ui_state_from_presentation();
             if !ui_state.radar_events.is_empty() {
                 for evt in &ui_state.radar_events {
                     self.game_hud
@@ -18423,6 +18412,42 @@ impl CnCGameEngine {
     /// Wave 590: seed PresentationFrame after match start (no logic advance).
     /// Syncs shadow, builds host+GW frame, applies HUD/ControlBar/UI state.
     #[inline]
+
+    /// Wave 591: render-path UI presentation consumer residual.
+    ///
+    /// Prefers pipeline freeze, then `last_presentation_frame`. Builds
+    /// `GameUIState` from presentation only (no live object walks). Boot/loading
+    /// residual without a freeze still uses `host_update_ui_state`.
+    fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState {
+        // Wave 591: render UI presentation consumer residual.
+        // Wave 462: prefer pipeline freeze, then last_presentation_frame.
+        // Boot residual: update_ui_state only when no frame is installed yet.
+        // ControlBar selection panel health is presentation-owned.
+        // GameUIState is built from PresentationFrame only (no live object walks).
+        if let Some(pres) = self
+            .render_pipeline
+            .presentation_frame()
+            .cloned()
+            .or_else(|| self.last_presentation_frame.clone())
+        {
+            let mut ui = crate::ui::GameUIState::default();
+            pres.apply_to_ui_state(&mut ui);
+            self.apply_presentation_to_huds(&pres);
+            // Presentation audio already dispatched; SFX dual-path retired.
+            self.sync_eva_messages_from_presentation(&pres);
+            #[cfg(feature = "game_client")]
+            {
+                pres.apply_to_control_bar(&mut self.control_bar);
+            }
+            // Keep last_presentation aligned with pipeline freeze when it was the source.
+            self.last_presentation_frame = Some(pres);
+            ui
+        } else {
+            // Boot/loading residual only.
+            self.host_update_ui_state(self.current_player_id)
+        }
+    }
+
     fn host_seed_presentation_after_match_start(&mut self) {
         // Wave 590: match-start presentation seed residual.
         self.match_damage_applied = 0.0;
