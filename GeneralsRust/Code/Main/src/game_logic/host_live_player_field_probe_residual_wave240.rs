@@ -116,10 +116,14 @@ pub fn honesty_player_field_probe_source() -> bool {
     let Some(local) = fn_body(eng, "fn local_player_id_for_ui(") else {
         return false;
     };
-    if !(local.contains("Wave 240")
-        && local.contains("player_exists")
-        && !local.contains("get_player("))
-    {
+    // Wave 574: boot path may be boot_local_player_id_from_host helper.
+    let local_ok =
+        (local.contains("Wave 240") || local.contains("Wave 574") || local.contains("Wave 555"))
+            && !local.contains("get_player(")
+            && (local.contains("player_exists")
+                || local.contains("boot_local_player_id_from_host")
+                || eng.contains("fn boot_local_player_id_from_host"));
+    if !local_ok {
         return false;
     }
     let Some(info) = fn_body(eng, "fn ui_player_info(") else {
