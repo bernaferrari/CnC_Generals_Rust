@@ -427,6 +427,7 @@ pub mod host_live_presentation_build_from_gameworld_residual_wave193;
 pub mod host_live_presentation_burn_cheer_carry_residual_wave511;
 pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
+pub mod host_live_presentation_dock_rider_residual_wave521;
 pub mod host_live_presentation_emoticon_float_residual_wave514;
 pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
@@ -2355,6 +2356,15 @@ pub use host_live_presentation_anim_steer_residual_wave520::{
     residual_presentation_anim_steer_last_action, residual_presentation_anim_steer_ok,
     simulate_live_presentation_anim_steer_honesty,
 };
+pub use host_live_presentation_dock_rider_residual_wave521::{
+    honesty_presentation_dock_rider_method_names_residual_wave521,
+    honesty_presentation_dock_rider_nav_commands_residual_wave521,
+    honesty_presentation_dock_rider_residual_pack_wave521,
+    honesty_presentation_dock_rider_source_markers_residual_wave521,
+    residual_presentation_dock_rider_last_action, residual_presentation_dock_rider_ok,
+    simulate_live_presentation_dock_rider_honesty,
+};
+
 pub use host_live_presentation_body_disguise_stun_residual_wave508::{
     honesty_presentation_body_disguise_stun_method_names_residual_wave508,
     honesty_presentation_body_disguise_stun_nav_commands_residual_wave508,

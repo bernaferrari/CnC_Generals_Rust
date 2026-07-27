@@ -615,6 +615,55 @@ pub fn exploded_flailing_model_bit() -> u32 {
 pub fn center_to_left_model_bit() -> u32 {
     model_condition_bit_name_index("CENTER_TO_LEFT").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_DOCKING residual bit index.
+pub fn docking_model_bit() -> u32 {
+    model_condition_bit_name_index("DOCKING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOCKING_BEGINNING residual bit index.
+pub fn docking_beginning_model_bit() -> u32 {
+    model_condition_bit_name_index("DOCKING_BEGINNING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOCKING_ACTIVE residual bit index.
+pub fn docking_active_model_bit() -> u32 {
+    model_condition_bit_name_index("DOCKING_ACTIVE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOCKING_ENDING residual bit index.
+pub fn docking_ending_model_bit() -> u32 {
+    model_condition_bit_name_index("DOCKING_ENDING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER1 residual bit index.
+pub fn rider1_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER1").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER2 residual bit index.
+pub fn rider2_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER2").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER3 residual bit index.
+pub fn rider3_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER3").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER4 residual bit index.
+pub fn rider4_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER4").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER5 residual bit index.
+pub fn rider5_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER5").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER6 residual bit index.
+pub fn rider6_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER6").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER7 residual bit index.
+pub fn rider7_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER7").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIDER8 residual bit index.
+pub fn rider8_model_bit() -> u32 {
+    model_condition_bit_name_index("RIDER8").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_CENTER_TO_RIGHT residual bit index.
 pub fn center_to_right_model_bit() -> u32 {
     model_condition_bit_name_index("CENTER_TO_RIGHT").unwrap_or(0) as u32
