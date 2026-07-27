@@ -123,7 +123,7 @@ The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for leg
 Host `GameLogic::update_simulation` now owns path follow, projectile drain/step, combat fire, and AI (`update_ai` + `THE_AI` / skirmish AI manager). Engine no longer mid-frame double-steps path or a dual `CombatSystem`.
 
 Remaining engine residual after host update:
-- GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host collects via `host_collect_production_completions` then completes/spawns via `host_apply_*_production_completions`; Waves 595/608/613))
+- GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host collects via `host_collect_production_completions` (ready-log gated under sole-tick; Wave 614) then completes/spawns via `host_apply_*_production_completions`; Waves 595/608/613/614))
 - Presentation build + client/render orchestration:
   - Post-logic finalize: `host_finalize_presentation_after_logic` (build + audio dispatch + particle mirror + FPS; Wave 589)
   - Seeds: match-start / boot-render / pipeline-env via host presentation seed helpers (Wave 590)
@@ -154,6 +154,7 @@ Remaining engine residual after host update:
   - Start/save/load + stop/camera: `host_start_game_from_ui` / `host_save_game_from_ui` / `host_load_game_from_ui` / `host_quick_save_from_hotkey` / `host_stop_all_friendly_units` / `host_center_camera_on` (Wave 611)
   - Combat/cursor/transition: `host_issue_force_attack_from_left_click` / `host_resume_selected_construction` / `host_resolve_context_cursor_icon` / `host_transition_to_state` (Wave 612)
   - Production complete collect: `host_collect_production_completions` (Wave 613; GW sole-ticks progress, host try_complete+spawn)
+  - Production ready log: GW writeback → `host_production_ready_log` → host collect drain (Wave 614; host still spawns)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

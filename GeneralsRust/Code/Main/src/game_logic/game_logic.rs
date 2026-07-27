@@ -6958,6 +6958,18 @@ impl GameLogic {
         // Upgrade completions: (team, upgrade_name, producer_id)
         let mut upgrade_completions: Vec<(Team, String, ObjectId)> = Vec::new();
 
+        // Wave 614: under sole-tick, GameWorld writeback records ready producers;
+        // host only try_completes those IDs (GW decides readiness).
+        let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
+        let ready_producers: std::collections::HashSet<ObjectId> = if sole {
+            crate::game_logic::host_production_ready_log::drain()
+                .into_iter()
+                .map(|ev| ev.producer)
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
         for (&id, obj) in self.objects.iter_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
@@ -6971,14 +6983,18 @@ impl GameLogic {
                 let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
                 // Under PRODUCTION_AUTHORITY, GameWorld ticks queue progress;
                 // host only exits delay + completes when writeback already finished the head.
-                let completed_prod =
-                    if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
-                        // Wave 464: GameWorld sole-ticks queue progress + exit delay;
-                        // host only completes/spawns when writeback finished the head.
+                let completed_prod = if sole {
+                    // Wave 464/614: GameWorld sole-ticks progress + exit delay and
+                    // records ready producers on writeback; host try_completes only
+                    // ready IDs (fallback scan if ready log empty this frame).
+                    if ready_producers.is_empty() || ready_producers.contains(&id) {
                         building.try_complete_production()
                     } else {
-                        building.update_production(dt, pf)
-                    };
+                        None
+                    }
+                } else {
+                    building.update_production(dt, pf)
+                };
                 // GameWorld production residual: snapshot queue progress each tick
                 // unless sole-tick owns progress (Wave 477) — then enqueue/complete logs
                 // + writeback carry structure; GW advances progress/exit delay.

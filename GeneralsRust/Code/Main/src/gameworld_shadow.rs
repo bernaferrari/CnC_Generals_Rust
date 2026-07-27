@@ -2286,6 +2286,21 @@ impl GameWorldShadow {
                 bd.exit_delay_remaining = ent.exit_delay_remaining.max(0.0);
                 dirty = true;
             }
+            // Wave 614: GameWorld sole-tick ready residual — finished heads
+            // (progress complete + exit delay clear) are recorded for host collect.
+            if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+                if let Some(head) = bd.production_queue.first() {
+                    if head.progress + 1e-6 >= head.total_time.max(0.0)
+                        && bd.exit_delay_remaining <= 1e-6
+                    {
+                        crate::game_logic::host_production_ready_log::record(
+                            ObjectId(hid),
+                            head.template_name.clone(),
+                            head.is_upgrade(),
+                        );
+                    }
+                }
+            }
             if dirty {
                 updated += 1;
             }
