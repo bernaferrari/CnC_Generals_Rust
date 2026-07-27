@@ -428,6 +428,7 @@ pub mod host_live_presentation_body_disguise_stun_residual_wave508;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
 pub mod host_live_presentation_burn_cheer_carry_residual_wave511;
+pub mod host_live_presentation_camera_shell_flag_residual_wave540;
 pub mod host_live_presentation_capture_audio_residual_wave530;
 pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
 pub mod host_live_presentation_cliff_flood_residual_wave522;
@@ -2391,6 +2392,15 @@ pub use host_live_presentation_anim_steer_residual_wave520::{
     honesty_presentation_anim_steer_source_markers_residual_wave520,
     residual_presentation_anim_steer_last_action, residual_presentation_anim_steer_ok,
     simulate_live_presentation_anim_steer_honesty,
+};
+pub use host_live_presentation_camera_shell_flag_residual_wave540::{
+    honesty_presentation_camera_shell_flag_method_names_residual_wave540,
+    honesty_presentation_camera_shell_flag_nav_commands_residual_wave540,
+    honesty_presentation_camera_shell_flag_residual_pack_wave540,
+    honesty_presentation_camera_shell_flag_source_markers_residual_wave540,
+    residual_presentation_camera_shell_flag_last_action,
+    residual_presentation_camera_shell_flag_ok,
+    simulate_live_presentation_camera_shell_flag_honesty,
 };
 pub use host_live_presentation_capture_audio_residual_wave530::{
     honesty_presentation_capture_audio_method_names_residual_wave530,
