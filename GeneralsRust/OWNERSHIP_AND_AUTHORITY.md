@@ -133,6 +133,8 @@ Remaining engine residual after host update:
   - Minimap bounds repair: `host_repair_minimap_presentation_bounds` (heightmap stamp + last_presentation align; Wave 594)
   - Camera queue drain: `host_drain_live_camera_request_queues` (single host dual-read surface after presentation apply; Wave 596)
   - GameWorld shadow session: `host_run_gameworld_shadow_after_logic` (session + observe view + couple end; Wave 597)
+  - InGame HUD: `host_apply_ingame_hud_from_presentation` (freeze HUD/EVA/ControlBar + boot economy; Wave 598)
+  - Match outcome: `host_broadcast_match_outcome_residuals` (defeat/alliance/victory; Wave 599)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
