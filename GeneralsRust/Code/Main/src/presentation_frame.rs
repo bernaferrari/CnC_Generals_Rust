@@ -105,6 +105,17 @@ impl PresentationVeterancy {
         }
     }
 
+    /// Wave 490: GameWorld entity veterancy_ordinal residual.
+    #[inline]
+    pub fn from_ordinal(ord: u8) -> Self {
+        match ord {
+            1 => Self::Veteran,
+            2 => Self::Elite,
+            3 => Self::Heroic,
+            _ => Self::Rookie,
+        }
+    }
+
     /// C++ ControlBar portrait chevron image residual (SSChevron*).
     pub fn chevron_overlay(self) -> Option<&'static str> {
         match self {
@@ -178,6 +189,27 @@ impl PresentationBuildingType {
             B::Palace => Self::Palace,
             B::Propaganda => Self::Propaganda,
             B::Bunker => Self::Bunker,
+        }
+    }
+
+    /// Wave 490: GameWorld entity building_type_ordinal residual (255 = none).
+    #[inline]
+    pub fn from_ordinal(ord: u8) -> Option<Self> {
+        match ord {
+            0 => Some(Self::CommandCenter),
+            1 => Some(Self::Barracks),
+            2 => Some(Self::WarFactory),
+            3 => Some(Self::Airfield),
+            4 => Some(Self::RepairPad),
+            5 => Some(Self::HealPad),
+            6 => Some(Self::SupplyCenter),
+            7 => Some(Self::PowerPlant),
+            8 => Some(Self::DefenseTurret),
+            9 => Some(Self::SupplyDropZone),
+            10 => Some(Self::Palace),
+            11 => Some(Self::Propaganda),
+            12 => Some(Self::Bunker),
+            _ => None,
         }
     }
 
@@ -5827,6 +5859,50 @@ impl PresentationFrame {
     /// Fills identity/pose/HP/motion/selection from the borrow-first entity store.
     /// Host-only presentation fields stay at safe defaults until a later cutover.
     /// Fail-closed: not full build_from_logic parity (weapons, FOW grid, FX, etc.).
+
+    /// Wave 490: decode entity `kind_of_bits` using host presentation ORDER residual.
+    fn kind_of_list_from_presentation_bits(bits: u32) -> Vec<crate::game_logic::KindOf> {
+        use crate::game_logic::KindOf;
+        const ORDER: &[KindOf] = &[
+            KindOf::Structure,
+            KindOf::Infantry,
+            KindOf::Vehicle,
+            KindOf::Aircraft,
+            KindOf::Projectile,
+            KindOf::Resource,
+            KindOf::Selectable,
+            KindOf::Attackable,
+            KindOf::CommandCenter,
+            KindOf::Worker,
+            KindOf::Hero,
+            KindOf::SupplyCenter,
+            KindOf::PowerPlant,
+            KindOf::FSBarracks,
+            KindOf::FSWarFactory,
+            KindOf::FSAirfield,
+            KindOf::FSInternetCenter,
+            KindOf::FSPower,
+            KindOf::FSBaseDefense,
+            KindOf::FSSupplyDropzone,
+            KindOf::FSSupplyCenter,
+            KindOf::FSSuperweapon,
+            KindOf::FSStrategyCenter,
+            KindOf::FSFake,
+            KindOf::FSTechnology,
+            KindOf::FSBlackMarket,
+            KindOf::FSAdvancedTech,
+            KindOf::Harvestable,
+            KindOf::Powered,
+        ];
+        let mut out = Vec::new();
+        for (i, k) in ORDER.iter().enumerate() {
+            if i < 32 && (bits & (1u32 << i)) != 0 {
+                out.push(*k);
+            }
+        }
+        out
+    }
+
     pub fn renderable_from_gameworld_entity(
         host_id: crate::game_logic::ObjectId,
         ent: &gamelogic::world::entities::Entity,
@@ -5874,7 +5950,7 @@ impl PresentationFrame {
             airborne_target: ent.airborne_target,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
-            ai_state_ordinal: 0,
+            ai_state_ordinal: ent.ai_state_ordinal,
             attack_target,
             path_waypoints: ent
                 .path_waypoints
@@ -5883,7 +5959,7 @@ impl PresentationFrame {
                 .collect(),
             path_len: ent.path_len,
             path_index: ent.path_index,
-            occupant_count: 0,
+            occupant_count: ent.occupant_count,
             production_queue: ent
                 .production_queue_items
                 .iter()
@@ -5893,8 +5969,15 @@ impl PresentationFrame {
             guard_position: ent
                 .guard_position
                 .map(|p| glam::Vec3::new(p[0], p[1], p[2])),
-            garrisoned_units: Vec::new(),
-            max_garrison: 0,
+            // Wave 490: garrison/container presentation from GW entity.
+            garrisoned_units: ent
+                .garrisoned_host_ids
+                .iter()
+                .copied()
+                .filter(|&id| id != 0)
+                .map(crate::game_logic::ObjectId)
+                .collect(),
+            max_garrison: ent.max_garrison as usize,
             power_provided: ent.power_provided,
             power_consumed: ent.power_consumed,
             stored_supplies: ent.stored_supplies,
@@ -5916,25 +5999,33 @@ impl PresentationFrame {
             undetected_defector: false,
             defector_flash: false,
             death_fx_name: None,
-            death_type_name: String::new(),
+            death_type_name: if ent.destroyed || ent.health <= 0.0 {
+                crate::game_logic::host_usa_pilot::HostDeathType::from_ordinal(ent.death_type)
+                    .as_name()
+                    .to_string()
+            } else {
+                String::new()
+            },
             under_construction: ent.under_construction,
             construction_percent: ent.construction_percent,
             sold: ent.sold,
             unselectable: ent.unselectable,
             is_rebuild_hole: ent.is_rebuild_hole,
             reconstructing: ent.reconstructing,
-            veterancy: PresentationVeterancy::Rookie,
-            experience_points: 0.0,
+            // Wave 490: XP/veterancy from GW entity.
+            veterancy: PresentationVeterancy::from_ordinal(ent.veterancy_ordinal),
+            experience_points: ent.experience_points,
             moving: moving || ent.moving,
             attacking: attack_target.is_some() || ent.attacking,
             is_firing_weapon: ent.is_firing_weapon,
             is_aiming_weapon: ent.is_aiming_weapon,
-            disabled_emp: false,
-            disabled_paralyzed: false,
-            weapons_jammed: false,
-            masked: false,
-            ignoring_stealth: false,
-            repulsor: false,
+            // Wave 490: disable/status presentation from GW entity.
+            disabled_emp: ent.disabled_emp,
+            disabled_paralyzed: ent.disabled_paralyzed,
+            weapons_jammed: ent.weapons_jammed,
+            masked: ent.masked,
+            ignoring_stealth: ent.ignoring_stealth,
+            repulsor: ent.repulsor,
             // Wave 489: stealth/weapon presentation from GW entity.
             stealthed: ent.stealthed,
             detected: ent.detected,
@@ -5975,22 +6066,33 @@ impl PresentationFrame {
             armed_riders_upgrade_weapon_set: ent.armed_riders_upgrade_weapon_set,
             weapon_set_player_upgrade: ent.weapon_set_player_upgrade,
             camo_stealth_look: ent.camo_stealth_look,
-            disguise_as_template: None,
-            disguise_as_team: None,
+            // Wave 490: disguise/detector/stealth-break presentation from GW entity.
+            disguise_as_template: if ent.disguise_as_template.is_empty() {
+                None
+            } else {
+                Some(ent.disguise_as_template.clone())
+            },
+            disguise_as_team: match ent.disguise_as_team_ordinal {
+                0 => Some(Team::USA),
+                1 => Some(Team::China),
+                2 => Some(Team::GLA),
+                _ => None,
+            },
             disguised: ent.disguised,
-            disabled_subdued: false,
-            is_carbomb: false,
-            hijacked: false,
+            disabled_subdued: ent.disabled_subdued,
+            is_carbomb: ent.is_carbomb,
+            hijacked: ent.hijacked,
             disguise_transition_opacity: 1.0,
-            detection_range: 0.0,
-            detection_rate_frames: 0,
-            stealth_breaks_on_attack: false,
-            stealth_breaks_on_move: false,
-            innate_stealth: false,
-            weapon_bonus_frenzy_until_frame: 0,
-            continuous_fire_consecutive: 0,
-            continuous_fire_coast_until_frame: 0,
-            battle_plan_sight_scalar_applied: 1.0,
+            detection_range: ent.detection_range,
+            detection_rate_frames: ent.detection_rate_frames,
+            stealth_breaks_on_attack: ent.stealth_breaks_on_attack,
+            stealth_breaks_on_move: ent.stealth_breaks_on_move,
+            innate_stealth: ent.innate_stealth,
+            // Wave 490: continuous-fire / battle-plan timers from GW entity.
+            weapon_bonus_frenzy_until_frame: ent.weapon_bonus_frenzy_until_frame,
+            continuous_fire_consecutive: ent.continuous_fire_consecutive,
+            continuous_fire_coast_until_frame: ent.continuous_fire_coast_until_frame,
+            battle_plan_sight_scalar_applied: ent.battle_plan_sight_scalar_applied,
             special_power_ready: ent.special_power_ready,
             special_power_cooldown: ent.special_power_cooldown,
             special_power_cooldown_remaining: ent.special_power_cooldown_remaining,
@@ -6003,63 +6105,75 @@ impl PresentationFrame {
                 5 => PresentationObjectType::Projectile,
                 _ => PresentationObjectType::Neutral,
             },
-            applied_upgrades: Vec::new(),
+            // Wave 490: applied upgrades from GW entity.
+            applied_upgrades: ent.applied_upgrade_names.clone(),
             has_secondary_weapon: ent.has_secondary_weapon,
             secondary_weapon_range: ent.secondary_weapon_range,
             secondary_weapon_damage: ent.secondary_weapon_damage,
-            turret_angle_deg: 0.0,
-            turret_pitch_deg: 0.0,
-            turret_idle_scanning: false,
+            // Wave 490: turret presentation from GW entity.
+            turret_angle_deg: ent.turret_angle_deg,
+            turret_pitch_deg: ent.turret_pitch_deg,
+            turret_idle_scanning: ent.turret_idle_scanning,
             weapon_bonus_enthusiastic: ent.weapon_bonus_enthusiastic,
             weapon_bonus_subliminal: ent.weapon_bonus_subliminal,
             weapon_bonus_horde: ent.weapon_bonus_horde,
             weapon_bonus_nationalism: ent.weapon_bonus_nationalism,
             weapon_bonus_frenzy: ent.weapon_bonus_frenzy,
-            weapon_bonus_frenzy_level: 0,
-            weapon_bonus_battle_plan_bombardment: false,
-            weapon_bonus_battle_plan_hold_the_line: false,
-            weapon_bonus_battle_plan_search_and_destroy: false,
-            continuous_fire_level: 0,
-            faerie_fire_until_frame: 0,
-            hive_slave_count: 0,
-            hive_slave_hp: 0.0,
-            ai_attitude: 0,
+            // Wave 490: bonus/ai/hive presentation from GW entity.
+            weapon_bonus_frenzy_level: ent.weapon_bonus_frenzy_level,
+            weapon_bonus_battle_plan_bombardment: ent.weapon_bonus_battle_plan_bombardment,
+            weapon_bonus_battle_plan_hold_the_line: ent.weapon_bonus_battle_plan_hold_the_line,
+            weapon_bonus_battle_plan_search_and_destroy: ent
+                .weapon_bonus_battle_plan_search_and_destroy,
+            continuous_fire_level: ent.continuous_fire_level,
+            faerie_fire_until_frame: ent.faerie_fire_until_frame,
+            hive_slave_count: ent.hive_slave_count,
+            hive_slave_hp: ent.hive_slave_hp,
+            ai_attitude: ent.ai_attitude,
             camo_friendly_opacity: 1.0,
-            vision_spied_mask: 0,
-            cheer_timer: 0.0,
-            is_humvee_transport: false,
-            is_listening_outpost_transport: false,
-            is_troop_crawler_transport: false,
-            is_helix_transport: false,
-            has_overlord_gattling_addon: false,
-            has_overlord_propaganda_addon: false,
-            is_battle_bus_transport: false,
-            is_technical_transport: false,
-            is_combat_cycle_transport: false,
-            combat_cycle_rider: 0,
-            is_tunnel_network: false,
-            is_combat_chinook_transport: false,
-            max_transport: 0,
-            overlord_bunker_capacity: 0,
-            passengers_allowed_to_fire: false,
+            vision_spied_mask: ent.vision_spied_mask,
+            cheer_timer: ent.cheer_timer,
+            // Wave 490: transport/container role presentation from GW entity.
+            is_humvee_transport: ent.is_humvee_transport,
+            is_listening_outpost_transport: ent.is_listening_outpost_transport,
+            is_troop_crawler_transport: ent.is_troop_crawler_transport,
+            is_helix_transport: ent.is_helix_transport,
+            has_overlord_gattling_addon: ent.has_overlord_gattling_addon,
+            has_overlord_propaganda_addon: ent.has_overlord_propaganda_addon,
+            is_battle_bus_transport: ent.is_battle_bus_transport,
+            is_technical_transport: ent.is_technical_transport,
+            is_combat_cycle_transport: ent.is_combat_cycle_transport,
+            combat_cycle_rider: ent.combat_cycle_rider,
+            is_tunnel_network: ent.is_tunnel_network,
+            is_combat_chinook_transport: ent.is_combat_chinook_transport,
+            max_transport: ent.max_transport as usize,
+            overlord_bunker_capacity: if ent.overlord_bunker_capacity == u16::MAX {
+                0
+            } else {
+                ent.overlord_bunker_capacity as usize
+            },
+            passengers_allowed_to_fire: ent.passengers_allowed_to_fire,
             display_name: ent.template.name.clone(),
-            demo_suicided_detonating: false,
-            turret_holding: false,
-            last_damage_source_host: 0,
-            command_set_override: String::new(),
+            // Wave 490: demo/turret-hold/command-set presentation from GW entity.
+            demo_suicided_detonating: ent.demo_suicided_detonating,
+            turret_holding: ent.turret_holding,
+            last_damage_source_host: ent.last_damage_source_host,
+            command_set_override: ent.command_set_override.clone(),
             command_set_name: String::new(),
             is_detector: ent.is_detector,
             active_weapon_slot: ent.active_weapon_slot,
             overcharge_enabled: ent.overcharge_enabled,
             show_health_bar: true,
-            guard_radius: 0.0,
-            has_mine: false,
-            kind_of: Vec::new(),
+            // Wave 490: guard/mine/kind presentation from GW entity.
+            guard_radius: ent.guard_radius,
+            has_mine: ent.has_mine_data,
+            kind_of: Self::kind_of_list_from_presentation_bits(ent.kind_of_bits),
             is_structure: matches!(ent.object_type_ordinal, 3) || ent.is_building,
             is_unit: matches!(ent.object_type_ordinal, 0 | 1 | 2),
             is_mobile: matches!(ent.object_type_ordinal, 0 | 1 | 2),
             can_produce: ent.is_building && !ent.under_construction,
-            building_type: None,
+            // Wave 490: building type from GW entity ordinal.
+            building_type: PresentationBuildingType::from_ordinal(ent.building_type_ordinal),
             model_key: Some(ent.template.name.clone()),
             mesh_scale: 1.0,
             selection_radius: if ent.selection_radius > 0.0 {
