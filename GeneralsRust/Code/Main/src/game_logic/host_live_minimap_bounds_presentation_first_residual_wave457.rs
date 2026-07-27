@@ -168,35 +168,27 @@ pub fn simulate_minimap_bounds_presentation_first_source() -> bool {
         return false;
     };
     let pipe = pipeline_source();
-    // Wave 465 supersedes repair order: stamp presentation bounds from heightmap size first.
-    let ok = (body.contains("Wave 465: presentation-first minimap bounds")
-        || body.contains("Wave 457: prefer presentation freeze for minimap world bounds"))
-        && body.contains("presentation_frame()")
-        && body.contains("world_bounds_vec3()")
+    // Wave 468: instance method uses presentation_world_bounds + heightmap stamp.
+    let ok = body.contains("&mut self")
+        && (body.contains("presentation_world_bounds()") || body.contains("world_bounds_vec3()"))
         && body.contains("presentation_frame_mut()")
         && body.contains("override_world_size")
+        && (body.contains("Wave 468: instance path")
+            || body.contains("Wave 465: presentation-first minimap bounds")
+            || body.contains("Wave 457: prefer presentation freeze"))
         && pipe.contains("fn presentation_frame_mut");
     residual_action_store(ResidualMinimapBoundsPresentationFirstAction::MinimapSource);
     ok
 }
 
-/// Residual: call sites seed presentation before minimap reinit.
 pub fn simulate_minimap_bounds_presentation_first_callsites() -> bool {
     let src = cnc_source();
-    let mut ok_n = 0usize;
-    let mut from = 0usize;
-    while let Some(rel) = src[from..].find("Self::reinitialize_minimap_renderer(") {
-        let i = from + rel;
-        let lo = i.saturating_sub(400);
-        let prior = &src[lo..i];
-        if prior.contains("ensure_presentation_env_for_hints")
-            || prior.contains("ensure_presentation_env_seeded")
-        {
-            ok_n += 1;
-        }
-        from = i + 30;
-    }
-    let ok = ok_n >= 3;
+    // Wave 468: instance method seeds presentation inside reinitialize_minimap_renderer.
+    let instance = src.contains("fn reinitialize_minimap_renderer(&mut self)")
+        && src.contains("ensure_presentation_env_seeded()")
+        && src.contains("presentation_world_bounds()");
+    let call_n = src.matches("self.reinitialize_minimap_renderer()").count();
+    let ok = instance && call_n >= 3;
     residual_action_store(ResidualMinimapBoundsPresentationFirstAction::CallSites);
     ok
 }
