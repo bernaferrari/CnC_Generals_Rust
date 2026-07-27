@@ -564,6 +564,7 @@ pub mod host_live_tech_building_behavior_dual_world_empty_gate_residual_wave436;
 pub mod host_live_tensile_formation_dual_world_empty_gate_residual_wave322;
 pub mod host_live_terrain_dual_world_empty_gate_residual_wave341;
 pub mod host_live_terrain_visual_presentation_only_residual_wave459;
+pub mod host_live_time_frozen_presentation_helper_residual_wave551;
 pub mod host_live_tn_guard_dual_world_empty_gate_residual_wave375;
 pub mod host_live_topple_update_dual_world_empty_gate_residual_wave371;
 pub mod host_live_transition_damage_fx_dual_world_empty_gate_residual_wave416;
@@ -2572,6 +2573,15 @@ pub use host_live_save_restart_presentation_fail_closed_residual_wave545::{
     residual_save_restart_presentation_fail_closed_last_action,
     residual_save_restart_presentation_fail_closed_ok,
     simulate_live_save_restart_presentation_fail_closed_honesty,
+};
+pub use host_live_time_frozen_presentation_helper_residual_wave551::{
+    honesty_time_frozen_presentation_helper_method_names_residual_wave551,
+    honesty_time_frozen_presentation_helper_nav_commands_residual_wave551,
+    honesty_time_frozen_presentation_helper_residual_pack_wave551,
+    honesty_time_frozen_presentation_helper_source_markers_residual_wave551,
+    residual_time_frozen_presentation_helper_last_action,
+    residual_time_frozen_presentation_helper_ok,
+    simulate_live_time_frozen_presentation_helper_honesty,
 };
 pub use host_live_ui_player_info_presentation_fail_closed_residual_wave549::{
     honesty_ui_player_info_presentation_fail_closed_method_names_residual_wave549,
