@@ -2007,10 +2007,15 @@ impl GameWorldShadow {
 
     /// Write shadow PlayerData::completed_upgrades back onto host HostUpgradeRegistry.
     /// Completes the CompleteUpgrade channel as GameWorld last-writer residual.
+    ///
+    /// Wave 624: new completions are recorded into `host_upgrade_ready_log` so
+    /// host can apply unlock/EVA/radar side effects after writeback (GW decides
+    /// completion; host still owns residual apply).
     pub fn writeback_completed_upgrades_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::host_upgrades::{normalize_upgrade_identity, HostUpgradePhase};
         let mut updated = 0usize;
         let frame = logic.get_frame();
+        let mut ready: Vec<(u32, String)> = Vec::new();
         for (&host_id, &gw) in &self.host_player_to_gw {
             let Some(pd) = self.world.player(gw) else {
                 continue;
@@ -2029,14 +2034,22 @@ impl GameWorldShadow {
                 if already {
                     continue;
                 }
-                let _ = logic
-                    .host_upgrades_mut()
-                    .record_complete(name, host_id, frame, 0);
+                // Wave 624: registry mark is deferred to host_apply so side effects
+                // and record_complete stay on one host path (units_affected accurate).
+                ready.push((host_id, name.clone()));
                 dirty = true;
             }
             if dirty {
                 updated += 1;
             }
+        }
+        let _ = frame;
+        for (host_id, name) in ready {
+            crate::game_logic::host_upgrade_ready_log::record(
+                host_id,
+                name,
+                crate::game_logic::ObjectId(0),
+            );
         }
         updated
     }
@@ -7897,6 +7910,8 @@ pub fn shadow_session_after_host_tick(
         }
         econ_wb = shadow.writeback_economy_to_host(logic);
         let _upg_wb = shadow.writeback_completed_upgrades_to_host(logic);
+        // Wave 624: drain upgrade-ready log after GW completed-upgrade writeback.
+        let _upg_ready = logic.host_apply_upgrade_ready_completions();
         let _ss_wb = shadow.writeback_stored_supplies_to_host(logic);
     } else {
         // Avoid unbounded growth when economy authority off.
@@ -13774,6 +13789,9 @@ mod tests {
 
         let n = shadow.writeback_completed_upgrades_to_host(&mut logic);
         assert!(n >= 1, "writeback players {n}");
+        // Wave 624: writeback records ready log; host apply restores registry + side effects.
+        let applied = logic.host_apply_upgrade_ready_completions();
+        assert!(applied >= 1, "host apply upgrade ready {applied}");
         let restored = logic.host_upgrades().entries_snapshot().iter().any(|e| {
             e.player_id == pid
                 && e.phase == HostUpgradePhase::Completed

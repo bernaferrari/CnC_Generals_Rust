@@ -26081,6 +26081,56 @@ impl GameLogic {
     /// veterancy level-ups; host applies combat bonus residual for those IDs.
     /// Wave 623: under damage authority, GameWorld body-damage writeback records
     /// state transitions; host applies model/FX residual for those IDs.
+    /// Wave 624: under GameWorld completed-upgrade writeback, drain ready log and
+    /// apply full host upgrade residual (unlocks, EVA, radar, status bits).
+    pub fn host_apply_upgrade_ready_completions(&mut self) -> usize {
+        // Wave 624: under GameWorld completed-upgrade writeback, drain ready log and
+        // apply full host upgrade residual (unlocks, EVA, radar, status bits).
+        let events = crate::game_logic::host_upgrade_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let team = self.players.get(&ev.player_id).map(|p| p.team).or_else(|| {
+                self.players
+                    .values()
+                    .find(|p| p.id == ev.player_id)
+                    .map(|p| p.team)
+            });
+            let Some(team) = team else {
+                continue;
+            };
+            // Skip if host production path already completed this upgrade.
+            use crate::game_logic::host_upgrades::{normalize_upgrade_identity, HostUpgradePhase};
+            let key = normalize_upgrade_identity(&ev.upgrade_name);
+            let already = self.host_upgrades().entries_snapshot().iter().any(|e| {
+                e.player_id == ev.player_id
+                    && e.phase == HostUpgradePhase::Completed
+                    && normalize_upgrade_identity(&e.name) == key
+            });
+            if already {
+                continue;
+            }
+            // Ensure player unlocked set tracks completion (production path does this).
+            if let Some(player) = self.players.get_mut(&ev.player_id) {
+                if let Some(queued) = player.find_queued_upgrade_name(&ev.upgrade_name) {
+                    player.queued_upgrades.remove(&queued);
+                }
+                if !player.has_unlocked_upgrade(&ev.upgrade_name) {
+                    player.unlocked_sciences.insert(ev.upgrade_name.clone());
+                }
+            } else if let Some(player) = self.players.values_mut().find(|p| p.id == ev.player_id) {
+                if let Some(queued) = player.find_queued_upgrade_name(&ev.upgrade_name) {
+                    player.queued_upgrades.remove(&queued);
+                }
+                if !player.has_unlocked_upgrade(&ev.upgrade_name) {
+                    player.unlocked_sciences.insert(ev.upgrade_name.clone());
+                }
+            }
+            self.apply_host_upgrade_complete(team, ev.player_id, &ev.upgrade_name);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_body_damage_ready_completions(&mut self) -> usize {
         // Wave 623: under damage authority, GameWorld body-damage writeback records
         // state transitions; host applies model/FX residual for those IDs.
