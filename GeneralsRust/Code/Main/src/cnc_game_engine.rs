@@ -16222,9 +16222,15 @@ impl CnCGameEngine {
         if !matches!(self.current_state, GameState::Loading | GameState::Menu) {
             // Production presentation consumer: when a post-logic snapshot exists,
             // GameUIState is built from PresentationFrame only (no live object walks).
-            // Boot residual: update_ui_state when no frame is installed yet.
+            // Wave 462: prefer pipeline freeze, then last_presentation_frame.
+            // Boot residual: update_ui_state only when no frame is installed yet.
             // ControlBar selection panel health is presentation-owned.
-            let mut ui_state = if let Some(pres) = self.last_presentation_frame.clone() {
+            let mut ui_state = if let Some(pres) = self
+                .render_pipeline
+                .presentation_frame()
+                .cloned()
+                .or_else(|| self.last_presentation_frame.clone())
+            {
                 let mut ui = crate::ui::GameUIState::default();
                 pres.apply_to_ui_state(&mut ui);
                 self.apply_presentation_to_huds(&pres);
@@ -16234,6 +16240,8 @@ impl CnCGameEngine {
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
                 }
+                // Keep last_presentation aligned with pipeline freeze when it was the source.
+                self.last_presentation_frame = Some(pres);
                 ui
             } else {
                 // Boot/loading residual only.
@@ -16249,24 +16257,28 @@ impl CnCGameEngine {
                     self.game_hud.push_radar_message(msg);
                 }
             }
-            // Prefer presentation new_script_messages residual when installed.
-            let new_script_messages: Vec<String> =
-                if let Some(pres) = self.last_presentation_frame.as_ref() {
-                    let msgs = pres.new_script_messages.clone();
-                    // Drain live queue so peeked presentation fields are not re-applied.
-                    let _ = self.game_logic.take_new_script_messages();
-                    msgs
-                } else {
-                    // Boot residual only.
-                    self.game_logic.take_new_script_messages()
-                };
+            // Wave 462: prefer pipeline/last presentation new_script_messages residual.
+            let new_script_messages: Vec<String> = if let Some(pres) = self
+                .render_pipeline
+                .presentation_frame()
+                .or(self.last_presentation_frame.as_ref())
+            {
+                let msgs = pres.new_script_messages.clone();
+                // Drain live queue so peeked presentation fields are not re-applied.
+                let _ = self.game_logic.take_new_script_messages();
+                msgs
+            } else {
+                // Boot residual only.
+                self.game_logic.take_new_script_messages()
+            };
             for msg in &new_script_messages {
                 self.game_hud.push_script_message(msg);
             }
-            // Prefer presentation sim clock residual when installed.
+            // Wave 462: prefer pipeline/last presentation sim clock residual.
             ui_state.current_game_time = self
-                .last_presentation_frame
-                .as_ref()
+                .render_pipeline
+                .presentation_frame()
+                .or(self.last_presentation_frame.as_ref())
                 .map(|p| p.total_play_time_seconds)
                 .unwrap_or_else(|| self.game_logic.get_total_play_time());
             ui_state.fps = self.fps;
