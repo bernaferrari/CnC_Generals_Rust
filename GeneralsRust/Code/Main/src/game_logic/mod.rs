@@ -121,6 +121,7 @@ pub mod host_status_log;
 pub mod host_stealth_flags_log;
 pub mod host_stored_supplies_log;
 pub mod host_target_location_log;
+pub mod host_transform_ready_log;
 pub mod host_turret_log;
 pub mod host_upgrade_ready_log;
 pub mod host_veterancy_log;
@@ -445,6 +446,7 @@ pub mod host_live_host_status_map_presentation_fail_closed_residual_wave546;
 pub mod host_live_host_status_selected_presentation_fail_closed_residual_wave547;
 pub mod host_live_host_template_spawn_helper_residual_wave581;
 pub mod host_live_host_tick_mutation_helper_residual_wave584;
+pub mod host_live_host_transform_ready_log_helper_residual_wave636;
 pub mod host_live_host_ui_economy_mouse_mode_helper_residual_wave609;
 pub mod host_live_host_ui_presentation_drain_helper_residual_wave607;
 pub mod host_live_host_ui_selection_startup_helper_residual_wave610;
@@ -3049,6 +3051,15 @@ pub use host_live_host_tick_mutation_helper_residual_wave584::{
     honesty_host_tick_mutation_helper_source_markers_residual_wave584,
     residual_host_tick_mutation_helper_last_action, residual_host_tick_mutation_helper_ok,
     simulate_live_host_tick_mutation_helper_honesty,
+};
+pub use host_live_host_transform_ready_log_helper_residual_wave636::{
+    honesty_host_transform_ready_log_helper_method_names_residual_wave636,
+    honesty_host_transform_ready_log_helper_nav_commands_residual_wave636,
+    honesty_host_transform_ready_log_helper_residual_pack_wave636,
+    honesty_host_transform_ready_log_helper_source_markers_residual_wave636,
+    residual_host_transform_ready_log_helper_last_action,
+    residual_host_transform_ready_log_helper_ok,
+    simulate_live_host_transform_ready_log_helper_honesty,
 };
 pub use host_live_host_ui_economy_mouse_mode_helper_residual_wave609::{
     honesty_host_ui_economy_mouse_mode_helper_method_names_residual_wave609,
