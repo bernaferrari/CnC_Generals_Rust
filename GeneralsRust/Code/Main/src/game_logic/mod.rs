@@ -427,6 +427,7 @@ pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
 pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
+pub mod host_live_presentation_host_fx_overlay_residual_wave498;
 pub mod host_live_presentation_mesh_combat_flags_residual_wave495;
 pub mod host_live_presentation_mesh_condition_resolve_residual_wave497;
 pub mod host_live_presentation_mesh_door_phase_residual_wave496;
@@ -2310,6 +2311,20 @@ pub use host_live_entity_presentation_structure_ui_residual_wave490::{
     ENTITY_PRESENTATION_STRUCTURE_UI_NAV_STEPS_WAVE490,
     ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
     RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
+};
+pub use host_live_presentation_host_fx_overlay_residual_wave498::{
+    honesty_presentation_host_fx_overlay_method_names_residual_wave498,
+    honesty_presentation_host_fx_overlay_nav_commands_residual_wave498,
+    honesty_presentation_host_fx_overlay_residual_pack_wave498,
+    honesty_presentation_host_fx_overlay_source_markers_residual_wave498,
+    residual_presentation_host_fx_overlay_last_action, residual_presentation_host_fx_overlay_ok,
+    simulate_live_presentation_host_fx_overlay_honesty,
+    simulate_presentation_host_fx_overlay_engine_source,
+    simulate_presentation_host_fx_overlay_source, ResidualPresentationHostFxOverlayAction,
+    PRESENTATION_HOST_FX_OVERLAY_METHOD_NAMES_WAVE498,
+    PRESENTATION_HOST_FX_OVERLAY_NAV_STEPS_WAVE498,
+    PRESENTATION_HOST_FX_OVERLAY_SOURCE_MARKERS_WAVE498,
+    RUNTIME_HOST_PRESENTATION_HOST_FX_OVERLAY_CMD_NAMES_WAVE498,
 };
 pub use host_live_presentation_mesh_combat_flags_residual_wave495::{
     honesty_presentation_mesh_combat_flags_method_names_residual_wave495,

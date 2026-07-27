@@ -6011,6 +6011,7 @@ impl PresentationFrame {
             team_color: ent.team_color,
             position: pos,
             orientation: ent.transform.orientation,
+            // Wave 498: filled by overlay_host_fx_residual when host is available.
             topple_lean_radians: 0.0,
             move_destination,
             // Wave 489: order/path/production presentation from GW entity.
@@ -6069,6 +6070,7 @@ impl PresentationFrame {
             radar_extend_complete: ent.radar_extend_complete,
             production_door_phase: ent.production_door_phase,
             body_damage_state: ent.body_damage_state,
+            // Wave 498 defaults; overlay_host_fx_residual stamps live host FX residual.
             damage_fx_name: None,
             bone_fx_name: None,
             poison_tinted: false,
@@ -6337,6 +6339,68 @@ impl PresentationFrame {
         appended
     }
 
+    /// Wave 498: re-stamp host-only FX presentation residual after GameWorld object rebuild.
+    ///
+    /// GW entities do not yet own TransitionDamageFX / BoneFX / poison tint / defector /
+    /// death FX / topple lean. When objects are rebuilt from the entity store, those
+    /// fields would otherwise hard-default. Overlay from the matching host Object by id.
+    /// Fail-closed: not full GameWorld FX ownership / playable_claim.
+    pub fn overlay_host_fx_residual(&mut self, logic: &GameLogic) -> usize {
+        let mut stamped = 0usize;
+        for ro in &mut self.objects {
+            let Some(obj) = logic.get_object(ro.id) else {
+                continue;
+            };
+            let mut dirty = false;
+            let topple = obj.presentation_topple_lean_radians();
+            if (ro.topple_lean_radians - topple).abs() > 1e-5 {
+                ro.topple_lean_radians = topple;
+                dirty = true;
+            }
+            let damage_fx = obj
+                .pending_transition_damage_fx
+                .last()
+                .and_then(|e| e.fx_name.clone());
+            if ro.damage_fx_name != damage_fx {
+                ro.damage_fx_name = damage_fx;
+                dirty = true;
+            }
+            let bone_fx = obj.bone_fx_damage.as_ref().and_then(|b| b.last_fx.clone());
+            if ro.bone_fx_name != bone_fx {
+                ro.bone_fx_name = bone_fx;
+                dirty = true;
+            }
+            let poison = obj.is_poison_tinted();
+            if ro.poison_tinted != poison {
+                ro.poison_tinted = poison;
+                dirty = true;
+            }
+            let undetected = obj.is_undetected_defector();
+            if ro.undetected_defector != undetected {
+                ro.undetected_defector = undetected;
+                dirty = true;
+            }
+            let flash = obj
+                .defection_helper
+                .as_ref()
+                .map(|d| d.flash_this_frame || d.final_white_flash)
+                .unwrap_or(false);
+            if ro.defector_flash != flash {
+                ro.defector_flash = flash;
+                dirty = true;
+            }
+            let death_fx = obj.pending_death_fx.clone();
+            if ro.death_fx_name != death_fx {
+                ro.death_fx_name = death_fx;
+                dirty = true;
+            }
+            if dirty {
+                stamped += 1;
+            }
+        }
+        stamped
+    }
+
     /// Rebuild the entire `objects` list from the GameWorld entity store (Wave 193).
     ///
     /// Host ObjectIds are preferred when the shadow map has them; otherwise
@@ -6393,6 +6457,10 @@ impl PresentationFrame {
             f
         };
         let _ = frame.rebuild_objects_from_gameworld(shadow);
+        // Wave 498: host FX residual survives GameWorld object rebuild.
+        if let Some(logic) = host {
+            let _ = frame.overlay_host_fx_residual(logic);
+        }
         // Local player residual already stamped by overlay inside rebuild.
         frame
     }
@@ -6439,6 +6507,8 @@ impl PresentationFrame {
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
                 let _ = frame.rebuild_objects_from_gameworld(shadow);
+                // Wave 498: host FX residual after GW object rebuild.
+                let _ = frame.overlay_host_fx_residual(logic);
             }
             Some(shadow) => {
                 let _ = frame.overlay_gameworld_shadow(shadow);
