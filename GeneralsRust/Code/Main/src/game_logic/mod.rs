@@ -426,6 +426,7 @@ pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
 pub mod host_live_presentation_burn_cheer_carry_residual_wave511;
 pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
+pub mod host_live_presentation_cliff_flood_residual_wave522;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
 pub mod host_live_presentation_dock_rider_residual_wave521;
 pub mod host_live_presentation_emoticon_float_residual_wave514;
@@ -2355,6 +2356,14 @@ pub use host_live_presentation_anim_steer_residual_wave520::{
     honesty_presentation_anim_steer_source_markers_residual_wave520,
     residual_presentation_anim_steer_last_action, residual_presentation_anim_steer_ok,
     simulate_live_presentation_anim_steer_honesty,
+};
+pub use host_live_presentation_cliff_flood_residual_wave522::{
+    honesty_presentation_cliff_flood_method_names_residual_wave522,
+    honesty_presentation_cliff_flood_nav_commands_residual_wave522,
+    honesty_presentation_cliff_flood_residual_pack_wave522,
+    honesty_presentation_cliff_flood_source_markers_residual_wave522,
+    residual_presentation_cliff_flood_last_action, residual_presentation_cliff_flood_ok,
+    simulate_live_presentation_cliff_flood_honesty,
 };
 pub use host_live_presentation_dock_rider_residual_wave521::{
     honesty_presentation_dock_rider_method_names_residual_wave521,
