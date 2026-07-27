@@ -374,6 +374,7 @@ pub mod host_live_host_cancel_selection_helper_residual_wave580;
 pub mod host_live_host_command_flush_helper_residual_wave576;
 pub mod host_live_host_enqueue_shell_cmd_helper_residual_wave582;
 pub mod host_live_host_game_client_device_tick_helper_residual_wave587;
+pub mod host_live_host_game_client_menu_shell_helper_residual_wave588;
 pub mod host_live_host_game_client_shell_tick_helper_residual_wave586;
 pub mod host_live_host_pause_team_helper_residual_wave575;
 pub mod host_live_host_runtime_cmd_helper_residual_wave583;
@@ -2542,6 +2543,15 @@ pub use host_live_host_game_client_device_tick_helper_residual_wave587::{
     residual_host_game_client_device_tick_helper_last_action,
     residual_host_game_client_device_tick_helper_ok,
     simulate_live_host_game_client_device_tick_helper_honesty,
+};
+pub use host_live_host_game_client_menu_shell_helper_residual_wave588::{
+    honesty_host_game_client_menu_shell_helper_method_names_residual_wave588,
+    honesty_host_game_client_menu_shell_helper_nav_commands_residual_wave588,
+    honesty_host_game_client_menu_shell_helper_residual_pack_wave588,
+    honesty_host_game_client_menu_shell_helper_source_markers_residual_wave588,
+    residual_host_game_client_menu_shell_helper_last_action,
+    residual_host_game_client_menu_shell_helper_ok,
+    simulate_live_host_game_client_menu_shell_helper_honesty,
 };
 pub use host_live_host_game_client_shell_tick_helper_residual_wave586::{
     honesty_host_game_client_shell_tick_helper_method_names_residual_wave586,
