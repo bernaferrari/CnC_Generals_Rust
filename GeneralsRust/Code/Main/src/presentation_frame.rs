@@ -11469,8 +11469,9 @@ mod tests {
         let gl = include_str!("game_logic/game_logic.rs");
         assert!(
             gl.contains("gameworld_special_power_sole_tick_enabled()")
+                && gl.contains("Wave 479: do not republish full cooldown snapshots each frame")
                 && gl.contains("record_host_cooldowns"),
-            "host shared SP tick must defer under sole-tick and still snapshot cds"
+            "host shared SP tick must defer under sole-tick without per-frame cooldown stomp"
         );
     }
 
