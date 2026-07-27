@@ -2226,6 +2226,11 @@ use crate::game_logic::host_live_boot_ui_message_helper_residual_wave566::{
     honesty_boot_ui_message_helper_nav_commands_residual_wave566,
     simulate_live_boot_ui_message_helper_honesty,
 };
+use crate::game_logic::host_live_boot_movie_helper_residual_wave567::{
+    honesty_boot_movie_helper_method_names_residual_wave567,
+    honesty_boot_movie_helper_nav_commands_residual_wave567,
+    simulate_live_boot_movie_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5642,6 +5647,9 @@ pub struct ShellSmokeResult {
     pub boot_ui_message_helper_method_names_wave566_ok: bool,
     pub boot_ui_message_helper_nav_commands_wave566_ok: bool,
     pub boot_ui_message_helper_live_wave566_ok: bool,
+    pub boot_movie_helper_method_names_wave567_ok: bool,
+    pub boot_movie_helper_nav_commands_wave567_ok: bool,
+    pub boot_movie_helper_live_wave567_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8794,6 +8802,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let boot_ui_message_helper_nav_commands_wave566_ok =
         honesty_boot_ui_message_helper_nav_commands_residual_wave566();
     let boot_ui_message_helper_live_wave566_ok = simulate_live_boot_ui_message_helper_honesty();
+    let boot_movie_helper_method_names_wave567_ok =
+        honesty_boot_movie_helper_method_names_residual_wave567();
+    let boot_movie_helper_nav_commands_wave567_ok =
+        honesty_boot_movie_helper_nav_commands_residual_wave567();
+    let boot_movie_helper_live_wave567_ok = simulate_live_boot_movie_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10481,6 +10494,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         boot_ui_message_helper_method_names_wave566_ok,
         boot_ui_message_helper_nav_commands_wave566_ok,
         boot_ui_message_helper_live_wave566_ok,
+        boot_movie_helper_method_names_wave567_ok,
+        boot_movie_helper_nav_commands_wave567_ok,
+        boot_movie_helper_live_wave567_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19241,6 +19257,21 @@ mod tests {
         assert!(
             r.boot_ui_message_helper_live_wave566_ok,
             "boot UI message helper live residual wave566: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_movie_helper_method_names_wave567_ok,
+            "boot movie helper method names residual pack wave567: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_movie_helper_nav_commands_wave567_ok,
+            "boot movie helper nav commands residual pack wave567: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_movie_helper_live_wave567_ok,
+            "boot movie helper live residual wave567: {}",
             r.detail
         );
         assert!(
