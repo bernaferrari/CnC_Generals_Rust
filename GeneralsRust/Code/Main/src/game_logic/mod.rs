@@ -428,6 +428,7 @@ pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
 pub mod host_live_presentation_mesh_combat_flags_residual_wave495;
+pub mod host_live_presentation_mesh_condition_resolve_residual_wave497;
 pub mod host_live_presentation_mesh_door_phase_residual_wave496;
 pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_mesh_turret_residual_wave494;
@@ -2324,6 +2325,22 @@ pub use host_live_presentation_mesh_combat_flags_residual_wave495::{
     PRESENTATION_MESH_COMBAT_FLAGS_NAV_STEPS_WAVE495,
     PRESENTATION_MESH_COMBAT_FLAGS_SOURCE_MARKERS_WAVE495,
     RUNTIME_HOST_PRESENTATION_MESH_COMBAT_FLAGS_CMD_NAMES_WAVE495,
+};
+pub use host_live_presentation_mesh_condition_resolve_residual_wave497::{
+    honesty_presentation_mesh_condition_resolve_method_names_residual_wave497,
+    honesty_presentation_mesh_condition_resolve_nav_commands_residual_wave497,
+    honesty_presentation_mesh_condition_resolve_residual_pack_wave497,
+    honesty_presentation_mesh_condition_resolve_source_markers_residual_wave497,
+    residual_presentation_mesh_condition_resolve_last_action,
+    residual_presentation_mesh_condition_resolve_ok,
+    simulate_live_presentation_mesh_condition_resolve_honesty,
+    simulate_presentation_mesh_condition_resolve_render_source,
+    simulate_presentation_mesh_condition_resolve_resolve_source,
+    ResidualPresentationMeshConditionResolveAction,
+    PRESENTATION_MESH_CONDITION_RESOLVE_METHOD_NAMES_WAVE497,
+    PRESENTATION_MESH_CONDITION_RESOLVE_NAV_STEPS_WAVE497,
+    PRESENTATION_MESH_CONDITION_RESOLVE_SOURCE_MARKERS_WAVE497,
+    RUNTIME_HOST_PRESENTATION_MESH_CONDITION_RESOLVE_CMD_NAMES_WAVE497,
 };
 pub use host_live_presentation_mesh_door_phase_residual_wave496::{
     honesty_presentation_mesh_door_phase_method_names_residual_wave496,

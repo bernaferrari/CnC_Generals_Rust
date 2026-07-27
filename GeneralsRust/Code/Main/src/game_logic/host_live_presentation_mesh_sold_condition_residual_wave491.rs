@@ -155,7 +155,8 @@ pub fn simulate_presentation_mesh_sold_condition_render_source() -> bool {
         .contains("Wave 491: mesh pass honors sold model-condition residual from presentation")
         && rp.contains("u.model_condition_bits")
         && rp.contains("sold_model_bit")
-        && rp.contains("model_key_with_presentation_state");
+        && (rp.contains("model_key_with_presentation_state")
+            || rp.contains("model_key_with_presentation_conditions"));
     residual_action_store(ResidualPresentationMeshSoldConditionAction::RenderSource);
     ok
 }
