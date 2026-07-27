@@ -130,7 +130,9 @@ pub fn honesty_ui_player_info_presentation_fail_closed_source_markers_residual_w
     let wave = body.contains("Wave 549")
         && body.contains("presentation freeze owns player roster residual");
     let early_return = body.contains("return frame.player_info(player_id).cloned();");
-    let boot = body.contains("player_exists(player_id)");
+    // Wave 573: boot path may be inline player_exists or boot_player_info_from_host.
+    let boot = body.contains("player_exists(player_id)")
+        || body.contains("boot_player_info_from_host(player_id)");
     // Freeze arm must not call player_exists before returning.
     let freeze_arm_ok =
         match body.find("if let Some(frame) = self.last_presentation_frame.as_ref()") {
@@ -180,9 +182,12 @@ pub fn simulate_ui_player_info_presentation_fail_closed_dispatch_source() -> boo
         residual_action_store(ResidualUiPlayerInfoPresentationFailClosedAction::DispatchSource);
         return false;
     };
+    // Wave 573: boot path may be helper call instead of inline player_exists.
+    let boot_ok = body.contains("player_exists(player_id)")
+        || body.contains("boot_player_info_from_host(player_id)");
     let ok = body.contains("presentation freeze owns player roster residual")
         && body.contains("return frame.player_info(player_id).cloned();")
-        && body.contains("player_exists(player_id)");
+        && boot_ok;
     residual_action_store(ResidualUiPlayerInfoPresentationFailClosedAction::DispatchSource);
     ok
 }
