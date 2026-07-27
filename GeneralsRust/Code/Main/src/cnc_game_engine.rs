@@ -9979,8 +9979,7 @@ impl CnCGameEngine {
                         // Wave 221: push presentation-first selection into host before move.
                         let ids = self.ui_selected_ids(self.current_player_id);
                         if !ids.is_empty() {
-                            self.selected_objects = ids.clone();
-                            self.game_logic.select_objects(self.current_player_id, ids);
+                            self.host_set_selection(self.current_player_id, ids);
                         }
                         self.game_logic
                             .command_move(self.current_player_id, glam::Vec3::new(x, y, z));
@@ -10328,8 +10327,7 @@ impl CnCGameEngine {
                             };
                             ids.truncate(12);
                             if !ids.is_empty() {
-                                self.selected_objects = ids.clone();
-                                self.game_logic.select_objects(self.current_player_id, ids);
+                                self.host_set_selection(self.current_player_id, ids);
                             }
                         }
                     }
@@ -10521,8 +10519,7 @@ impl CnCGameEngine {
                             if ids.is_empty() {
                                 self.ensure_host_mobile_selection();
                             } else {
-                                self.selected_objects = ids.clone();
-                                self.game_logic.select_objects(self.current_player_id, ids);
+                                self.host_set_selection(self.current_player_id, ids);
                             }
                         }
                     }
@@ -17015,7 +17012,25 @@ impl CnCGameEngine {
     #[inline]
 
     /// Wave 577: host camera jump residual — clamp, set camera_target XZ, request focus.
+    /// Wave 579: host selection residual — keep GameLogic selection and engine
+    /// `selected_objects` in lockstep.
     #[inline]
+    fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
+        // Wave 579: paired host select residual.
+        self.game_logic.select_objects(player_id, ids.clone());
+        self.selected_objects = ids;
+    }
+
+    /// Wave 579: host map-load residual with default fallback.
+    #[inline]
+    fn host_load_map_or_default(&mut self, map_name: &str) {
+        // Wave 579: load_map + DEFAULT_SKIRMISH_MAP fallback residual.
+        if !self.game_logic.load_map(map_name) {
+            warn!("Failed to load map '{}', falling back to default", map_name);
+            let _ = self.game_logic.load_map(DEFAULT_SKIRMISH_MAP);
+        }
+    }
+
     fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
         // Wave 577: paired camera target + host request_camera_focus residual.
         let clamped = self.clamp_to_world_bounds(world_pos);
@@ -17366,8 +17381,7 @@ impl CnCGameEngine {
         if selected.is_empty() || !selected.iter().any(|&id| is_dozer(id)) {
             if let Some(auto) = self.find_nearest_friendly_dozer(player_id, location) {
                 selected = vec![auto];
-                self.game_logic.select_objects(player_id, selected.clone());
-                self.selected_objects = selected.clone();
+                self.host_set_selection(player_id, selected.clone());
             }
         }
         if selected.is_empty() {
@@ -18883,10 +18897,8 @@ impl CnCGameEngine {
             self.host_start_new_game_with_faction(mode, faction_team, false);
         }
 
-        if !self.game_logic.load_map(&map_name) {
-            warn!("Failed to load map '{}', falling back to default", map_name);
-            let _ = self.game_logic.load_map(DEFAULT_SKIRMISH_MAP);
-        }
+        // Wave 579: host map-load residual via helper.
+        self.host_load_map_or_default(&map_name);
 
         // Reset transient state.
         self.set_host_paused(false);
