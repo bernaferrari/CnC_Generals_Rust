@@ -166,6 +166,7 @@ Remaining engine residual after host update:
   - Body-damage ready log: GW writeback → `host_body_damage_ready_log` → host model/FX apply (Wave 623)
   - Upgrade-complete ready log: GW writeback → `host_upgrade_ready_log` → host apply_host_upgrade_complete (Wave 624)
   - Radar-extend ready log: GW writeback → `host_radar_extend_ready_log` → host model/counter apply (Wave 625)
+  - Construction-complete-clear ready log: GW writeback → `host_construction_complete_clear_ready_log` → host bit clear (Wave 626)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
