@@ -698,6 +698,7 @@ impl RenderPipeline {
         // Wave 509: topple/freefall/night/snow stamp via unit_render_inputs.
         // Wave 510: captured/loaded/overcharge stamp via unit_render_inputs.
         // Wave 511: burned/aflame/cheer/carry stamp via unit_render_inputs.
+        // Wave 512: continuous-fire/prone/preattack/turret stamp via unit_render_inputs.
         frame.unit_render_inputs()
     }
 
@@ -1396,6 +1397,7 @@ impl RenderPipeline {
             // Wave 509: TOPPLED / FREEFALL / NIGHT / SNOW bits included in stamp helper.
             // Wave 510: CAPTURED / LOADED / POWER_PLANT_UPGRADED bits included in stamp helper.
             // Wave 511: BURNED / AFLAME / SPECIAL_CHEERING / CARRYING bits included in stamp helper.
+            // Wave 512: CONTINUOUS_FIRE / PRONE / PREATTACK / TURRET_ROTATE bits included in stamp helper.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let sold_for_mesh =

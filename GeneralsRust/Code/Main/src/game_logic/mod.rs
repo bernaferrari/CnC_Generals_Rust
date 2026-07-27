@@ -429,6 +429,7 @@ pub mod host_live_presentation_construction_disguise_residual_wave503;
 pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
 pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
+pub mod host_live_presentation_fire_prone_turret_residual_wave512;
 pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
@@ -2399,6 +2400,21 @@ pub use host_live_presentation_construction_disguise_residual_wave503::{
     PRESENTATION_CONSTRUCTION_DISGUISE_NAV_STEPS_WAVE503,
     PRESENTATION_CONSTRUCTION_DISGUISE_SOURCE_MARKERS_WAVE503,
     RUNTIME_HOST_PRESENTATION_CONSTRUCTION_DISGUISE_CMD_NAMES_WAVE503,
+};
+pub use host_live_presentation_fire_prone_turret_residual_wave512::{
+    honesty_presentation_fire_prone_turret_method_names_residual_wave512,
+    honesty_presentation_fire_prone_turret_nav_commands_residual_wave512,
+    honesty_presentation_fire_prone_turret_residual_pack_wave512,
+    honesty_presentation_fire_prone_turret_source_markers_residual_wave512,
+    residual_presentation_fire_prone_turret_last_action,
+    residual_presentation_fire_prone_turret_ok,
+    simulate_live_presentation_fire_prone_turret_honesty,
+    simulate_presentation_fire_prone_turret_freeze_source,
+    simulate_presentation_fire_prone_turret_stamp_source,
+    ResidualPresentationFireProneTurretAction, PRESENTATION_FIRE_PRONE_TURRET_METHOD_NAMES_WAVE512,
+    PRESENTATION_FIRE_PRONE_TURRET_NAV_STEPS_WAVE512,
+    PRESENTATION_FIRE_PRONE_TURRET_SOURCE_MARKERS_WAVE512,
+    RUNTIME_HOST_PRESENTATION_FIRE_PRONE_TURRET_CMD_NAMES_WAVE512,
 };
 pub use host_live_presentation_garrison_contain_residual_wave504::{
     honesty_presentation_garrison_contain_method_names_residual_wave504,

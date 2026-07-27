@@ -248,6 +248,8 @@ pub struct RenderableObject {
     pub parachute_open: bool,
     /// Wave 510: C++ CAPTURED model-condition residual.
     pub captured: bool,
+    /// Wave 512: C++ prone residual (Infantry goProne timer).
+    pub prone: bool,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
     /// Host movement max speed residual.
@@ -641,6 +643,10 @@ pub struct UnitRenderInput {
     pub overcharge_enabled: bool,
     /// Wave 511: death type name residual for burned/aflame pose.
     pub death_type_name: String,
+    /// Wave 512: continuous-fire level residual (0 slow / 1 mean / 2 fast).
+    pub continuous_fire_level: u8,
+    /// Wave 512: prone residual.
+    pub prone: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -706,6 +712,8 @@ impl UnitRenderInput {
             captured: ro.captured,
             overcharge_enabled: ro.overcharge_enabled,
             death_type_name: ro.death_type_name.clone(),
+            continuous_fire_level: ro.continuous_fire_level,
+            prone: ro.prone,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -760,6 +768,7 @@ impl UnitRenderInput {
     /// Wave 509: stamp TOPPLED / FREEFALL / NIGHT / SNOW residual bits.
     /// Wave 510: stamp CAPTURED / LOADED / POWER_PLANT_UPGRADED residual bits.
     /// Wave 511: stamp BURNED / AFLAME / SPECIAL_CHEERING / CARRYING residual bits.
+    /// Wave 512: stamp CONTINUOUS_FIRE_* / PRONE / PREATTACK_A / TURRET_ROTATE residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -1028,6 +1037,50 @@ impl UnitRenderInput {
                 bits |= 1u128 << carry_b;
             } else {
                 bits &= !(1u128 << carry_b);
+            }
+        }
+        // Wave 512: continuous-fire / prone / preattack / turret-rotate residual bits.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                continuous_fire_fast_model_bit, continuous_fire_mean_model_bit,
+                continuous_fire_slow_model_bit, preattack_a_model_bit, prone_model_bit,
+                turret_rotate_model_bit,
+            };
+            let slow_b = continuous_fire_slow_model_bit();
+            let mean_b = continuous_fire_mean_model_bit();
+            let fast_b = continuous_fire_fast_model_bit();
+            bits &= !(1u128 << slow_b);
+            bits &= !(1u128 << mean_b);
+            bits &= !(1u128 << fast_b);
+            match self.continuous_fire_level {
+                1 => bits |= 1u128 << mean_b,
+                2 => bits |= 1u128 << fast_b,
+                _ => {
+                    if self.is_firing_weapon {
+                        bits |= 1u128 << slow_b;
+                    }
+                }
+            }
+            let prone_b = prone_model_bit();
+            if self.prone {
+                bits |= 1u128 << prone_b;
+            } else {
+                bits &= !(1u128 << prone_b);
+            }
+            let pre_b = preattack_a_model_bit();
+            if self.attacking && !self.is_firing_weapon {
+                bits |= 1u128 << pre_b;
+            } else {
+                bits &= !(1u128 << pre_b);
+            }
+            let tur_b = turret_rotate_model_bit();
+            if !self.is_structure
+                && self.turret_angle_deg.is_finite()
+                && self.turret_angle_deg.abs() > 0.5
+            {
+                bits |= 1u128 << tur_b;
+            } else {
+                bits &= !(1u128 << tur_b);
             }
         }
         bits
@@ -2925,6 +2978,7 @@ impl PresentationFrame {
                 parachuting: obj.is_parachuting(),
                 parachute_open: obj.is_parachute_open(),
                 captured: obj.has_captured_model_condition() || obj.is_private_captured(),
+                prone: obj.prone_timer > 0.0,
                 over_water: obj.over_water,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
@@ -6431,6 +6485,7 @@ impl PresentationFrame {
             parachuting: ent.parachuting,
             parachute_open: ent.parachute_open,
             captured: false,
+            prone: false,
             over_water: false,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
@@ -8632,6 +8687,8 @@ mod tests {
             captured: false,
             overcharge_enabled: false,
             death_type_name: String::new(),
+            continuous_fire_level: 0,
+            prone: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
