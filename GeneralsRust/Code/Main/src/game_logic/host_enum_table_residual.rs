@@ -544,6 +544,25 @@ pub fn disguised_model_bit() -> u32 {
 pub fn stunned_model_bit() -> u32 {
     model_condition_bit_name_index("STUNNED").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_TOPPLED residual bit index.
+pub fn toppled_model_bit() -> u32 {
+    model_condition_bit_name_index("TOPPLED").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_FREEFALL residual bit index.
+pub fn freefall_model_bit() -> u32 {
+    model_condition_bit_name_index("FREEFALL").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_NIGHT residual bit index.
+pub fn night_model_bit() -> u32 {
+    model_condition_bit_name_index("NIGHT").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_SNOW residual bit index.
+pub fn snow_model_bit() -> u32 {
+    model_condition_bit_name_index("SNOW").unwrap_or(0) as u32
+}
 
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32

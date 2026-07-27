@@ -244,6 +244,8 @@ pub struct RenderableObject {
     pub airborne_target: bool,
     /// Wave 505: C++ OBJECT_STATUS_PARACHUTING residual.
     pub parachuting: bool,
+    /// Wave 509: C++ parachute open residual (false + parachuting => FREEFALL).
+    pub parachute_open: bool,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
     /// Host movement max speed residual.
@@ -625,6 +627,12 @@ pub struct UnitRenderInput {
     pub over_water: bool,
     /// Wave 508: any host disable residual that blocks acting (stun pose).
     pub disabled: bool,
+    /// Wave 509: parachute open residual (with parachuting => freefall when false).
+    pub parachute_open: bool,
+    /// Wave 509: world snow residual stamped into mesh model-condition.
+    pub world_is_snow: bool,
+    /// Wave 509: world night residual stamped into mesh model-condition.
+    pub world_is_night: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -684,6 +692,9 @@ impl UnitRenderInput {
             veterancy: ro.veterancy,
             over_water: ro.over_water,
             disabled: ro.disabled,
+            parachute_open: ro.parachute_open,
+            world_is_snow: false,
+            world_is_night: false,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -735,6 +746,7 @@ impl UnitRenderInput {
     /// Wave 506: stamp weaponset veterancy residual bits.
     /// Wave 507: stamp OVER_WATER + transport RIDER1..n residual bits.
     /// Wave 508: stamp body-damage / DISGUISED / STUNNED residual bits.
+    /// Wave 509: stamp TOPPLED / FREEFALL / NIGHT / SNOW residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -915,6 +927,36 @@ impl UnitRenderInput {
                 bits |= 1u128 << stun_b;
             } else {
                 bits &= !(1u128 << stun_b);
+            }
+        }
+        // Wave 509: toppled / freefall / night / snow model-condition residual.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                freefall_model_bit, night_model_bit, snow_model_bit, toppled_model_bit,
+            };
+            let top_b = toppled_model_bit();
+            if self.topple_lean_radians.abs() > 1e-3 {
+                bits |= 1u128 << top_b;
+            } else {
+                bits &= !(1u128 << top_b);
+            }
+            let free_b = freefall_model_bit();
+            if self.parachuting && !self.parachute_open {
+                bits |= 1u128 << free_b;
+            } else {
+                bits &= !(1u128 << free_b);
+            }
+            let night_b = night_model_bit();
+            if self.world_is_night {
+                bits |= 1u128 << night_b;
+            } else {
+                bits &= !(1u128 << night_b);
+            }
+            let snow_b = snow_model_bit();
+            if self.world_is_snow {
+                bits |= 1u128 << snow_b;
+            } else {
+                bits &= !(1u128 << snow_b);
             }
         }
         bits
@@ -2159,6 +2201,12 @@ impl PresentationRuntimeHeightmap {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationWorldEnv {
     pub map_name: String,
+    /// Wave 509: snow weather residual for mesh model-condition SNOW bank.
+    #[serde(default)]
+    pub is_snow: bool,
+    /// Wave 509: night residual for mesh model-condition NIGHT bank.
+    #[serde(default)]
+    pub is_night: bool,
     pub world_min: [f32; 3],
     pub world_max: [f32; 3],
     pub heightmap_hint: Option<String>,
@@ -2292,8 +2340,14 @@ impl PresentationWorldEnv {
             })
             .collect();
 
+        let weather = logic.weather_state().current_weather.to_ascii_lowercase();
+        let is_snow = weather.contains("snow");
+        // Night residual: weather name or evening/night tokens (fail-closed TOD runtime).
+        let is_night = weather.contains("night") || weather.contains("evening");
         Self {
             map_name: logic.get_current_map_name().trim().to_string(),
+            is_snow,
+            is_night,
             world_min: [wmin.x, wmin.y, wmin.z],
             world_max: [wmax.x, wmax.y, wmax.z],
             heightmap_hint,
@@ -2798,6 +2852,7 @@ impl PresentationFrame {
                 using_ability: obj.status.using_ability,
                 airborne_target: obj.status.airborne_target,
                 parachuting: obj.is_parachuting(),
+                parachute_open: obj.is_parachute_open(),
                 over_water: obj.over_water,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
@@ -3976,6 +4031,9 @@ impl PresentationFrame {
             })
             .map(|o| {
                 let mut input = UnitRenderInput::from_renderable(o);
+                // Wave 509: world weather/tod mesh bits from frozen presentation env.
+                input.world_is_snow = self.world_env.is_snow;
+                input.world_is_night = self.world_env.is_night;
                 if o.effectively_stealthed && o.team == local_team {
                     input.fow_visibility.visibility_alpha = input
                         .fow_visibility
@@ -6299,6 +6357,7 @@ impl PresentationFrame {
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
             parachuting: ent.parachuting,
+            parachute_open: ent.parachute_open,
             over_water: false,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
@@ -8494,6 +8553,9 @@ mod tests {
             veterancy: PresentationVeterancy::Rookie,
             over_water: false,
             disabled: false,
+            parachute_open: false,
+            world_is_snow: false,
+            world_is_night: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
