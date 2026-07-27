@@ -392,6 +392,7 @@ pub mod host_live_host_post_presentation_client_helper_residual_wave600;
 pub mod host_live_host_presentation_finalize_helper_residual_wave589;
 pub mod host_live_host_presentation_seed_helper_residual_wave590;
 pub mod host_live_host_production_complete_apply_helper_residual_wave595;
+pub mod host_live_host_production_complete_collect_helper_residual_wave613;
 pub mod host_live_host_production_complete_host_apply_helper_residual_wave608;
 pub mod host_live_host_render_ui_finalize_helper_residual_wave593;
 pub mod host_live_host_render_ui_overlays_helper_residual_wave592;
@@ -2723,6 +2724,15 @@ pub use host_live_host_production_complete_apply_helper_residual_wave595::{
     residual_host_production_complete_apply_helper_last_action,
     residual_host_production_complete_apply_helper_ok,
     simulate_live_host_production_complete_apply_helper_honesty,
+};
+pub use host_live_host_production_complete_collect_helper_residual_wave613::{
+    honesty_host_production_complete_collect_helper_method_names_residual_wave613,
+    honesty_host_production_complete_collect_helper_nav_commands_residual_wave613,
+    honesty_host_production_complete_collect_helper_residual_pack_wave613,
+    honesty_host_production_complete_collect_helper_source_markers_residual_wave613,
+    residual_host_production_complete_collect_helper_last_action,
+    residual_host_production_complete_collect_helper_ok,
+    simulate_live_host_production_complete_collect_helper_honesty,
 };
 pub use host_live_host_production_complete_host_apply_helper_residual_wave608::{
     honesty_host_production_complete_host_apply_helper_method_names_residual_wave608,

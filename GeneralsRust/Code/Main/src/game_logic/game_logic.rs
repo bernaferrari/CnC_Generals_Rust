@@ -6920,6 +6920,29 @@ impl GameLogic {
     }
 
     fn update_production(&mut self, dt: f32) {
+        // Wave 613: production complete collect + apply via host helpers.
+        // Under PRODUCTION_AUTHORITY sole-tick, GameWorld advances queue progress
+        // and writeback finishes heads; host only try_complete + spawn/apply.
+        let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
+        // Wave 595/608: host production complete/spawn apply residual via host helpers.
+        self.apply_upgrade_production_completions(upgrade_completions);
+        self.apply_unit_production_completions(unit_completions);
+    }
+
+    /// Wave 613: host production completion collection residual.
+    ///
+    /// Sole-tick path: GameWorld sole-ticks progress/exit delay; host
+    /// `try_complete_production` only when writeback finished the head.
+    /// Non-sole path: host still advances production via building.update_production.
+    fn host_collect_production_completions(
+        &mut self,
+        dt: f32,
+    ) -> (
+        Vec<(Team, String, ObjectId)>,
+        Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
+    ) {
+        // Wave 613: host production complete collect residual.
+
         // C++ parity: pre-compute per-team power factor so we don't borrow
         // self.players while self.objects is mutably borrowed.
         // Formula matches ThingTemplate::calcTimeToBuild():
@@ -7031,9 +7054,7 @@ impl GameLogic {
             }
         }
 
-        // Wave 595/608: host production complete/spawn apply residual via host helpers.
-        self.apply_upgrade_production_completions(upgrade_completions);
-        self.apply_unit_production_completions(unit_completions);
+        (upgrade_completions, unit_completions)
     }
 
     /// Wave 595: host upgrade production completion residual (still host-side under
