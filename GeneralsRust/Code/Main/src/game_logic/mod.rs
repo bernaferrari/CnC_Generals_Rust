@@ -359,6 +359,7 @@ pub mod host_live_meta_event_dual_world_empty_gate_residual_wave345;
 pub mod host_live_minefield_behavior_dual_world_empty_gate_residual_wave410;
 pub mod host_live_minimap_bounds_presentation_first_residual_wave457;
 pub mod host_live_minimap_heightmap_repair_presentation_first_residual_wave465;
+pub mod host_live_minimap_reinit_instance_presentation_residual_wave468;
 pub mod host_live_missile_ai_dual_world_empty_gate_residual_wave350;
 pub mod host_live_missile_launcher_building_update_dual_world_empty_gate_residual_wave382;
 pub mod host_live_mob_member_slaved_update_dual_world_empty_gate_residual_wave374;
@@ -2792,6 +2793,21 @@ pub use host_live_minimap_heightmap_repair_presentation_first_residual_wave465::
     MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_NAV_STEPS_WAVE465,
     MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_SOURCE_MARKERS_WAVE465,
     RUNTIME_HOST_MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_CMD_NAMES_WAVE465,
+};
+pub use host_live_minimap_reinit_instance_presentation_residual_wave468::{
+    honesty_minimap_reinit_instance_presentation_method_names_residual_wave468,
+    honesty_minimap_reinit_instance_presentation_nav_commands_residual_wave468,
+    honesty_minimap_reinit_instance_presentation_residual_pack_wave468,
+    residual_minimap_reinit_instance_presentation_last_action,
+    residual_minimap_reinit_instance_presentation_ok,
+    simulate_live_minimap_reinit_instance_presentation_honesty,
+    simulate_minimap_reinit_instance_presentation_callsites,
+    simulate_minimap_reinit_instance_presentation_source,
+    ResidualMinimapReinitInstancePresentationAction,
+    MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468,
+    MINIMAP_REINIT_INSTANCE_PRESENTATION_NAV_STEPS_WAVE468,
+    MINIMAP_REINIT_INSTANCE_PRESENTATION_SOURCE_MARKERS_WAVE468,
+    RUNTIME_HOST_MINIMAP_REINIT_INSTANCE_PRESENTATION_CMD_NAMES_WAVE468,
 };
 pub use host_live_missile_ai_dual_world_empty_gate_residual_wave350::{
     honesty_live_missile_ai_dual_world_empty_gate_method_names_residual_wave350,

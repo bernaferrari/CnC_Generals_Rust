@@ -161,7 +161,8 @@ pub fn simulate_minimap_heightmap_repair_presentation_first_source() -> bool {
     let Some(body) = function_body(src, "fn reinitialize_minimap_renderer(") else {
         return false;
     };
-    let ok = body.contains("Wave 465: presentation-first minimap bounds")
+    let ok = (body.contains("Wave 468: instance path")
+        || body.contains("Wave 465: presentation-first minimap bounds"))
         && body.contains("heightmap_world_size()")
         && body.contains("presentation_frame_mut()")
         && body.contains("override_world_size");
@@ -174,7 +175,6 @@ pub fn simulate_minimap_heightmap_repair_order_source() -> bool {
     let Some(body) = function_body(src, "fn reinitialize_minimap_renderer(") else {
         return false;
     };
-    // presentation stamp must appear before override_world_size in the repair block.
     let Some(stamp) = body.find("presentation_frame_mut()") else {
         return false;
     };
@@ -184,7 +184,8 @@ pub fn simulate_minimap_heightmap_repair_order_source() -> bool {
     let ok = stamp < override_at
         && body.contains("half_w")
         && body.contains("half_h")
-        && !body.contains("world_bounds = game_logic.world_bounds()");
+        && !body.contains("world_bounds = game_logic.world_bounds()")
+        && body.contains("presentation_world_bounds()");
     residual_action_store(ResidualMinimapHeightmapRepairPresentationFirstAction::OrderSource);
     ok
 }

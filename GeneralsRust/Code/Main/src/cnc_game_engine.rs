@@ -13071,12 +13071,7 @@ impl CnCGameEngine {
                 &self.graphics_system,
                 active_map_name.as_str(),
             );
-            self.ensure_presentation_env_seeded();
-            if let Err(err) = Self::reinitialize_minimap_renderer(
-                &mut self.render_pipeline,
-                &self.graphics_system,
-                &mut self.game_logic,
-            ) {
+            if let Err(err) = self.reinitialize_minimap_renderer() {
                 warn!(
                     "Failed to reinitialize minimap renderer: {err}. Continuing without minimap."
                 );
@@ -18387,12 +18382,7 @@ impl CnCGameEngine {
                         &self.graphics_system,
                         save_info.map_name.as_str(),
                     );
-                    self.ensure_presentation_env_seeded();
-                    if let Err(err) = Self::reinitialize_minimap_renderer(
-                        &mut self.render_pipeline,
-                        &self.graphics_system,
-                        &mut self.game_logic,
-                    ) {
+                    if let Err(err) = self.reinitialize_minimap_renderer() {
                         warn!(
                             "Failed to reinitialize minimap renderer after load: {}",
                             err
@@ -18519,12 +18509,7 @@ impl CnCGameEngine {
             &self.graphics_system,
             map_name.as_str(),
         );
-        self.ensure_presentation_env_seeded();
-        if let Err(err) = Self::reinitialize_minimap_renderer(
-            &mut self.render_pipeline,
-            &self.graphics_system,
-            &mut self.game_logic,
-        ) {
+        if let Err(err) = self.reinitialize_minimap_renderer() {
             warn!("Failed to reinitialize minimap renderer: {}", err);
         }
 
@@ -18885,28 +18870,21 @@ impl CnCGameEngine {
         }
     }
 
-    fn reinitialize_minimap_renderer(
-        render_pipeline: &mut RenderPipeline,
-        graphics_system: &GraphicsSystem,
-        game_logic: &mut GameLogic,
-    ) -> anyhow::Result<()> {
-        // Wave 465: presentation-first minimap bounds; heightmap repair stamps freeze
-        // and only then mirrors size onto host GameLogic for pathfinding residual.
-        let mut world_bounds = if let Some(pres) = render_pipeline.presentation_frame() {
-            pres.world_env.world_bounds_vec3()
-        } else {
-            game_logic.world_bounds()
-        };
-        render_pipeline.initialize_minimap_renderer(
-            graphics_system.device_arc(),
-            graphics_system.queue_arc(),
+    fn reinitialize_minimap_renderer(&mut self) -> anyhow::Result<()> {
+        // Wave 468: instance path — presentation-first bounds via shared probe;
+        // heightmap repair stamps freeze then mirrors host world size for pathfinding.
+        self.ensure_presentation_env_seeded();
+        let mut world_bounds = self.presentation_world_bounds();
+        self.render_pipeline.initialize_minimap_renderer(
+            self.graphics_system.device_arc(),
+            self.graphics_system.queue_arc(),
             world_bounds,
         )?;
 
         let world_width = (world_bounds.1.x - world_bounds.0.x).abs();
         let world_height = (world_bounds.1.z - world_bounds.0.z).abs();
         if world_width <= 1.0 || world_height <= 1.0 {
-            if let Some((w, h)) = render_pipeline.heightmap_world_size() {
+            if let Some((w, h)) = self.render_pipeline.heightmap_world_size() {
                 let half_w = w * 0.5;
                 let half_h = h * 0.5;
                 world_bounds = (
@@ -18914,17 +18892,23 @@ impl CnCGameEngine {
                     Vec3::new(half_w, 0.0, half_h),
                 );
                 // Stamp repaired bounds into presentation freeze when installed.
-                if let Some(pres) = render_pipeline.presentation_frame_mut() {
+                if let Some(pres) = self.render_pipeline.presentation_frame_mut() {
                     pres.world_env.world_min = world_bounds.0.to_array();
                     pres.world_env.world_max = world_bounds.1.to_array();
                 }
                 // Host pathfinding/world size residual (sim still needs repaired extents).
-                game_logic.override_world_size(w, h);
+                self.game_logic.override_world_size(w, h);
+                // Keep last_presentation aligned after stamp.
+                if let Some(pres) = self.render_pipeline.presentation_frame() {
+                    self.last_presentation_frame = Some(pres.clone());
+                }
             }
         }
 
-        render_pipeline.sync_heightmap_world_bounds(world_bounds);
-        render_pipeline.update_minimap_world_bounds(world_bounds);
+        self.render_pipeline
+            .sync_heightmap_world_bounds(world_bounds);
+        self.render_pipeline
+            .update_minimap_world_bounds(world_bounds);
         Ok(())
     }
 
