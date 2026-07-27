@@ -26109,6 +26109,25 @@ impl GameLogic {
     /// applies presentation bookkeeping residual (drawable model condition log).
     /// Wave 634: GameWorld combat-status writeback records dirty objects; host
     /// applies status presentation residual via host_status_log.
+    /// Wave 635: GameWorld weapon-stats writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_weapon_stats.
+    pub fn host_apply_weapon_stats_ready_completions(&mut self) -> usize {
+        // Wave 635: GameWorld weapon-stats writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_weapon_stats.
+        let events = crate::game_logic::host_weapon_stats_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            // Stats already writeback-synced; re-record host weapon-stats log
+            // for presentation / fire-intent consumers.
+            obj.record_host_weapon_stats();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_combat_status_ready_completions(&mut self) -> usize {
         // Wave 634: GameWorld combat-status writeback records dirty objects; host
         // applies status presentation residual via host_status_log.

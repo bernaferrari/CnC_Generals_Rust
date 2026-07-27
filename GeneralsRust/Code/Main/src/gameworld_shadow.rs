@@ -6455,6 +6455,7 @@ impl GameWorldShadow {
 
     pub fn writeback_weapon_stats_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6507,8 +6508,14 @@ impl GameWorldShadow {
                 changed = true;
             }
             if changed {
+                // Wave 635: GameWorld weapon-stats last-write residual —
+                // host applies presentation bookkeeping from ready log.
+                ready.push(ObjectId(hid));
                 updated += 1;
             }
+        }
+        for oid in ready {
+            crate::game_logic::host_weapon_stats_ready_log::record(oid);
         }
         updated
     }
@@ -8012,6 +8019,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
+        // Wave 635: drain weapon-stats ready log after GW writeback.
+        let _ws_ready = logic.host_apply_weapon_stats_ready_completions();
         let _ = shadow.writeback_fire_intent_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
@@ -12168,6 +12177,7 @@ mod tests {
             e.secondary_weapon_range = 80.0;
         }
         assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         let w = o.weapon.as_ref().expect("w");
@@ -15368,6 +15378,7 @@ mod tests {
         }
         if logic.get_objects().get(&oid).unwrap().weapon.is_some() {
             assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+            let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
             let _ = shadow.writeback_fire_intent_to_host(&mut logic);
             let t = logic
                 .get_objects()
@@ -16736,6 +16747,7 @@ mod tests {
             o.leech_range_active_secondary = false;
         }
         assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.leech_range_active_primary);
