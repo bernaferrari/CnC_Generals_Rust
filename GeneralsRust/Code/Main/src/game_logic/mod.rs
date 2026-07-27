@@ -528,6 +528,7 @@ pub mod host_live_selection_dual_world_empty_gate_residual_wave278;
 pub mod host_live_selection_query_probe_residual_wave245;
 pub mod host_live_sell_deconstruction_sole_tick_no_stomp_residual_wave481;
 pub mod host_live_sell_finish_skips_topple_destroy_residual_wave482;
+pub mod host_live_shell_bypass_presentation_helper_residual_wave552;
 pub mod host_live_skirmish_conditions_dual_world_empty_gate_residual_wave292;
 pub mod host_live_skirmish_player_dual_world_empty_gate_residual_wave329;
 pub mod host_live_slaved_update_dual_world_empty_gate_residual_wave402;
@@ -2573,6 +2574,15 @@ pub use host_live_save_restart_presentation_fail_closed_residual_wave545::{
     residual_save_restart_presentation_fail_closed_last_action,
     residual_save_restart_presentation_fail_closed_ok,
     simulate_live_save_restart_presentation_fail_closed_honesty,
+};
+pub use host_live_shell_bypass_presentation_helper_residual_wave552::{
+    honesty_shell_bypass_presentation_helper_method_names_residual_wave552,
+    honesty_shell_bypass_presentation_helper_nav_commands_residual_wave552,
+    honesty_shell_bypass_presentation_helper_residual_pack_wave552,
+    honesty_shell_bypass_presentation_helper_source_markers_residual_wave552,
+    residual_shell_bypass_presentation_helper_last_action,
+    residual_shell_bypass_presentation_helper_ok,
+    simulate_live_shell_bypass_presentation_helper_honesty,
 };
 pub use host_live_time_frozen_presentation_helper_residual_wave551::{
     honesty_time_frozen_presentation_helper_method_names_residual_wave551,
