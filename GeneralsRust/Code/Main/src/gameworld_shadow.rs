@@ -1870,6 +1870,11 @@ impl GameWorldShadow {
                 obj.status.destroyed = true;
                 obj.ai_state = crate::game_logic::AIState::Idle;
                 obj.target = None;
+                // Wave 621: GameWorld sole damage last-write lethal residual —
+                // host process_destroy_list drains and marks die side effects.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    crate::game_logic::host_destroy_ready_log::record(ObjectId(hid), new_h);
+                }
             }
             updated += 1;
         }
