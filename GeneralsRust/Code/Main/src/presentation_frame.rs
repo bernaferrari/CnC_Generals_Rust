@@ -254,6 +254,12 @@ pub struct RenderableObject {
     pub emoticon_name: String,
     /// Wave 514: remaining logic frames for emoticon.
     pub emoticon_frames_left: i32,
+    /// Wave 515: C++ AIUpdateInterface::setSurrendered residual.
+    pub is_surrendered: bool,
+    /// Wave 515: C++ Object::m_formationID residual (0 = none).
+    pub formation_id: u32,
+    /// Wave 515: C++ Object::m_formationOffset residual.
+    pub formation_offset: glam::Vec2,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
     /// Host movement max speed residual.
@@ -659,6 +665,8 @@ pub struct UnitRenderInput {
     pub continuous_fire_coast_until_frame: u32,
     /// Wave 513: presentation logic frame for coast comparison.
     pub logic_frame: u32,
+    /// Wave 515: surrendered residual (RAISING_FLAG mesh bit).
+    pub is_surrendered: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -730,6 +738,7 @@ impl UnitRenderInput {
             destroyed: ro.destroyed,
             continuous_fire_coast_until_frame: ro.continuous_fire_coast_until_frame,
             logic_frame: 0,
+            is_surrendered: ro.is_surrendered,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -786,6 +795,7 @@ impl UnitRenderInput {
     /// Wave 511: stamp BURNED / AFLAME / SPECIAL_CHEERING / CARRYING residual bits.
     /// Wave 512: stamp CONTINUOUS_FIRE_* / PRONE / PREATTACK_A / TURRET_ROTATE residual bits.
     /// Wave 513: stamp JAMMED / DYING / RELOADING_A / PACKING / UNPACKING residual bits.
+    /// Wave 515: stamp RAISING_FLAG from is_surrendered residual.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -1139,6 +1149,16 @@ impl UnitRenderInput {
                     3 | 4 => bits |= 1u128 << pack_b,   // wait close / closing ~ packing
                     _ => {}
                 }
+            }
+        }
+        // Wave 515: surrendered residual stamps RAISING_FLAG model-condition bit.
+        {
+            use crate::game_logic::host_enum_table_residual::raising_flag_model_bit;
+            let flag_b = raising_flag_model_bit();
+            if self.is_surrendered {
+                bits |= 1u128 << flag_b;
+            } else {
+                bits &= !(1u128 << flag_b);
             }
         }
         bits
@@ -3041,6 +3061,9 @@ impl PresentationFrame {
                 prone: obj.prone_timer > 0.0,
                 emoticon_name: obj.emoticon_name.clone(),
                 emoticon_frames_left: obj.emoticon_frames_left,
+                is_surrendered: obj.is_surrendered,
+                formation_id: obj.formation_id,
+                formation_offset: obj.formation_offset,
                 over_water: obj.over_water,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
@@ -6573,6 +6596,9 @@ impl PresentationFrame {
             prone: false,
             emoticon_name: String::new(),
             emoticon_frames_left: 0,
+            is_surrendered: false,
+            formation_id: 0,
+            formation_offset: glam::Vec2::ZERO,
             over_water: false,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
@@ -8780,6 +8806,7 @@ mod tests {
             destroyed: false,
             continuous_fire_coast_until_frame: 0,
             logic_frame: 0,
+            is_surrendered: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };

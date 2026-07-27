@@ -451,6 +451,7 @@ pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_presentation_stealth_mesh_residual_wave502;
+pub mod host_live_presentation_surrender_formation_residual_wave515;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_topple_freefall_weather_residual_wave509;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
@@ -2608,6 +2609,22 @@ pub use host_live_presentation_stealth_mesh_residual_wave502::{
     PRESENTATION_STEALTH_MESH_METHOD_NAMES_WAVE502, PRESENTATION_STEALTH_MESH_NAV_STEPS_WAVE502,
     PRESENTATION_STEALTH_MESH_SOURCE_MARKERS_WAVE502,
     RUNTIME_HOST_PRESENTATION_STEALTH_MESH_CMD_NAMES_WAVE502,
+};
+pub use host_live_presentation_surrender_formation_residual_wave515::{
+    honesty_presentation_surrender_formation_method_names_residual_wave515,
+    honesty_presentation_surrender_formation_nav_commands_residual_wave515,
+    honesty_presentation_surrender_formation_residual_pack_wave515,
+    honesty_presentation_surrender_formation_source_markers_residual_wave515,
+    residual_presentation_surrender_formation_last_action,
+    residual_presentation_surrender_formation_ok,
+    simulate_live_presentation_surrender_formation_honesty,
+    simulate_presentation_surrender_formation_freeze_source,
+    simulate_presentation_surrender_formation_stamp_source,
+    ResidualPresentationSurrenderFormationAction,
+    PRESENTATION_SURRENDER_FORMATION_METHOD_NAMES_WAVE515,
+    PRESENTATION_SURRENDER_FORMATION_NAV_STEPS_WAVE515,
+    PRESENTATION_SURRENDER_FORMATION_SOURCE_MARKERS_WAVE515,
+    RUNTIME_HOST_PRESENTATION_SURRENDER_FORMATION_CMD_NAMES_WAVE515,
 };
 pub use host_live_presentation_topple_freefall_weather_residual_wave509::{
     honesty_presentation_topple_freefall_weather_method_names_residual_wave509,
