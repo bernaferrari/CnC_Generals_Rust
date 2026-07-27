@@ -26103,6 +26103,27 @@ impl GameLogic {
     /// Wave 631: GameWorld economy writeback records supply/power/radar/alive
     /// changes; host applies presentation residual via host_economy_log and
     /// radar log (GW decides absolute values; host still owns UI bookkeeping).
+    /// Wave 632: GameWorld death-type writeback records ordinal changes; host
+    /// applies destroy/pilot presentation bookkeeping residual.
+    pub fn host_apply_death_type_ready_completions(&mut self) -> usize {
+        // Wave 632: GameWorld death-type writeback records ordinal changes; host
+        // applies destroy/pilot presentation bookkeeping residual.
+        let events = crate::game_logic::host_death_type_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            if ev.previous_ordinal == ev.new_ordinal {
+                continue;
+            }
+            // Death type already writeback-synced; re-record host death-type
+            // log for presentation / process_destroy consumers.
+            if self.objects.contains_key(&ev.object) {
+                crate::game_logic::host_death_type_log::record(ev.object, ev.new_ordinal);
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
     pub fn host_apply_economy_ready_completions(&mut self) -> usize {
         // Wave 631: GameWorld economy writeback records supply/power/radar/alive
         // changes; host applies presentation residual via host_economy_log and
