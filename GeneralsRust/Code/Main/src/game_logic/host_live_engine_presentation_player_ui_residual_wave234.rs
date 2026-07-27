@@ -107,6 +107,7 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
         "fn ui_player_info(",
         "fn host_ui_player_info(",
         "fn ui_selected_ids(",
+        "fn host_ui_selected_ids(",
         "fn local_team_for_ui(",
         "fn host_local_team_for_ui(",
         "fn ui_local_science_purchase_points(",
@@ -121,8 +122,9 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
     for (name, token) in [
         ("fn center_camera_on_selection(", "ui_selected_ids"),
         ("fn handle_right_click(", "ui_selected_ids"),
-        ("fn issue_force_attack_from_left_click(", "ui_selected_ids"),
-        ("fn resolve_context_cursor_icon(", "ui_selected_ids"),
+        // Wave 612: force-attack / cursor logic live in host helpers.
+        ("fn host_issue_force_attack_from_left_click(", "ui_selected_ids"),
+        ("fn host_resolve_context_cursor_icon(", "ui_selected_ids"),
         (
             "fn try_purchase_next_generals_science(",
             "ui_local_science_purchase_points",
@@ -139,6 +141,7 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
         if name.starts_with("fn center_camera")
             || name.starts_with("fn handle_right")
             || name.starts_with("fn issue_force")
+            || name.starts_with("fn host_issue_force")
         {
             if !body.contains("Wave 234") {
                 return false;
@@ -146,7 +149,9 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
         }
     }
     // Cursor selection presence must not dual-read player.selected_objects first.
-    let Some(cursor) = fn_body(eng, "fn resolve_context_cursor_icon(") else {
+    let Some(cursor) = fn_body(eng, "fn host_resolve_context_cursor_icon(")
+        .or_else(|| fn_body(eng, "fn resolve_context_cursor_icon("))
+    else {
         return false;
     };
     cursor.contains("Wave 234")
