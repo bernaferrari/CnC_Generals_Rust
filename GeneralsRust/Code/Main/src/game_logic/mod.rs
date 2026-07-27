@@ -430,6 +430,7 @@ pub mod host_live_player_team_probe_residual_wave239;
 pub mod host_live_player_upgrade_manager_dual_world_empty_gate_residual_wave444;
 pub mod host_live_point_defense_laser_update_dual_world_empty_gate_residual_wave411;
 pub mod host_live_poisoned_behavior_dual_world_empty_gate_residual_wave377;
+pub mod host_live_popup_music_helper_residual_wave571;
 pub mod host_live_pow_truck_ai_dual_world_empty_gate_residual_wave354;
 pub mod host_live_pow_truck_behavior_dual_world_empty_gate_residual_wave366;
 pub mod host_live_power_plant_update_dual_world_empty_gate_residual_wave392;
@@ -2514,6 +2515,14 @@ pub use host_live_play_time_local_player_presentation_helper_residual_wave553::{
     residual_play_time_local_player_presentation_helper_last_action,
     residual_play_time_local_player_presentation_helper_ok,
     simulate_live_play_time_local_player_presentation_helper_honesty,
+};
+pub use host_live_popup_music_helper_residual_wave571::{
+    honesty_popup_music_helper_method_names_residual_wave571,
+    honesty_popup_music_helper_nav_commands_residual_wave571,
+    honesty_popup_music_helper_residual_pack_wave571,
+    honesty_popup_music_helper_source_markers_residual_wave571,
+    residual_popup_music_helper_last_action, residual_popup_music_helper_ok,
+    simulate_live_popup_music_helper_honesty,
 };
 pub use host_live_presentation_air_parachute_residual_wave505::{
     honesty_presentation_air_parachute_method_names_residual_wave505,
