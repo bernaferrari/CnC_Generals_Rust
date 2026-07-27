@@ -262,6 +262,10 @@ pub struct RenderableObject {
     pub formation_offset: glam::Vec2,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
+    /// Wave 522: C++ terrain cell cliff residual.
+    pub cell_is_cliff: bool,
+    /// Wave 522: C++ terrain cell underwater residual.
+    pub cell_is_underwater: bool,
     /// Host movement max speed residual.
     pub move_max_speed: f32,
     /// Host velocity residual.
@@ -708,6 +712,10 @@ pub struct UnitRenderInput {
     pub veterancy: PresentationVeterancy,
     /// Wave 507: over-water residual for mesh model-condition.
     pub over_water: bool,
+    /// Wave 522: terrain cell cliff residual.
+    pub cell_is_cliff: bool,
+    /// Wave 522: terrain cell underwater residual.
+    pub cell_is_underwater: bool,
     /// Wave 508: any host disable residual that blocks acting (stun pose).
     pub disabled: bool,
     /// Wave 509: parachute open residual (with parachuting => freefall when false).
@@ -813,6 +821,8 @@ impl UnitRenderInput {
             velocity: ro.velocity,
             veterancy: ro.veterancy,
             over_water: ro.over_water,
+            cell_is_cliff: ro.cell_is_cliff,
+            cell_is_underwater: ro.cell_is_underwater,
             disabled: ro.disabled,
             parachute_open: ro.parachute_open,
             world_is_snow: false,
@@ -1095,6 +1105,30 @@ impl UnitRenderInput {
                 _ => {}
             }
         }
+        // Wave 522: CLIMBING / RAPPELLING / FLOODED from terrain cell residuals.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                climbing_model_bit, flooded_model_bit, rappelling_model_bit,
+            };
+            let climb_b = climbing_model_bit();
+            let rap_b = rappelling_model_bit();
+            let flood_b = flooded_model_bit();
+            for b in [climb_b, rap_b, flood_b] {
+                bits &= !(1u128 << b);
+            }
+            if self.cell_is_underwater {
+                bits |= 1u128 << flood_b;
+            }
+            // Cliff locomotion: climbing when moving on cliff; rappelling when airborne over cliff.
+            if self.cell_is_cliff {
+                if self.airborne_target || self.parachuting {
+                    bits |= 1u128 << rap_b;
+                } else if self.moving || self.is_unit {
+                    bits |= 1u128 << climb_b;
+                }
+            }
+        }
+
         // Wave 505: parachuting / jet exhaust / using-weapon pose residual bits.
         {
             use crate::game_logic::host_enum_table_residual::{
@@ -3429,6 +3463,9 @@ impl PresentationFrame {
                 formation_id: obj.formation_id,
                 formation_offset: obj.formation_offset,
                 over_water: obj.over_water,
+                // Wave 522: terrain cell cliff/underwater residuals.
+                cell_is_cliff: obj.cell_is_cliff,
+                cell_is_underwater: obj.cell_is_underwater,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
                 ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
@@ -7052,6 +7089,8 @@ impl PresentationFrame {
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             over_water: false,
+            cell_is_cliff: false,
+            cell_is_underwater: false,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
             ai_state_ordinal: ent.ai_state_ordinal,
@@ -9279,6 +9318,8 @@ mod tests {
             velocity: Vec3::ZERO,
             veterancy: PresentationVeterancy::Rookie,
             over_water: false,
+            cell_is_cliff: false,
+            cell_is_underwater: false,
             disabled: false,
             parachute_open: false,
             world_is_snow: false,

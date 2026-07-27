@@ -620,6 +620,19 @@ pub fn center_to_left_model_bit() -> u32 {
 pub fn docking_model_bit() -> u32 {
     model_condition_bit_name_index("DOCKING").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_CLIMBING residual bit index.
+pub fn climbing_model_bit() -> u32 {
+    model_condition_bit_name_index("CLIMBING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RAPPELLING residual bit index.
+pub fn rappelling_model_bit() -> u32 {
+    model_condition_bit_name_index("RAPPELLING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_FLOODED residual bit index.
+pub fn flooded_model_bit() -> u32 {
+    model_condition_bit_name_index("FLOODED").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_DOCKING_BEGINNING residual bit index.
 pub fn docking_beginning_model_bit() -> u32 {
     model_condition_bit_name_index("DOCKING_BEGINNING").unwrap_or(0) as u32
