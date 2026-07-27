@@ -174,10 +174,11 @@ pub fn simulate_camera_clamp_presentation_bounds_source() -> bool {
     let Some(body) = function_body(src, "fn clamp_to_world_bounds(") else {
         return false;
     };
-    let ok = body.contains("Wave 460: prefer pipeline or last presentation world_env")
-        && body.contains("presentation_frame()")
-        && body.contains("world_bounds_vec3()")
-        && body.contains("game_logic.world_bounds()");
+    // Wave 461: clamp delegates to presentation_world_bounds shared probe.
+    let ok = (body.contains("presentation_world_bounds()")
+        || (body.contains("presentation_frame()") && body.contains("world_bounds_vec3()")))
+        && src.contains("fn presentation_world_bounds(")
+        && src.contains("Wave 461: single presentation-first world bounds probe");
     residual_action_store(ResidualCameraCenterPresentationHeightAction::ClampSource);
     ok
 }

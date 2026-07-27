@@ -414,6 +414,7 @@ pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
+pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
 pub mod host_live_production_update_complete_dual_world_empty_gate_residual_wave365;
 pub mod host_live_production_update_dual_world_empty_gate_residual_wave326;
@@ -3105,6 +3106,20 @@ pub use host_live_presentation_visual_speed_probe_residual_wave251::{
     honesty_live_presentation_visual_speed_probe_nav_commands_residual_wave251,
     honesty_live_presentation_visual_speed_probe_residual_pack_wave251,
     simulate_live_presentation_visual_speed_probe_honesty,
+};
+pub use host_live_presentation_world_bounds_probe_residual_wave461::{
+    honesty_presentation_world_bounds_probe_method_names_residual_wave461,
+    honesty_presentation_world_bounds_probe_nav_commands_residual_wave461,
+    honesty_presentation_world_bounds_probe_residual_pack_wave461,
+    residual_presentation_world_bounds_probe_last_action,
+    residual_presentation_world_bounds_probe_ok,
+    simulate_live_presentation_world_bounds_probe_honesty,
+    simulate_presentation_world_bounds_probe_consumers,
+    simulate_presentation_world_bounds_probe_source, ResidualPresentationWorldBoundsProbeAction,
+    PRESENTATION_WORLD_BOUNDS_PROBE_METHOD_NAMES_WAVE461,
+    PRESENTATION_WORLD_BOUNDS_PROBE_NAV_STEPS_WAVE461,
+    PRESENTATION_WORLD_BOUNDS_PROBE_SOURCE_MARKERS_WAVE461,
+    RUNTIME_HOST_PRESENTATION_WORLD_BOUNDS_PROBE_CMD_NAMES_WAVE461,
 };
 pub use host_live_prison_behavior_dual_world_empty_gate_residual_wave385::{
     honesty_live_prison_behavior_dual_world_empty_gate_method_names_residual_wave385,
