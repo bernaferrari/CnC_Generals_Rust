@@ -688,6 +688,10 @@ pub struct UnitRenderInput {
     pub disguise_as_template: Option<String>,
     /// Wave 504: structure occupant count residual (garrisoned model bit).
     pub occupant_count: u16,
+    /// Wave 521: host AI state ordinal residual (Docked=12, Docking=18, ...).
+    pub ai_state_ordinal: u8,
+    /// Wave 521: combat cycle rider slot residual (1-based).
+    pub combat_cycle_rider: u8,
     /// Wave 504: container id when this unit is inside another object.
     pub contained_by: Option<ObjectId>,
     /// Wave 505: parachuting residual for mesh model-condition.
@@ -799,6 +803,8 @@ impl UnitRenderInput {
             disguised: ro.disguised,
             disguise_as_template: ro.disguise_as_template.clone(),
             occupant_count: ro.occupant_count,
+            ai_state_ordinal: ro.ai_state_ordinal,
+            combat_cycle_rider: ro.combat_cycle_rider,
             contained_by: ro.contained_by,
             parachuting: ro.parachuting,
             using_ability: ro.using_ability,
@@ -1028,13 +1034,65 @@ impl UnitRenderInput {
             }
         }
         // Wave 504/507: garrisoned residual for structures; transports use RIDER bits.
+        // Wave 521: stamp RIDER1..n from occupant_count; DOCKING_* from ai_state_ordinal.
         {
-            use crate::game_logic::host_enum_table_residual::garrisoned_model_bit;
+            use crate::game_logic::host_enum_table_residual::{
+                docking_active_model_bit, docking_beginning_model_bit, docking_ending_model_bit,
+                docking_model_bit, garrisoned_model_bit, rider1_model_bit, rider2_model_bit,
+                rider3_model_bit, rider4_model_bit, rider5_model_bit, rider6_model_bit,
+                rider7_model_bit, rider8_model_bit,
+            };
             let g_b = garrisoned_model_bit();
             if self.is_structure && self.occupant_count > 0 {
                 bits |= 1u128 << g_b;
             } else {
                 bits &= !(1u128 << g_b);
+            }
+            let riders = [
+                rider1_model_bit(),
+                rider2_model_bit(),
+                rider3_model_bit(),
+                rider4_model_bit(),
+                rider5_model_bit(),
+                rider6_model_bit(),
+                rider7_model_bit(),
+                rider8_model_bit(),
+            ];
+            for b in riders {
+                bits &= !(1u128 << b);
+            }
+            // Transports / non-structures: RIDER1..n for each occupant (cap 8).
+            if !self.is_structure && self.occupant_count > 0 {
+                let n = (self.occupant_count as usize).min(8);
+                for i in 0..n {
+                    bits |= 1u128 << riders[i];
+                }
+            } else if !self.is_structure && self.combat_cycle_rider > 0 {
+                let idx = (self.combat_cycle_rider as usize).saturating_sub(1).min(7);
+                bits |= 1u128 << riders[idx];
+            }
+            let d_b = docking_model_bit();
+            let d_beg = docking_beginning_model_bit();
+            let d_act = docking_active_model_bit();
+            let d_end = docking_ending_model_bit();
+            for b in [d_b, d_beg, d_act, d_end] {
+                bits &= !(1u128 << b);
+            }
+            // host_ai_state_ordinal: Docked=12, Docking=18, Entering=17
+            match self.ai_state_ordinal {
+                12 => {
+                    bits |= 1u128 << d_act;
+                    bits |= 1u128 << d_b;
+                }
+                18 => {
+                    bits |= 1u128 << d_beg;
+                    bits |= 1u128 << d_b;
+                }
+                17 => {
+                    bits |= 1u128 << d_end;
+                    bits |= 1u128 << d_b;
+                }
+                _ => {}
             }
         }
         // Wave 505: parachuting / jet exhaust / using-weapon pose residual bits.
@@ -9211,6 +9269,8 @@ mod tests {
             disguised: false,
             disguise_as_template: None,
             occupant_count: 0,
+            ai_state_ordinal: 0,
+            combat_cycle_rider: 0,
             contained_by: None,
             parachuting: false,
             using_ability: false,
