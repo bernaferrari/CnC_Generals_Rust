@@ -421,6 +421,7 @@ pub mod host_live_pow_truck_behavior_dual_world_empty_gate_residual_wave366;
 pub mod host_live_power_plant_update_dual_world_empty_gate_residual_wave392;
 pub mod host_live_power_plant_upgrade_dual_world_empty_gate_residual_wave437;
 pub mod host_live_presentation_air_parachute_residual_wave505;
+pub mod host_live_presentation_alliance_notify_residual_wave538;
 pub mod host_live_presentation_anim_steer_residual_wave520;
 pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_body_disguise_stun_residual_wave508;
@@ -2373,6 +2374,14 @@ pub use host_live_presentation_air_parachute_residual_wave505::{
     PRESENTATION_AIR_PARACHUTE_METHOD_NAMES_WAVE505, PRESENTATION_AIR_PARACHUTE_NAV_STEPS_WAVE505,
     PRESENTATION_AIR_PARACHUTE_SOURCE_MARKERS_WAVE505,
     RUNTIME_HOST_PRESENTATION_AIR_PARACHUTE_CMD_NAMES_WAVE505,
+};
+pub use host_live_presentation_alliance_notify_residual_wave538::{
+    honesty_presentation_alliance_notify_method_names_residual_wave538,
+    honesty_presentation_alliance_notify_nav_commands_residual_wave538,
+    honesty_presentation_alliance_notify_residual_pack_wave538,
+    honesty_presentation_alliance_notify_source_markers_residual_wave538,
+    residual_presentation_alliance_notify_last_action, residual_presentation_alliance_notify_ok,
+    simulate_live_presentation_alliance_notify_honesty,
 };
 pub use host_live_presentation_anim_steer_residual_wave520::{
     honesty_presentation_anim_steer_method_names_residual_wave520,

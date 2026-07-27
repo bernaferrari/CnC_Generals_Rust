@@ -16040,19 +16040,34 @@ impl CnCGameEngine {
 
             let message = localization::localize(key, fallback);
             self.game_hud.push_info_message(&message);
-            // Prefer presentation roster team when installed; live only if no frame.
-            let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.player_team(event.player_id)
+            self.ui_manager.game_hud_mut().push_info_message(&message);
+            // Wave 538: when presentation freeze is installed, route radar/UI SFX
+            // through HUD + audio subsystem (no GameLogic dual-write mid-frame).
+            // Boot/menu residual still uses host queue/play_ui_sound.
+            if self.last_presentation_frame.is_some() {
+                self.game_hud
+                    .add_radar_message(&message, None, crate::ui::RadarPingKind::Generic);
+                self.ui_manager.game_hud_mut().add_radar_message(
+                    &message,
+                    None,
+                    crate::ui::RadarPingKind::Generic,
+                );
+                let req = crate::game_logic::AudioEventRequest::new("GUIMessageReceived")
+                    .with_priority(150);
+                let _ = crate::subsystem_manager::with_subsystem_mut::<
+                    crate::subsystem_manager::AudioManagerSubsystem,
+                    _,
+                >(|audio| audio.queue_event(req));
             } else {
-                self.ui_player_team(event.player_id)
-            };
-            if let Some(team) = team {
-                self.game_logic
-                    .queue_radar_message_for_team(team, message.clone());
-            } else {
-                self.game_logic.queue_radar_message(message.clone());
+                let team = self.ui_player_team(event.player_id);
+                if let Some(team) = team {
+                    self.game_logic
+                        .queue_radar_message_for_team(team, message.clone());
+                } else {
+                    self.game_logic.queue_radar_message(message.clone());
+                }
+                self.game_logic.play_ui_sound("GUIMessageReceived");
             }
-            self.game_logic.play_ui_sound("GUIMessageReceived");
             if !is_local {
                 observer_notified = true;
             }
