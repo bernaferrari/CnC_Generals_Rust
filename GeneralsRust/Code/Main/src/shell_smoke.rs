@@ -2086,6 +2086,11 @@ use crate::game_logic::host_live_presentation_alliance_notify_residual_wave538::
     honesty_presentation_alliance_notify_nav_commands_residual_wave538,
     simulate_live_presentation_alliance_notify_honesty,
 };
+use crate::game_logic::host_live_presentation_defeat_notify_residual_wave539::{
+    honesty_presentation_defeat_notify_method_names_residual_wave539,
+    honesty_presentation_defeat_notify_nav_commands_residual_wave539,
+    simulate_live_presentation_defeat_notify_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5418,6 +5423,9 @@ pub struct ShellSmokeResult {
     pub presentation_alliance_notify_method_names_wave538_ok: bool,
     pub presentation_alliance_notify_nav_commands_wave538_ok: bool,
     pub presentation_alliance_notify_live_wave538_ok: bool,
+    pub presentation_defeat_notify_method_names_wave539_ok: bool,
+    pub presentation_defeat_notify_nav_commands_wave539_ok: bool,
+    pub presentation_defeat_notify_live_wave539_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8403,6 +8411,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_presentation_alliance_notify_nav_commands_residual_wave538();
     let presentation_alliance_notify_live_wave538_ok =
         simulate_live_presentation_alliance_notify_honesty();
+    let presentation_defeat_notify_method_names_wave539_ok =
+        honesty_presentation_defeat_notify_method_names_residual_wave539();
+    let presentation_defeat_notify_nav_commands_wave539_ok =
+        honesty_presentation_defeat_notify_nav_commands_residual_wave539();
+    let presentation_defeat_notify_live_wave539_ok =
+        simulate_live_presentation_defeat_notify_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10006,6 +10020,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         presentation_alliance_notify_method_names_wave538_ok,
         presentation_alliance_notify_nav_commands_wave538_ok,
         presentation_alliance_notify_live_wave538_ok,
+        presentation_defeat_notify_method_names_wave539_ok,
+        presentation_defeat_notify_nav_commands_wave539_ok,
+        presentation_defeat_notify_live_wave539_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18346,6 +18363,21 @@ mod tests {
         assert!(
             r.presentation_alliance_notify_live_wave538_ok,
             "presentation alliance notify live residual wave538: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_defeat_notify_method_names_wave539_ok,
+            "presentation defeat notify method names residual pack wave539: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_defeat_notify_nav_commands_wave539_ok,
+            "presentation defeat notify nav commands residual pack wave539: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_defeat_notify_live_wave539_ok,
+            "presentation defeat notify live residual wave539: {}",
             r.detail
         );
         assert!(

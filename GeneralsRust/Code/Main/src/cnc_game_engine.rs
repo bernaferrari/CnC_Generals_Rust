@@ -15969,9 +15969,9 @@ impl CnCGameEngine {
                 );
                 info!("Player {} ({}) has been defeated", player.name, player_id);
                 self.game_hud.push_info_message(&message);
-                self.game_logic
-                    .queue_radar_message_for_team(player.team, message.clone());
-                self.game_logic.play_ui_sound("GUIMessageReceived");
+                self.ui_manager.game_hud_mut().push_info_message(&message);
+                // Wave 539: presentation freeze → HUD radar + audio (no GameLogic dual-write).
+                self.notify_presentation_ui_message(&message);
             } else if let Some(player) = self.ui_player_info(player_id) {
                 // Wave 237: defeat UI prefers presentation roster helper (boot fallback inside).
                 let message = localization::localize_with_args(
@@ -16045,19 +16045,8 @@ impl CnCGameEngine {
             // through HUD + audio subsystem (no GameLogic dual-write mid-frame).
             // Boot/menu residual still uses host queue/play_ui_sound.
             if self.last_presentation_frame.is_some() {
-                self.game_hud
-                    .add_radar_message(&message, None, crate::ui::RadarPingKind::Generic);
-                self.ui_manager.game_hud_mut().add_radar_message(
-                    &message,
-                    None,
-                    crate::ui::RadarPingKind::Generic,
-                );
-                let req = crate::game_logic::AudioEventRequest::new("GUIMessageReceived")
-                    .with_priority(150);
-                let _ = crate::subsystem_manager::with_subsystem_mut::<
-                    crate::subsystem_manager::AudioManagerSubsystem,
-                    _,
-                >(|audio| audio.queue_event(req));
+                // Wave 538/539: shared presentation UI notify residual.
+                self.notify_presentation_ui_message(&message);
             } else {
                 let team = self.ui_player_team(event.player_id);
                 if let Some(team) = team {
@@ -16664,6 +16653,24 @@ impl CnCGameEngine {
     ///
     /// Names arrive as `EVA_` + C++ `TheEvaMessageNames` token from `host_eva_log`.
     /// Client `EvaMessage::from_name` expects table tokens (`LOWPOWER`, …).
+    /// Wave 538/539: presentation-only radar ping + GUIMessageReceived SFX.
+    /// Fail-closed: does not dual-write GameLogic mid-frame.
+    fn notify_presentation_ui_message(&mut self, message: &str) {
+        self.game_hud
+            .add_radar_message(message, None, crate::ui::RadarPingKind::Generic);
+        self.ui_manager.game_hud_mut().add_radar_message(
+            message,
+            None,
+            crate::ui::RadarPingKind::Generic,
+        );
+        let req =
+            crate::game_logic::AudioEventRequest::new("GUIMessageReceived").with_priority(150);
+        let _ = crate::subsystem_manager::with_subsystem_mut::<
+            crate::subsystem_manager::AudioManagerSubsystem,
+            _,
+        >(|audio| audio.queue_event(req));
+    }
+
     /// Classic-four tokens also advance `last_eva_*` so counter residual does not re-push.
     fn apply_presentation_eva_alerts(
         &mut self,
