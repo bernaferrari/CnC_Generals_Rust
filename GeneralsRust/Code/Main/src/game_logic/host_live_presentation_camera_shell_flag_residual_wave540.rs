@@ -102,6 +102,7 @@ pub fn honesty_presentation_camera_shell_flag_source_markers_residual_wave540() 
     let eng = eng_source();
     let bootstrap_n = eng.matches("bootstrap_camera_for_loaded_map").count();
     let shell_flag_n = eng.matches("in_shell_camera").count();
+    // Wave 552: camera shell flag centralized via shell_bypass_from_presentation.
     let ok = eng.contains("Wave 540")
         && eng.contains("prefer presentation fow_shell_bypass")
         && eng.contains("in_shell_camera")
@@ -109,7 +110,8 @@ pub fn honesty_presentation_camera_shell_flag_source_markers_residual_wave540() 
         && eng.contains("bootstrap_camera_for_loaded_map")
         && shell_flag_n >= 2
         && bootstrap_n >= 2
-        && eng.contains("unwrap_or_else(|| self.game_logic.isInShellGame())")
+        && (eng.contains("unwrap_or_else(|| self.game_logic.isInShellGame())")
+            || eng.contains("shell_bypass_from_presentation(startup_camera_presentation)"))
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualPresentationCameraShellFlagAction::SourceMarkers);
     ok

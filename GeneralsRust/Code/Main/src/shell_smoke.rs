@@ -2151,6 +2151,11 @@ use crate::game_logic::host_live_time_frozen_presentation_helper_residual_wave55
     honesty_time_frozen_presentation_helper_nav_commands_residual_wave551,
     simulate_live_time_frozen_presentation_helper_honesty,
 };
+use crate::game_logic::host_live_shell_bypass_presentation_helper_residual_wave552::{
+    honesty_shell_bypass_presentation_helper_method_names_residual_wave552,
+    honesty_shell_bypass_presentation_helper_nav_commands_residual_wave552,
+    simulate_live_shell_bypass_presentation_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5522,6 +5527,9 @@ pub struct ShellSmokeResult {
     pub time_frozen_presentation_helper_method_names_wave551_ok: bool,
     pub time_frozen_presentation_helper_nav_commands_wave551_ok: bool,
     pub time_frozen_presentation_helper_live_wave551_ok: bool,
+    pub shell_bypass_presentation_helper_method_names_wave552_ok: bool,
+    pub shell_bypass_presentation_helper_nav_commands_wave552_ok: bool,
+    pub shell_bypass_presentation_helper_live_wave552_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8585,6 +8593,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_time_frozen_presentation_helper_nav_commands_residual_wave551();
     let time_frozen_presentation_helper_live_wave551_ok =
         simulate_live_time_frozen_presentation_helper_honesty();
+    let shell_bypass_presentation_helper_method_names_wave552_ok =
+        honesty_shell_bypass_presentation_helper_method_names_residual_wave552();
+    let shell_bypass_presentation_helper_nav_commands_wave552_ok =
+        honesty_shell_bypass_presentation_helper_nav_commands_residual_wave552();
+    let shell_bypass_presentation_helper_live_wave552_ok =
+        simulate_live_shell_bypass_presentation_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10227,6 +10241,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         time_frozen_presentation_helper_method_names_wave551_ok,
         time_frozen_presentation_helper_nav_commands_wave551_ok,
         time_frozen_presentation_helper_live_wave551_ok,
+        shell_bypass_presentation_helper_method_names_wave552_ok,
+        shell_bypass_presentation_helper_nav_commands_wave552_ok,
+        shell_bypass_presentation_helper_live_wave552_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18762,6 +18779,21 @@ mod tests {
         assert!(
             r.time_frozen_presentation_helper_live_wave551_ok,
             "time frozen presentation helper live residual wave551: {}",
+            r.detail
+        );
+        assert!(
+            r.shell_bypass_presentation_helper_method_names_wave552_ok,
+            "shell bypass presentation helper method names residual pack wave552: {}",
+            r.detail
+        );
+        assert!(
+            r.shell_bypass_presentation_helper_nav_commands_wave552_ok,
+            "shell bypass presentation helper nav commands residual pack wave552: {}",
+            r.detail
+        );
+        assert!(
+            r.shell_bypass_presentation_helper_live_wave552_ok,
+            "shell bypass presentation helper live residual wave552: {}",
             r.detail
         );
         assert!(

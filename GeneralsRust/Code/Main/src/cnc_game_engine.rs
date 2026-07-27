@@ -13052,10 +13052,8 @@ impl CnCGameEngine {
                 .render_pipeline
                 .presentation_frame()
                 .or(self.last_presentation_frame.as_ref());
-            // Wave 540: prefer presentation fow_shell_bypass when freeze present.
-            let in_shell_camera = startup_camera_presentation
-                .map(|p| p.fow_shell_bypass)
-                .unwrap_or_else(|| self.game_logic.isInShellGame());
+            // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
+            let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
             (self.camera_target, self.camera_position, self.camera_zoom) =
                 Self::bootstrap_camera_for_loaded_map(
                     in_shell_camera,
@@ -15377,13 +15375,9 @@ impl CnCGameEngine {
                 self.cleanup_sound_effects();
                 let menu_tick_started = Instant::now();
                 let shell_update_started = Instant::now();
-                // Prefer presentation shell residual when it affirms shell-map mode.
-                // Stale InGame frames (fow_shell_bypass=false) fall through to live
-                // isInShellGame so shell ticks are not suppressed after a match.
-                let in_shell = match self.last_presentation_frame.as_ref() {
-                    Some(pres) if pres.fow_shell_bypass => true,
-                    _ => self.game_logic.isInShellGame(),
-                };
+                // Wave 552: menu residual via presentation_affirms_shell_or_boot
+                // (stale InGame freeze does not suppress shell ticks).
+                let in_shell = self.presentation_affirms_shell_or_boot();
                 if in_shell && !self.game_paused {
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
                     // catch-up loops to block the UI thread.
@@ -16076,11 +16070,7 @@ impl CnCGameEngine {
         }
 
         // Prefer presentation shell bypass when a frame is installed (no live dual-read).
-        let in_shell = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|f| f.fow_shell_bypass)
-            .unwrap_or_else(|| self.game_logic.isInShellGame());
+        let in_shell = self.presentation_or_boot_shell_bypass();
         if !self.match_over && self.current_state == GameState::InGame && !in_shell {
             // Prefer presentation victory residual when frame installed (no live re-evaluate).
             if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -18294,6 +18284,45 @@ impl CnCGameEngine {
         self.game_logic.is_time_frozen_for_simulation()
     }
 
+    /// Wave 552: presentation freeze owns shell-bypass residual when installed
+    /// (`fow_shell_bypass`, even if false). Boot residual without freeze uses
+    /// host `isInShellGame`.
+    #[inline]
+    fn presentation_or_boot_shell_bypass(&self) -> bool {
+        // Wave 552: presentation freeze owns shell-bypass residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.fow_shell_bypass;
+        }
+        // Boot residual only.
+        self.game_logic.isInShellGame()
+    }
+
+    /// Wave 552: Menu residual — only trust freeze when it *affirms* shell-map
+    /// mode. Stale InGame frames (`fow_shell_bypass=false`) fall through to live
+    /// `isInShellGame` so shell ticks are not suppressed after a match.
+    #[inline]
+    fn presentation_affirms_shell_or_boot(&self) -> bool {
+        // Wave 552: menu residual — freeze must affirm shell, else boot probe.
+        match self.last_presentation_frame.as_ref() {
+            Some(pres) if pres.fow_shell_bypass => true,
+            _ => self.game_logic.isInShellGame(),
+        }
+    }
+
+    /// Wave 552: shell-bypass from an optional presentation frame (pipeline or
+    /// last). Missing frame → boot `isInShellGame`.
+    #[inline]
+    fn shell_bypass_from_presentation(
+        &self,
+        frame: Option<&crate::presentation_frame::PresentationFrame>,
+    ) -> bool {
+        // Wave 552: optional freeze owns shell-bypass; boot residual otherwise.
+        match frame {
+            Some(pres) => pres.fow_shell_bypass,
+            None => self.game_logic.isInShellGame(),
+        }
+    }
+
     fn map_ai_difficulty_to_save(difficulty: crate::ai::AIDifficulty) -> GameDifficulty {
         match difficulty {
             crate::ai::AIDifficulty::Easy => GameDifficulty::Easy,
@@ -18613,10 +18642,8 @@ impl CnCGameEngine {
             .render_pipeline
             .presentation_frame()
             .or(self.last_presentation_frame.as_ref());
-        // Wave 540: prefer presentation fow_shell_bypass when freeze present.
-        let in_shell_camera = startup_camera_presentation
-            .map(|p| p.fow_shell_bypass)
-            .unwrap_or_else(|| self.game_logic.isInShellGame());
+        // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
+        let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
         (self.camera_target, self.camera_position, self.camera_zoom) =
             Self::bootstrap_camera_for_loaded_map(
                 in_shell_camera,
