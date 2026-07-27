@@ -3429,6 +3429,9 @@ pub struct PresentationFrame {
     pub eva_base_under_attack_count: u32,
     pub eva_ally_under_attack_count: u32,
     pub fow_shell_bypass: bool,
+    /// Wave 557: host replay-mode residual (`GameLogic::isInReplayGame`) frozen at
+    /// snapshot time for FPS-limit / TiVO residual without live dual-read.
+    pub in_replay_game: bool,
     /// Compact local-player cell-grid FOW for terrain overlay / minimap texture.
     /// Frozen at build so GPU upload does not re-query shroud mid-render.
     /// Fail-closed: not full SAGE dirty-rect / multi-layer shroud streaming.
@@ -4683,6 +4686,8 @@ impl PresentationFrame {
             eva_base_under_attack_count: logic.eva_base_under_attack_count(),
             eva_ally_under_attack_count: logic.eva_ally_under_attack_count(),
             fow_shell_bypass,
+            // Wave 557: freeze replay mode into presentation snapshot.
+            in_replay_game: logic.isInReplayGame(),
             fow_grid,
             particle_systems,
             laser_beams,
@@ -4744,6 +4749,7 @@ impl PresentationFrame {
         self.local_supplies.hash(&mut h);
         self.match_over.hash(&mut h);
         self.fow_shell_bypass.hash(&mut h);
+        self.in_replay_game.hash(&mut h);
         self.fow_grid.content_fingerprint().hash(&mut h);
         self.local_player_id.hash(&mut h);
         match self.local_team {
@@ -12614,6 +12620,7 @@ mod tests {
         );
         assert_eq!(snap.fow_for_object(id), Some(bridge_at_build));
         assert_eq!(snap.fow_shell_bypass, logic.isInShellGame());
+        assert_eq!(snap.in_replay_game, logic.isInReplayGame());
 
         let inputs = snap.unit_render_inputs();
         assert_eq!(inputs.len(), 1);
@@ -12699,6 +12706,7 @@ mod tests {
         assert_eq!(snap.world_env.world_max, [b.x, b.y, b.z]);
         // Shell bypass matches frozen flag used by render execute residual.
         assert_eq!(snap.fow_shell_bypass, logic.isInShellGame());
+        assert_eq!(snap.in_replay_game, logic.isInReplayGame());
         let sig = snap.world_env.prewarm_signature(snap.fow_shell_bypass);
         assert!(sig.contains(&snap.world_env.map_name) || snap.world_env.map_name.is_empty());
         assert!(sig.contains(&format!("shell:{}", snap.fow_shell_bypass)));
