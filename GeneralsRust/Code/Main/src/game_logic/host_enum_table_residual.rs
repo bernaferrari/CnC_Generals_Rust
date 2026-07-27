@@ -491,6 +491,20 @@ pub fn deployed_model_bit() -> u32 {
 pub fn garrisoned_model_bit() -> u32 {
     model_condition_bit_name_index("GARRISONED").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_PARACHUTING residual bit index from name table.
+pub fn parachuting_model_bit() -> u32 {
+    model_condition_bit_name_index("PARACHUTING").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_JETEXHAUST residual bit index from name table.
+pub fn jetexhaust_model_bit() -> u32 {
+    model_condition_bit_name_index("JETEXHAUST").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_USING_WEAPON_A residual bit index from name table.
+pub fn using_weapon_a_model_bit() -> u32 {
+    model_condition_bit_name_index("USING_WEAPON_A").unwrap_or(0) as u32
+}
 
 /// C++ MODELCONDITION_CAPTURED residual bit index.
 pub fn captured_model_bit() -> u32 {

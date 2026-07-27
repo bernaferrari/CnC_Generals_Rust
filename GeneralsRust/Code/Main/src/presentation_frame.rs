@@ -242,6 +242,8 @@ pub struct RenderableObject {
     pub using_ability: bool,
     /// Host ObjectStatus::airborne_target residual.
     pub airborne_target: bool,
+    /// Wave 505: C++ OBJECT_STATUS_PARACHUTING residual.
+    pub parachuting: bool,
     /// Host movement max speed residual.
     pub move_max_speed: f32,
     /// Host velocity residual.
@@ -605,6 +607,16 @@ pub struct UnitRenderInput {
     pub occupant_count: u16,
     /// Wave 504: container id when this unit is inside another object.
     pub contained_by: Option<ObjectId>,
+    /// Wave 505: parachuting residual for mesh model-condition.
+    pub parachuting: bool,
+    /// Wave 505: using_ability residual (special power pose).
+    pub using_ability: bool,
+    /// Wave 505: airborne_target residual (air unit identity).
+    pub airborne_target: bool,
+    /// Wave 505: presentation object type for jet exhaust residual.
+    pub object_type: PresentationObjectType,
+    /// Wave 505: velocity residual for jet exhaust when moving.
+    pub velocity: Vec3,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -656,6 +668,11 @@ impl UnitRenderInput {
             disguise_as_template: ro.disguise_as_template.clone(),
             occupant_count: ro.occupant_count,
             contained_by: ro.contained_by,
+            parachuting: ro.parachuting,
+            using_ability: ro.using_ability,
+            airborne_target: ro.airborne_target,
+            object_type: ro.object_type,
+            velocity: ro.velocity,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -703,6 +720,7 @@ impl UnitRenderInput {
     /// Wave 501: stamp deployed + radar dish model-condition residual bits.
     /// Wave 503: stamp construction scaffold model-condition residual bits.
     /// Wave 504: stamp GARRISONED model-condition residual when occupied.
+    /// Wave 505: stamp parachuting / jetexhaust / using-weapon residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -791,6 +809,32 @@ impl UnitRenderInput {
                 bits |= 1u128 << g_b;
             } else {
                 bits &= !(1u128 << g_b);
+            }
+        }
+        // Wave 505: parachuting / jet exhaust / using-weapon pose residual bits.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                jetexhaust_model_bit, parachuting_model_bit, using_weapon_a_model_bit,
+            };
+            let para_b = parachuting_model_bit();
+            if self.parachuting {
+                bits |= 1u128 << para_b;
+            } else {
+                bits &= !(1u128 << para_b);
+            }
+            let jet_b = jetexhaust_model_bit();
+            let jet_moving = matches!(self.object_type, PresentationObjectType::Aircraft)
+                && (self.moving || self.velocity.length_squared() > 1e-4 || self.airborne_target);
+            if jet_moving {
+                bits |= 1u128 << jet_b;
+            } else {
+                bits &= !(1u128 << jet_b);
+            }
+            let use_wpn_b = using_weapon_a_model_bit();
+            if self.is_firing_weapon || self.using_ability {
+                bits |= 1u128 << use_wpn_b;
+            } else {
+                bits &= !(1u128 << use_wpn_b);
             }
         }
         bits
@@ -2673,6 +2717,7 @@ impl PresentationFrame {
                 guard_target: obj.guard_target,
                 using_ability: obj.status.using_ability,
                 airborne_target: obj.status.airborne_target,
+                parachuting: obj.is_parachuting(),
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
                 ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
@@ -6172,6 +6217,7 @@ impl PresentationFrame {
             },
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
+            parachuting: ent.parachuting,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
             ai_state_ordinal: ent.ai_state_ordinal,
@@ -8358,6 +8404,11 @@ mod tests {
             disguise_as_template: None,
             occupant_count: 0,
             contained_by: None,
+            parachuting: false,
+            using_ability: false,
+            airborne_target: false,
+            object_type: PresentationObjectType::Neutral,
+            velocity: Vec3::ZERO,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
