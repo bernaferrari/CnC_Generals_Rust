@@ -2141,6 +2141,11 @@ use crate::game_logic::host_live_ui_player_info_presentation_fail_closed_residua
     honesty_ui_player_info_presentation_fail_closed_nav_commands_residual_wave549,
     simulate_live_ui_player_info_presentation_fail_closed_honesty,
 };
+use crate::game_logic::host_live_visual_speed_presentation_helper_residual_wave550::{
+    honesty_visual_speed_presentation_helper_method_names_residual_wave550,
+    honesty_visual_speed_presentation_helper_nav_commands_residual_wave550,
+    simulate_live_visual_speed_presentation_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5506,6 +5511,9 @@ pub struct ShellSmokeResult {
     pub ui_player_info_presentation_fail_closed_method_names_wave549_ok: bool,
     pub ui_player_info_presentation_fail_closed_nav_commands_wave549_ok: bool,
     pub ui_player_info_presentation_fail_closed_live_wave549_ok: bool,
+    pub visual_speed_presentation_helper_method_names_wave550_ok: bool,
+    pub visual_speed_presentation_helper_nav_commands_wave550_ok: bool,
+    pub visual_speed_presentation_helper_live_wave550_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8557,6 +8565,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_ui_player_info_presentation_fail_closed_nav_commands_residual_wave549();
     let ui_player_info_presentation_fail_closed_live_wave549_ok =
         simulate_live_ui_player_info_presentation_fail_closed_honesty();
+    let visual_speed_presentation_helper_method_names_wave550_ok =
+        honesty_visual_speed_presentation_helper_method_names_residual_wave550();
+    let visual_speed_presentation_helper_nav_commands_wave550_ok =
+        honesty_visual_speed_presentation_helper_nav_commands_residual_wave550();
+    let visual_speed_presentation_helper_live_wave550_ok =
+        simulate_live_visual_speed_presentation_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10193,6 +10207,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         ui_player_info_presentation_fail_closed_method_names_wave549_ok,
         ui_player_info_presentation_fail_closed_nav_commands_wave549_ok,
         ui_player_info_presentation_fail_closed_live_wave549_ok,
+        visual_speed_presentation_helper_method_names_wave550_ok,
+        visual_speed_presentation_helper_nav_commands_wave550_ok,
+        visual_speed_presentation_helper_live_wave550_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18698,6 +18715,21 @@ mod tests {
         assert!(
             r.ui_player_info_presentation_fail_closed_live_wave549_ok,
             "ui_player_info presentation fail-closed live residual wave549: {}",
+            r.detail
+        );
+        assert!(
+            r.visual_speed_presentation_helper_method_names_wave550_ok,
+            "visual speed presentation helper method names residual pack wave550: {}",
+            r.detail
+        );
+        assert!(
+            r.visual_speed_presentation_helper_nav_commands_wave550_ok,
+            "visual speed presentation helper nav commands residual pack wave550: {}",
+            r.detail
+        );
+        assert!(
+            r.visual_speed_presentation_helper_live_wave550_ok,
+            "visual speed presentation helper live residual wave550: {}",
             r.detail
         );
         assert!(
