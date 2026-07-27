@@ -7142,6 +7142,21 @@ impl GameLogic {
         self.host_apply_unit_production_completions(unit_completions)
     }
 
+    /// Wave 615: host production unit spawn residual.
+    ///
+    /// Still host ObjectId authority (`create_object` + spawn log). GameWorld
+    /// receives the unit via host_spawn_log / production Complete channel after
+    /// sole-tick readiness (Waves 614/608). Not full GW spawn-ID authority.
+    fn host_spawn_production_unit(
+        &mut self,
+        template: &str,
+        team: Team,
+        spawn_pos: Vec3,
+    ) -> Option<ObjectId> {
+        // Wave 615: host production spawn residual.
+        self.create_object(template, team, spawn_pos)
+    }
+
     /// Wave 595: host unit production completion residual — spawn, door, exit delay,
     /// rally path. GameWorld sole-ticks progress; host still completes/spawns.
     fn host_apply_unit_production_completions(
@@ -7159,7 +7174,8 @@ impl GameLogic {
             )
             .normalize_or_zero();
             // Use template selection heuristic later once the object is created.
-            if let Some(new_id) = self.create_object(&template, team, spawn_pos) {
+            // Wave 615: production unit spawn via host helper (still host ID authority).
+            if let Some(new_id) = self.host_spawn_production_unit(&template, team, spawn_pos) {
                 crate::game_logic::host_production_log::record_complete(
                     producer_id,
                     template.clone(),
