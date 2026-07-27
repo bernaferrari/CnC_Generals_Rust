@@ -476,6 +476,10 @@ pub struct Entity {
     pub weapon_crate_upgrade: u8,
     /// Host AI request residual `armor_crate_upgrade`.
     pub armor_crate_upgrade: u8,
+    /// C++ EnemyNearUpdate model residual.
+    pub enemy_near: bool,
+    /// C++ ARMED model residual.
+    pub armed: bool,
     /// Host AI request residual `selection_flash_remaining`.
     pub selection_flash_remaining: u32,
     /// Host Object::shock_stun_frames residual.
@@ -1009,6 +1013,8 @@ impl EntityStore {
             disguise_pending_team_ordinal: 255,
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
+            enemy_near: false,
+            armed: false,
             selection_flash_remaining: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,

@@ -458,6 +458,7 @@ pub mod host_live_presentation_topple_freefall_weather_residual_wave509;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
 pub mod host_live_presentation_water_rider_residual_wave507;
 pub mod host_live_presentation_weapon_fire_slot_residual_wave517;
+pub mod host_live_presentation_weaponset_enemy_near_residual_wave518;
 pub mod host_live_presentation_weaponset_veterancy_residual_wave506;
 pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
@@ -2450,6 +2451,15 @@ pub use host_live_presentation_weapon_fire_slot_residual_wave517::{
     honesty_presentation_weapon_fire_slot_source_markers_residual_wave517,
     residual_presentation_weapon_fire_slot_last_action, residual_presentation_weapon_fire_slot_ok,
     simulate_live_presentation_weapon_fire_slot_honesty,
+};
+pub use host_live_presentation_weaponset_enemy_near_residual_wave518::{
+    honesty_presentation_weaponset_enemy_near_method_names_residual_wave518,
+    honesty_presentation_weaponset_enemy_near_nav_commands_residual_wave518,
+    honesty_presentation_weaponset_enemy_near_residual_pack_wave518,
+    honesty_presentation_weaponset_enemy_near_source_markers_residual_wave518,
+    residual_presentation_weaponset_enemy_near_last_action,
+    residual_presentation_weaponset_enemy_near_ok,
+    simulate_live_presentation_weaponset_enemy_near_honesty,
 };
 
 pub use host_live_presentation_garrison_contain_residual_wave504::{
