@@ -2601,6 +2601,11 @@ use crate::game_logic::host_live_host_stored_supplies_ready_log_helper_residual_
     honesty_host_stored_supplies_ready_log_helper_nav_commands_residual_wave641,
     simulate_live_host_stored_supplies_ready_log_helper_honesty,
 };
+use crate::game_logic::host_live_host_weapon_set_ready_log_helper_residual_wave642::{
+    honesty_host_weapon_set_ready_log_helper_method_names_residual_wave642,
+    honesty_host_weapon_set_ready_log_helper_nav_commands_residual_wave642,
+    simulate_live_host_weapon_set_ready_log_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6242,6 +6247,9 @@ pub struct ShellSmokeResult {
     pub host_stored_supplies_ready_log_helper_method_names_wave641_ok: bool,
     pub host_stored_supplies_ready_log_helper_nav_commands_wave641_ok: bool,
     pub host_stored_supplies_ready_log_helper_live_wave641_ok: bool,
+    pub host_weapon_set_ready_log_helper_method_names_wave642_ok: bool,
+    pub host_weapon_set_ready_log_helper_nav_commands_wave642_ok: bool,
+    pub host_weapon_set_ready_log_helper_live_wave642_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9829,6 +9837,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_stored_supplies_ready_log_helper_nav_commands_residual_wave641();
     let host_stored_supplies_ready_log_helper_live_wave641_ok =
         simulate_live_host_stored_supplies_ready_log_helper_honesty();
+    let host_weapon_set_ready_log_helper_method_names_wave642_ok =
+        honesty_host_weapon_set_ready_log_helper_method_names_residual_wave642();
+    let host_weapon_set_ready_log_helper_nav_commands_wave642_ok =
+        honesty_host_weapon_set_ready_log_helper_nav_commands_residual_wave642();
+    let host_weapon_set_ready_log_helper_live_wave642_ok =
+        simulate_live_host_weapon_set_ready_log_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11741,6 +11755,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_stored_supplies_ready_log_helper_method_names_wave641_ok,
         host_stored_supplies_ready_log_helper_nav_commands_wave641_ok,
         host_stored_supplies_ready_log_helper_live_wave641_ok,
+        host_weapon_set_ready_log_helper_method_names_wave642_ok,
+        host_weapon_set_ready_log_helper_nav_commands_wave642_ok,
+        host_weapon_set_ready_log_helper_live_wave642_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -21626,6 +21643,21 @@ mod tests {
         assert!(
             r.host_stored_supplies_ready_log_helper_live_wave641_ok,
             "host stored supplies ready log helper live residual wave641: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_set_ready_log_helper_method_names_wave642_ok,
+            "host weapon set ready log helper method names residual pack wave642: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_set_ready_log_helper_nav_commands_wave642_ok,
+            "host weapon set ready log helper nav commands residual pack wave642: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_set_ready_log_helper_live_wave642_ok,
+            "host weapon set ready log helper live residual wave642: {}",
             r.detail
         );
         assert!(

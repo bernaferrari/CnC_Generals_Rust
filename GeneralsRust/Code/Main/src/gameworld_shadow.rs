@@ -6834,6 +6834,7 @@ impl GameWorldShadow {
 
     pub fn writeback_weapon_set_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6848,7 +6849,13 @@ impl GameWorldShadow {
             }
             obj.weapon_set_player_upgrade = ent.weapon_set_player_upgrade;
             obj.armed_riders_upgrade_weapon_set = ent.armed_riders_upgrade_weapon_set;
+            // Wave 642: GameWorld weapon-set last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_weapon_set_ready_log::record(oid);
         }
         updated
     }
@@ -8062,6 +8069,8 @@ pub fn shadow_session_after_host_tick(
         let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
         let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
+        // Wave 642: drain weapon-set ready log after GW writeback.
+        let _wset_ready = logic.host_apply_weapon_set_ready_completions();
         let _oc_wb = shadow.writeback_overcharge_to_host(logic);
         let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
         let _hive_wb = shadow.writeback_hive_to_host(logic);
@@ -12811,6 +12820,7 @@ mod tests {
             e.armed_riders_upgrade_weapon_set = true;
         }
         assert!(shadow.writeback_weapon_set_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_weapon_set_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.weapon_set_player_upgrade && o.armed_riders_upgrade_weapon_set);
     }
