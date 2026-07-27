@@ -428,6 +428,7 @@ pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
 pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
+pub mod host_live_presentation_mesh_turret_residual_wave494;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
@@ -2322,6 +2323,18 @@ pub use host_live_presentation_mesh_sold_condition_residual_wave491::{
     PRESENTATION_MESH_SOLD_CONDITION_NAV_STEPS_WAVE491,
     PRESENTATION_MESH_SOLD_CONDITION_SOURCE_MARKERS_WAVE491,
     RUNTIME_HOST_PRESENTATION_MESH_SOLD_CONDITION_CMD_NAMES_WAVE491,
+};
+pub use host_live_presentation_mesh_turret_residual_wave494::{
+    honesty_presentation_mesh_turret_method_names_residual_wave494,
+    honesty_presentation_mesh_turret_nav_commands_residual_wave494,
+    honesty_presentation_mesh_turret_residual_pack_wave494,
+    honesty_presentation_mesh_turret_source_markers_residual_wave494,
+    residual_presentation_mesh_turret_last_action, residual_presentation_mesh_turret_ok,
+    simulate_live_presentation_mesh_turret_honesty, simulate_presentation_mesh_turret_input_source,
+    simulate_presentation_mesh_turret_matrix_source, ResidualPresentationMeshTurretAction,
+    PRESENTATION_MESH_TURRET_METHOD_NAMES_WAVE494, PRESENTATION_MESH_TURRET_NAV_STEPS_WAVE494,
+    PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494,
+    RUNTIME_HOST_PRESENTATION_MESH_TURRET_CMD_NAMES_WAVE494,
 };
 pub use host_live_production_door_model_condition_log_residual_wave486::{
     honesty_production_door_model_condition_log_method_names_residual_wave486,
