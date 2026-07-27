@@ -157,6 +157,7 @@ Remaining engine residual after host update:
   - Production ready log: GW writeback → `host_production_ready_log` → host collect drain (Wave 614; host still spawns)
   - Production unit spawn: `host_spawn_production_unit` (Wave 615; still host ObjectId authority)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
+  - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
