@@ -26098,6 +26098,27 @@ impl GameLogic {
     /// host applies garrison AI residual + enter/exit honesty counters.
     /// Wave 629: GameWorld owner writeback records team changes; host applies
     /// capture residual (kick passengers, deselect, idle, score).
+    /// Wave 630: GameWorld AI-state writeback records ordinal changes; host
+    /// applies moving/attacking combat-status residual for the new state.
+    pub fn host_apply_ai_state_ready_completions(&mut self) -> usize {
+        // Wave 630: GameWorld AI-state writeback records ordinal changes; host
+        // applies moving/attacking combat-status residual for the new state.
+        let events = crate::game_logic::host_ai_state_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.object) else {
+                continue;
+            };
+            if ev.previous_ordinal == ev.new_ordinal {
+                continue;
+            }
+            // State already writeback-synced; apply status residual only.
+            obj.apply_ai_state_combat_status_residual(ev.new_ordinal);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_owner_ready_completions(&mut self) -> usize {
         // Wave 629: GameWorld owner writeback records team changes; host applies
         // capture residual (kick passengers, deselect, idle, score).

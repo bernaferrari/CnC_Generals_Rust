@@ -14205,6 +14205,25 @@ impl Object {
     }
 
     /// Set the AI state for autonomous behavior
+    /// Wave 630: apply combat-status residual after GW AI-state writeback.
+    ///
+    /// Does not re-log host_ai_state (state already last-written). Syncs
+    /// moving/attacking status bits from the authoritative ordinal.
+    pub(crate) fn apply_ai_state_combat_status_residual(&mut self, ordinal: u8) {
+        let moving = matches!(ordinal, 1 | 3); // Moving | AttackMoving
+        let attacking = matches!(ordinal, 2 | 3 | 4 | 20); // Attacking | AttackMoving | AttackingGround | GuardRetaliating
+        self.set_status_moving(moving);
+        self.set_status_attacking(attacking);
+        if !moving {
+            // Clear residual velocity when leaving march states.
+            if matches!(ordinal, 0 | 12 | 13) {
+                // Idle | Docked | Garrisoned
+                self.movement.velocity = glam::Vec3::ZERO;
+            }
+        }
+        self.record_host_movement();
+    }
+
     pub fn set_ai_state(&mut self, state: AIState) {
         let ordinal = match state {
             AIState::Idle => 0u8,

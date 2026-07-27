@@ -3853,8 +3853,8 @@ impl GameWorldShadow {
     }
 
     pub fn writeback_ai_state_to_host(&self, logic: &mut GameLogic) -> usize {
-        use crate::game_logic::AIState as A;
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, u8, u8)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -3866,31 +3866,17 @@ impl GameWorldShadow {
             if host_ord == ent.ai_state_ordinal {
                 continue;
             }
-            obj.ai_state = match ent.ai_state_ordinal {
-                0 => A::Idle,
-                1 => A::Moving,
-                2 => A::Attacking,
-                3 => A::AttackMoving,
-                4 => A::AttackingGround,
-                5 => A::Gathering,
-                6 => A::ReturningResources,
-                7 => A::Constructing,
-                8 => A::Repairing,
-                9 => A::GuardingArea,
-                10 => A::GuardingObject,
-                11 => A::Patrolling,
-                12 => A::Docked,
-                13 => A::Garrisoned,
-                14 => A::SpecialAbility,
-                15 => A::SeekingRepair,
-                16 => A::SeekingHealing,
-                17 => A::Entering,
-                18 => A::Docking,
-                19 => A::Capturing,
-                20 => A::GuardRetaliating,
-                _ => A::Idle,
-            };
+            let prev = host_ord;
+            let next = ent.ai_state_ordinal;
+            // Avoid host_ai_state_log re-entry during writeback (direct assign).
+            obj.ai_state = Self::ai_state_from_ordinal(next);
+            // Wave 630: GameWorld AI-state last-write residual —
+            // host applies combat-status flags from ready log.
+            ready.push((ObjectId(hid), prev, next));
             updated += 1;
+        }
+        for (oid, prev, next) in ready {
+            crate::game_logic::host_ai_state_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -7718,6 +7704,8 @@ pub fn shadow_session_after_host_tick(
         // Last-write host attack target / AI state / move from GameWorld.
         let _ = shadow.writeback_attack_targets_to_host(logic);
         let _ = shadow.writeback_ai_state_to_host(logic);
+        // Wave 630: drain AI-state ready log after GW writeback.
+        let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
         let _ = shadow.writeback_movement_to_host(logic);
     } else {
         let _ =
@@ -7924,6 +7912,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
+        // Wave 630: drain AI-state ready log after GW writeback.
+        let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
         let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
         let _oc_wb = shadow.writeback_overcharge_to_host(logic);
