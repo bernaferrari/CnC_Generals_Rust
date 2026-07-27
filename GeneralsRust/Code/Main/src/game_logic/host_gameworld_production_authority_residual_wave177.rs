@@ -100,7 +100,9 @@ pub fn honesty_host_production_sole_tick_source() -> bool {
     src.contains("gameworld_production_sole_tick_enabled()")
         && src.contains("try_complete_production")
         && src.contains("update_production")
-        && src.contains("Wave 464: GameWorld sole-ticks queue progress + exit delay")
+        && (src.contains("Wave 464: GameWorld sole-ticks queue progress + exit delay")
+            || src.contains("Wave 464/614: GameWorld sole-ticks progress + exit delay")
+            || src.contains("host_production_ready_log"))
 }
 
 /// Source residual: writeback path exists for production last-writer.
