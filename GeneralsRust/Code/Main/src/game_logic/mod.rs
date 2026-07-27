@@ -441,6 +441,7 @@ pub mod host_live_presentation_poison_defector_tint_residual_wave499;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_seed_residual_wave171;
+pub mod host_live_presentation_stealth_mesh_residual_wave502;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
 pub mod host_live_presentation_world_bounds_probe_residual_wave461;
@@ -2448,6 +2449,19 @@ pub use host_live_presentation_poison_defector_tint_residual_wave499::{
     PRESENTATION_POISON_DEFECTOR_TINT_NAV_STEPS_WAVE499,
     PRESENTATION_POISON_DEFECTOR_TINT_SOURCE_MARKERS_WAVE499,
     RUNTIME_HOST_PRESENTATION_POISON_DEFECTOR_TINT_CMD_NAMES_WAVE499,
+};
+pub use host_live_presentation_stealth_mesh_residual_wave502::{
+    honesty_presentation_stealth_mesh_method_names_residual_wave502,
+    honesty_presentation_stealth_mesh_nav_commands_residual_wave502,
+    honesty_presentation_stealth_mesh_residual_pack_wave502,
+    honesty_presentation_stealth_mesh_source_markers_residual_wave502,
+    residual_presentation_stealth_mesh_last_action, residual_presentation_stealth_mesh_ok,
+    simulate_live_presentation_stealth_mesh_honesty,
+    simulate_presentation_stealth_mesh_input_source,
+    simulate_presentation_stealth_mesh_render_source, ResidualPresentationStealthMeshAction,
+    PRESENTATION_STEALTH_MESH_METHOD_NAMES_WAVE502, PRESENTATION_STEALTH_MESH_NAV_STEPS_WAVE502,
+    PRESENTATION_STEALTH_MESH_SOURCE_MARKERS_WAVE502,
+    RUNTIME_HOST_PRESENTATION_STEALTH_MESH_CMD_NAMES_WAVE502,
 };
 pub use host_live_production_door_model_condition_log_residual_wave486::{
     honesty_production_door_model_condition_log_method_names_residual_wave486,
