@@ -369,6 +369,7 @@ pub mod host_live_hijacker_update_dual_world_empty_gate_residual_wave288;
 pub mod host_live_hive_structure_body_dual_world_empty_gate_residual_wave389;
 pub mod host_live_horde_update_dual_world_empty_gate_residual_wave378;
 pub mod host_live_host_beacon_presentation_residual_wave211;
+pub mod host_live_host_command_flush_helper_residual_wave576;
 pub mod host_live_host_pause_team_helper_residual_wave575;
 pub mod host_live_host_status_map_presentation_fail_closed_residual_wave546;
 pub mod host_live_host_status_selected_presentation_fail_closed_residual_wave547;
@@ -2489,6 +2490,14 @@ pub use host_live_fixed_step_diag_presentation_helper_residual_wave564::{
     residual_fixed_step_diag_presentation_helper_last_action,
     residual_fixed_step_diag_presentation_helper_ok,
     simulate_live_fixed_step_diag_presentation_helper_honesty,
+};
+pub use host_live_host_command_flush_helper_residual_wave576::{
+    honesty_host_command_flush_helper_method_names_residual_wave576,
+    honesty_host_command_flush_helper_nav_commands_residual_wave576,
+    honesty_host_command_flush_helper_residual_pack_wave576,
+    honesty_host_command_flush_helper_source_markers_residual_wave576,
+    residual_host_command_flush_helper_last_action, residual_host_command_flush_helper_ok,
+    simulate_live_host_command_flush_helper_honesty,
 };
 pub use host_live_host_pause_team_helper_residual_wave575::{
     honesty_host_pause_team_helper_method_names_residual_wave575,
