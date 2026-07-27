@@ -743,6 +743,27 @@ pub fn second_life_model_bit() -> u32 {
 pub fn post_collapse_model_bit() -> u32 {
     model_condition_bit_name_index("POST_COLLAPSE").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_FRONTCRUSHED residual bit index.
+pub fn frontcrushed_model_bit() -> u32 {
+    model_condition_bit_name_index("FRONTCRUSHED").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_BACKCRUSHED residual bit index.
+pub fn backcrushed_model_bit() -> u32 {
+    model_condition_bit_name_index("BACKCRUSHED").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_PREORDER residual bit index.
+pub fn preorder_model_bit() -> u32 {
+    model_condition_bit_name_index("PREORDER").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_USER_1 residual bit index.
+pub fn user_1_model_bit() -> u32 {
+    model_condition_bit_name_index("USER_1").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_USER_2 residual bit index.
+pub fn user_2_model_bit() -> u32 {
+    model_condition_bit_name_index("USER_2").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_SPECIAL_DAMAGED residual bit index.
 pub fn special_damaged_model_bit() -> u32 {
     model_condition_bit_name_index("SPECIAL_DAMAGED").unwrap_or(0) as u32

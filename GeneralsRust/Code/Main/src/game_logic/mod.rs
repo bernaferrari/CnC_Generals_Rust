@@ -428,6 +428,7 @@ pub mod host_live_presentation_burn_cheer_carry_residual_wave511;
 pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
 pub mod host_live_presentation_cliff_flood_residual_wave522;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
+pub mod host_live_presentation_crush_user_residual_wave525;
 pub mod host_live_presentation_dock_rider_residual_wave521;
 pub mod host_live_presentation_emoticon_float_residual_wave514;
 pub mod host_live_presentation_env_only_residual_wave455;
@@ -2367,6 +2368,14 @@ pub use host_live_presentation_cliff_flood_residual_wave522::{
     residual_presentation_cliff_flood_last_action, residual_presentation_cliff_flood_ok,
     simulate_live_presentation_cliff_flood_honesty,
 };
+pub use host_live_presentation_crush_user_residual_wave525::{
+    honesty_presentation_crush_user_method_names_residual_wave525,
+    honesty_presentation_crush_user_nav_commands_residual_wave525,
+    honesty_presentation_crush_user_residual_pack_wave525,
+    honesty_presentation_crush_user_source_markers_residual_wave525,
+    residual_presentation_crush_user_last_action, residual_presentation_crush_user_ok,
+    simulate_live_presentation_crush_user_honesty,
+};
 pub use host_live_presentation_multi_door_smolder_residual_wave524::{
     honesty_presentation_multi_door_smolder_method_names_residual_wave524,
     honesty_presentation_multi_door_smolder_nav_commands_residual_wave524,
@@ -2376,6 +2385,7 @@ pub use host_live_presentation_multi_door_smolder_residual_wave524::{
     residual_presentation_multi_door_smolder_ok,
     simulate_live_presentation_multi_door_smolder_honesty,
 };
+
 pub use host_live_presentation_second_life_stun_residual_wave523::{
     honesty_presentation_second_life_stun_method_names_residual_wave523,
     honesty_presentation_second_life_stun_nav_commands_residual_wave523,

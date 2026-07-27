@@ -131,6 +131,10 @@ pub struct Entity {
     pub crushable_level: u8,
     /// Host Object::front_crushed residual.
     pub front_crushed: bool,
+    /// Host USER_1 model residual.
+    pub user_1: bool,
+    /// Host USER_2 model residual.
+    pub user_2: bool,
     /// Host Object::back_crushed residual.
     pub back_crushed: bool,
     /// Host Object::vision_range residual.
@@ -851,6 +855,8 @@ impl EntityStore {
             crushable_level: 0,
             front_crushed: false,
             back_crushed: false,
+            user_1: false,
+            user_2: false,
             vision_range: 0.0,
             shroud_clearing_range: 0.0,
             under_construction: false,

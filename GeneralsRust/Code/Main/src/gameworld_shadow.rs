@@ -699,6 +699,15 @@ impl GameWorldShadow {
                     e.crushable_level = obj.crushable_level;
                     e.front_crushed = obj.front_crushed;
                     e.back_crushed = obj.back_crushed;
+                    e.user_1 = (obj.model_condition_bits
+                        & (1u128
+                            << crate::game_logic::host_enum_table_residual::user_1_model_bit()))
+                        != 0;
+                    e.user_2 = (obj.model_condition_bits
+                        & (1u128
+                            << crate::game_logic::host_enum_table_residual::user_2_model_bit()))
+                        != 0;
+                    e.back_crushed = obj.back_crushed;
                     e.vision_range = obj.vision_range;
                     e.shroud_clearing_range = obj.shroud_clearing_range;
                     e.under_construction = obj.status.under_construction;
