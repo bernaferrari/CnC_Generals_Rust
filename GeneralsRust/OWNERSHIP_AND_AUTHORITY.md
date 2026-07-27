@@ -130,6 +130,7 @@ Remaining engine residual after host update:
   - Render UI consumer: `host_build_render_ui_state_from_presentation` (pipeline/last freeze → UI/HUD/ControlBar; Wave 591)
   - Render UI overlays: `host_apply_render_ui_presentation_overlays` (radar/script/clock/diag; Wave 592)
   - Render UI finalize: `host_finalize_render_ui_state` (minimap/radar pings/victory/last_ui; Wave 593)
+  - Minimap bounds repair: `host_repair_minimap_presentation_bounds` (heightmap stamp + last_presentation align; Wave 594)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
