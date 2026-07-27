@@ -508,6 +508,7 @@ pub mod host_live_render_ui_pipeline_presentation_residual_wave462;
 pub mod host_live_replace_object_upgrade_dual_world_empty_gate_residual_wave446;
 pub mod host_live_rider_change_contain_dual_world_empty_gate_residual_wave277;
 pub mod host_live_rmb_presentation_full_classify_residual_wave235;
+pub mod host_live_rmb_presentation_no_dual_read_residual_wave541;
 pub mod host_live_rmb_selected_presentation_only_residual_wave229;
 pub mod host_live_rmb_target_presentation_only_residual_wave228;
 pub mod host_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_residual_wave391;
@@ -2509,6 +2510,14 @@ pub use host_live_presentation_radar_eva_audio_residual_wave529::{
     honesty_presentation_radar_eva_audio_source_markers_residual_wave529,
     residual_presentation_radar_eva_audio_last_action, residual_presentation_radar_eva_audio_ok,
     simulate_live_presentation_radar_eva_audio_honesty,
+};
+pub use host_live_rmb_presentation_no_dual_read_residual_wave541::{
+    honesty_rmb_presentation_no_dual_read_method_names_residual_wave541,
+    honesty_rmb_presentation_no_dual_read_nav_commands_residual_wave541,
+    honesty_rmb_presentation_no_dual_read_residual_pack_wave541,
+    honesty_rmb_presentation_no_dual_read_source_markers_residual_wave541,
+    residual_rmb_presentation_no_dual_read_last_action, residual_rmb_presentation_no_dual_read_ok,
+    simulate_live_rmb_presentation_no_dual_read_honesty,
 };
 
 pub use host_live_presentation_move_attack_helper_residual_wave526::{

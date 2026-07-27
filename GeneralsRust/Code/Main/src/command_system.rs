@@ -1185,12 +1185,11 @@ impl CommandSystem {
                     &context.selected_presentation,
                     target_id,
                     hint,
-                    // Wave 235/236: live dual-read only when presentation selection empty.
-                    if context.selected_presentation.is_empty() {
-                        game_logic
-                    } else {
-                        None
-                    },
+                    // Wave 541: target presentation freeze is authoritative.
+                    // Empty selected_presentation fails closed for capability probes
+                    // (no live GameLogic dual-read). Boot residual uses the
+                    // non-presentation branch below when target_presentation is absent.
+                    None,
                 ) {
                     return cmd;
                 }
@@ -1838,8 +1837,9 @@ impl CommandSystem {
         hint: &PresentationTargetHint,
         game_logic: Option<&GameLogic>,
     ) -> Option<CommandType> {
-        // Wave 235: full InGame RMB classification from presentation freeze when
-        // selected_presentation is non-empty (no live dual-read required).
+        // Wave 235/541: InGame RMB classification from presentation freeze.
+        // selected_presentation drives capability probes; empty ⇒ fail-closed
+        // (no live GameLogic dual-read). game_logic arg retained for boot callers.
         if !hint.is_alive {
             return None;
         }

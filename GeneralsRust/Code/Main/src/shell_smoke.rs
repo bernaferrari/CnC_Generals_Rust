@@ -2096,6 +2096,11 @@ use crate::game_logic::host_live_presentation_camera_shell_flag_residual_wave540
     honesty_presentation_camera_shell_flag_nav_commands_residual_wave540,
     simulate_live_presentation_camera_shell_flag_honesty,
 };
+use crate::game_logic::host_live_rmb_presentation_no_dual_read_residual_wave541::{
+    honesty_rmb_presentation_no_dual_read_method_names_residual_wave541,
+    honesty_rmb_presentation_no_dual_read_nav_commands_residual_wave541,
+    simulate_live_rmb_presentation_no_dual_read_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5434,6 +5439,9 @@ pub struct ShellSmokeResult {
     pub presentation_camera_shell_flag_method_names_wave540_ok: bool,
     pub presentation_camera_shell_flag_nav_commands_wave540_ok: bool,
     pub presentation_camera_shell_flag_live_wave540_ok: bool,
+    pub rmb_presentation_no_dual_read_method_names_wave541_ok: bool,
+    pub rmb_presentation_no_dual_read_nav_commands_wave541_ok: bool,
+    pub rmb_presentation_no_dual_read_live_wave541_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8431,6 +8439,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_presentation_camera_shell_flag_nav_commands_residual_wave540();
     let presentation_camera_shell_flag_live_wave540_ok =
         simulate_live_presentation_camera_shell_flag_honesty();
+    let rmb_presentation_no_dual_read_method_names_wave541_ok =
+        honesty_rmb_presentation_no_dual_read_method_names_residual_wave541();
+    let rmb_presentation_no_dual_read_nav_commands_wave541_ok =
+        honesty_rmb_presentation_no_dual_read_nav_commands_residual_wave541();
+    let rmb_presentation_no_dual_read_live_wave541_ok =
+        simulate_live_rmb_presentation_no_dual_read_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10040,6 +10054,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         presentation_camera_shell_flag_method_names_wave540_ok,
         presentation_camera_shell_flag_nav_commands_wave540_ok,
         presentation_camera_shell_flag_live_wave540_ok,
+        rmb_presentation_no_dual_read_method_names_wave541_ok,
+        rmb_presentation_no_dual_read_nav_commands_wave541_ok,
+        rmb_presentation_no_dual_read_live_wave541_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18410,6 +18427,21 @@ mod tests {
         assert!(
             r.presentation_camera_shell_flag_live_wave540_ok,
             "presentation camera shell flag live residual wave540: {}",
+            r.detail
+        );
+        assert!(
+            r.rmb_presentation_no_dual_read_method_names_wave541_ok,
+            "rmb presentation no dual-read method names residual pack wave541: {}",
+            r.detail
+        );
+        assert!(
+            r.rmb_presentation_no_dual_read_nav_commands_wave541_ok,
+            "rmb presentation no dual-read nav commands residual pack wave541: {}",
+            r.detail
+        );
+        assert!(
+            r.rmb_presentation_no_dual_read_live_wave541_ok,
+            "rmb presentation no dual-read live residual wave541: {}",
             r.detail
         );
         assert!(

@@ -119,10 +119,10 @@ pub fn honesty_rmb_presentation_full_classify_source() -> bool {
     let Some(det) = fn_body(cs, "fn determine_context_command(") else {
         return false;
     };
-    // Wave 236: game_logic is Option; empty selected_presentation forwards `game_logic`.
-    if !(det.contains("context.selected_presentation.is_empty()")
-        && (det.contains("Wave 235") || det.contains("Wave 236"))
-        && det.contains("game_logic")
+    // Wave 541: target presentation freeze is authoritative — classify call passes None
+    // (empty selected_presentation fails closed; no live dual-read forward).
+    if !(det.contains("classify_right_click_target_from_presentation")
+        && (det.contains("Wave 235") || det.contains("Wave 236") || det.contains("Wave 541"))
         && det.contains("None"))
     {
         return false;
