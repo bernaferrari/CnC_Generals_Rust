@@ -402,8 +402,8 @@ pub fn gameworld_special_power_sole_tick_enabled() -> bool {
 
 /// When enabled (default), GameWorld shadow is last-writer for production queue
 /// identity (items/progress/rally/exit delay) via host progress logs + writeback.
-/// Host still *executes* production ticks (spawn completion residual); shadow owns
-/// the frozen queue snapshot at session end.
+/// Host still *completes/spawns* production (completion residual); shadow sole-ticks
+/// queue progress + exit delay under PRODUCTION_AUTHORITY (Wave 464).
 ///
 /// Env: `GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_production_authority_enabled() -> bool {
@@ -2137,6 +2137,7 @@ impl GameWorldShadow {
         use gamelogic::world::WorldMutation;
         let mut n = 0usize;
         let mut updates: Vec<(EntityId, Vec<EntityProductionItem>)> = Vec::new();
+        let mut exit_updates: Vec<(EntityId, f32)> = Vec::new();
         // Snapshot host ids for power lookup without double-borrow.
         let host_ids: Vec<(u32, EntityId)> = self
             .host_to_entity
@@ -2147,28 +2148,41 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            if ent.production_queue_items.is_empty() {
-                continue;
+            if !ent.production_queue_items.is_empty() {
+                let mut items = ent.production_queue_items.clone();
+                if let Some(head) = items.first_mut() {
+                    if head.progress + 1e-6 < head.total_time.max(0.0) {
+                        let pf = self
+                            .production_power_factor_by_host
+                            .get(&hid)
+                            .copied()
+                            .unwrap_or(1.0)
+                            .max(0.01);
+                        head.progress = (head.progress + dt * pf).min(head.total_time.max(0.0));
+                        n += 1;
+                        updates.push((eid, items));
+                    }
+                }
             }
-            let mut items = ent.production_queue_items.clone();
-            let Some(head) = items.first_mut() else {
-                continue;
-            };
-            if head.progress + 1e-6 < head.total_time.max(0.0) {
-                let pf = self
-                    .production_power_factor_by_host
-                    .get(&hid)
-                    .copied()
-                    .unwrap_or(1.0)
-                    .max(0.01);
-                head.progress = (head.progress + dt * pf).min(head.total_time.max(0.0));
-                n += 1;
-                updates.push((eid, items));
+            // Wave 464: sole-tick factory exit delay (C++ QueueProductionExitUpdate residual).
+            // Host under production sole-tick only try_complete; exit delay advances here.
+            if ent.exit_delay_remaining > 0.0 && dt > 0.0 {
+                let next = (ent.exit_delay_remaining - dt).max(0.0);
+                if (next - ent.exit_delay_remaining).abs() > 1e-9 {
+                    exit_updates.push((eid, next));
+                    n += 1;
+                }
             }
         }
         for (eid, items) in updates {
             self.world
                 .queue_mutation(WorldMutation::SetProductionQueue { target: eid, items });
+        }
+        for (eid, exit_delay_remaining) in exit_updates {
+            self.world.queue_mutation(WorldMutation::SetExitDelay {
+                target: eid,
+                exit_delay_remaining,
+            });
         }
         if n > 0 {
             let _ = self.world.apply_pending_mutations();

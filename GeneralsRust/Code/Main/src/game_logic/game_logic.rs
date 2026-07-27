@@ -7038,7 +7038,8 @@ impl GameLogic {
                 // host only exits delay + completes when writeback already finished the head.
                 let completed_prod =
                     if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
-                        building.tick_exit_delay(dt);
+                        // Wave 464: GameWorld sole-ticks queue progress + exit delay;
+                        // host only completes/spawns when writeback finished the head.
                         building.try_complete_production()
                     } else {
                         building.update_production(dt, pf)

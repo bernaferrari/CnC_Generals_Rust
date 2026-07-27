@@ -416,6 +416,7 @@ pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
 pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
+pub mod host_live_production_exit_delay_sole_tick_residual_wave464;
 pub mod host_live_production_quantity_writeback_residual_wave463;
 pub mod host_live_production_update_complete_dual_world_empty_gate_residual_wave365;
 pub mod host_live_production_update_dual_world_empty_gate_residual_wave326;
@@ -3128,6 +3129,21 @@ pub use host_live_prison_behavior_dual_world_empty_gate_residual_wave385::{
     honesty_live_prison_behavior_dual_world_empty_gate_nav_commands_residual_wave385,
     honesty_live_prison_behavior_dual_world_empty_gate_residual_pack_wave385,
     simulate_live_prison_behavior_dual_world_empty_gate_honesty,
+};
+pub use host_live_production_exit_delay_sole_tick_residual_wave464::{
+    honesty_production_exit_delay_sole_tick_method_names_residual_wave464,
+    honesty_production_exit_delay_sole_tick_nav_commands_residual_wave464,
+    honesty_production_exit_delay_sole_tick_residual_pack_wave464,
+    residual_production_exit_delay_sole_tick_last_action,
+    residual_production_exit_delay_sole_tick_ok,
+    simulate_live_production_exit_delay_sole_tick_honesty,
+    simulate_production_exit_delay_sole_tick_gw_source,
+    simulate_production_exit_delay_sole_tick_host_source,
+    ResidualProductionExitDelaySoleTickAction,
+    PRODUCTION_EXIT_DELAY_SOLE_TICK_METHOD_NAMES_WAVE464,
+    PRODUCTION_EXIT_DELAY_SOLE_TICK_NAV_STEPS_WAVE464,
+    PRODUCTION_EXIT_DELAY_SOLE_TICK_SOURCE_MARKERS_WAVE464,
+    RUNTIME_HOST_PRODUCTION_EXIT_DELAY_SOLE_TICK_CMD_NAMES_WAVE464,
 };
 pub use host_live_production_quantity_writeback_residual_wave463::{
     honesty_production_quantity_writeback_method_names_residual_wave463,
