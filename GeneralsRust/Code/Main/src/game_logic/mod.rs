@@ -461,6 +461,7 @@ pub mod host_live_script_executor_dual_world_empty_gate_residual_wave284;
 pub mod host_live_selection_commands_presentation_only_residual_wave218;
 pub mod host_live_selection_dual_world_empty_gate_residual_wave278;
 pub mod host_live_selection_query_probe_residual_wave245;
+pub mod host_live_sell_deconstruction_sole_tick_no_stomp_residual_wave481;
 pub mod host_live_skirmish_conditions_dual_world_empty_gate_residual_wave292;
 pub mod host_live_skirmish_player_dual_world_empty_gate_residual_wave329;
 pub mod host_live_slaved_update_dual_world_empty_gate_residual_wave402;
@@ -2189,6 +2190,22 @@ pub use host_live_production_sole_tick_exit_delay_arm_residual_wave480::{
     PRODUCTION_SOLE_TICK_EXIT_DELAY_ARM_SOURCE_MARKERS_WAVE480,
     RUNTIME_HOST_PRODUCTION_SOLE_TICK_EXIT_DELAY_ARM_CMD_NAMES_WAVE480,
 };
+pub use host_live_sell_deconstruction_sole_tick_no_stomp_residual_wave481::{
+    honesty_sell_deconstruction_sole_tick_no_stomp_method_names_residual_wave481,
+    honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave481,
+    honesty_sell_deconstruction_sole_tick_no_stomp_residual_pack_wave481,
+    residual_sell_deconstruction_sole_tick_no_stomp_last_action,
+    residual_sell_deconstruction_sole_tick_no_stomp_ok,
+    simulate_live_sell_deconstruction_sole_tick_no_stomp_honesty,
+    simulate_sell_deconstruction_sole_tick_no_stomp_host_source,
+    simulate_sell_deconstruction_sole_tick_no_stomp_shadow_source,
+    ResidualSellDeconstructionSoleTickNoStompAction,
+    RUNTIME_HOST_SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_CMD_NAMES_WAVE481,
+    SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_METHOD_NAMES_WAVE481,
+    SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_NAV_STEPS_WAVE481,
+    SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_SOURCE_MARKERS_WAVE481,
+};
+
 pub use host_live_special_power_sole_tick_no_cooldown_stomp_residual_wave479::{
     honesty_special_power_sole_tick_no_cooldown_stomp_method_names_residual_wave479,
     honesty_special_power_sole_tick_no_cooldown_stomp_nav_commands_residual_wave479,
