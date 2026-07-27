@@ -563,6 +563,25 @@ pub fn night_model_bit() -> u32 {
 pub fn snow_model_bit() -> u32 {
     model_condition_bit_name_index("SNOW").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_LOADED residual bit index.
+pub fn loaded_model_bit() -> u32 {
+    model_condition_bit_name_index("LOADED").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_POWER_PLANT_UPGRADED residual bit index.
+pub fn power_plant_upgraded_model_bit() -> u32 {
+    model_condition_bit_name_index("POWER_PLANT_UPGRADED").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_PACKING residual bit index.
+pub fn packing_model_bit() -> u32 {
+    model_condition_bit_name_index("PACKING").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_UNPACKING residual bit index.
+pub fn unpacking_model_bit() -> u32 {
+    model_condition_bit_name_index("UNPACKING").unwrap_or(0) as u32
+}
 
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
