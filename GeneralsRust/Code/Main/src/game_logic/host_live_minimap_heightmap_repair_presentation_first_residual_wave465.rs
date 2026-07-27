@@ -166,11 +166,18 @@ pub fn simulate_minimap_heightmap_repair_presentation_first_source() -> bool {
     let Some(body) = function_body(src, "fn reinitialize_minimap_renderer(") else {
         return false;
     };
+    // Wave 594: heightmap stamp lives in host_repair_minimap_presentation_bounds.
+    let Some(repair) = function_body(src, "fn host_repair_minimap_presentation_bounds(") else {
+        return false;
+    };
     let ok = (body.contains("Wave 468: instance path")
-        || body.contains("Wave 465: presentation-first minimap bounds"))
-        && body.contains("heightmap_world_size()")
-        && body.contains("presentation_frame_mut()")
-        && body.contains("override_world_size");
+        || body.contains("Wave 465: presentation-first minimap bounds")
+        || body.contains("Wave 594")
+        || repair.contains("Wave 594"))
+        && body.contains("host_repair_minimap_presentation_bounds")
+        && repair.contains("heightmap_world_size()")
+        && repair.contains("presentation_frame_mut()")
+        && repair.contains("override_world_size");
     residual_action_store(ResidualMinimapHeightmapRepairPresentationFirstAction::RepairSource);
     ok
 }
@@ -180,17 +187,22 @@ pub fn simulate_minimap_heightmap_repair_order_source() -> bool {
     let Some(body) = function_body(src, "fn reinitialize_minimap_renderer(") else {
         return false;
     };
-    let Some(stamp) = body.find("presentation_frame_mut()") else {
+    // Wave 594: stamp order is inside host_repair_minimap_presentation_bounds.
+    let Some(repair) = function_body(src, "fn host_repair_minimap_presentation_bounds(") else {
         return false;
     };
-    let Some(override_at) = body.find("override_world_size") else {
+    let Some(stamp) = repair.find("presentation_frame_mut()") else {
+        return false;
+    };
+    let Some(override_at) = repair.find("override_world_size") else {
         return false;
     };
     let ok = stamp < override_at
-        && body.contains("half_w")
-        && body.contains("half_h")
-        && !body.contains("world_bounds = game_logic.world_bounds()")
-        && body.contains("presentation_world_bounds()");
+        && repair.contains("half_w")
+        && repair.contains("half_h")
+        && !repair.contains("world_bounds = game_logic.world_bounds()")
+        && body.contains("presentation_world_bounds()")
+        && body.contains("host_repair_minimap_presentation_bounds");
     residual_action_store(ResidualMinimapHeightmapRepairPresentationFirstAction::OrderSource);
     ok
 }

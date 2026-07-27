@@ -167,15 +167,22 @@ pub fn simulate_minimap_bounds_presentation_first_source() -> bool {
     let Some(body) = function_body(src, "fn reinitialize_minimap_renderer(") else {
         return false;
     };
+    // Wave 594: heightmap stamp + last_presentation align lives in host helper.
+    let Some(repair) = function_body(src, "fn host_repair_minimap_presentation_bounds(") else {
+        return false;
+    };
     let pipe = pipeline_source();
-    // Wave 468: instance method uses presentation_world_bounds + heightmap stamp.
+    // Wave 468/594: instance method uses presentation_world_bounds + host repair helper.
     let ok = body.contains("&mut self")
         && (body.contains("presentation_world_bounds()") || body.contains("world_bounds_vec3()"))
-        && body.contains("presentation_frame_mut()")
-        && body.contains("override_world_size")
+        && body.contains("host_repair_minimap_presentation_bounds")
+        && repair.contains("presentation_frame_mut()")
+        && repair.contains("override_world_size")
         && (body.contains("Wave 468: instance path")
             || body.contains("Wave 465: presentation-first minimap bounds")
-            || body.contains("Wave 457: prefer presentation freeze"))
+            || body.contains("Wave 457: prefer presentation freeze")
+            || body.contains("Wave 594")
+            || repair.contains("Wave 594"))
         && pipe.contains("fn presentation_frame_mut");
     residual_action_store(ResidualMinimapBoundsPresentationFirstAction::MinimapSource);
     ok

@@ -23,6 +23,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468: &[&str] = &[
     "reinitialize_minimap_renderer",
+    "host_repair_minimap_presentation_bounds",
     "ensure_presentation_env_seeded",
     "presentation_world_bounds",
     "presentation_frame_mut",
@@ -95,15 +96,19 @@ fn cnc_source() -> &'static str {
 }
 
 pub fn honesty_minimap_reinit_instance_presentation_method_names_residual_wave468() -> bool {
-    MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468.len() == 6
+    MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468.len() == 7
         && residual_name_index(
             MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468,
             "reinitialize_minimap_renderer",
         ) == Some(0)
         && residual_name_index(
             MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468,
+            "host_repair_minimap_presentation_bounds",
+        ) == Some(1)
+        && residual_name_index(
+            MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468,
             "update_minimap_world_bounds",
-        ) == Some(5)
+        ) == Some(6)
 }
 
 pub fn honesty_minimap_reinit_instance_presentation_source_markers_residual_wave468() -> bool {
@@ -161,12 +166,20 @@ pub fn simulate_minimap_reinit_instance_presentation_source() -> bool {
     let Some(body) = function_body(src, "fn reinitialize_minimap_renderer(") else {
         return false;
     };
+    // Wave 594: heightmap repair + last_presentation align lives in host helper.
+    let Some(repair) = function_body(src, "fn host_repair_minimap_presentation_bounds(") else {
+        return false;
+    };
     let ok = body.contains("Wave 468: instance path")
         && body.contains("&mut self")
         && body.contains("ensure_presentation_env_seeded()")
         && body.contains("presentation_world_bounds()")
-        && body.contains("override_world_size")
-        && !body.contains("game_logic: &mut GameLogic");
+        && body.contains("host_repair_minimap_presentation_bounds")
+        && (body.contains("Wave 594") || repair.contains("Wave 594"))
+        && repair.contains("override_world_size")
+        && repair.contains("last_presentation_frame = Some")
+        && !body.contains("game_logic: &mut GameLogic")
+        && !repair.contains("game_logic: &mut GameLogic");
     residual_action_store(ResidualMinimapReinitInstancePresentationAction::InstanceSource);
     ok
 }

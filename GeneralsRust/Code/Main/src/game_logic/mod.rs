@@ -376,6 +376,7 @@ pub mod host_live_host_enqueue_shell_cmd_helper_residual_wave582;
 pub mod host_live_host_game_client_device_tick_helper_residual_wave587;
 pub mod host_live_host_game_client_menu_shell_helper_residual_wave588;
 pub mod host_live_host_game_client_shell_tick_helper_residual_wave586;
+pub mod host_live_host_minimap_bounds_repair_helper_residual_wave594;
 pub mod host_live_host_pause_team_helper_residual_wave575;
 pub mod host_live_host_presentation_finalize_helper_residual_wave589;
 pub mod host_live_host_presentation_seed_helper_residual_wave590;
@@ -2566,6 +2567,15 @@ pub use host_live_host_game_client_shell_tick_helper_residual_wave586::{
     residual_host_game_client_shell_tick_helper_last_action,
     residual_host_game_client_shell_tick_helper_ok,
     simulate_live_host_game_client_shell_tick_helper_honesty,
+};
+pub use host_live_host_minimap_bounds_repair_helper_residual_wave594::{
+    honesty_host_minimap_bounds_repair_helper_method_names_residual_wave594,
+    honesty_host_minimap_bounds_repair_helper_nav_commands_residual_wave594,
+    honesty_host_minimap_bounds_repair_helper_residual_pack_wave594,
+    honesty_host_minimap_bounds_repair_helper_source_markers_residual_wave594,
+    residual_host_minimap_bounds_repair_helper_last_action,
+    residual_host_minimap_bounds_repair_helper_ok,
+    simulate_live_host_minimap_bounds_repair_helper_honesty,
 };
 pub use host_live_host_pause_team_helper_residual_wave575::{
     honesty_host_pause_team_helper_method_names_residual_wave575,

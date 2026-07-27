@@ -19661,6 +19661,7 @@ impl CnCGameEngine {
     fn reinitialize_minimap_renderer(&mut self) -> anyhow::Result<()> {
         // Wave 468: instance path — presentation-first bounds via shared probe;
         // heightmap repair stamps freeze then mirrors host world size for pathfinding.
+        // Wave 594: heightmap repair + last_presentation align via host helper.
         self.ensure_presentation_env_seeded();
         let mut world_bounds = self.presentation_world_bounds();
         self.render_pipeline.initialize_minimap_renderer(
@@ -19669,6 +19670,25 @@ impl CnCGameEngine {
             world_bounds,
         )?;
 
+        world_bounds = self.host_repair_minimap_presentation_bounds(world_bounds);
+
+        self.render_pipeline
+            .sync_heightmap_world_bounds(world_bounds);
+        self.render_pipeline
+            .update_minimap_world_bounds(world_bounds);
+        Ok(())
+    }
+
+    /// Wave 594: minimap heightmap repair + presentation stamp residual.
+    ///
+    /// When presentation world bounds are degenerate, stamps heightmap-derived
+    /// extents into the pipeline freeze, mirrors host world size for pathfinding,
+    /// and keeps `last_presentation_frame` aligned with the stamp.
+    fn host_repair_minimap_presentation_bounds(
+        &mut self,
+        mut world_bounds: (Vec3, Vec3),
+    ) -> (Vec3, Vec3) {
+        // Wave 594: minimap presentation bounds repair residual.
         let world_width = (world_bounds.1.x - world_bounds.0.x).abs();
         let world_height = (world_bounds.1.z - world_bounds.0.z).abs();
         if world_width <= 1.0 || world_height <= 1.0 {
@@ -19692,12 +19712,7 @@ impl CnCGameEngine {
                 }
             }
         }
-
-        self.render_pipeline
-            .sync_heightmap_world_bounds(world_bounds);
-        self.render_pipeline
-            .update_minimap_world_bounds(world_bounds);
-        Ok(())
+        world_bounds
     }
 
     /// Convert a UI faction string into a Team.
