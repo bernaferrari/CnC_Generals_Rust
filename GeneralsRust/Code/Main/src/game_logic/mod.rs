@@ -437,6 +437,7 @@ pub mod host_live_presentation_emoticon_float_residual_wave514;
 pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
 pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
+pub mod host_live_presentation_eva_full_matrix_residual_wave534;
 pub mod host_live_presentation_eva_pulse_audio_residual_wave533;
 pub mod host_live_presentation_fire_prone_turret_residual_wave512;
 pub mod host_live_presentation_firesound_audio_residual_wave527;
@@ -2401,6 +2402,14 @@ pub use host_live_presentation_crush_user_residual_wave525::{
     honesty_presentation_crush_user_source_markers_residual_wave525,
     residual_presentation_crush_user_last_action, residual_presentation_crush_user_ok,
     simulate_live_presentation_crush_user_honesty,
+};
+pub use host_live_presentation_eva_full_matrix_residual_wave534::{
+    honesty_presentation_eva_full_matrix_method_names_residual_wave534,
+    honesty_presentation_eva_full_matrix_nav_commands_residual_wave534,
+    honesty_presentation_eva_full_matrix_residual_pack_wave534,
+    honesty_presentation_eva_full_matrix_source_markers_residual_wave534,
+    residual_presentation_eva_full_matrix_last_action, residual_presentation_eva_full_matrix_ok,
+    simulate_live_presentation_eva_full_matrix_honesty,
 };
 pub use host_live_presentation_eva_pulse_audio_residual_wave533::{
     honesty_presentation_eva_pulse_audio_method_names_residual_wave533,

@@ -3,6 +3,7 @@
 //! C++ `TheEva->setShouldPlay` edges are recorded here so PresentationFrame can
 //! emit snapshot EVA audio without dual-reading live GameLogic mid-render.
 
+use gamelogic::helpers::EvaEvent;
 use std::cell::RefCell;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,10 +17,21 @@ thread_local! {
     static LAST_DRAIN: RefCell<Vec<HostEvaEvent>> = RefCell::new(Vec::new());
 }
 
+/// Map C++ EvaEvent residual → presentation audio event name.
+/// Fail-closed: Debug-stable `EVA_{Variant}` names (not Miles speech asset table).
+pub fn eva_event_audio_name(event: EvaEvent) -> String {
+    format!("EVA_{event:?}")
+}
+
 pub fn record(name: impl Into<String>) {
     LOG.with(|log| {
         log.borrow_mut().push(HostEvaEvent { name: name.into() });
     });
+}
+
+/// Wave 534: record from typed EvaEvent (covers full setShouldPlay matrix).
+pub fn record_event(event: EvaEvent) {
+    record(eva_event_audio_name(event));
 }
 
 pub fn drain() -> Vec<HostEvaEvent> {

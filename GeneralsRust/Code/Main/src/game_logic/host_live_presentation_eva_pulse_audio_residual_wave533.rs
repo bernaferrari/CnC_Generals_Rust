@@ -25,6 +25,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_PRESENTATION_EVA_PULSE_AUDIO_METHOD_NAMES_WAVE533: &[&str] = &[
     "host_eva_log::record",
+    "host_eva_log::record_event",
     "host_eva_log::take_last_drain",
     "PresentationEvent::EvaAlert",
     "EVA_LowPower",
@@ -98,6 +99,7 @@ fn log_source() -> &'static str {
 pub fn honesty_presentation_eva_pulse_audio_method_names_residual_wave533() -> bool {
     let names = LIVE_PRESENTATION_EVA_PULSE_AUDIO_METHOD_NAMES_WAVE533;
     let ok = residual_name_index(names, "host_eva_log::record").is_some()
+        && residual_name_index(names, "host_eva_log::record_event").is_some()
         && residual_name_index(names, "host_eva_log::take_last_drain").is_some()
         && residual_name_index(names, "PresentationEvent::EvaAlert").is_some()
         && residual_name_index(names, "EVA_LowPower").is_some()
@@ -116,13 +118,15 @@ pub fn honesty_presentation_eva_pulse_audio_source_markers_residual_wave533() ->
         && pf.contains("PresentationEvent::EvaAlert")
         && pf.contains("host_eva_log::take_last_drain")
         && pf.contains("EvaAlert { name }")
-        && gl.contains("host_eva_log::record(\"EVA_LowPower\")")
-        && gl.contains("host_eva_log::record(\"EVA_InsufficientFunds\")")
-        && gl.contains("host_eva_log::record(\"EVA_BaseUnderAttack\")")
-        && gl.contains("host_eva_log::record(\"EVA_AllyUnderAttack\")")
-        && gl.contains("host_eva_log::record(\"EVA_BuildingLost\")")
-        && gl.contains("host_eva_log::record(\"EVA_UnitLost\")")
+        // Wave 534: typed EvaEvent record_event covers Wave 533 pulse set.
+        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::LowPower)")
+        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::InsufficientFunds)")
+        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::BaseUnderAttack)")
+        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::AllyUnderAttack)")
+        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::BuildingLost)")
+        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost)")
         && log.contains("pub fn record")
+        && log.contains("pub fn record_event")
         && log.contains("pub fn take_last_drain")
         && !pf.contains("playable_claim = true");
     residual_action_store(ResidualPresentationEvaPulseAudioAction::SourceMarkers);
