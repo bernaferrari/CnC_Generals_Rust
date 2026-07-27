@@ -6894,6 +6894,19 @@ impl GameLogic {
         for (id, team, name) in ready_superweapons {
             self.try_eva_superweapon_ready(id, team, &name);
         }
+        // Wave 618: under sole-tick, GameWorld writeback records SP ready flips;
+        // host drains for EVA residual (object already writeback-ready).
+        if crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled() {
+            for ev in crate::game_logic::host_special_power_ready_log::drain() {
+                if let Some(obj) = self.objects.get(&ev.object) {
+                    if obj.is_alive() {
+                        let team = obj.team;
+                        let name = obj.template_name.clone();
+                        self.try_eva_superweapon_ready(ev.object, team, &name);
+                    }
+                }
+            }
+        }
 
         for _id in radar_extend_done {
             self.radar_extend_completes = self.radar_extend_completes.saturating_add(1);

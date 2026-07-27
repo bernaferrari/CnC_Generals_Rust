@@ -13045,7 +13045,7 @@ impl Object {
         // does not advance. SharedNSync player timers are separate and keep ticking.
         let freeze_special_power = self.is_disabled();
         // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks countdown;
-        // host only refreshes ready aggregate after writeback.
+        // host only refreshes ready aggregate after writeback (Wave 618 ready-log).
         let sole_sp = crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled();
         if dt > 0.0 && !freeze_special_power && !sole_sp && !self.special_power_cooldowns.is_empty()
         {
