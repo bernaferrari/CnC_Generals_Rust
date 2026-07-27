@@ -2376,6 +2376,11 @@ use crate::game_logic::host_live_host_camera_queue_drain_helper_residual_wave596
     honesty_host_camera_queue_drain_helper_nav_commands_residual_wave596,
     simulate_live_host_camera_queue_drain_helper_honesty,
 };
+use crate::game_logic::host_live_host_gameworld_shadow_session_helper_residual_wave597::{
+    honesty_host_gameworld_shadow_session_helper_method_names_residual_wave597,
+    honesty_host_gameworld_shadow_session_helper_nav_commands_residual_wave597,
+    simulate_live_host_gameworld_shadow_session_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5882,6 +5887,9 @@ pub struct ShellSmokeResult {
     pub host_camera_queue_drain_helper_method_names_wave596_ok: bool,
     pub host_camera_queue_drain_helper_nav_commands_wave596_ok: bool,
     pub host_camera_queue_drain_helper_live_wave596_ok: bool,
+    pub host_gameworld_shadow_session_helper_method_names_wave597_ok: bool,
+    pub host_gameworld_shadow_session_helper_nav_commands_wave597_ok: bool,
+    pub host_gameworld_shadow_session_helper_live_wave597_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9202,6 +9210,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_camera_queue_drain_helper_nav_commands_residual_wave596();
     let host_camera_queue_drain_helper_live_wave596_ok =
         simulate_live_host_camera_queue_drain_helper_honesty();
+    let host_gameworld_shadow_session_helper_method_names_wave597_ok =
+        honesty_host_gameworld_shadow_session_helper_method_names_residual_wave597();
+    let host_gameworld_shadow_session_helper_nav_commands_wave597_ok =
+        honesty_host_gameworld_shadow_session_helper_nav_commands_residual_wave597();
+    let host_gameworld_shadow_session_helper_live_wave597_ok =
+        simulate_live_host_gameworld_shadow_session_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10979,6 +10993,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_camera_queue_drain_helper_method_names_wave596_ok,
         host_camera_queue_drain_helper_nav_commands_wave596_ok,
         host_camera_queue_drain_helper_live_wave596_ok,
+        host_gameworld_shadow_session_helper_method_names_wave597_ok,
+        host_gameworld_shadow_session_helper_nav_commands_wave597_ok,
+        host_gameworld_shadow_session_helper_live_wave597_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -20189,6 +20206,21 @@ mod tests {
         assert!(
             r.host_camera_queue_drain_helper_live_wave596_ok,
             "host camera queue drain helper live residual wave596: {}",
+            r.detail
+        );
+        assert!(
+            r.host_gameworld_shadow_session_helper_method_names_wave597_ok,
+            "host gameworld shadow session helper method names residual pack wave597: {}",
+            r.detail
+        );
+        assert!(
+            r.host_gameworld_shadow_session_helper_nav_commands_wave597_ok,
+            "host gameworld shadow session helper nav commands residual pack wave597: {}",
+            r.detail
+        );
+        assert!(
+            r.host_gameworld_shadow_session_helper_live_wave597_ok,
+            "host gameworld shadow session helper live residual wave597: {}",
             r.detail
         );
         assert!(
