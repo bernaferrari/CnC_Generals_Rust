@@ -26,6 +26,7 @@ pub const LIVE_BOOT_CAMERA_HELPER_METHOD_NAMES_WAVE572: &[&str] = &[
     "apply_boot_camera_residual",
     "apply_presentation_camera_residual",
     "drain_live_camera_request_queues",
+    "host_drain_live_camera_request_queues",
     "apply_pending_script_camera_requests",
     "Wave 572",
     "playable_claim = false",

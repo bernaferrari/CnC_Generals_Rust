@@ -17952,7 +17952,19 @@ impl CnCGameEngine {
     }
 
     /// Consume live camera request queues without applying (presentation already applied).
+    /// Wave 596: via `host_drain_live_camera_request_queues`.
     fn drain_live_camera_request_queues(&mut self) {
+        // Wave 596: thin wrapper — takes live behind host_drain helper.
+        self.host_drain_live_camera_request_queues();
+    }
+
+    /// Wave 596: host camera request queue drain residual.
+    ///
+    /// When presentation already applied camera residuals, drop live host camera
+    /// request queues so the next frame does not double-apply. All takes stay
+    /// behind this single host dual-read surface.
+    fn host_drain_live_camera_request_queues(&mut self) {
+        // Wave 596: host camera request queue drain residual.
         let _ = self.game_logic.take_camera_focus_request();
         let _ = self.game_logic.take_camera_zoom_reset();
         let _ = self.game_logic.take_camera_zoom_request();
