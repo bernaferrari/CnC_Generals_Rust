@@ -26117,6 +26117,31 @@ impl GameLogic {
     /// applies path/presentation bookkeeping residual via record_host_movement.
     /// Wave 638: GameWorld attack-target writeback records target changes; host
     /// applies AI/status/attack-log residual (without re-assigning target).
+    /// Wave 639: GameWorld move-target writeback records destination changes;
+    /// host applies AI/status/movement residual without re-assigning destination.
+    pub fn host_apply_move_target_ready_completions(&mut self) -> usize {
+        // Wave 639: GameWorld move-target writeback records destination changes;
+        // host applies AI/status/movement residual without re-assigning destination.
+        let events = crate::game_logic::host_move_target_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.object) else {
+                continue;
+            };
+            // Destination already writeback-synced. Apply residual side effects.
+            if ev.new_target.is_some() {
+                // Prefer status bits over full set_ai_state to avoid fighting
+                // GW AI-state writeback (Wave 630).
+                obj.set_status_moving(true);
+            } else {
+                obj.set_status_moving(false);
+            }
+            obj.record_host_movement();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_attack_target_ready_completions(&mut self) -> usize {
         // Wave 638: GameWorld attack-target writeback records target changes; host
         // applies AI/status/attack-log residual (without re-assigning target).

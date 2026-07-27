@@ -2170,6 +2170,7 @@ impl GameWorldShadow {
     /// Direct field write (no host_move_log) to avoid echo loops.
     pub fn writeback_move_targets_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, Option<[f32; 3]>, Option<[f32; 3]>)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2191,14 +2192,16 @@ impl GameWorldShadow {
             if same {
                 continue;
             }
+            let prev = host_dest;
+            // Direct assign — AI/status residual applied from ready log.
             obj.movement.target_position = shadow_dest.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
-            if shadow_dest.is_some() {
-                obj.ai_state = crate::game_logic::AIState::Moving;
-                obj.status.moving = true;
-            } else {
-                obj.status.moving = false;
-            }
+            // Wave 639: GameWorld move-target last-write residual —
+            // host applies AI/status/movement bookkeeping from ready log.
+            ready.push((ObjectId(hid), prev, shadow_dest));
             updated += 1;
+        }
+        for (oid, prev, next) in ready {
+            crate::game_logic::host_move_target_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -7904,6 +7907,8 @@ pub fn shadow_session_after_host_tick(
     let _atk_ready = logic.host_apply_attack_target_ready_completions();
     let _ = shadow.writeback_fire_intent_to_host(logic);
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
+    // Wave 639: drain move-target ready log after GW writeback.
+    let _mt_ready = logic.host_apply_move_target_ready_completions();
     // Pose last-writer after all SetTransform mutations this session.
     // Mid-frame movement authority: integrate AFTER command channels, BEFORE pose writeback.
     if gameworld_movement_authority_enabled() {
@@ -7931,6 +7936,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_bounce_land_to_host(logic);
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
+        // Wave 639: drain move-target ready log after GW writeback.
+        let _mt_ready = logic.host_apply_move_target_ready_completions();
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready = logic.host_apply_combat_status_ready_completions();
@@ -14469,6 +14476,7 @@ mod tests {
             obj.movement.target_position = Some(glam::Vec3::new(50.0, 0.0, 25.0));
         }
         let n = shadow.writeback_move_targets_to_host(&mut logic);
+        let _ = crate::game_logic::host_move_target_ready_log::drain();
         assert!(n >= 1);
         assert!(logic
             .get_objects()
