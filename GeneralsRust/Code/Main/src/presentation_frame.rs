@@ -534,6 +534,20 @@ pub struct RenderableObject {
     pub moving_backwards: bool,
     /// Host Object::overcharge_enabled residual.
     pub overcharge_enabled: bool,
+    /// Wave 519: C++ shockwave airborne residual.
+    pub shock_was_airborne: bool,
+    /// Wave 519: C++ shock allow bounce residual.
+    pub shock_allow_bounce: bool,
+    /// Wave 519: C++ shock grounded-once residual.
+    pub shock_grounded_once: bool,
+    /// Wave 519: remaining shock stun frames.
+    pub shock_stun_frames: u32,
+    /// Wave 519: C++ PowerPlantUpdate m_extended residual.
+    pub power_plant_rods_extended: bool,
+    /// Wave 519: frame when rods finish upgrading (0 idle).
+    pub power_plant_rods_done_frame: u32,
+    /// Wave 519: jet slow-death residual active.
+    pub jet_slow_death_active: bool,
     /// Host Object::show_health_bar residual.
     pub show_health_bar: bool,
     /// Host Object::guard_radius residual.
@@ -631,6 +645,20 @@ pub struct UnitRenderInput {
     pub enemy_near: bool,
     /// Wave 518: ARMED model residual.
     pub armed: bool,
+    /// Wave 519: shockwave airborne residual.
+    pub shock_was_airborne: bool,
+    /// Wave 519: shock allow bounce residual.
+    pub shock_allow_bounce: bool,
+    /// Wave 519: shock grounded-once residual.
+    pub shock_grounded_once: bool,
+    /// Wave 519: shock stun frames remaining.
+    pub shock_stun_frames: u32,
+    /// Wave 519: power plant rods extended residual.
+    pub power_plant_rods_extended: bool,
+    /// Wave 519: power plant rods done frame residual.
+    pub power_plant_rods_done_frame: u32,
+    /// Wave 519: jet slow-death active residual.
+    pub jet_slow_death_active: bool,
     /// Wave 497: body damage ordinal for mesh variant resolve (0..3).
     pub body_damage_state: u8,
     /// Wave 499: C++ TINT_STATUS_POISONED residual.
@@ -747,6 +775,13 @@ impl UnitRenderInput {
             enemy_near: ro.enemy_near,
             armed: ro.armed,
             body_damage_state: ro.body_damage_state,
+            shock_was_airborne: ro.shock_was_airborne,
+            shock_allow_bounce: ro.shock_allow_bounce,
+            shock_grounded_once: ro.shock_grounded_once,
+            shock_stun_frames: ro.shock_stun_frames,
+            power_plant_rods_extended: ro.power_plant_rods_extended,
+            power_plant_rods_done_frame: ro.power_plant_rods_done_frame,
+            jet_slow_death_active: ro.jet_slow_death_active,
             poison_tinted: ro.poison_tinted,
             defector_flash: ro.defector_flash,
             is_deployed: ro.is_deployed,
@@ -1099,6 +1134,49 @@ impl UnitRenderInput {
             }
             if self.armed {
                 bits |= 1u128 << arm_b;
+            }
+        }
+        // Wave 519: exploded flail/bounce, power-plant upgrading, jet afterburner residual bits.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                exploded_bouncing_model_bit, exploded_flailing_model_bit, jetafterburner_model_bit,
+                power_plant_upgraded_model_bit, power_plant_upgrading_model_bit,
+                splatted_model_bit,
+            };
+            let flail_b = exploded_flailing_model_bit();
+            let bounce_b = exploded_bouncing_model_bit();
+            let splat_b = splatted_model_bit();
+            let ppu_b = power_plant_upgrading_model_bit();
+            let ppd_b = power_plant_upgraded_model_bit();
+            let jet_ab = jetafterburner_model_bit();
+            for b in [flail_b, bounce_b, splat_b, ppu_b, jet_ab] {
+                bits &= !(1u128 << b);
+            }
+            // Shockwave: airborne => flailing; bounce allowed mid-air => bouncing; grounded after airborne => splatted residual.
+            if self.shock_stun_frames > 0 || self.shock_was_airborne {
+                if self.shock_was_airborne && self.shock_allow_bounce && !self.shock_grounded_once {
+                    bits |= 1u128 << bounce_b;
+                } else if self.shock_was_airborne && !self.shock_grounded_once {
+                    bits |= 1u128 << flail_b;
+                } else if self.shock_grounded_once && self.destroyed {
+                    bits |= 1u128 << splat_b;
+                } else if self.shock_stun_frames > 0 {
+                    bits |= 1u128 << flail_b;
+                }
+            }
+            // Power plant rods: upgrading until done_frame, then upgraded (overcharge path may also set upgraded).
+            if self.power_plant_rods_done_frame > 0
+                && self.logic_frame < self.power_plant_rods_done_frame
+                && !self.power_plant_rods_extended
+            {
+                bits |= 1u128 << ppu_b;
+                bits &= !(1u128 << ppd_b);
+            } else if self.power_plant_rods_extended {
+                bits |= 1u128 << ppd_b;
+                bits &= !(1u128 << ppu_b);
+            }
+            if self.jet_slow_death_active {
+                bits |= 1u128 << jet_ab;
             }
         }
 
@@ -3550,6 +3628,14 @@ impl PresentationFrame {
                 is_panicking: obj.is_panicking,
                 moving_backwards: obj.moving_backwards,
                 overcharge_enabled: obj.overcharge_enabled,
+                // Wave 519: shock / power-plant rods / jet slow-death residuals.
+                shock_was_airborne: obj.shock_was_airborne,
+                shock_allow_bounce: obj.shock_allow_bounce,
+                shock_grounded_once: obj.shock_grounded_once,
+                shock_stun_frames: obj.shock_stun_frames,
+                power_plant_rods_extended: obj.power_plant_rods_extended,
+                power_plant_rods_done_frame: obj.power_plant_rods_done_frame,
+                jet_slow_death_active: obj.jet_slow_death.is_some(),
                 show_health_bar: obj.show_health_bar,
                 guard_radius: obj.guard_radius,
                 has_mine: obj.mine_data.is_some(),
@@ -6249,6 +6335,34 @@ impl PresentationFrame {
                 obj.overcharge_enabled = ent.overcharge_enabled;
                 dirty = true;
             }
+            if obj.shock_was_airborne != ent.shock_was_airborne {
+                obj.shock_was_airborne = ent.shock_was_airborne;
+                dirty = true;
+            }
+            if obj.shock_allow_bounce != ent.shock_allow_bounce {
+                obj.shock_allow_bounce = ent.shock_allow_bounce;
+                dirty = true;
+            }
+            if obj.shock_grounded_once != ent.shock_grounded_once {
+                obj.shock_grounded_once = ent.shock_grounded_once;
+                dirty = true;
+            }
+            if obj.shock_stun_frames != ent.shock_stun_frames {
+                obj.shock_stun_frames = ent.shock_stun_frames;
+                dirty = true;
+            }
+            if obj.power_plant_rods_extended != ent.power_plant_rods_extended {
+                obj.power_plant_rods_extended = ent.power_plant_rods_extended;
+                dirty = true;
+            }
+            if obj.power_plant_rods_done_frame != ent.power_plant_rods_done_frame {
+                obj.power_plant_rods_done_frame = ent.power_plant_rods_done_frame;
+                dirty = true;
+            }
+            if obj.jet_slow_death_active != ent.jet_slow_death_active {
+                obj.jet_slow_death_active = ent.jet_slow_death_active;
+                dirty = true;
+            }
             if obj.active_weapon_slot != ent.active_weapon_slot {
                 obj.active_weapon_slot = ent.active_weapon_slot;
                 dirty = true;
@@ -7066,6 +7180,13 @@ impl PresentationFrame {
             is_panicking: ent.is_panicking,
             moving_backwards: ent.moving_backwards,
             overcharge_enabled: ent.overcharge_enabled,
+            shock_was_airborne: ent.shock_was_airborne,
+            shock_allow_bounce: ent.shock_allow_bounce,
+            shock_grounded_once: ent.shock_grounded_once,
+            shock_stun_frames: ent.shock_stun_frames,
+            power_plant_rods_extended: ent.power_plant_rods_extended,
+            power_plant_rods_done_frame: ent.power_plant_rods_done_frame,
+            jet_slow_death_active: ent.jet_slow_death_active,
             show_health_bar: true,
             // Wave 490: guard/mine/kind presentation from GW entity.
             guard_radius: ent.guard_radius,
@@ -9031,6 +9152,13 @@ mod tests {
             armor_crate_upgrade: 0,
             enemy_near: false,
             armed: false,
+            shock_was_airborne: false,
+            shock_allow_bounce: false,
+            shock_grounded_once: false,
+            shock_stun_frames: 0,
+            power_plant_rods_extended: false,
+            power_plant_rods_done_frame: 0,
+            jet_slow_death_active: false,
             body_damage_state: 0,
             poison_tinted: false,
             defector_flash: false,
