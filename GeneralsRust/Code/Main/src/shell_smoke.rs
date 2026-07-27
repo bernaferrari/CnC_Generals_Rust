@@ -2186,6 +2186,11 @@ use crate::game_logic::host_live_diplomacy_presentation_helper_residual_wave558:
     honesty_diplomacy_presentation_helper_nav_commands_residual_wave558,
     simulate_live_diplomacy_presentation_helper_honesty,
 };
+use crate::game_logic::host_live_presentation_honesty_align_residual_wave559::{
+    honesty_presentation_honesty_align_method_names_residual_wave559,
+    honesty_presentation_honesty_align_nav_commands_residual_wave559,
+    simulate_live_presentation_honesty_align_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5578,6 +5583,9 @@ pub struct ShellSmokeResult {
     pub diplomacy_presentation_helper_method_names_wave558_ok: bool,
     pub diplomacy_presentation_helper_nav_commands_wave558_ok: bool,
     pub diplomacy_presentation_helper_live_wave558_ok: bool,
+    pub presentation_honesty_align_method_names_wave559_ok: bool,
+    pub presentation_honesty_align_nav_commands_wave559_ok: bool,
+    pub presentation_honesty_align_live_wave559_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8683,6 +8691,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_diplomacy_presentation_helper_nav_commands_residual_wave558();
     let diplomacy_presentation_helper_live_wave558_ok =
         simulate_live_diplomacy_presentation_helper_honesty();
+    let presentation_honesty_align_method_names_wave559_ok =
+        honesty_presentation_honesty_align_method_names_residual_wave559();
+    let presentation_honesty_align_nav_commands_wave559_ok =
+        honesty_presentation_honesty_align_nav_commands_residual_wave559();
+    let presentation_honesty_align_live_wave559_ok =
+        simulate_live_presentation_honesty_align_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10346,6 +10360,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         diplomacy_presentation_helper_method_names_wave558_ok,
         diplomacy_presentation_helper_nav_commands_wave558_ok,
         diplomacy_presentation_helper_live_wave558_ok,
+        presentation_honesty_align_method_names_wave559_ok,
+        presentation_honesty_align_nav_commands_wave559_ok,
+        presentation_honesty_align_live_wave559_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18986,6 +19003,21 @@ mod tests {
         assert!(
             r.diplomacy_presentation_helper_live_wave558_ok,
             "diplomacy presentation helper live residual wave558: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_honesty_align_method_names_wave559_ok,
+            "presentation honesty align method names residual pack wave559: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_honesty_align_nav_commands_wave559_ok,
+            "presentation honesty align nav commands residual pack wave559: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_honesty_align_live_wave559_ok,
+            "presentation honesty align live residual wave559: {}",
             r.detail
         );
         assert!(

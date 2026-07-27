@@ -459,6 +459,7 @@ pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
 pub mod host_live_presentation_garrison_contain_residual_wave504;
+pub mod host_live_presentation_honesty_align_residual_wave559;
 pub mod host_live_presentation_host_fx_overlay_residual_wave498;
 pub mod host_live_presentation_jam_die_reload_pack_residual_wave513;
 pub mod host_live_presentation_mesh_combat_flags_residual_wave495;
@@ -2563,6 +2564,14 @@ pub use host_live_presentation_firesound_stop_residual_wave528::{
     honesty_presentation_firesound_stop_source_markers_residual_wave528,
     residual_presentation_firesound_stop_last_action, residual_presentation_firesound_stop_ok,
     simulate_live_presentation_firesound_stop_honesty,
+};
+pub use host_live_presentation_honesty_align_residual_wave559::{
+    honesty_presentation_honesty_align_method_names_residual_wave559,
+    honesty_presentation_honesty_align_nav_commands_residual_wave559,
+    honesty_presentation_honesty_align_residual_pack_wave559,
+    honesty_presentation_honesty_align_source_markers_residual_wave559,
+    residual_presentation_honesty_align_last_action, residual_presentation_honesty_align_ok,
+    simulate_live_presentation_honesty_align_honesty,
 };
 pub use host_live_presentation_mouse_and_defeat_gate_residual_wave542::{
     honesty_presentation_mouse_and_defeat_gate_method_names_residual_wave542,
