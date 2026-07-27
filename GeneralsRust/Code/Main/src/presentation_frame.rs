@@ -7610,7 +7610,7 @@ impl PresentationFrame {
     /// names into `PresentationParticleSystem` with `fx_list_name` set.
     /// Fail-closed: not full FXList.ini particle graph / bone-local offsets.
     pub fn append_object_residual_fx_particles(&mut self) -> usize {
-        use crate::game_logic::combat_particles::CombatParticleKind;
+        use crate::game_logic::CombatParticleKind;
         let frame = self.frame.0;
         let mut next_id = self
             .particle_systems
@@ -8724,6 +8724,7 @@ impl PresentationFrame {
     /// Wave 529: RadarMessage → EVA/radar audio event names + snapshot position.
     /// Wave 530: OwnerChanged → BuildingCaptured/UnitHijacked audio residual.
     /// Wave 533: EvaAlert → EVA_* audio event names from host_eva_log pulses.
+    /// Wave 535: ParticleSystemSpawned → Explosion/FireBurn/… audio at snapshot pose.
     /// Fail-closed: not Miles/device spatial parity — names resolve via SoundEffectsTable.
     pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
         use crate::game_logic::AudioEventRequest;
@@ -8792,10 +8793,10 @@ impl PresentationFrame {
                 PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
                 PresentationEvent::WeaponFireLoopStarted { .. }
                 | PresentationEvent::WeaponFireLoopStopped { .. } => None,
-                PresentationEvent::ParticleSystemSpawned { .. } => None,
-                PresentationEvent::OwnerChanged { .. } => None, // handled below (Wave 530)
-                PresentationEvent::RadarMessage { .. } => None, // handled below (Wave 529)
-                PresentationEvent::EvaAlert { .. } => None,     // handled below (Wave 533)
+                PresentationEvent::ParticleSystemSpawned { .. } => None, // handled below (Wave 535)
+                PresentationEvent::OwnerChanged { .. } => None,          // handled below (Wave 530)
+                PresentationEvent::RadarMessage { .. } => None,          // handled below (Wave 529)
+                PresentationEvent::EvaAlert { .. } => None,              // handled below (Wave 533)
             };
             let Some((kind, obj)) = mapped else {
                 continue;
@@ -8844,6 +8845,47 @@ impl PresentationFrame {
                 continue;
             }
             out.push(AudioEventRequest::new(name.as_str()).with_priority(180));
+        }
+
+        // Wave 535: combat particle spawn → presentation audio residual (snapshot pose).
+        // Fail-closed: not full FXList/FXParticleSystemNames Miles matrix — kind→name map only.
+        // Skip muzzle (WeaponFire already) and impact (WeaponHit already from DamageApplied).
+        for ev in &self.events {
+            let PresentationEvent::ParticleSystemSpawned {
+                kind,
+                position,
+                template_name,
+                ..
+            } = ev
+            else {
+                continue;
+            };
+            use crate::game_logic::combat_particles::CombatParticleKind;
+            let event_name = match kind {
+                CombatParticleKind::DeathExplosion => {
+                    // Prefer concrete template when it looks like an explosion FX name.
+                    let t = template_name.as_str();
+                    if t.is_empty() {
+                        "Explosion"
+                    } else if t.starts_with("FX_") || t.starts_with("WeaponFX_") {
+                        t
+                    } else {
+                        "Explosion"
+                    }
+                }
+                CombatParticleKind::DeathBurn => "FireBurn",
+                CombatParticleKind::DeathPoison => "PoisonDeath",
+                CombatParticleKind::DeathLaser => "LaserDeath",
+                CombatParticleKind::DeathSmoke => "DeathSmoke",
+                CombatParticleKind::WeaponMuzzleFlash
+                | CombatParticleKind::WeaponImpact
+                | CombatParticleKind::ProjectileExhaust => continue,
+            };
+            let mut req = AudioEventRequest::new(event_name).with_priority(160);
+            if position.length_squared() > 0.01 {
+                req = req.with_position(*position);
+            }
+            out.push(req);
         }
 
         // Wave 529: radar/EVA presentation audio residual (no GameLogic dual-write).

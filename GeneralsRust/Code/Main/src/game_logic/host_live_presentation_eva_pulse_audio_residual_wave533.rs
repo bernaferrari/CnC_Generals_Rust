@@ -114,17 +114,20 @@ pub fn honesty_presentation_eva_pulse_audio_source_markers_residual_wave533() ->
     let pf = pf_source();
     let gl = gl_source();
     let log = log_source();
+    // Accept single-line or rustfmt multiline `record_event( ... EvaEvent::X ... )`.
+    let has_event = |name: &str| -> bool {
+        gl.contains("host_eva_log::record_event") && gl.contains(&format!("EvaEvent::{name}"))
+    };
     let ok = pf.contains("Wave 533")
         && pf.contains("PresentationEvent::EvaAlert")
         && pf.contains("host_eva_log::take_last_drain")
         && pf.contains("EvaAlert { name }")
-        // Wave 534: typed EvaEvent record_event covers Wave 533 pulse set.
-        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::LowPower)")
-        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::InsufficientFunds)")
-        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::BaseUnderAttack)")
-        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::AllyUnderAttack)")
-        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::BuildingLost)")
-        && gl.contains("host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost)")
+        && has_event("LowPower")
+        && has_event("InsufficientFunds")
+        && has_event("BaseUnderAttack")
+        && has_event("AllyUnderAttack")
+        && has_event("BuildingLost")
+        && has_event("UnitLost")
         && log.contains("pub fn record")
         && log.contains("pub fn record_event")
         && log.contains("pub fn take_last_drain")
