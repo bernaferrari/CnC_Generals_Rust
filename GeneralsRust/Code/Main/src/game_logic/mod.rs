@@ -380,6 +380,7 @@ pub mod host_live_host_game_client_shell_tick_helper_residual_wave586;
 pub mod host_live_host_gameworld_shadow_session_helper_residual_wave597;
 pub mod host_live_host_ingame_hud_helper_residual_wave598;
 pub mod host_live_host_ingame_logic_shell_helper_residual_wave602;
+pub mod host_live_host_loading_sfx_helper_residual_wave604;
 pub mod host_live_host_match_outcome_helper_residual_wave599;
 pub mod host_live_host_minimap_bounds_repair_helper_residual_wave594;
 pub mod host_live_host_pause_team_helper_residual_wave575;
@@ -2611,6 +2612,14 @@ pub use host_live_host_ingame_logic_shell_helper_residual_wave602::{
     residual_host_ingame_logic_shell_helper_last_action,
     residual_host_ingame_logic_shell_helper_ok,
     simulate_live_host_ingame_logic_shell_helper_honesty,
+};
+pub use host_live_host_loading_sfx_helper_residual_wave604::{
+    honesty_host_loading_sfx_helper_method_names_residual_wave604,
+    honesty_host_loading_sfx_helper_nav_commands_residual_wave604,
+    honesty_host_loading_sfx_helper_residual_pack_wave604,
+    honesty_host_loading_sfx_helper_source_markers_residual_wave604,
+    residual_host_loading_sfx_helper_last_action, residual_host_loading_sfx_helper_ok,
+    simulate_live_host_loading_sfx_helper_honesty,
 };
 pub use host_live_host_match_outcome_helper_residual_wave599::{
     honesty_host_match_outcome_helper_method_names_residual_wave599,
