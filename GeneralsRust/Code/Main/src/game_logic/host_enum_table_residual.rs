@@ -635,6 +635,15 @@ pub fn reloading_a_model_bit() -> u32 {
 pub fn turret_rotate_model_bit() -> u32 {
     model_condition_bit_name_index("TURRET_ROTATE").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_JAMMED residual bit index.
+pub fn jammed_model_bit() -> u32 {
+    model_condition_bit_name_index("JAMMED").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_DYING residual bit index.
+pub fn dying_model_bit() -> u32 {
+    model_condition_bit_name_index("DYING").unwrap_or(0) as u32
+}
 
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32

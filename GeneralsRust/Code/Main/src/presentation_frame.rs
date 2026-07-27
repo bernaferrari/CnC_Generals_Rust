@@ -647,6 +647,14 @@ pub struct UnitRenderInput {
     pub continuous_fire_level: u8,
     /// Wave 512: prone residual.
     pub prone: bool,
+    /// Wave 513: weapons jammed residual.
+    pub jammed: bool,
+    /// Wave 513: destroyed/dying residual.
+    pub destroyed: bool,
+    /// Wave 513: continuous-fire coast-until frame for reload residual.
+    pub continuous_fire_coast_until_frame: u32,
+    /// Wave 513: presentation logic frame for coast comparison.
+    pub logic_frame: u32,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -714,6 +722,10 @@ impl UnitRenderInput {
             death_type_name: ro.death_type_name.clone(),
             continuous_fire_level: ro.continuous_fire_level,
             prone: ro.prone,
+            jammed: ro.weapons_jammed,
+            destroyed: ro.destroyed,
+            continuous_fire_coast_until_frame: ro.continuous_fire_coast_until_frame,
+            logic_frame: 0,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -769,6 +781,7 @@ impl UnitRenderInput {
     /// Wave 510: stamp CAPTURED / LOADED / POWER_PLANT_UPGRADED residual bits.
     /// Wave 511: stamp BURNED / AFLAME / SPECIAL_CHEERING / CARRYING residual bits.
     /// Wave 512: stamp CONTINUOUS_FIRE_* / PRONE / PREATTACK_A / TURRET_ROTATE residual bits.
+    /// Wave 513: stamp JAMMED / DYING / RELOADING_A / PACKING / UNPACKING residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -1081,6 +1094,47 @@ impl UnitRenderInput {
                 bits |= 1u128 << tur_b;
             } else {
                 bits &= !(1u128 << tur_b);
+            }
+        }
+        // Wave 513: jammed / dying / reloading / packing-unpack deploy residual bits.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                dying_model_bit, jammed_model_bit, packing_model_bit, reloading_a_model_bit,
+                unpacking_model_bit,
+            };
+            let jam_b = jammed_model_bit();
+            if self.jammed {
+                bits |= 1u128 << jam_b;
+            } else {
+                bits &= !(1u128 << jam_b);
+            }
+            let die_b = dying_model_bit();
+            if self.destroyed {
+                bits |= 1u128 << die_b;
+            } else {
+                bits &= !(1u128 << die_b);
+            }
+            let reload_b = reloading_a_model_bit();
+            if !self.is_firing_weapon
+                && self.continuous_fire_coast_until_frame > self.logic_frame
+                && self.continuous_fire_coast_until_frame > 0
+            {
+                bits |= 1u128 << reload_b;
+            } else {
+                bits &= !(1u128 << reload_b);
+            }
+            // Deploy-style residual: DEPLOYED already stamped; packing/unpacking
+            // door-adjacent residual when structure door is mid-cycle and not deployed.
+            let pack_b = packing_model_bit();
+            let unpack_b = unpacking_model_bit();
+            bits &= !(1u128 << pack_b);
+            bits &= !(1u128 << unpack_b);
+            if !self.is_deployed {
+                match self.production_door_phase {
+                    1 | 2 => bits |= 1u128 << unpack_b, // opening / wait open ~ unpacking
+                    3 | 4 => bits |= 1u128 << pack_b,   // wait close / closing ~ packing
+                    _ => {}
+                }
             }
         }
         bits
@@ -4160,6 +4214,8 @@ impl PresentationFrame {
                 // Wave 509: world weather/tod mesh bits from frozen presentation env.
                 input.world_is_snow = self.world_env.is_snow;
                 input.world_is_night = self.world_env.is_night;
+                // Wave 513: logic frame for coast/reload residual compare.
+                input.logic_frame = self.frame.0;
                 if o.effectively_stealthed && o.team == local_team {
                     input.fow_visibility.visibility_alpha = input
                         .fow_visibility
@@ -8689,6 +8745,10 @@ mod tests {
             death_type_name: String::new(),
             continuous_fire_level: 0,
             prone: false,
+            jammed: false,
+            destroyed: false,
+            continuous_fire_coast_until_frame: 0,
+            logic_frame: 0,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
