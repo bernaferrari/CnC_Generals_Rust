@@ -121,7 +121,9 @@ pub fn honesty_host_template_spawn_helper_method_names_residual_wave581() -> boo
 
 pub fn honesty_host_template_spawn_helper_source_markers_residual_wave581() -> bool {
     let eng = eng_source();
-    let Some(live) = fn_body(eng, "fn presentation_or_live_has_template(") else {
+    let Some(live) = fn_body(eng, "fn host_presentation_or_live_has_template(")
+        .or_else(|| fn_body(eng, "fn presentation_or_live_has_template("))
+    else {
         residual_action_store(ResidualHostTemplateSpawnHelperAction::SourceMarkers);
         return false;
     };

@@ -114,10 +114,17 @@ pub fn honesty_ui_helpers_presentation_only_source() -> bool {
 /// Source residual: ui_selected_ids prefers presentation before host player list.
 pub fn honesty_ui_selected_prefers_presentation_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
+    // Wave 610: logic lives in host helper; thin wrapper delegates.
     let Some(body) = eng_helper_body(
         eng,
-        "fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId>",
-    ) else {
+        "fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId>",
+    )
+    .or_else(|| {
+        eng_helper_body(
+            eng,
+            "fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId>",
+        )
+    }) else {
         return false;
     };
     let pres = body.find("last_presentation_frame");
