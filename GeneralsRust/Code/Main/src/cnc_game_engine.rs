@@ -13062,16 +13062,28 @@ impl CnCGameEngine {
 
             // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
             // Wave 455: seed presentation env then apply presentation-only hints.
-            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+            Self::ensure_presentation_env_for_hints(
+                &mut self.render_pipeline,
+                &self.game_logic,
+                self.gameworld_shadow.as_ref(),
+            );
             Self::apply_heightmap_hint(&mut self.render_pipeline);
             Self::apply_skybox_hint(&mut self.render_pipeline);
-            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+            Self::ensure_presentation_env_for_hints(
+                &mut self.render_pipeline,
+                &self.game_logic,
+                self.gameworld_shadow.as_ref(),
+            );
             Self::sync_render_terrain_visual(
                 &mut self.render_pipeline,
                 &self.graphics_system,
                 active_map_name.as_str(),
             );
-            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+            Self::ensure_presentation_env_for_hints(
+                &mut self.render_pipeline,
+                &self.game_logic,
+                self.gameworld_shadow.as_ref(),
+            );
             if let Err(err) = Self::reinitialize_minimap_renderer(
                 &mut self.render_pipeline,
                 &self.graphics_system,
@@ -13081,7 +13093,11 @@ impl CnCGameEngine {
                     "Failed to reinitialize minimap renderer: {err}. Continuing without minimap."
                 );
             }
-            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+            Self::ensure_presentation_env_for_hints(
+                &mut self.render_pipeline,
+                &self.game_logic,
+                self.gameworld_shadow.as_ref(),
+            );
             Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
             let startup_camera_defaults = Self::configured_startup_camera_defaults();
             // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
@@ -18381,12 +18397,14 @@ impl CnCGameEngine {
                     Self::ensure_presentation_env_for_hints(
                         &mut self.render_pipeline,
                         &self.game_logic,
+                        self.gameworld_shadow.as_ref(),
                     );
                     Self::apply_heightmap_hint(&mut self.render_pipeline);
                     Self::apply_skybox_hint(&mut self.render_pipeline);
                     Self::ensure_presentation_env_for_hints(
                         &mut self.render_pipeline,
                         &self.game_logic,
+                        self.gameworld_shadow.as_ref(),
                     );
                     Self::sync_render_terrain_visual(
                         &mut self.render_pipeline,
@@ -18396,6 +18414,7 @@ impl CnCGameEngine {
                     Self::ensure_presentation_env_for_hints(
                         &mut self.render_pipeline,
                         &self.game_logic,
+                        self.gameworld_shadow.as_ref(),
                     );
                     if let Err(err) = Self::reinitialize_minimap_renderer(
                         &mut self.render_pipeline,
@@ -18410,6 +18429,7 @@ impl CnCGameEngine {
                     Self::ensure_presentation_env_for_hints(
                         &mut self.render_pipeline,
                         &self.game_logic,
+                        self.gameworld_shadow.as_ref(),
                     );
                     Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
                 }
@@ -18522,16 +18542,28 @@ impl CnCGameEngine {
         // Update minimap/world bounds and camera to the new map.
         // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
         // Wave 455: seed presentation env then apply presentation-only hints.
-        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+        Self::ensure_presentation_env_for_hints(
+            &mut self.render_pipeline,
+            &self.game_logic,
+            self.gameworld_shadow.as_ref(),
+        );
         Self::apply_heightmap_hint(&mut self.render_pipeline);
         Self::apply_skybox_hint(&mut self.render_pipeline);
-        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+        Self::ensure_presentation_env_for_hints(
+            &mut self.render_pipeline,
+            &self.game_logic,
+            self.gameworld_shadow.as_ref(),
+        );
         Self::sync_render_terrain_visual(
             &mut self.render_pipeline,
             &self.graphics_system,
             map_name.as_str(),
         );
-        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+        Self::ensure_presentation_env_for_hints(
+            &mut self.render_pipeline,
+            &self.game_logic,
+            self.gameworld_shadow.as_ref(),
+        );
         if let Err(err) = Self::reinitialize_minimap_renderer(
             &mut self.render_pipeline,
             &self.graphics_system,
@@ -18541,7 +18573,11 @@ impl CnCGameEngine {
         }
 
         // Apply map lighting if provided by map settings.
-        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+        Self::ensure_presentation_env_for_hints(
+            &mut self.render_pipeline,
+            &self.game_logic,
+            self.gameworld_shadow.as_ref(),
+        );
         Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
 
         let startup_camera_defaults = Self::configured_startup_camera_defaults();
@@ -18768,14 +18804,16 @@ impl CnCGameEngine {
     fn ensure_presentation_env_for_hints(
         render_pipeline: &mut RenderPipeline,
         game_logic: &GameLogic,
+        // Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists.
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     ) {
-        // Wave 455: freeze host map env into PresentationFrame once, then env apply
-        // is presentation-only (no live GameLogic dual-read in apply_*_hint).
+        // Wave 455/466: freeze host map env into PresentationFrame once (with optional
+        // GameWorld overlay), then env apply is presentation-only.
         if render_pipeline.presentation_frame().is_none() {
             let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
                 game_logic,
                 game_logic.get_frame() as u32,
-                None,
+                shadow,
             );
             render_pipeline.set_presentation_frame(Some(env_frame));
         }

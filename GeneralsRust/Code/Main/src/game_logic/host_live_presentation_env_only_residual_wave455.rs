@@ -107,9 +107,8 @@ pub fn honesty_presentation_env_only_source() -> bool {
         && hm_body.contains("world_env.heightmap_hint")
         && sky_body.contains("presentation_frame()")
         && sky_body.contains("world_env.skybox_enabled")
-        && g.contains(
-            "ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic)",
-        )
+        && g.contains("self.gameworld_shadow.as_ref()")
+        && g.contains("fn ensure_presentation_env_for_hints")
 }
 
 /// Live residual: source honesty pack latches.
