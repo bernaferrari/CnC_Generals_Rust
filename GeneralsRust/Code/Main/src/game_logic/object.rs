@@ -6070,6 +6070,41 @@ impl Object {
     }
 
     /// Advance production door residual; returns true when cycle fully closed.
+    /// Wave 627: apply production-door model bits after GW phase writeback.
+    ///
+    /// Does not advance phase schedules (GameWorld is last-writer for phase/end).
+    /// Sets door-1 model condition bits for the authoritative phase.
+    pub(crate) fn apply_production_door_phase_residual(&mut self, phase: u8) -> bool {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit,
+        };
+        let open_b = door_1_opening_model_bit();
+        let wait_b = door_1_waiting_open_model_bit();
+        let wait_close_b = door_1_waiting_to_close_model_bit();
+        let close_b = door_1_closing_model_bit();
+        // Clear all door-1 bits then set the phase residual.
+        self.model_condition_bits &= !(1u128 << open_b);
+        self.model_condition_bits &= !(1u128 << wait_b);
+        self.model_condition_bits &= !(1u128 << wait_close_b);
+        self.model_condition_bits &= !(1u128 << close_b);
+        match phase {
+            1 => self.model_condition_bits |= 1u128 << open_b,
+            2 => self.model_condition_bits |= 1u128 << wait_b,
+            3 => self.model_condition_bits |= 1u128 << wait_close_b,
+            4 => self.model_condition_bits |= 1u128 << close_b,
+            _ => {}
+        }
+        self.production_door_phase = phase;
+        if phase == 0 {
+            self.production_door_phase_end_frame = 0;
+        }
+        self.record_host_production_door();
+        self.refresh_model_condition_bits();
+        self.record_host_model_condition();
+        true
+    }
+
     pub fn tick_production_door(&mut self, now: u32) -> bool {
         if self.production_door_phase == 0 {
             return false;
