@@ -26094,6 +26094,54 @@ impl GameLogic {
     /// the model bit and counts residual.
     /// Wave 627: GameWorld production-door writeback records phase changes;
     /// host applies door model-condition residual for the new phase.
+    /// Wave 628: GameWorld contain writeback records membership changes;
+    /// host applies garrison AI residual + enter/exit honesty counters.
+    pub fn host_apply_contain_ready_completions(&mut self) -> usize {
+        // Wave 628: GameWorld contain writeback records membership changes;
+        // host applies garrison AI residual + enter/exit honesty counters.
+        let events = crate::game_logic::host_contain_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.object) else {
+                continue;
+            };
+            // Passenger residual: entered a container.
+            if ev.previous_contained_by == 0 && ev.new_contained_by != 0 {
+                obj.set_ai_state(AIState::Garrisoned);
+                obj.set_status_moving(false);
+                obj.stop_moving();
+                self.record_garrison_residual_enter();
+                n = n.saturating_add(1);
+                continue;
+            }
+            // Passenger residual: left a container.
+            if ev.previous_contained_by != 0 && ev.new_contained_by == 0 {
+                if matches!(obj.ai_state, AIState::Garrisoned | AIState::Entering) {
+                    obj.set_ai_state(AIState::Idle);
+                }
+                self.record_garrison_residual_exit();
+                n = n.saturating_add(1);
+                continue;
+            }
+            // Container residual: garrison count rose/fell (honesty only).
+            if ev.garrison_list_changed {
+                if ev.new_garrison_count > ev.previous_garrison_count {
+                    let delta = ev.new_garrison_count - ev.previous_garrison_count;
+                    for _ in 0..delta {
+                        self.record_garrison_residual_enter();
+                    }
+                } else if ev.new_garrison_count < ev.previous_garrison_count {
+                    let delta = ev.previous_garrison_count - ev.new_garrison_count;
+                    for _ in 0..delta {
+                        self.record_garrison_residual_exit();
+                    }
+                }
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
     pub fn host_apply_production_door_ready_completions(&mut self) -> usize {
         // Wave 627: GameWorld production-door writeback records phase changes;
         // host applies door model-condition residual for the new phase.
