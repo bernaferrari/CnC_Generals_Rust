@@ -66405,6 +66405,18 @@ impl GameLogic {
                 producer_id,
                 template_name.clone(),
             );
+            // Wave 485: last cancelled item clears factory exit-delay residual.
+            if let Some(producer) = self.objects.get_mut(&producer_id) {
+                if let Some(building) = producer.building_data.as_mut() {
+                    if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
+                        building.exit_delay_remaining = 0.0;
+                        crate::game_logic::host_production_progress_log::record_exit_delay_only(
+                            producer_id,
+                            0.0,
+                        );
+                    }
+                }
+            }
             return true;
         }
 
@@ -66423,6 +66435,7 @@ impl GameLogic {
         let mut refund = Resources::default();
         let mut cancelled_any = false;
         let mut cancelled_names: Vec<String> = Vec::new();
+        let mut cleared_exit_delay = false;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 for item in building.production_queue.drain(..) {
@@ -66430,6 +66443,11 @@ impl GameLogic {
                     refund.power += item.cost.power;
                     cancelled_names.push(item.template_name);
                     cancelled_any = true;
+                }
+                // Wave 485: empty queue clears QueueProductionExitUpdate residual.
+                if cancelled_any && building.exit_delay_remaining > 0.0 {
+                    building.exit_delay_remaining = 0.0;
+                    cleared_exit_delay = true;
                 }
             }
         }
@@ -66452,6 +66470,13 @@ impl GameLogic {
                 for name in cancelled_names {
                     crate::game_logic::host_production_log::record_cancel(producer_id, name);
                 }
+            }
+            // Wave 485: publish exit-delay clear so GW sole-tick does not hold a ghost timer.
+            if cleared_exit_delay {
+                crate::game_logic::host_production_progress_log::record_exit_delay_only(
+                    producer_id,
+                    0.0,
+                );
             }
         }
 
