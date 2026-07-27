@@ -644,6 +644,10 @@ pub fn jammed_model_bit() -> u32 {
 pub fn dying_model_bit() -> u32 {
     model_condition_bit_name_index("DYING").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_RAISING_FLAG residual bit index.
+pub fn raising_flag_model_bit() -> u32 {
+    model_condition_bit_name_index("RAISING_FLAG").unwrap_or(0) as u32
+}
 
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
