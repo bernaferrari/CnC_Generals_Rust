@@ -358,6 +358,7 @@ pub mod host_live_hijacker_update_dual_world_empty_gate_residual_wave288;
 pub mod host_live_hive_structure_body_dual_world_empty_gate_residual_wave389;
 pub mod host_live_horde_update_dual_world_empty_gate_residual_wave378;
 pub mod host_live_host_beacon_presentation_residual_wave211;
+pub mod host_live_host_status_map_presentation_fail_closed_residual_wave546;
 pub mod host_live_hotkey_move_attack_selection_presentation_only_residual_wave221;
 pub mod host_live_hotkey_selection_camera_presentation_only_residual_wave226;
 pub mod host_live_ingame_ui_dual_world_empty_gate_residual_wave273;
@@ -2368,6 +2369,15 @@ pub use host_live_entity_presentation_structure_ui_residual_wave490::{
     ENTITY_PRESENTATION_STRUCTURE_UI_NAV_STEPS_WAVE490,
     ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
     RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
+};
+pub use host_live_host_status_map_presentation_fail_closed_residual_wave546::{
+    honesty_host_status_map_presentation_fail_closed_method_names_residual_wave546,
+    honesty_host_status_map_presentation_fail_closed_nav_commands_residual_wave546,
+    honesty_host_status_map_presentation_fail_closed_residual_pack_wave546,
+    honesty_host_status_map_presentation_fail_closed_source_markers_residual_wave546,
+    residual_host_status_map_presentation_fail_closed_last_action,
+    residual_host_status_map_presentation_fail_closed_ok,
+    simulate_live_host_status_map_presentation_fail_closed_honesty,
 };
 pub use host_live_presentation_air_parachute_residual_wave505::{
     honesty_presentation_air_parachute_method_names_residual_wave505,

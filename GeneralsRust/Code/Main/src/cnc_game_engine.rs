@@ -2100,21 +2100,24 @@ impl CnCGameEngine {
             (false, String::new())
         };
 
-        // Prefer presentation world_env map residual when installed.
-        let map_name = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.world_env.map_name.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                // Menu/loading residual only.
-                let map_name = self.game_logic.get_current_map_name().trim();
-                if map_name.is_empty() {
-                    "-".to_string()
-                } else {
-                    map_name.to_string()
-                }
-            });
+        // Wave 546: presentation freeze owns host status map residual when installed
+        // (even if empty — no host dual-read mid-frame). Boot residual only without freeze.
+        let map_name = if let Some(pres) = self.last_presentation_frame.as_ref() {
+            let m = pres.world_env.map_name.trim();
+            if m.is_empty() {
+                "-".to_string()
+            } else {
+                m.to_string()
+            }
+        } else {
+            // Menu/loading residual only.
+            let map_name = self.game_logic.get_current_map_name().trim();
+            if map_name.is_empty() {
+                "-".to_string()
+            } else {
+                map_name.to_string()
+            }
+        };
 
         let ui_screen = self
             .runtime_host_ui_screen_override
