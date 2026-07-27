@@ -16634,21 +16634,22 @@ impl CnCGameEngine {
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
+        // Wave 536/537: EvaAlert first (full matrix). Classic counter path runs after and
+        // only fills gaps when no matching alert advanced last_* this frame (no double chat).
+        self.apply_presentation_eva_alerts(pres);
         self.sync_eva_messages_from_host_counts(
             pres.eva_low_power_count,
             pres.eva_insufficient_funds_count,
             pres.eva_base_under_attack_count,
             pres.eva_ally_under_attack_count,
         );
-        // Wave 536: full-matrix EvaAlert pulses → HUD/chat + client Eva speech residual.
-        // Fail-closed: counters still drive the classic 4 lines above (dedupe via last_*).
-        self.apply_presentation_eva_alerts(pres);
     }
 
-    /// Wave 536: map presentation `EvaAlert` names onto chat/HUD and GameClient Eva.
+    /// Wave 536/537: map presentation `EvaAlert` names onto chat/HUD and GameClient Eva.
     ///
-    /// Names arrive as `EVA_{Variant}` from `host_eva_log::eva_event_audio_name`.
-    /// Client `EvaMessage::from_name` expects C++ table tokens (`LOWPOWER`, …).
+    /// Names arrive as `EVA_` + C++ `TheEvaMessageNames` token from `host_eva_log`.
+    /// Client `EvaMessage::from_name` expects table tokens (`LOWPOWER`, …).
+    /// Classic-four tokens also advance `last_eva_*` so counter residual does not re-push.
     fn apply_presentation_eva_alerts(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
@@ -16661,6 +16662,31 @@ impl CnCGameEngine {
             if name.is_empty() {
                 continue;
             }
+            let token = Self::eva_alert_client_token(name);
+            // Wave 537: absorb classic counter deltas covered by this alert pulse.
+            match token.as_str() {
+                "LOWPOWER" => {
+                    self.last_eva_low_power_count =
+                        self.last_eva_low_power_count.max(pres.eva_low_power_count);
+                }
+                "INSUFFICIENTFUNDS" => {
+                    self.last_eva_insufficient_funds_count = self
+                        .last_eva_insufficient_funds_count
+                        .max(pres.eva_insufficient_funds_count);
+                }
+                "BASEUNDERATTACK" => {
+                    self.last_eva_base_under_attack_count = self
+                        .last_eva_base_under_attack_count
+                        .max(pres.eva_base_under_attack_count);
+                }
+                "ALLYUNDERATTACK" => {
+                    self.last_eva_ally_under_attack_count = self
+                        .last_eva_ally_under_attack_count
+                        .max(pres.eva_ally_under_attack_count);
+                }
+                _ => {}
+            }
+
             let human = Self::eva_alert_human_message(name);
             self.chat_panel.add_eva_message(&human);
             self.game_hud.push_info_message(&human);
@@ -16668,7 +16694,6 @@ impl CnCGameEngine {
 
             #[cfg(feature = "game_client")]
             {
-                let token = Self::eva_alert_client_token(name);
                 let _ = game_client::eva::simulate_eva_set_should_play_by_name(&token);
             }
         }
