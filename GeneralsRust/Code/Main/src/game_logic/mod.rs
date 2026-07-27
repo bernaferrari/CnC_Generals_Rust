@@ -421,6 +421,7 @@ pub mod host_live_power_plant_upgrade_dual_world_empty_gate_residual_wave437;
 pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
+pub mod host_live_presentation_construction_disguise_residual_wave503;
 pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
 pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
@@ -2315,6 +2316,22 @@ pub use host_live_entity_presentation_structure_ui_residual_wave490::{
     ENTITY_PRESENTATION_STRUCTURE_UI_NAV_STEPS_WAVE490,
     ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
     RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
+};
+pub use host_live_presentation_construction_disguise_residual_wave503::{
+    honesty_presentation_construction_disguise_method_names_residual_wave503,
+    honesty_presentation_construction_disguise_nav_commands_residual_wave503,
+    honesty_presentation_construction_disguise_residual_pack_wave503,
+    honesty_presentation_construction_disguise_source_markers_residual_wave503,
+    residual_presentation_construction_disguise_last_action,
+    residual_presentation_construction_disguise_ok,
+    simulate_live_presentation_construction_disguise_honesty,
+    simulate_presentation_construction_disguise_mesh_source,
+    simulate_presentation_construction_disguise_stamp_source,
+    ResidualPresentationConstructionDisguiseAction,
+    PRESENTATION_CONSTRUCTION_DISGUISE_METHOD_NAMES_WAVE503,
+    PRESENTATION_CONSTRUCTION_DISGUISE_NAV_STEPS_WAVE503,
+    PRESENTATION_CONSTRUCTION_DISGUISE_SOURCE_MARKERS_WAVE503,
+    RUNTIME_HOST_PRESENTATION_CONSTRUCTION_DISGUISE_CMD_NAMES_WAVE503,
 };
 pub use host_live_presentation_host_fx_overlay_residual_wave498::{
     honesty_presentation_host_fx_overlay_method_names_residual_wave498,

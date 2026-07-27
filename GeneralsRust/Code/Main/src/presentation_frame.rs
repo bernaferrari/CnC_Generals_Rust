@@ -593,6 +593,14 @@ pub struct UnitRenderInput {
     pub radar_extend_complete: bool,
     /// Wave 502: C++ effectively stealthed residual (stealthed && !detected && !disguised).
     pub effectively_stealthed: bool,
+    /// Wave 503: structure under construction residual.
+    pub under_construction: bool,
+    /// Wave 503: construction progress 0..1 residual.
+    pub construction_percent: f32,
+    /// Wave 503: disguised residual (mesh/template swap for non-allied viewers).
+    pub disguised: bool,
+    /// Wave 503: disguise template name for mesh key swap.
+    pub disguise_as_template: Option<String>,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -638,6 +646,10 @@ impl UnitRenderInput {
             radar_active: ro.radar_active,
             radar_extend_complete: ro.radar_extend_complete,
             effectively_stealthed: ro.effectively_stealthed,
+            under_construction: ro.under_construction,
+            construction_percent: ro.construction_percent,
+            disguised: ro.disguised,
+            disguise_as_template: ro.disguise_as_template.clone(),
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -683,6 +695,7 @@ impl UnitRenderInput {
     /// Wave 495: ensure combat motion flags are present in model-condition bits.
     /// Wave 496: also stamp production-door phase bits for structure mesh residual.
     /// Wave 501: stamp deployed + radar dish model-condition residual bits.
+    /// Wave 503: stamp construction scaffold model-condition residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -736,6 +749,32 @@ impl UnitRenderInput {
         } else {
             bits &= !(1u128 << radar_up_b);
             bits &= !(1u128 << radar_ext_b);
+        }
+        // Wave 503: construction scaffold model-condition residual.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                actively_being_constructed_model_bit, awaiting_construction_model_bit,
+                construction_complete_model_bit, partially_constructed_model_bit,
+            };
+            let await_b = awaiting_construction_model_bit();
+            let part_b = partially_constructed_model_bit();
+            let active_b = actively_being_constructed_model_bit();
+            let complete_b = construction_complete_model_bit();
+            bits &= !(1u128 << await_b);
+            bits &= !(1u128 << part_b);
+            bits &= !(1u128 << active_b);
+            if self.under_construction {
+                bits &= !(1u128 << complete_b);
+                let p = self.construction_percent;
+                if p <= 0.01 {
+                    bits |= 1u128 << await_b;
+                } else if p < 1.0 {
+                    bits |= 1u128 << part_b;
+                    bits |= 1u128 << active_b;
+                } else {
+                    bits |= 1u128 << complete_b;
+                }
+            }
         }
         bits
     }
@@ -2589,9 +2628,8 @@ impl PresentationFrame {
                 template_name: obj.template_name.clone(),
                 team: obj.team,
                 team_color: {
-                    // C++: enemies see disguise player color; allies see true colors.
-                    // Host residual: when DISGUISED, present disguise team color.
-                    if obj.status.disguised {
+                    // Wave 503: C++ enemies see disguise player color; allies see true colors.
+                    if obj.status.disguised && obj.team != local_team {
                         if let Some(dt) = obj.disguise_as_team {
                             dt.get_color()
                         } else {
@@ -3795,6 +3833,18 @@ impl PresentationFrame {
                         .fow_visibility
                         .visibility_alpha
                         .min(ALLY_STEALTH_ALPHA);
+                }
+                // Wave 503: non-allied viewers see disguise mesh residual.
+                if o.disguised && o.team != local_team {
+                    if let Some(ref dt) = o.disguise_as_template {
+                        if !dt.is_empty() {
+                            input.model_key =
+                                crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                                    Some(dt.as_str()),
+                                    dt,
+                                );
+                        }
+                    }
                 }
                 input
             })
@@ -8280,6 +8330,10 @@ mod tests {
             radar_active: false,
             radar_extend_complete: false,
             effectively_stealthed: false,
+            under_construction: false,
+            construction_percent: 0.0,
+            disguised: false,
+            disguise_as_template: None,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
