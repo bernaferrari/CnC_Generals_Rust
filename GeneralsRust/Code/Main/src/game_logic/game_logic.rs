@@ -7040,6 +7040,13 @@ impl GameLogic {
                 prod.start_production_door_cycle(self.frame);
                 self.production_door_cycles = self.production_door_cycles.saturating_add(1);
             }
+            // Wave 483: refresh GW producer queue after host pop (sole-tick skips
+            // per-frame progress log; Complete path snapshots host queue).
+            crate::game_logic::host_production_log::record_complete(
+                producer_id,
+                upgrade_name.clone(),
+                ObjectId(0),
+            );
             // Unlock via player queue drain + host apply path.
             let player_id = self.players.values().find(|p| p.team == team).map(|p| p.id);
             if let Some(pid) = player_id {
@@ -24403,6 +24410,8 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
+        self.cancel_all_production(id);
         // C++ SpecialPowerCompletionDie::onDie residual.
         self.maybe_notify_special_power_completion(id);
         // C++ DamDie::onDie residual fires with other die modules at death start.
@@ -84735,12 +84744,7 @@ mod tests {
         );
 
         game_logic.mark_object_for_destruction(barracks_id, Some(Team::GLA));
-        game_logic.update();
-
-        assert!(
-            game_logic.find_object(barracks_id).is_none(),
-            "destroyed producer should be removed"
-        );
+        // C++ cancelAndRefund fires at death start (before topple/collapse deferral).
         assert_eq!(
             game_logic
                 .get_player(0)
@@ -84756,6 +84760,19 @@ mod tests {
                 .effective_supplies(),
             100_000,
             "killer should not receive the destroyed producer's queue refund"
+        );
+        // StructureTopple/Collapse may defer remove across frames.
+        let mut removed = false;
+        for _ in 0..600 {
+            game_logic.update();
+            if game_logic.find_object(barracks_id).is_none() {
+                removed = true;
+                break;
+            }
+        }
+        assert!(
+            removed,
+            "destroyed producer should be removed after topple/collapse residual"
         );
     }
 

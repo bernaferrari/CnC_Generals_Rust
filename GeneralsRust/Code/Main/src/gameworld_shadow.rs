@@ -3031,6 +3031,11 @@ impl GameWorldShadow {
                     producer,
                 } => {
                     enqueue_producers.insert(producer.0);
+                    // Wave 483: upgrade complete uses spawned id 0 (queue refresh only).
+                    if spawned.0 == 0 {
+                        n += 1;
+                        continue;
+                    }
                     if self.host_to_entity.contains_key(&spawned.0) {
                         n += 1;
                         continue;
