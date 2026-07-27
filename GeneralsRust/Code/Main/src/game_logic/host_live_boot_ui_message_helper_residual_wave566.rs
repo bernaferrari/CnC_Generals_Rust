@@ -24,6 +24,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_BOOT_UI_MESSAGE_HELPER_METHOD_NAMES_WAVE566: &[&str] = &[
     "notify_boot_ui_message",
+    "host_notify_boot_ui_message",
     "notify_presentation_ui_message",
     "play_ui_sound",
     "queue_radar_message",
@@ -120,7 +121,9 @@ pub fn honesty_boot_ui_message_helper_method_names_residual_wave566() -> bool {
 
 pub fn honesty_boot_ui_message_helper_source_markers_residual_wave566() -> bool {
     let eng = eng_source();
-    let Some(boot) = fn_body(eng, "fn notify_boot_ui_message(") else {
+    let Some(boot) = fn_body(eng, "fn host_notify_boot_ui_message(")
+        .or_else(|| fn_body(eng, "fn notify_boot_ui_message("))
+    else {
         residual_action_store(ResidualBootUiMessageHelperAction::SourceMarkers);
         return false;
     };
@@ -128,7 +131,8 @@ pub fn honesty_boot_ui_message_helper_source_markers_residual_wave566() -> bool 
         residual_action_store(ResidualBootUiMessageHelperAction::SourceMarkers);
         return false;
     };
-    let boot_ok = boot.contains("Wave 566")
+    let boot_ok = (boot.contains("Wave 566") || boot.contains("Wave 603"))
+        && eng.contains("self.host_notify_boot_ui_message(message, team)")
         && boot.contains("queue_radar_message_for_team")
         && boot.contains("queue_radar_message")
         && boot.contains("play_ui_sound(\"GUIMessageReceived\")");

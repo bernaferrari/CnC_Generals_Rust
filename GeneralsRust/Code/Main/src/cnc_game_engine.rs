@@ -15460,14 +15460,8 @@ impl CnCGameEngine {
                 return;
             }
             GameState::Paused => {
-                // In paused: update UI and camera, but not game logic
-                // (matches C++ where TheGameLogic->isGamePaused() prevents update)
-                self.update_camera(visual_dt);
-                self.cleanup_sound_effects();
-                self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
-                if let Err(err) = self.ui_manager.update(dt) {
-                    warn!("UI manager update failed in paused state: {}", err);
-                }
+                // Wave 603: paused client residual via host helper.
+                self.host_tick_paused_client_residuals(visual_dt, dt);
                 return;
             }
             GameState::InGame => {
@@ -15478,13 +15472,8 @@ impl CnCGameEngine {
                 return;
             }
             GameState::Victory | GameState::Defeat => {
-                // End-of-match screen: keep UI alive, game logic frozen.
-                // C++ shows the score screen then transitions to Menu on user input.
-                self.update_camera(visual_dt);
-                self.cleanup_sound_effects();
-                if let Err(err) = self.ui_manager.update(dt) {
-                    warn!("UI manager update failed in endgame state: {}", err);
-                }
+                // Wave 603: endgame client residual via host helper.
+                self.host_tick_endgame_client_residuals(visual_dt, dt);
                 return;
             }
             GameState::Initializing => {
@@ -15941,10 +15930,21 @@ impl CnCGameEngine {
         >(|audio| audio.queue_event(req));
     }
 
-    /// Wave 566: boot residual radar + GUIMessageReceived via host GameLogic.
+    /// Wave 566/603: boot residual radar + GUIMessageReceived via host GameLogic.
     /// Presentation freeze must use `notify_presentation_ui_message` instead
     /// (no mid-frame GameLogic dual-write).
     fn notify_boot_ui_message(&mut self, message: &str, team: Option<crate::game_logic::Team>) {
+        // Wave 603: thin wrapper.
+        self.host_notify_boot_ui_message(message, team);
+    }
+
+    /// Wave 603: host boot UI message residual (radar queue + GUIMessageReceived).
+    fn host_notify_boot_ui_message(
+        &mut self,
+        message: &str,
+        team: Option<crate::game_logic::Team>,
+    ) {
+        // Wave 603: host boot UI message residual.
         // Wave 566: boot residual only — host radar queue + UI SFX.
         if let Some(team) = team {
             self.game_logic
@@ -17726,6 +17726,31 @@ impl CnCGameEngine {
     fn restart_mission_from_ui(&mut self) {
         // Wave 601: thin wrapper — restart via host helper.
         self.host_restart_mission_from_ui();
+    }
+
+    /// Wave 603: paused-state client residual (camera/audio/UI; no logic tick).
+    fn host_tick_paused_client_residuals(&mut self, visual_dt: f32, dt: f32) {
+        // Wave 603: paused client residual.
+        // In paused: update UI and camera, but not game logic
+        // (matches C++ where TheGameLogic->isGamePaused() prevents update)
+        self.update_camera(visual_dt);
+        self.cleanup_sound_effects();
+        self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
+        if let Err(err) = self.ui_manager.update(dt) {
+            warn!("UI manager update failed in paused state: {}", err);
+        }
+    }
+
+    /// Wave 603: endgame client residual (Victory/Defeat score screen).
+    fn host_tick_endgame_client_residuals(&mut self, visual_dt: f32, dt: f32) {
+        // Wave 603: endgame client residual.
+        // End-of-match screen: keep UI alive, game logic frozen.
+        // C++ shows the score screen then transitions to Menu on user input.
+        self.update_camera(visual_dt);
+        self.cleanup_sound_effects();
+        if let Err(err) = self.ui_manager.update(dt) {
+            warn!("UI manager update failed in endgame state: {}", err);
+        }
     }
 
     /// Wave 602: InGame logic frame residual (host tick → dual-tick policy → shadow →

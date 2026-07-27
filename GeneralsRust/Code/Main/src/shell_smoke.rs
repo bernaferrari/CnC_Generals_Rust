@@ -2406,6 +2406,11 @@ use crate::game_logic::host_live_host_ingame_logic_shell_helper_residual_wave602
     honesty_host_ingame_logic_shell_helper_nav_commands_residual_wave602,
     simulate_live_host_ingame_logic_shell_helper_honesty,
 };
+use crate::game_logic::host_live_host_paused_endgame_boot_ui_helper_residual_wave603::{
+    honesty_host_paused_endgame_boot_ui_helper_method_names_residual_wave603,
+    honesty_host_paused_endgame_boot_ui_helper_nav_commands_residual_wave603,
+    simulate_live_host_paused_endgame_boot_ui_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5930,6 +5935,9 @@ pub struct ShellSmokeResult {
     pub host_ingame_logic_shell_helper_method_names_wave602_ok: bool,
     pub host_ingame_logic_shell_helper_nav_commands_wave602_ok: bool,
     pub host_ingame_logic_shell_helper_live_wave602_ok: bool,
+    pub host_paused_endgame_boot_ui_helper_method_names_wave603_ok: bool,
+    pub host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok: bool,
+    pub host_paused_endgame_boot_ui_helper_live_wave603_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9285,6 +9293,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_ingame_logic_shell_helper_nav_commands_residual_wave602();
     let host_ingame_logic_shell_helper_live_wave602_ok =
         simulate_live_host_ingame_logic_shell_helper_honesty();
+    let host_paused_endgame_boot_ui_helper_method_names_wave603_ok =
+        honesty_host_paused_endgame_boot_ui_helper_method_names_residual_wave603();
+    let host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok =
+        honesty_host_paused_endgame_boot_ui_helper_nav_commands_residual_wave603();
+    let host_paused_endgame_boot_ui_helper_live_wave603_ok =
+        simulate_live_host_paused_endgame_boot_ui_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11080,6 +11094,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_ingame_logic_shell_helper_method_names_wave602_ok,
         host_ingame_logic_shell_helper_nav_commands_wave602_ok,
         host_ingame_logic_shell_helper_live_wave602_ok,
+        host_paused_endgame_boot_ui_helper_method_names_wave603_ok,
+        host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok,
+        host_paused_endgame_boot_ui_helper_live_wave603_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -20380,6 +20397,21 @@ mod tests {
         assert!(
             r.host_ingame_logic_shell_helper_live_wave602_ok,
             "host ingame logic shell helper live residual wave602: {}",
+            r.detail
+        );
+        assert!(
+            r.host_paused_endgame_boot_ui_helper_method_names_wave603_ok,
+            "host paused endgame boot ui helper method names residual pack wave603: {}",
+            r.detail
+        );
+        assert!(
+            r.host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok,
+            "host paused endgame boot ui helper nav commands residual pack wave603: {}",
+            r.detail
+        );
+        assert!(
+            r.host_paused_endgame_boot_ui_helper_live_wave603_ok,
+            "host paused endgame boot ui helper live residual wave603: {}",
             r.detail
         );
         assert!(
