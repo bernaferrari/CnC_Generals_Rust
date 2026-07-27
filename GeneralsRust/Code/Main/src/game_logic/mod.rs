@@ -134,6 +134,7 @@ pub mod host_veterancy_ready_log;
 pub mod host_vision_camo_log;
 pub mod host_weapon_bonus_log;
 pub mod host_weapon_set_log;
+pub mod host_weapon_set_ready_log;
 pub mod host_weapon_slot_log;
 pub mod host_weapon_stats_log;
 pub mod host_weapon_stats_ready_log;
@@ -463,6 +464,7 @@ pub mod host_live_host_ui_selection_startup_helper_residual_wave610;
 pub mod host_live_host_ui_shell_world_helper_residual_wave585;
 pub mod host_live_host_upgrade_ready_log_helper_residual_wave624;
 pub mod host_live_host_veterancy_ready_log_helper_residual_wave622;
+pub mod host_live_host_weapon_set_ready_log_helper_residual_wave642;
 pub mod host_live_host_weapon_stats_ready_log_helper_residual_wave635;
 pub mod host_live_hotkey_move_attack_selection_presentation_only_residual_wave221;
 pub mod host_live_hotkey_selection_camera_presentation_only_residual_wave226;
@@ -3167,6 +3169,15 @@ pub use host_live_host_veterancy_ready_log_helper_residual_wave622::{
     residual_host_veterancy_ready_log_helper_last_action,
     residual_host_veterancy_ready_log_helper_ok,
     simulate_live_host_veterancy_ready_log_helper_honesty,
+};
+pub use host_live_host_weapon_set_ready_log_helper_residual_wave642::{
+    honesty_host_weapon_set_ready_log_helper_method_names_residual_wave642,
+    honesty_host_weapon_set_ready_log_helper_nav_commands_residual_wave642,
+    honesty_host_weapon_set_ready_log_helper_residual_pack_wave642,
+    honesty_host_weapon_set_ready_log_helper_source_markers_residual_wave642,
+    residual_host_weapon_set_ready_log_helper_last_action,
+    residual_host_weapon_set_ready_log_helper_ok,
+    simulate_live_host_weapon_set_ready_log_helper_honesty,
 };
 pub use host_live_host_weapon_stats_ready_log_helper_residual_wave635::{
     honesty_host_weapon_stats_ready_log_helper_method_names_residual_wave635,

@@ -26123,6 +26123,23 @@ impl GameLogic {
     /// applies presentation bookkeeping residual via record_host_fire_intent.
     /// Wave 641: GameWorld stored-supplies writeback records changes; host
     /// applies gatherer presentation residual (HUD / supply counter consumers).
+    /// Wave 642: GameWorld weapon-set writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_weapon_set.
+    pub fn host_apply_weapon_set_ready_completions(&mut self) -> usize {
+        // Wave 642: GameWorld weapon-set writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_weapon_set.
+        let events = crate::game_logic::host_weapon_set_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_weapon_set();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_stored_supplies_ready_completions(&mut self) -> usize {
         // Wave 641: GameWorld stored-supplies writeback records changes; host
         // applies gatherer presentation residual (HUD / supply counter consumers).
