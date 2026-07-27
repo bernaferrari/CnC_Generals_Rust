@@ -4406,19 +4406,20 @@ impl PresentationFrame {
                     target: ev.target,
                 });
             }
-
-            for ev in crate::game_logic::host_fire_sound_loop_log::take_last_drain() {
-                if ev.start {
-                    events.push(PresentationEvent::WeaponFireLoopStarted {
-                        unit: ev.unit,
-                        sound: ev.sound,
-                    });
-                } else {
-                    events.push(PresentationEvent::WeaponFireLoopStopped {
-                        unit: ev.unit,
-                        sound: ev.sound,
-                    });
-                }
+        }
+        // Wave 532: FireSound loop drain is a sibling of attack_log (not nested).
+        // Nested drain only ran when attack_log was non-empty and could drop loops.
+        for ev in crate::game_logic::host_fire_sound_loop_log::take_last_drain() {
+            if ev.start {
+                events.push(PresentationEvent::WeaponFireLoopStarted {
+                    unit: ev.unit,
+                    sound: ev.sound,
+                });
+            } else {
+                events.push(PresentationEvent::WeaponFireLoopStopped {
+                    unit: ev.unit,
+                    sound: ev.sound,
+                });
             }
         }
         for ev in crate::game_logic::host_move_log::take_last_drain() {
