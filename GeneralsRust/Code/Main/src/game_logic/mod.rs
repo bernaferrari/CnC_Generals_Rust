@@ -371,6 +371,7 @@ pub mod host_live_legacy_object_registry_fastpath_residual_wave248;
 pub mod host_live_lifetime_update_dual_world_empty_gate_residual_wave412;
 pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_locomotor_core_dual_world_empty_gate_residual_wave423;
+pub mod host_live_logic_frame_presentation_helper_residual_wave560;
 pub mod host_live_map_difficulty_presentation_helper_residual_wave554;
 pub mod host_live_map_ground_no_registry_pose_dual_write_residual_wave475;
 pub mod host_live_map_lighting_presentation_only_residual_wave456;
@@ -2417,6 +2418,15 @@ pub use host_live_host_status_selected_presentation_fail_closed_residual_wave547
     residual_host_status_selected_presentation_fail_closed_last_action,
     residual_host_status_selected_presentation_fail_closed_ok,
     simulate_live_host_status_selected_presentation_fail_closed_honesty,
+};
+pub use host_live_logic_frame_presentation_helper_residual_wave560::{
+    honesty_logic_frame_presentation_helper_method_names_residual_wave560,
+    honesty_logic_frame_presentation_helper_nav_commands_residual_wave560,
+    honesty_logic_frame_presentation_helper_residual_pack_wave560,
+    honesty_logic_frame_presentation_helper_source_markers_residual_wave560,
+    residual_logic_frame_presentation_helper_last_action,
+    residual_logic_frame_presentation_helper_ok,
+    simulate_live_logic_frame_presentation_helper_honesty,
 };
 pub use host_live_map_difficulty_presentation_helper_residual_wave554::{
     honesty_map_difficulty_presentation_helper_method_names_residual_wave554,
