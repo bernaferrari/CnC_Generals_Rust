@@ -15376,19 +15376,8 @@ impl CnCGameEngine {
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
                     // catch-up loops to block the UI thread.
                     self.game_logic.update_shell_with_budget(dt, 1);
-                    // Prefer presentation script FPS residual when shell frame installed.
-                    if let Some(fps) = self
-                        .last_presentation_frame
-                        .as_ref()
-                        .filter(|p| p.fow_shell_bypass)
-                        .and_then(|p| p.script_fps_limit)
-                    {
-                        self.apply_script_fps_limit_request(fps);
-                        let _ = self.game_logic.take_script_fps_limit_request();
-                    } else if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
-                        // Boot/live residual when no shell presentation freeze.
-                        self.apply_script_fps_limit_request(fps);
-                    }
+                    // Wave 568: shell/menu script FPS residual via helper.
+                    self.apply_shell_script_fps_limit_residual();
                 }
                 let shell_elapsed = shell_update_started.elapsed();
 
@@ -15722,15 +15711,8 @@ impl CnCGameEngine {
             }
             self.last_presentation_frame = Some(pres);
 
-            // Prefer presentation script FPS residual; drain live queue after apply.
-            if let Some(fps) = self
-                .last_presentation_frame
-                .as_ref()
-                .and_then(|p| p.script_fps_limit)
-            {
-                self.apply_script_fps_limit_request(fps);
-            }
-            let _ = self.game_logic.take_script_fps_limit_request();
+            // Wave 568: InGame script FPS residual via helper.
+            self.apply_ingame_script_fps_limit_residual();
 
             #[cfg(feature = "game_client")]
             {
@@ -19367,6 +19349,39 @@ impl CnCGameEngine {
         self.camera_yaw_elapsed = 0.0;
         self.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
         self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
+    }
+
+    /// Wave 568: InGame script FPS residual — prefer presentation freeze, always drain
+    /// live queue after apply (peeked freeze must not re-apply next frame).
+    fn apply_ingame_script_fps_limit_residual(&mut self) {
+        // Wave 568: presentation freeze owns script FPS residual when present.
+        if let Some(fps) = self
+            .last_presentation_frame
+            .as_ref()
+            .and_then(|p| p.script_fps_limit)
+        {
+            self.apply_script_fps_limit_request(fps);
+        }
+        // Drain live queue (boot residual discarded when freeze installed).
+        let _ = self.game_logic.take_script_fps_limit_request();
+    }
+
+    /// Wave 568: shell/menu script FPS residual — only trust freeze when it affirms
+    /// shell-map (`fow_shell_bypass`); otherwise boot take_script_fps_limit_request.
+    fn apply_shell_script_fps_limit_residual(&mut self) {
+        // Wave 568: shell freeze must affirm fow_shell_bypass.
+        if let Some(fps) = self
+            .last_presentation_frame
+            .as_ref()
+            .filter(|p| p.fow_shell_bypass)
+            .and_then(|p| p.script_fps_limit)
+        {
+            self.apply_script_fps_limit_request(fps);
+            let _ = self.game_logic.take_script_fps_limit_request();
+        } else if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
+            // Boot/live residual when no shell presentation freeze.
+            self.apply_script_fps_limit_request(fps);
+        }
     }
 
     fn apply_script_fps_limit_request(&mut self, fps: i32) {

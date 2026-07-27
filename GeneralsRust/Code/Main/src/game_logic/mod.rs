@@ -536,6 +536,7 @@ pub mod host_live_script_conditions_dual_world_empty_gate_residual_wave271;
 pub mod host_live_script_engine_dual_world_empty_gate_residual_wave348;
 pub mod host_live_script_evaluator_dual_world_empty_gate_residual_wave343;
 pub mod host_live_script_executor_dual_world_empty_gate_residual_wave284;
+pub mod host_live_script_fps_helper_residual_wave568;
 pub mod host_live_selection_commands_presentation_only_residual_wave218;
 pub mod host_live_selection_dual_world_empty_gate_residual_wave278;
 pub mod host_live_selection_query_probe_residual_wave245;
@@ -2700,6 +2701,14 @@ pub use host_live_science_team_presentation_helper_residual_wave555::{
     residual_science_team_presentation_helper_last_action,
     residual_science_team_presentation_helper_ok,
     simulate_live_science_team_presentation_helper_honesty,
+};
+pub use host_live_script_fps_helper_residual_wave568::{
+    honesty_script_fps_helper_method_names_residual_wave568,
+    honesty_script_fps_helper_nav_commands_residual_wave568,
+    honesty_script_fps_helper_residual_pack_wave568,
+    honesty_script_fps_helper_source_markers_residual_wave568,
+    residual_script_fps_helper_last_action, residual_script_fps_helper_ok,
+    simulate_live_script_fps_helper_honesty,
 };
 pub use host_live_shell_bypass_presentation_helper_residual_wave552::{
     honesty_shell_bypass_presentation_helper_method_names_residual_wave552,
