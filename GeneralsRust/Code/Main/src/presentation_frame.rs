@@ -2436,11 +2436,18 @@ impl PresentationFrame {
                 };
                 state as u8
             };
+            // Wave 491: sold model-condition forces rubble/dying mesh branch.
+            let sold_for_mesh = obj.status.sold
+                || crate::game_logic::host_enum_table_residual::host_model_condition_has(
+                    obj.model_condition_bits,
+                    crate::game_logic::host_enum_table_residual::sold_model_bit(),
+                );
             let model_key = Some(
-                crate::assets::mesh_asset_resolve::model_key_with_body_damage(
+                crate::assets::mesh_asset_resolve::model_key_with_presentation_state(
                     &base_model_key,
                     body_ord,
                     destroyed_for_mesh,
+                    sold_for_mesh,
                 ),
             );
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
@@ -6174,7 +6181,27 @@ impl PresentationFrame {
             can_produce: ent.is_building && !ent.under_construction,
             // Wave 490: building type from GW entity ordinal.
             building_type: PresentationBuildingType::from_ordinal(ent.building_type_ordinal),
-            model_key: Some(ent.template.name.clone()),
+            // Wave 491: body damage + sold → mesh key (not bare template name).
+            model_key: {
+                let base = crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                    Some(ent.template.name.as_str()),
+                    &ent.template.name,
+                );
+                let dying = ent.destroyed || ent.health <= 0.0;
+                let sold = ent.sold
+                    || crate::game_logic::host_enum_table_residual::host_model_condition_has(
+                        ent.model_condition_bits,
+                        crate::game_logic::host_enum_table_residual::sold_model_bit(),
+                    );
+                Some(
+                    crate::assets::mesh_asset_resolve::model_key_with_presentation_state(
+                        &base,
+                        ent.body_damage_state,
+                        dying,
+                        sold,
+                    ),
+                )
+            },
             mesh_scale: 1.0,
             selection_radius: if ent.selection_radius > 0.0 {
                 ent.selection_radius

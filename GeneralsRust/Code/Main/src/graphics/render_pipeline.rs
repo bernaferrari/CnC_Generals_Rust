@@ -1372,10 +1372,22 @@ impl RenderPipeline {
             }
             let object_id = u.id;
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
-            let model_name_owned = u.model_key.clone();
+            // Wave 491: mesh pass honors sold model-condition residual from presentation.
+            let sold_for_mesh =
+                crate::game_logic::host_enum_table_residual::host_model_condition_has(
+                    u.model_condition_bits,
+                    crate::game_logic::host_enum_table_residual::sold_model_bit(),
+                );
+            let model_name_owned =
+                crate::assets::mesh_asset_resolve::model_key_with_presentation_state(
+                    &u.model_key,
+                    0,
+                    false,
+                    sold_for_mesh,
+                );
             let template_name_owned = u.template_name.clone();
             let selection_radius = u.selection_radius;
-            let model_hint_owned = Some(u.model_key.clone());
+            let model_hint_owned = Some(model_name_owned.clone());
             let snapshot_fow = Some(u.fow_visibility);
             let selection_flash_intensity = u.selection_flash_intensity();
             let team_color = u.team_color;
