@@ -412,6 +412,7 @@ pub mod host_live_pathfind_dual_world_empty_gate_residual_wave426;
 pub mod host_live_pathfind_midframe_stub_removed_residual_wave469;
 pub mod host_live_physics_update_dual_world_empty_gate_residual_wave316;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
+pub mod host_live_play_time_local_player_presentation_helper_residual_wave553;
 pub mod host_live_player_dual_world_empty_gate_residual_wave268;
 pub mod host_live_player_field_probe_residual_wave240;
 pub mod host_live_player_probe_api_residual_wave238;
@@ -2402,6 +2403,15 @@ pub use host_live_host_status_selected_presentation_fail_closed_residual_wave547
     residual_host_status_selected_presentation_fail_closed_last_action,
     residual_host_status_selected_presentation_fail_closed_ok,
     simulate_live_host_status_selected_presentation_fail_closed_honesty,
+};
+pub use host_live_play_time_local_player_presentation_helper_residual_wave553::{
+    honesty_play_time_local_player_presentation_helper_method_names_residual_wave553,
+    honesty_play_time_local_player_presentation_helper_nav_commands_residual_wave553,
+    honesty_play_time_local_player_presentation_helper_residual_pack_wave553,
+    honesty_play_time_local_player_presentation_helper_source_markers_residual_wave553,
+    residual_play_time_local_player_presentation_helper_last_action,
+    residual_play_time_local_player_presentation_helper_ok,
+    simulate_live_play_time_local_player_presentation_helper_honesty,
 };
 pub use host_live_presentation_air_parachute_residual_wave505::{
     honesty_presentation_air_parachute_method_names_residual_wave505,
