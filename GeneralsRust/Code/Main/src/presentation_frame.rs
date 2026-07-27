@@ -3435,6 +3435,10 @@ pub struct PresentationFrame {
     /// Wave 561: host fixed-step catch-up residual (`steps_run`) frozen at snapshot
     /// for runtime status without live dual-read mid-frame.
     pub logic_steps_run: u32,
+    /// Wave 563: host ThingTemplate name keys frozen for train/UI residual
+    /// contains checks without dual-reading live `GameLogic::templates` mid-frame.
+    /// Sorted; capped. Fail-closed: not full template body freeze / playable_claim.
+    pub known_template_names: Vec<String>,
     /// Compact local-player cell-grid FOW for terrain overlay / minimap texture.
     /// Frozen at build so GPU upload does not re-query shroud mid-render.
     /// Fail-closed: not full SAGE dirty-rect / multi-layer shroud streaming.
@@ -4693,6 +4697,13 @@ impl PresentationFrame {
             in_replay_game: logic.isInReplayGame(),
             // Wave 561: freeze fixed-step catch-up residual.
             logic_steps_run: logic.fixed_step_diagnostics().steps_run as u32,
+            // Wave 563: freeze template name keys for presentation-owned contains residual.
+            known_template_names: {
+                let mut names: Vec<String> = logic.templates.keys().cloned().collect();
+                names.sort();
+                names.truncate(512);
+                names
+            },
             fow_grid,
             particle_systems,
             laser_beams,
@@ -4756,6 +4767,10 @@ impl PresentationFrame {
         self.fow_shell_bypass.hash(&mut h);
         self.in_replay_game.hash(&mut h);
         self.logic_steps_run.hash(&mut h);
+        self.known_template_names.len().hash(&mut h);
+        for n in &self.known_template_names {
+            n.hash(&mut h);
+        }
         self.fow_grid.content_fingerprint().hash(&mut h);
         self.local_player_id.hash(&mut h);
         match self.local_team {
@@ -5592,6 +5607,15 @@ impl PresentationFrame {
     /// Frozen team base pose for camera snap proximity (None if unknown).
     pub fn local_team_base_or_hint(&self, fallback: Vec3) -> Vec3 {
         self.local_team_base_position.unwrap_or(fallback)
+    }
+
+    /// Wave 563: presentation-owned template name residual (train/UI contains).
+    #[inline]
+    pub fn has_template_name(&self, name: &str) -> bool {
+        // Binary search on sorted freeze; fail-closed on miss (no live dual-read).
+        self.known_template_names
+            .binary_search_by(|n| n.as_str().cmp(name))
+            .is_ok()
     }
 
     /// Look up frozen player roster entry by id.
@@ -12630,6 +12654,10 @@ mod tests {
         assert_eq!(
             snap.logic_steps_run,
             logic.fixed_step_diagnostics().steps_run as u32
+        );
+        assert!(
+            snap.known_template_names.windows(2).all(|w| w[0] <= w[1]),
+            "known_template_names must be sorted"
         );
 
         let inputs = snap.unit_render_inputs();
