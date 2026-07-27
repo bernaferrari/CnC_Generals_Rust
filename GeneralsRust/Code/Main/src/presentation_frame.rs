@@ -65,6 +65,24 @@ impl PresentationProductionItem {
             progress_ratio: ratio,
         }
     }
+
+    /// Wave 489: GameWorld entity production queue → presentation strip.
+    #[inline]
+    pub fn from_entity_item(item: &gamelogic::world::entities::EntityProductionItem) -> Self {
+        let ratio = if item.total_time <= 0.0 {
+            1.0
+        } else {
+            (item.progress / item.total_time).clamp(0.0, 1.0)
+        };
+        Self {
+            template_name: item.template_name.clone(),
+            progress: item.progress,
+            total_time: item.total_time,
+            cost_supplies: item.cost_supplies,
+            is_upgrade: item.is_upgrade,
+            progress_ratio: ratio,
+        }
+    }
 }
 
 /// Snapshot-owned veterancy rank (host Experience residual).
@@ -5843,21 +5861,38 @@ impl PresentationFrame {
             orientation: ent.transform.orientation,
             topple_lean_radians: 0.0,
             move_destination,
-            target_location: None,
-            guard_target: None,
-            using_ability: false,
-            airborne_target: false,
+            // Wave 489: order/path/production presentation from GW entity.
+            target_location: ent
+                .target_location
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2])),
+            guard_target: if ent.guard_target_host != 0 {
+                Some(crate::game_logic::ObjectId(ent.guard_target_host))
+            } else {
+                None
+            },
+            using_ability: ent.using_ability,
+            airborne_target: ent.airborne_target,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
             ai_state_ordinal: 0,
             attack_target,
-            path_waypoints: Vec::new(),
-            path_len: 0,
-            path_index: 0,
+            path_waypoints: ent
+                .path_waypoints
+                .iter()
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
+                .collect(),
+            path_len: ent.path_len,
+            path_index: ent.path_index,
             occupant_count: 0,
-            production_queue: Vec::new(),
-            rally_point: None,
-            guard_position: None,
+            production_queue: ent
+                .production_queue_items
+                .iter()
+                .map(PresentationProductionItem::from_entity_item)
+                .collect(),
+            rally_point: ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2])),
+            guard_position: ent
+                .guard_position
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2])),
             garrisoned_units: Vec::new(),
             max_garrison: 0,
             power_provided: ent.power_provided,
@@ -5867,7 +5902,7 @@ impl PresentationFrame {
             health_max,
             selected: ent.selected,
             is_deployed: ent.deployed,
-            selection_flash_remaining: 0,
+            selection_flash_remaining: ent.selection_flash_remaining,
             destroyed: ent.destroyed || ent.health <= 0.0,
             // Wave 488: carry GW entity presentation channels (not hard-zero).
             model_condition_bits: ent.model_condition_bits,
@@ -5900,30 +5935,49 @@ impl PresentationFrame {
             masked: false,
             ignoring_stealth: false,
             repulsor: false,
-            stealthed: false,
-            detected: false,
-            effectively_stealthed: false,
-            disabled: false,
-            contained_by: None,
-            force_attack: false,
-            has_weapon: false,
-            weapon_range: 0.0,
-            weapon_damage: 0.0,
-            weapon_min_range: 0.0,
-            weapon_reload_time: 0.0,
-            weapon_ammo: 0,
-            ammo_pip_total: 0,
-            ammo_pip_full: 0,
-            weapon_ready_percent: 0,
-            weapon_can_target_air: false,
-            weapon_can_target_ground: false,
-            weapon_projectile_speed: 0.0,
-            armed_riders_upgrade_weapon_set: false,
-            weapon_set_player_upgrade: false,
-            camo_stealth_look: 0,
+            // Wave 489: stealth/weapon presentation from GW entity.
+            stealthed: ent.stealthed,
+            detected: ent.detected,
+            effectively_stealthed: ent.stealthed && !ent.detected,
+            disabled: ent.disabled_emp
+                || ent.disabled_paralyzed
+                || ent.disabled_hacked
+                || ent.disabled_underpowered
+                || ent.disabled_unmanned
+                || ent.disabled_subdued,
+            contained_by: if ent.contained_by_host != 0 {
+                Some(crate::game_logic::ObjectId(ent.contained_by_host))
+            } else {
+                None
+            },
+            force_attack: ent.force_attack,
+            has_weapon: ent.has_weapon,
+            weapon_range: ent.weapon_range,
+            weapon_damage: ent.weapon_damage,
+            weapon_min_range: ent.weapon_min_range,
+            weapon_reload_time: ent.weapon_reload_time,
+            weapon_ammo: ent.weapon_ammo,
+            ammo_pip_total: ent.weapon_clip_size,
+            ammo_pip_full: ent.weapon_ammo.min(ent.weapon_clip_size),
+            weapon_ready_percent: if ent.weapon_reload_time > 1e-6 {
+                ((((ent.weapon_reload_time - ent.weapon_last_fire_time.max(0.0))
+                    / ent.weapon_reload_time)
+                    .clamp(0.0, 1.0))
+                    * 100.0) as u32
+            } else if ent.has_weapon {
+                100
+            } else {
+                0
+            },
+            weapon_can_target_air: ent.weapon_can_target_air,
+            weapon_can_target_ground: ent.weapon_can_target_ground,
+            weapon_projectile_speed: ent.weapon_projectile_speed,
+            armed_riders_upgrade_weapon_set: ent.armed_riders_upgrade_weapon_set,
+            weapon_set_player_upgrade: ent.weapon_set_player_upgrade,
+            camo_stealth_look: ent.camo_stealth_look,
             disguise_as_template: None,
             disguise_as_team: None,
-            disguised: false,
+            disguised: ent.disguised,
             disabled_subdued: false,
             is_carbomb: false,
             hijacked: false,
@@ -5937,9 +5991,9 @@ impl PresentationFrame {
             continuous_fire_consecutive: 0,
             continuous_fire_coast_until_frame: 0,
             battle_plan_sight_scalar_applied: 1.0,
-            special_power_ready: false,
-            special_power_cooldown: 0.0,
-            special_power_cooldown_remaining: 0.0,
+            special_power_ready: ent.special_power_ready,
+            special_power_cooldown: ent.special_power_cooldown,
+            special_power_cooldown_remaining: ent.special_power_cooldown_remaining,
             object_type: match ent.object_type_ordinal {
                 0 => PresentationObjectType::Infantry,
                 1 => PresentationObjectType::Vehicle,
@@ -5950,17 +6004,17 @@ impl PresentationFrame {
                 _ => PresentationObjectType::Neutral,
             },
             applied_upgrades: Vec::new(),
-            has_secondary_weapon: false,
-            secondary_weapon_range: 0.0,
-            secondary_weapon_damage: 0.0,
+            has_secondary_weapon: ent.has_secondary_weapon,
+            secondary_weapon_range: ent.secondary_weapon_range,
+            secondary_weapon_damage: ent.secondary_weapon_damage,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,
             turret_idle_scanning: false,
-            weapon_bonus_enthusiastic: false,
-            weapon_bonus_subliminal: false,
-            weapon_bonus_horde: false,
-            weapon_bonus_nationalism: false,
-            weapon_bonus_frenzy: false,
+            weapon_bonus_enthusiastic: ent.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: ent.weapon_bonus_subliminal,
+            weapon_bonus_horde: ent.weapon_bonus_horde,
+            weapon_bonus_nationalism: ent.weapon_bonus_nationalism,
+            weapon_bonus_frenzy: ent.weapon_bonus_frenzy,
             weapon_bonus_frenzy_level: 0,
             weapon_bonus_battle_plan_bombardment: false,
             weapon_bonus_battle_plan_hold_the_line: false,
@@ -5994,9 +6048,9 @@ impl PresentationFrame {
             last_damage_source_host: 0,
             command_set_override: String::new(),
             command_set_name: String::new(),
-            is_detector: false,
-            active_weapon_slot: 0,
-            overcharge_enabled: false,
+            is_detector: ent.is_detector,
+            active_weapon_slot: ent.active_weapon_slot,
+            overcharge_enabled: ent.overcharge_enabled,
             show_health_bar: true,
             guard_radius: 0.0,
             has_mine: false,

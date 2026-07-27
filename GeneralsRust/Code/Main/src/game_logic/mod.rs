@@ -316,6 +316,7 @@ pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
 pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
 pub mod host_live_ensure_presentation_env_instance_residual_wave474;
+pub mod host_live_entity_presentation_combat_ui_residual_wave489;
 pub mod host_live_entity_presentation_model_condition_residual_wave488;
 pub mod host_live_evacuate_contain_log_residual_wave201;
 pub mod host_live_exit_strategies_dual_world_empty_gate_residual_wave312;
@@ -2225,6 +2226,20 @@ pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE478,
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
     RUNTIME_HOST_CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_CMD_NAMES_WAVE478,
+};
+pub use host_live_entity_presentation_combat_ui_residual_wave489::{
+    honesty_entity_presentation_combat_ui_method_names_residual_wave489,
+    honesty_entity_presentation_combat_ui_nav_commands_residual_wave489,
+    honesty_entity_presentation_combat_ui_residual_pack_wave489,
+    honesty_entity_presentation_combat_ui_source_markers_residual_wave489,
+    residual_entity_presentation_combat_ui_last_action, residual_entity_presentation_combat_ui_ok,
+    simulate_entity_presentation_combat_ui_entity_source,
+    simulate_entity_presentation_combat_ui_production_map,
+    simulate_live_entity_presentation_combat_ui_honesty, ResidualEntityPresentationCombatUiAction,
+    ENTITY_PRESENTATION_COMBAT_UI_METHOD_NAMES_WAVE489,
+    ENTITY_PRESENTATION_COMBAT_UI_NAV_STEPS_WAVE489,
+    ENTITY_PRESENTATION_COMBAT_UI_SOURCE_MARKERS_WAVE489,
+    RUNTIME_HOST_ENTITY_PRESENTATION_COMBAT_UI_CMD_NAMES_WAVE489,
 };
 pub use host_live_entity_presentation_model_condition_residual_wave488::{
     honesty_entity_presentation_model_condition_method_names_residual_wave488,
