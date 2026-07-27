@@ -2401,6 +2401,7 @@ impl GameWorldShadow {
 
     pub fn writeback_radar_extend_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut completed: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2408,6 +2409,7 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            let was_complete = obj.radar_extend_complete;
             let changed = obj.radar_extend_done_frame != ent.radar_extend_done_frame
                 || obj.radar_extend_complete != ent.radar_extend_complete
                 || obj.radar_active != ent.radar_active;
@@ -2417,7 +2419,15 @@ impl GameWorldShadow {
             obj.radar_extend_done_frame = ent.radar_extend_done_frame;
             obj.radar_extend_complete = ent.radar_extend_complete;
             obj.radar_active = ent.radar_active;
+            // Wave 625: GameWorld radar-extend complete residual —
+            // host applies upgraded model bits / complete counter from ready log.
+            if !was_complete && obj.radar_extend_complete {
+                completed.push(ObjectId(hid));
+            }
             updated += 1;
+        }
+        for oid in completed {
+            crate::game_logic::host_radar_extend_ready_log::record(oid);
         }
         updated
     }
@@ -7765,6 +7775,8 @@ pub fn shadow_session_after_host_tick(
     let _body_ready = logic.host_apply_body_damage_ready_completions();
     let _ = shadow.writeback_death_type_to_host(logic);
     let _ = shadow.writeback_radar_extend_to_host(logic);
+    // Wave 625: drain radar-extend ready log after GW writeback.
+    let _radar_ready = logic.host_apply_radar_extend_ready_completions();
     let _ = shadow.writeback_shock_stun_to_host(logic);
     let _ = shadow.writeback_rebuild_producer_to_host(logic);
     let _ = shadow.writeback_sole_healing_to_host(logic);
