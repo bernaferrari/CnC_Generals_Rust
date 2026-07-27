@@ -2051,6 +2051,11 @@ use crate::game_logic::host_live_command_integration_presentation_fill_residual_
     honesty_command_integration_presentation_fill_nav_commands_residual_wave531,
     simulate_live_command_integration_presentation_fill_honesty,
 };
+use crate::game_logic::host_live_presentation_firesound_drain_sibling_residual_wave532::{
+    honesty_presentation_firesound_drain_sibling_method_names_residual_wave532,
+    honesty_presentation_firesound_drain_sibling_nav_commands_residual_wave532,
+    simulate_live_presentation_firesound_drain_sibling_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5362,6 +5367,9 @@ pub struct ShellSmokeResult {
     pub command_integration_presentation_fill_method_names_wave531_ok: bool,
     pub command_integration_presentation_fill_nav_commands_wave531_ok: bool,
     pub command_integration_presentation_fill_live_wave531_ok: bool,
+    pub presentation_firesound_drain_sibling_method_names_wave532_ok: bool,
+    pub presentation_firesound_drain_sibling_nav_commands_wave532_ok: bool,
+    pub presentation_firesound_drain_sibling_live_wave532_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8305,6 +8313,13 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let command_integration_presentation_fill_live_wave531_ok =
         simulate_live_command_integration_presentation_fill_honesty();
 
+    let presentation_firesound_drain_sibling_method_names_wave532_ok =
+        honesty_presentation_firesound_drain_sibling_method_names_residual_wave532();
+    let presentation_firesound_drain_sibling_nav_commands_wave532_ok =
+        honesty_presentation_firesound_drain_sibling_nav_commands_residual_wave532();
+    let presentation_firesound_drain_sibling_live_wave532_ok =
+        simulate_live_presentation_firesound_drain_sibling_honesty();
+
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
         let infos = hud.selected_unit_infos();
@@ -9886,6 +9901,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         command_integration_presentation_fill_method_names_wave531_ok,
         command_integration_presentation_fill_nav_commands_wave531_ok,
         command_integration_presentation_fill_live_wave531_ok,
+        presentation_firesound_drain_sibling_method_names_wave532_ok,
+        presentation_firesound_drain_sibling_nav_commands_wave532_ok,
+        presentation_firesound_drain_sibling_live_wave532_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18121,6 +18139,21 @@ mod tests {
         assert!(
             r.command_integration_presentation_fill_live_wave531_ok,
             "command_integration presentation fill live residual wave531: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_firesound_drain_sibling_method_names_wave532_ok,
+            "presentation firesound drain sibling method names residual pack wave532: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_firesound_drain_sibling_nav_commands_wave532_ok,
+            "presentation firesound drain sibling nav commands residual pack wave532: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_firesound_drain_sibling_live_wave532_ok,
+            "presentation firesound drain sibling live residual wave532: {}",
             r.detail
         );
         assert!(
