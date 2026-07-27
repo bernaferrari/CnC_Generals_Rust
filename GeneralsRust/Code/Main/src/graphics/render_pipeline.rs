@@ -688,6 +688,7 @@ impl RenderPipeline {
     pub fn collect_unit_render_inputs_from_presentation(
         frame: &crate::presentation_frame::PresentationFrame,
     ) -> Vec<crate::presentation_frame::UnitRenderInput> {
+        // Wave 502: stealth filter/alpha applied inside unit_render_inputs (presentation-only).
         frame.unit_render_inputs()
     }
 

@@ -591,6 +591,8 @@ pub struct UnitRenderInput {
     pub radar_active: bool,
     /// Wave 501: radar extend animation complete residual.
     pub radar_extend_complete: bool,
+    /// Wave 502: C++ effectively stealthed residual (stealthed && !detected && !disguised).
+    pub effectively_stealthed: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -635,6 +637,7 @@ impl UnitRenderInput {
             is_deployed: ro.is_deployed,
             radar_active: ro.radar_active,
             radar_extend_complete: ro.radar_extend_complete,
+            effectively_stealthed: ro.effectively_stealthed,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -3769,10 +3772,32 @@ impl PresentationFrame {
     /// Filters destroyed and engine-bridged objects (RenderBridge owns those).
     /// Includes local-player FOW alpha for skip/darkening without mid-render queries.
     pub fn unit_render_inputs(&self) -> Vec<UnitRenderInput> {
+        // Wave 502: stealth mesh residual from frozen presentation only.
+        // Enemy effectively-stealthed units are omitted from the main mesh pass
+        // (C++ auto-target / draw residual: not a legal observe target).
+        // Local-team stealthed units keep a translucent FOW alpha residual.
+        const ALLY_STEALTH_ALPHA: f32 = 0.35;
+        let local_team = self.local_team;
         self.objects
             .iter()
             .filter(|o| !o.destroyed && !o.engine_bridged)
-            .map(UnitRenderInput::from_renderable)
+            .filter(|o| {
+                if o.effectively_stealthed && o.team != local_team {
+                    false
+                } else {
+                    true
+                }
+            })
+            .map(|o| {
+                let mut input = UnitRenderInput::from_renderable(o);
+                if o.effectively_stealthed && o.team == local_team {
+                    input.fow_visibility.visibility_alpha = input
+                        .fow_visibility
+                        .visibility_alpha
+                        .min(ALLY_STEALTH_ALPHA);
+                }
+                input
+            })
             .collect()
     }
 
@@ -8254,6 +8279,7 @@ mod tests {
             is_deployed: false,
             radar_active: false,
             radar_extend_complete: false,
+            effectively_stealthed: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
