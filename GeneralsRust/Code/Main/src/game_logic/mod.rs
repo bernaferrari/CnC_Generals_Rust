@@ -428,6 +428,7 @@ pub mod host_live_railed_transport_ai_update_dual_world_empty_gate_residual_wave
 pub mod host_live_railed_transport_dock_dual_world_empty_gate_residual_wave361;
 pub mod host_live_railroad_guide_ai_dual_world_empty_gate_residual_wave357;
 pub mod host_live_rebuild_hole_dual_world_empty_gate_residual_wave331;
+pub mod host_live_render_ui_pipeline_presentation_residual_wave462;
 pub mod host_live_replace_object_upgrade_dual_world_empty_gate_residual_wave446;
 pub mod host_live_rider_change_contain_dual_world_empty_gate_residual_wave277;
 pub mod host_live_rmb_presentation_full_classify_residual_wave235;
@@ -3198,6 +3199,20 @@ pub use host_live_rebuild_hole_dual_world_empty_gate_residual_wave331::{
     honesty_live_rebuild_hole_dual_world_empty_gate_nav_commands_residual_wave331,
     honesty_live_rebuild_hole_dual_world_empty_gate_residual_pack_wave331,
     simulate_live_rebuild_hole_dual_world_empty_gate_honesty,
+};
+pub use host_live_render_ui_pipeline_presentation_residual_wave462::{
+    honesty_render_ui_pipeline_presentation_method_names_residual_wave462,
+    honesty_render_ui_pipeline_presentation_nav_commands_residual_wave462,
+    honesty_render_ui_pipeline_presentation_residual_pack_wave462,
+    residual_render_ui_pipeline_presentation_last_action,
+    residual_render_ui_pipeline_presentation_ok,
+    simulate_live_render_ui_pipeline_presentation_honesty,
+    simulate_render_script_clock_pipeline_presentation_source,
+    simulate_render_ui_pipeline_presentation_source, ResidualRenderUiPipelinePresentationAction,
+    RENDER_UI_PIPELINE_PRESENTATION_METHOD_NAMES_WAVE462,
+    RENDER_UI_PIPELINE_PRESENTATION_NAV_STEPS_WAVE462,
+    RENDER_UI_PIPELINE_PRESENTATION_SOURCE_MARKERS_WAVE462,
+    RUNTIME_HOST_RENDER_UI_PIPELINE_PRESENTATION_CMD_NAMES_WAVE462,
 };
 pub use host_live_replace_object_upgrade_dual_world_empty_gate_residual_wave446::{
     honesty_live_replace_object_upgrade_dual_world_empty_gate_method_names_residual_wave446,
