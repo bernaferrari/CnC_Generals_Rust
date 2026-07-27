@@ -430,6 +430,7 @@ pub mod host_live_presentation_gameworld_overlay_residual_wave187;
 pub mod host_live_presentation_host_fx_overlay_residual_wave498;
 pub mod host_live_presentation_mesh_combat_flags_residual_wave495;
 pub mod host_live_presentation_mesh_condition_resolve_residual_wave497;
+pub mod host_live_presentation_mesh_deploy_radar_residual_wave501;
 pub mod host_live_presentation_mesh_door_phase_residual_wave496;
 pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_mesh_turret_residual_wave494;
@@ -2358,6 +2359,21 @@ pub use host_live_presentation_mesh_condition_resolve_residual_wave497::{
     PRESENTATION_MESH_CONDITION_RESOLVE_NAV_STEPS_WAVE497,
     PRESENTATION_MESH_CONDITION_RESOLVE_SOURCE_MARKERS_WAVE497,
     RUNTIME_HOST_PRESENTATION_MESH_CONDITION_RESOLVE_CMD_NAMES_WAVE497,
+};
+pub use host_live_presentation_mesh_deploy_radar_residual_wave501::{
+    honesty_presentation_mesh_deploy_radar_method_names_residual_wave501,
+    honesty_presentation_mesh_deploy_radar_nav_commands_residual_wave501,
+    honesty_presentation_mesh_deploy_radar_residual_pack_wave501,
+    honesty_presentation_mesh_deploy_radar_source_markers_residual_wave501,
+    residual_presentation_mesh_deploy_radar_last_action,
+    residual_presentation_mesh_deploy_radar_ok,
+    simulate_live_presentation_mesh_deploy_radar_honesty,
+    simulate_presentation_mesh_deploy_radar_render_source,
+    simulate_presentation_mesh_deploy_radar_stamp_source,
+    ResidualPresentationMeshDeployRadarAction, PRESENTATION_MESH_DEPLOY_RADAR_METHOD_NAMES_WAVE501,
+    PRESENTATION_MESH_DEPLOY_RADAR_NAV_STEPS_WAVE501,
+    PRESENTATION_MESH_DEPLOY_RADAR_SOURCE_MARKERS_WAVE501,
+    RUNTIME_HOST_PRESENTATION_MESH_DEPLOY_RADAR_CMD_NAMES_WAVE501,
 };
 pub use host_live_presentation_mesh_door_phase_residual_wave496::{
     honesty_presentation_mesh_door_phase_method_names_residual_wave496,
