@@ -406,6 +406,14 @@ pub struct RenderableObject {
     pub armed_riders_upgrade_weapon_set: bool,
     /// Host weapon_set_player_upgrade residual.
     pub weapon_set_player_upgrade: bool,
+    /// Wave 518: C++ weapon_crate_upgrade residual (0/1/2).
+    pub weapon_crate_upgrade: u8,
+    /// Wave 518: C++ armor_crate_upgrade residual (0/1/2).
+    pub armor_crate_upgrade: u8,
+    /// Wave 518: C++ EnemyNearUpdate model_enemy_near residual.
+    pub enemy_near: bool,
+    /// Wave 518: C++ armed riders / ARMED model residual.
+    pub armed: bool,
     /// CamoNetting StealthLook ordinal residual (0..5).
     pub camo_stealth_look: u8,
     /// Bomb-truck disguise template residual.
@@ -613,6 +621,16 @@ pub struct UnitRenderInput {
     pub is_panicking: bool,
     /// Wave 517: moving_backwards residual.
     pub moving_backwards: bool,
+    /// Wave 518: weapon_set_player_upgrade residual.
+    pub weapon_set_player_upgrade: bool,
+    /// Wave 518: weapon crate upgrade level 0/1/2.
+    pub weapon_crate_upgrade: u8,
+    /// Wave 518: armor crate upgrade level 0/1/2.
+    pub armor_crate_upgrade: u8,
+    /// Wave 518: enemy-near model residual.
+    pub enemy_near: bool,
+    /// Wave 518: ARMED model residual.
+    pub armed: bool,
     /// Wave 497: body damage ordinal for mesh variant resolve (0..3).
     pub body_damage_state: u8,
     /// Wave 499: C++ TINT_STATUS_POISONED residual.
@@ -723,6 +741,11 @@ impl UnitRenderInput {
             weapon_fire_status: ro.weapon_fire_status,
             is_panicking: ro.is_panicking,
             moving_backwards: ro.moving_backwards,
+            weapon_set_player_upgrade: ro.weapon_set_player_upgrade,
+            weapon_crate_upgrade: ro.weapon_crate_upgrade,
+            armor_crate_upgrade: ro.armor_crate_upgrade,
+            enemy_near: ro.enemy_near,
+            armed: ro.armed,
             body_damage_state: ro.body_damage_state,
             poison_tinted: ro.poison_tinted,
             defector_flash: ro.defector_flash,
@@ -1040,6 +1063,45 @@ impl UnitRenderInput {
                 PresentationVeterancy::Heroic => bits |= 1u128 << hero_b,
             }
         }
+        // Wave 518: weaponset player/crate, armor crate, enemy-near, armed residual bits.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                armed_model_bit, armorset_crateupgrade_one_model_bit,
+                armorset_crateupgrade_two_model_bit, enemynear_model_bit,
+                weaponset_crateupgrade_one_model_bit, weaponset_crateupgrade_two_model_bit,
+                weaponset_player_upgrade_model_bit,
+            };
+            let wsp = weaponset_player_upgrade_model_bit();
+            let wc1 = weaponset_crateupgrade_one_model_bit();
+            let wc2 = weaponset_crateupgrade_two_model_bit();
+            let ac1 = armorset_crateupgrade_one_model_bit();
+            let ac2 = armorset_crateupgrade_two_model_bit();
+            let en_b = enemynear_model_bit();
+            let arm_b = armed_model_bit();
+            for b in [wsp, wc1, wc2, ac1, ac2, en_b, arm_b] {
+                bits &= !(1u128 << b);
+            }
+            if self.weapon_set_player_upgrade {
+                bits |= 1u128 << wsp;
+            }
+            match self.weapon_crate_upgrade {
+                1 => bits |= 1u128 << wc1,
+                2 => bits |= 1u128 << wc2,
+                _ => {}
+            }
+            match self.armor_crate_upgrade {
+                1 => bits |= 1u128 << ac1,
+                2 => bits |= 1u128 << ac2,
+                _ => {}
+            }
+            if self.enemy_near {
+                bits |= 1u128 << en_b;
+            }
+            if self.armed {
+                bits |= 1u128 << arm_b;
+            }
+        }
+
         // Wave 507: over-water + transport RIDER1..n residual bits.
         {
             use crate::game_logic::host_enum_table_residual::{
@@ -3381,6 +3443,16 @@ impl PresentationFrame {
                     .unwrap_or(0.0),
                 armed_riders_upgrade_weapon_set: obj.armed_riders_upgrade_weapon_set,
                 weapon_set_player_upgrade: obj.weapon_set_player_upgrade,
+                // Wave 518: crate upgrades + enemy-near + armed residual.
+                weapon_crate_upgrade: obj.weapon_crate_upgrade,
+                armor_crate_upgrade: obj.armor_crate_upgrade,
+                enemy_near: obj
+                    .enemy_near
+                    .as_ref()
+                    .map(|e| e.model_enemy_near || e.enemy_near)
+                    .unwrap_or(false),
+                armed: obj.armed_riders_upgrade_weapon_set
+                    || (obj.occupants.len() > 0 && obj.passengers_allowed_to_fire),
                 camo_stealth_look: obj.camo_stealth_look,
                 disguise_as_template: obj.disguise_as_template.clone(),
                 disguise_as_team: obj.disguise_as_team,
@@ -6066,6 +6138,22 @@ impl PresentationFrame {
                 obj.weapon_set_player_upgrade = ent.weapon_set_player_upgrade;
                 dirty = true;
             }
+            if obj.weapon_crate_upgrade != ent.weapon_crate_upgrade {
+                obj.weapon_crate_upgrade = ent.weapon_crate_upgrade;
+                dirty = true;
+            }
+            if obj.armor_crate_upgrade != ent.armor_crate_upgrade {
+                obj.armor_crate_upgrade = ent.armor_crate_upgrade;
+                dirty = true;
+            }
+            if obj.enemy_near != ent.enemy_near {
+                obj.enemy_near = ent.enemy_near;
+                dirty = true;
+            }
+            if obj.armed != ent.armed {
+                obj.armed = ent.armed;
+                dirty = true;
+            }
             if obj.command_set_override != ent.command_set_override {
                 obj.command_set_override = ent.command_set_override.clone();
                 dirty = true;
@@ -6872,6 +6960,10 @@ impl PresentationFrame {
             weapon_projectile_speed: ent.weapon_projectile_speed,
             armed_riders_upgrade_weapon_set: ent.armed_riders_upgrade_weapon_set,
             weapon_set_player_upgrade: ent.weapon_set_player_upgrade,
+            weapon_crate_upgrade: ent.weapon_crate_upgrade,
+            armor_crate_upgrade: ent.armor_crate_upgrade,
+            enemy_near: ent.enemy_near,
+            armed: ent.armed,
             camo_stealth_look: ent.camo_stealth_look,
             // Wave 490: disguise/detector/stealth-break presentation from GW entity.
             disguise_as_template: if ent.disguise_as_template.is_empty() {
@@ -8934,6 +9026,11 @@ mod tests {
             weapon_fire_status: 0,
             is_panicking: false,
             moving_backwards: false,
+            weapon_set_player_upgrade: false,
+            weapon_crate_upgrade: 0,
+            armor_crate_upgrade: 0,
+            enemy_near: false,
+            armed: false,
             body_damage_state: 0,
             poison_tinted: false,
             defector_flash: false,

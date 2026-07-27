@@ -934,6 +934,14 @@ impl GameWorldShadow {
                         .unwrap_or(255u8);
                     e.weapon_crate_upgrade = obj.weapon_crate_upgrade;
                     e.armor_crate_upgrade = obj.armor_crate_upgrade;
+                    e.enemy_near = obj
+                        .enemy_near
+                        .as_ref()
+                        .map(|d| d.model_enemy_near || d.enemy_near)
+                        .unwrap_or(false);
+                    e.armed = obj.armed_riders_upgrade_weapon_set
+                        || (!obj.occupants.is_empty() && obj.passengers_allowed_to_fire);
+                    e.armor_crate_upgrade = obj.armor_crate_upgrade;
                     e.selection_flash_remaining = obj.selection_flash_remaining;
                     e.path_waypoints = obj
                         .movement

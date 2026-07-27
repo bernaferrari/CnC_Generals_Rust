@@ -572,6 +572,39 @@ pub fn weaponset_elite_model_bit() -> u32 {
 pub fn weaponset_hero_model_bit() -> u32 {
     model_condition_bit_name_index("WEAPONSET_HERO").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_WEAPONSET_PLAYER_UPGRADE residual bit index.
+pub fn weaponset_player_upgrade_model_bit() -> u32 {
+    model_condition_bit_name_index("WEAPONSET_PLAYER_UPGRADE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_WEAPONSET_CRATEUPGRADE_ONE residual bit index.
+pub fn weaponset_crateupgrade_one_model_bit() -> u32 {
+    model_condition_bit_name_index("WEAPONSET_CRATEUPGRADE_ONE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_WEAPONSET_CRATEUPGRADE_TWO residual bit index.
+pub fn weaponset_crateupgrade_two_model_bit() -> u32 {
+    model_condition_bit_name_index("WEAPONSET_CRATEUPGRADE_TWO").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_ARMORSET_CRATEUPGRADE_ONE residual bit index.
+pub fn armorset_crateupgrade_one_model_bit() -> u32 {
+    model_condition_bit_name_index("ARMORSET_CRATEUPGRADE_ONE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_ARMORSET_CRATEUPGRADE_TWO residual bit index.
+pub fn armorset_crateupgrade_two_model_bit() -> u32 {
+    model_condition_bit_name_index("ARMORSET_CRATEUPGRADE_TWO").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_ENEMYNEAR residual bit index.
+pub fn enemynear_model_bit() -> u32 {
+    model_condition_bit_name_index("ENEMYNEAR").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_ARMED residual bit index.
+pub fn armed_model_bit() -> u32 {
+    model_condition_bit_name_index("ARMED").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_JETAFTERBURNER residual bit index.
+pub fn jetafterburner_model_bit() -> u32 {
+    model_condition_bit_name_index("JETAFTERBURNER").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_OVER_WATER residual bit index.
 pub fn over_water_model_bit() -> u32 {
     model_condition_bit_name_index("OVER_WATER").unwrap_or(0) as u32
