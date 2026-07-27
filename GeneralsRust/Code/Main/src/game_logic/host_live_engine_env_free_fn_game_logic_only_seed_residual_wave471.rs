@@ -173,18 +173,11 @@ pub fn honesty_engine_env_free_fn_game_logic_only_seed_nav_commands_residual_wav
 pub fn simulate_engine_env_free_fn_game_logic_only_seed_source() -> bool {
     let src = cnc_source();
     let free = free_fns_taking_game_logic(src);
-    // Allowed free GameLogic params:
-    // - ensure_presentation_env_for_hints (&GameLogic) seed freeze
-    // - bootstrap_camera_for_loaded_map / sample_startup_camera_heights (Option<&GameLogic>)
-    //   boot residual only when presentation freeze missing (Wave 458)
-    let allowed = [
-        "ensure_presentation_env_for_hints",
-        "bootstrap_camera_for_loaded_map",
-        "sample_startup_camera_heights",
-    ];
-    let ok = !free.is_empty()
-        && free.iter().all(|n| allowed.contains(&n.as_str()))
-        && free.iter().any(|n| n == "ensure_presentation_env_for_hints")
+    // Allowed free GameLogic params after Wave 473:
+    // - ensure_presentation_env_for_hints (&GameLogic) seed freeze only
+    let allowed = ["ensure_presentation_env_for_hints"];
+    let ok = free == ["ensure_presentation_env_for_hints"]
+        || (free.len() == 1 && free[0] == "ensure_presentation_env_for_hints")
         // No required &mut GameLogic free helpers for path/minimap.
         && !src.contains("fn reinitialize_minimap_renderer(
         render_pipeline: &mut RenderPipeline,

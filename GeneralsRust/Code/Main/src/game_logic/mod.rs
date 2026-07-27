@@ -254,6 +254,7 @@ pub mod host_live_bridge_scaffold_dual_world_empty_gate_residual_wave335;
 pub mod host_live_bridge_tower_dual_world_empty_gate_residual_wave318;
 pub mod host_live_build_placement_dual_world_empty_gate_residual_wave418;
 pub mod host_live_bunker_buster_dual_world_empty_gate_residual_wave334;
+pub mod host_live_camera_bootstrap_presentation_only_residual_wave473;
 pub mod host_live_camera_center_presentation_height_residual_wave460;
 pub mod host_live_camera_height_probe_residual_wave241;
 pub mod host_live_carpet_bomb_power_dual_world_empty_gate_residual_wave440;
@@ -2136,6 +2137,21 @@ pub use host_live_bunker_buster_dual_world_empty_gate_residual_wave334::{
     honesty_live_bunker_buster_dual_world_empty_gate_residual_pack_wave334,
     simulate_live_bunker_buster_dual_world_empty_gate_honesty,
 };
+pub use host_live_camera_bootstrap_presentation_only_residual_wave473::{
+    honesty_camera_bootstrap_presentation_only_method_names_residual_wave473,
+    honesty_camera_bootstrap_presentation_only_nav_commands_residual_wave473,
+    honesty_camera_bootstrap_presentation_only_residual_pack_wave473,
+    residual_camera_bootstrap_presentation_only_last_action,
+    residual_camera_bootstrap_presentation_only_ok,
+    simulate_camera_bootstrap_presentation_only_source,
+    simulate_camera_sample_heights_presentation_only_source,
+    simulate_live_camera_bootstrap_presentation_only_honesty,
+    ResidualCameraBootstrapPresentationOnlyAction,
+    CAMERA_BOOTSTRAP_PRESENTATION_ONLY_METHOD_NAMES_WAVE473,
+    CAMERA_BOOTSTRAP_PRESENTATION_ONLY_NAV_STEPS_WAVE473,
+    CAMERA_BOOTSTRAP_PRESENTATION_ONLY_SOURCE_MARKERS_WAVE473,
+    RUNTIME_HOST_CAMERA_BOOTSTRAP_PRESENTATION_ONLY_CMD_NAMES_WAVE473,
+};
 pub use host_live_camera_center_presentation_height_residual_wave460::{
     honesty_camera_center_presentation_height_method_names_residual_wave460,
     honesty_camera_center_presentation_height_nav_commands_residual_wave460,
@@ -2382,6 +2398,7 @@ pub use host_live_dead_model_preload_removed_residual_wave472::{
     DEAD_MODEL_PRELOAD_REMOVED_SOURCE_MARKERS_WAVE472,
     RUNTIME_HOST_DEAD_MODEL_PRELOAD_REMOVED_CMD_NAMES_WAVE472,
 };
+
 pub use host_live_deliver_payload_ai_dual_world_empty_gate_residual_wave352::{
     honesty_live_deliver_payload_ai_dual_world_empty_gate_method_names_residual_wave352,
     honesty_live_deliver_payload_ai_dual_world_empty_gate_nav_commands_residual_wave352,

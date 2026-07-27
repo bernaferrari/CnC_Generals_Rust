@@ -20,7 +20,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// Camera height probe residual method names.
 pub const LIVE_CAMERA_HEIGHT_PROBE_METHOD_NAMES_WAVE241: &[&str] = &[
     "sample_startup_camera_heights",
-    "Option<&GameLogic>",
+    "presentation-only heights (Wave 473)",
     "bootstrap_camera_for_loaded_map",
     "compute_default_camera_zoom_for_target",
     "playable_claim = false",
@@ -50,7 +50,7 @@ pub fn honesty_live_camera_height_probe_method_names_residual_wave241() -> bool 
         ) == Some(0)
         && residual_name_index(
             LIVE_CAMERA_HEIGHT_PROBE_METHOD_NAMES_WAVE241,
-            "Option<&GameLogic>",
+            "presentation-only heights (Wave 473)",
         ) == Some(1)
         && residual_name_index(
             LIVE_CAMERA_HEIGHT_PROBE_METHOD_NAMES_WAVE241,
@@ -103,19 +103,24 @@ pub fn honesty_camera_height_probe_source() -> bool {
     let Some(sample) = fn_body(eng, "fn sample_startup_camera_heights(") else {
         return false;
     };
-    if !(sample.contains("Wave 241")
-        && sample.contains("Option<&GameLogic>")
-        && sample.contains("if let Some(gl) = game_logic"))
+    if !(sample.contains("presentation")
+        && sample.contains("sample_height")
+        && (sample.contains("Wave 241") || sample.contains("Wave 473"))
+        && !sample.contains("game_logic: Option<&GameLogic>")
+        && !sample.contains("if let Some(gl) = game_logic")
+        && !sample.contains("game_logic:"))
     {
         return false;
     }
-    // Wave 458: bootstrap gates live logic via startup_camera_live_logic / presentation.is_some().
+    // Wave 473: bootstrap is presentation-only (no live_logic gate).
     let Some(boot) = fn_body(eng, "fn bootstrap_camera_for_loaded_map(") else {
         return false;
     };
-    boot.contains("if presentation.is_some()")
-        && eng.contains("startup_camera_live_logic")
-        && (eng.contains("live_logic") || eng.matches("Some(game_logic)").count() >= 1)
+    boot.contains("presentation")
+        && boot.contains("world_bounds_vec3()")
+        && !boot.contains("game_logic:")
+        && eng.contains("sample_startup_camera_heights")
+        && !eng.contains("startup_camera_live_logic")
 }
 
 /// Live residual: source honesty pack latches.

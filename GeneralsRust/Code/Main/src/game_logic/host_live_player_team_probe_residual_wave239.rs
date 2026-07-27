@@ -108,9 +108,14 @@ pub fn honesty_player_team_probe_source() -> bool {
     let Some(boot) = fn_body(eng, "fn bootstrap_camera_for_loaded_map(") else {
         return false;
     };
-    if !(boot.contains("Wave 239")
-        && boot.contains("player_team(")
-        && !boot.contains("get_player("))
+    // Wave 473: bootstrap prefers presentation local_team_base_position (no live player_team).
+    // GameLogic::player_team remains available for other residual consumers.
+    if !((boot.contains("Wave 239") && boot.contains("player_team("))
+        || (boot.contains("local_team_base_position")
+            && (boot.contains("Wave 223")
+                || boot.contains("Wave 458")
+                || boot.contains("Wave 473"))))
+        || boot.contains("get_player(")
     {
         return false;
     }
