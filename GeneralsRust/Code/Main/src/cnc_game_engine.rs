@@ -15973,9 +15973,8 @@ impl CnCGameEngine {
                 );
                 info!("Player {} ({}) has been defeated", player.name, player_id);
                 self.game_hud.push_info_message(&message);
-                self.game_logic
-                    .queue_radar_message_for_team(player.team, message.clone());
-                self.game_logic.play_ui_sound("GUIMessageReceived");
+                // Wave 566: boot residual via notify_boot_ui_message helper.
+                self.notify_boot_ui_message(&message, Some(player.team));
             } else {
                 // Fail-closed id-only residual.
                 info!("Player {} has been defeated", player_id);
@@ -16036,14 +16035,9 @@ impl CnCGameEngine {
                 // Wave 538/539: shared presentation UI notify residual.
                 self.notify_presentation_ui_message(&message);
             } else {
+                // Wave 566: boot residual via notify_boot_ui_message helper.
                 let team = self.ui_player_team(event.player_id);
-                if let Some(team) = team {
-                    self.game_logic
-                        .queue_radar_message_for_team(team, message.clone());
-                } else {
-                    self.game_logic.queue_radar_message(message.clone());
-                }
-                self.game_logic.play_ui_sound("GUIMessageReceived");
+                self.notify_boot_ui_message(&message, team);
             }
             if !is_local {
                 observer_notified = true;
@@ -16637,6 +16631,20 @@ impl CnCGameEngine {
             crate::subsystem_manager::AudioManagerSubsystem,
             _,
         >(|audio| audio.queue_event(req));
+    }
+
+    /// Wave 566: boot residual radar + GUIMessageReceived via host GameLogic.
+    /// Presentation freeze must use `notify_presentation_ui_message` instead
+    /// (no mid-frame GameLogic dual-write).
+    fn notify_boot_ui_message(&mut self, message: &str, team: Option<crate::game_logic::Team>) {
+        // Wave 566: boot residual only — host radar queue + UI SFX.
+        if let Some(team) = team {
+            self.game_logic
+                .queue_radar_message_for_team(team, message.to_string());
+        } else {
+            self.game_logic.queue_radar_message(message.to_string());
+        }
+        self.game_logic.play_ui_sound("GUIMessageReceived");
     }
 
     /// Classic-four tokens also advance `last_eva_*` so counter residual does not re-push.
