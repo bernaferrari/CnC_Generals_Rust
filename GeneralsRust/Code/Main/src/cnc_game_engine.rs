@@ -17244,6 +17244,9 @@ impl CnCGameEngine {
     }
 
     fn ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+        // Wave 215/544: prefer engine selection residual, then presentation freeze.
+        // When a presentation freeze is installed, empty selection seed fails closed
+        // (no host player_selected_objects dual-read mid-frame).
         if let Some(id) = self.selected_objects.first().copied() {
             return Some(id);
         }
@@ -17254,8 +17257,10 @@ impl CnCGameEngine {
             if let Some(id) = frame.selection_ids_for_consumers().first().copied() {
                 return Some(id);
             }
+            // Wave 544: presentation freeze owns selection seed residual — even if empty.
+            return None;
         }
-        // Wave 240: boot residual via player_selected_objects probe.
+        // Wave 240: boot residual via player_selected_objects probe (no freeze yet).
         self.game_logic
             .player_selected_objects(self.current_player_id)
             .first()
@@ -17340,7 +17345,6 @@ impl CnCGameEngine {
             .and_then(|o| o.production_queue.first().map(|p| p.template_name.clone()))
     }
 
-    #[inline]
     #[inline]
     fn ui_special_power_ready(&self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 215: presentation-only (no live GameLogic dual-read residual).
