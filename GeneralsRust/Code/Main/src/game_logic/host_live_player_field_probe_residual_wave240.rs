@@ -143,7 +143,9 @@ pub fn honesty_player_field_probe_source() -> bool {
     if !info_ok {
         return false;
     }
-    let Some(sel) = fn_body(eng, "fn ui_selected_ids(") else {
+    let Some(sel) =
+        fn_body(eng, "fn host_ui_selected_ids(").or_else(|| fn_body(eng, "fn ui_selected_ids("))
+    else {
         return false;
     };
     sel.contains("player_selected_objects")

@@ -12992,7 +12992,14 @@ impl CnCGameEngine {
         }
     }
 
+    /// Wave 610: via `host_finalize_startup_map_load`.
     fn finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
+        // Wave 610: thin wrapper — residual via host helper.
+        self.host_finalize_startup_map_load(result)
+    }
+
+    fn host_finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
+        // Wave 610: host residual helper.
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
         self.game_logic = result.game_logic;
 
@@ -16656,7 +16663,15 @@ impl CnCGameEngine {
     }
 
     /// Wave 234: local science purchase points prefer presentation freeze.
+    /// Wave 610: via `host_ui_local_science_purchase_points`.
     fn ui_local_science_purchase_points(&self) -> i32 {
+        // Wave 610: thin wrapper — residual via host helper.
+        self.host_ui_local_science_purchase_points()
+    }
+
+    /// Wave 234: local science purchase points prefer presentation freeze.
+    fn host_ui_local_science_purchase_points(&self) -> i32 {
+        // Wave 610: host residual helper.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_science_purchase_points();
         }
@@ -16771,7 +16786,14 @@ impl CnCGameEngine {
         )
     }
 
+    /// Wave 610: via `host_ui_selected_ids`.
     fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
+        // Wave 610: thin wrapper — residual via host helper.
+        self.host_ui_selected_ids(player_id)
+    }
+
+    fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
+        // Wave 610: host residual helper.
         // Wave 215/543: prefer engine selection residual, then presentation freeze.
         // When a presentation freeze is installed, empty selection fails closed
         // (no host player_selected_objects dual-read mid-frame).
@@ -18275,7 +18297,18 @@ impl CnCGameEngine {
     /// Prefer freeze known names; if freeze misses, allow live host `templates`
     /// (inserts after last PresentationFrame). Boot without freeze uses host only.
     #[inline]
+    /// Wave 610: via `host_presentation_or_live_has_template`.
     fn presentation_or_live_has_template(&self, name: &str) -> bool {
+        // Wave 610: thin wrapper — residual via host helper.
+        self.host_presentation_or_live_has_template(name)
+    }
+
+    /// Wave 581: template residual for train/construct mid-command host inserts.
+    /// Prefer freeze known names; if freeze misses, allow live host `templates`
+    /// (inserts after last PresentationFrame). Boot without freeze uses host only.
+    #[inline]
+    fn host_presentation_or_live_has_template(&self, name: &str) -> bool {
+        // Wave 610: host residual helper.
         // Wave 581: freeze known names OR live host insert residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             if pres.has_template_name(name) {

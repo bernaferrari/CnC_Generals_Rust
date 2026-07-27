@@ -121,7 +121,9 @@ pub fn honesty_ui_selected_presentation_fail_closed_method_names_residual_wave54
 
 pub fn honesty_ui_selected_presentation_fail_closed_source_markers_residual_wave543() -> bool {
     let eng = eng_source();
-    let Some(body) = fn_body(eng, "fn ui_selected_ids(") else {
+    let Some(body) =
+        fn_body(eng, "fn host_ui_selected_ids(").or_else(|| fn_body(eng, "fn ui_selected_ids("))
+    else {
         residual_action_store(ResidualUiSelectedPresentationFailClosedAction::SourceMarkers);
         return false;
     };
@@ -174,7 +176,9 @@ pub fn simulate_ui_selected_presentation_fail_closed_collect_source() -> bool {
 
 pub fn simulate_ui_selected_presentation_fail_closed_dispatch_source() -> bool {
     let eng = eng_source();
-    let Some(body) = fn_body(eng, "fn ui_selected_ids(") else {
+    let Some(body) =
+        fn_body(eng, "fn host_ui_selected_ids(").or_else(|| fn_body(eng, "fn ui_selected_ids("))
+    else {
         residual_action_store(ResidualUiSelectedPresentationFailClosedAction::DispatchSource);
         return false;
     };

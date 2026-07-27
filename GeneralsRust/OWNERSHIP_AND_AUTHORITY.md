@@ -150,6 +150,7 @@ Remaining engine residual after host update:
   - UI player/camera probes: `host_local_*` / `host_ui_*` (Wave 607)
   - Production complete apply: `host_apply_*_production_completions` (Wave 608; host still spawns)
   - UI economy/mouse/mode/pitch/seed: `host_ui_local_economy` / `host_presentation_*` / `host_ui_script_default_camera_pitch` / `host_ui_selection_seed_id` (Wave 609)
+  - UI selection/science/template + startup finalize: `host_ui_selected_ids` / `host_ui_local_science_purchase_points` / `host_presentation_or_live_has_template` / `host_finalize_startup_map_load` (Wave 610)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
