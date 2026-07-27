@@ -6935,6 +6935,7 @@ impl GameWorldShadow {
 
     pub fn writeback_combat_attack_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6973,7 +6974,13 @@ impl GameWorldShadow {
             obj.maintain_pos = ent.maintain_pos.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
             obj.temporary_move_frames = ent.temporary_move_frames;
             obj.group_speed_factor = ent.group_speed_factor;
+            // Wave 643: GameWorld combat-attack last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_combat_attack_ready_log::record(oid);
         }
         updated
     }
@@ -8045,6 +8052,8 @@ pub fn shadow_session_after_host_tick(
         let _tur_wb = shadow.writeback_turret_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        // Wave 643: drain combat-attack ready log after GW writeback.
+        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
@@ -8055,6 +8064,8 @@ pub fn shadow_session_after_host_tick(
         let _det_wb = shadow.writeback_detector_to_host(logic);
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        // Wave 643: drain combat-attack ready log after GW writeback.
+        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
@@ -8078,6 +8089,8 @@ pub fn shadow_session_after_host_tick(
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        // Wave 643: drain combat-attack ready log after GW writeback.
+        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
@@ -8090,6 +8103,8 @@ pub fn shadow_session_after_host_tick(
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        // Wave 643: drain combat-attack ready log after GW writeback.
+        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
@@ -12344,6 +12359,7 @@ mod tests {
         assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
@@ -12572,6 +12588,7 @@ mod tests {
         assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
@@ -13017,6 +13034,7 @@ mod tests {
         }
         assert!(shadow.writeback_continuous_fire_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
@@ -13221,6 +13239,7 @@ mod tests {
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
@@ -16410,6 +16429,7 @@ mod tests {
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
@@ -16473,6 +16493,7 @@ mod tests {
         }
         assert!(shadow.writeback_stealth_delay_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
@@ -16557,6 +16578,7 @@ mod tests {
             o.maintain_pos_valid = false;
         }
         assert!(shadow.writeback_combat_attack_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);

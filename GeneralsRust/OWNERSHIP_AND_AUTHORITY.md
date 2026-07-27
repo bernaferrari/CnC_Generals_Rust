@@ -183,6 +183,7 @@ Remaining engine residual after host update:
   - Fire-intent ready log: GW writeback → `host_fire_intent_ready_log` → host fire presentation bookkeeping (Wave 640)
   - Stored-supplies ready log: GW writeback → `host_stored_supplies_ready_log` → host gatherer presentation (Wave 641)
   - Weapon-set ready log: GW writeback → `host_weapon_set_ready_log` → host weapon-set presentation (Wave 642)
+  - Combat-attack ready log: GW writeback → `host_combat_attack_ready_log` → host combat-attack presentation (Wave 643)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
