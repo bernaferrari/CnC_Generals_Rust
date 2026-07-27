@@ -167,10 +167,15 @@ pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
 }
 
 /// Residual: script messages + sim clock prefer pipeline/last presentation.
+/// Wave 570: script messages peel into `take_presentation_or_boot_new_script_messages`.
 pub fn simulate_render_script_clock_pipeline_presentation_source() -> bool {
     let src = cnc_source();
-    let ok = src
+    let script_ok = src
         .contains("Wave 462: prefer pipeline/last presentation new_script_messages residual")
+        || (src.contains("Wave 570")
+            && src.contains("take_presentation_or_boot_new_script_messages")
+            && src.contains("self.take_presentation_or_boot_new_script_messages()"));
+    let ok = script_ok
         && src.contains("Wave 462: prefer pipeline/last presentation sim clock residual")
         && src.contains("total_play_time_seconds")
         && src.contains("new_script_messages")
