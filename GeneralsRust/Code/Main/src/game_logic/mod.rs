@@ -433,6 +433,7 @@ pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
 pub mod host_live_presentation_cliff_flood_residual_wave522;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
 pub mod host_live_presentation_crush_user_residual_wave525;
+pub mod host_live_presentation_defeat_notify_residual_wave539;
 pub mod host_live_presentation_dock_rider_residual_wave521;
 pub mod host_live_presentation_emoticon_float_residual_wave514;
 pub mod host_live_presentation_env_only_residual_wave455;
@@ -2414,6 +2415,14 @@ pub use host_live_presentation_crush_user_residual_wave525::{
     honesty_presentation_crush_user_source_markers_residual_wave525,
     residual_presentation_crush_user_last_action, residual_presentation_crush_user_ok,
     simulate_live_presentation_crush_user_honesty,
+};
+pub use host_live_presentation_defeat_notify_residual_wave539::{
+    honesty_presentation_defeat_notify_method_names_residual_wave539,
+    honesty_presentation_defeat_notify_nav_commands_residual_wave539,
+    honesty_presentation_defeat_notify_residual_pack_wave539,
+    honesty_presentation_defeat_notify_source_markers_residual_wave539,
+    residual_presentation_defeat_notify_last_action, residual_presentation_defeat_notify_ok,
+    simulate_live_presentation_defeat_notify_honesty,
 };
 pub use host_live_presentation_eva_alert_counter_dedupe_residual_wave537::{
     honesty_presentation_eva_alert_counter_dedupe_method_names_residual_wave537,

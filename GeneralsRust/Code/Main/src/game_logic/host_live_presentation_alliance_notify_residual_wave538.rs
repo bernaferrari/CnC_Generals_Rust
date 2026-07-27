@@ -107,6 +107,7 @@ pub fn honesty_presentation_alliance_notify_source_markers_residual_wave538() ->
     let ok = eng.contains("Wave 538")
         && eng.contains("no GameLogic dual-write mid-frame")
         && eng.contains("if self.last_presentation_frame.is_some()")
+        && eng.contains("notify_presentation_ui_message")
         && eng.contains("add_radar_message")
         && eng.contains("GUIMessageReceived")
         && eng.contains("AudioEventRequest::new(\"GUIMessageReceived\")")
@@ -144,7 +145,8 @@ pub fn simulate_presentation_alliance_notify_collect_source() -> bool {
 
 pub fn simulate_presentation_alliance_notify_dispatch_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("AudioManagerSubsystem")
+    let ok = eng.contains("notify_presentation_ui_message")
+        && eng.contains("AudioManagerSubsystem")
         && eng.contains("audio.queue_event(req)")
         && eng.contains("RadarPingKind::Generic");
     residual_action_store(ResidualPresentationAllianceNotifyAction::DispatchSource);
