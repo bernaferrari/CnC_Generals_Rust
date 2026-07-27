@@ -15556,30 +15556,8 @@ impl CnCGameEngine {
                 crate::gameworld_shadow::end_shadow_coupled_tick();
             }
 
-            // Immutable presentation snapshot for client/render (borrow-first policy).
-            // Built after authority + host side systems + shadow writeback.
-            let local_id = self.current_player_id;
-            // Include victory residual in the snapshot (single evaluate; no dual-read later).
-            let mut pres =
-                crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
-                    &mut self.game_logic,
-                    local_id,
-                    self.gameworld_shadow.as_ref(),
-                );
-            // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
-            let audio_n = pres.dispatch_audio_events_direct();
-            if audio_n > 0 {
-                log::trace!("presentation audio events dispatched: {audio_n}");
-            }
-            // Same-frame particle residual: backfill client ParticleSystemManager.
-            let fx_n = pres.apply_particle_systems_to_client();
-            if fx_n > 0 {
-                log::trace!("presentation particle client mirrors: {fx_n}");
-            }
-            self.last_presentation_frame = Some(pres);
-
-            // Wave 568: InGame script FPS residual via helper.
-            self.apply_ingame_script_fps_limit_residual();
+            // Wave 589: presentation finalize residual via helper (build + audio + FX).
+            self.host_finalize_presentation_after_logic();
 
             #[cfg(feature = "game_client")]
             {
@@ -18459,6 +18437,39 @@ impl CnCGameEngine {
             );
         }
         false
+    }
+
+    /// Wave 589: post-logic presentation finalize residual.
+    ///
+    /// Builds immutable `PresentationFrame` (victory + GameWorld object path when
+    /// shadow live), dispatches presentation audio events, mirrors particle FX to
+    /// the client, stores `last_presentation_frame`, then applies InGame script FPS.
+    ///
+    /// Call after host logic + shadow writeback. Borrow-first: no live dual-read
+    /// during later render. Fail-closed: not sole GameWorld authority / playable_claim.
+    fn host_finalize_presentation_after_logic(&mut self) {
+        // Wave 589: presentation finalize residual.
+        let local_id = self.current_player_id;
+        // Include victory residual in the snapshot (single evaluate; no dual-read later).
+        let mut pres = crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
+            &mut self.game_logic,
+            local_id,
+            self.gameworld_shadow.as_ref(),
+        );
+        // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
+        let audio_n = pres.dispatch_audio_events_direct();
+        if audio_n > 0 {
+            log::trace!("presentation audio events dispatched: {audio_n}");
+        }
+        // Same-frame particle residual: backfill client ParticleSystemManager.
+        let fx_n = pres.apply_particle_systems_to_client();
+        if fx_n > 0 {
+            log::trace!("presentation particle client mirrors: {fx_n}");
+        }
+        self.last_presentation_frame = Some(pres);
+
+        // Wave 568: InGame script FPS residual via helper.
+        self.apply_ingame_script_fps_limit_residual();
     }
 
     /// Wave 586/587: GameClient presentation shell tick residual.
