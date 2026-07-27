@@ -1414,8 +1414,9 @@ pub struct CnCGameEngine {
     game_logic: GameLogic,
     /// Immutable presentation feed for client/render after last logic step.
     last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
-    /// Optional GameWorld shadow session (stable ObjectId→EntityId). Opt-in:
-    /// `GENERALS_GAMEWORLD_SHADOW=1`. Not production authority.
+    /// Optional GameWorld shadow session (stable ObjectId→EntityId).
+    /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
+    /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
     gameworld_shadow: Option<crate::gameworld_shadow::GameWorldShadow>,
     /// Observe-path entity count from GameWorld presentation view after coupled tick
     /// (architecture residual: GameWorld → presentation without Main dual-read).
@@ -15661,82 +15662,8 @@ impl CnCGameEngine {
 
             #[cfg(feature = "game_client")]
             {
-                // Wave 250: prefer presentation freeze residual when a frame is installed.
-                let visual_delta = if self.presentation_or_boot_time_frozen() {
-                    0.0
-                } else {
-                    game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
-                };
-                // Presentation path: deepened shell tick (frame/FX/UI/message pump)
-                // without OBJECT_REGISTRY shroud bind. Full GameClient::update remains
-                // disconnected for command ownership (Main owns OS intake→commands and
-                // sole RenderPipeline 3D draw). Device state is shared via THE_MOUSE/
-                // THE_KEYBOARD inject; shell ticks update_input on those handles.
-                if self.last_presentation_frame.is_some() {
-                    // C++ per-drawable shroud residual from frozen presentation FOW.
-                    let shroud_entries: Vec<(u32, bool)> = self
-                        .last_presentation_frame
-                        .as_ref()
-                        .map(|pres| {
-                            pres.objects
-                                .iter()
-                                .map(|o| (o.id.0, o.fow_visibility.fully_obscures_drawable()))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    self.game_client
-                        .apply_presentation_shroud_to_drawables(shroud_entries);
-                    // Presentation pose residual → bound drawables (no OBJECT_REGISTRY).
-                    if let Some(pres) = self.last_presentation_frame.as_ref() {
-                        let pose_entries = pres.objects.iter().filter_map(|o| {
-                            if o.destroyed {
-                                return None;
-                            }
-                            Some((
-                                o.id.0,
-                                [o.position.x, o.position.y, o.position.z],
-                                o.orientation,
-                            ))
-                        });
-                        let n = self
-                            .game_client
-                            .apply_presentation_pose_to_drawables(pose_entries);
-                        if n > 0 {
-                            log::trace!("presentation pose applied to {n} drawables");
-                        }
-                    }
-                    // Presentation cinematic letterbox residual → client display.
-                    if let Some(pres) = self.last_presentation_frame.as_ref() {
-                        self.game_client
-                            .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);
-                        // Military caption residual → InGameUI (duration from freeze).
-                        self.game_client.apply_presentation_military_caption(
-                            pres.military_caption.as_deref(),
-                            pres.military_caption_remaining_ms,
-                        );
-                        // Cinematic text residual → InGameUI HUD message.
-                        self.game_client
-                            .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
-                    }
-                    // PRES_SHELL_ONLY_DRAWABLE_TICK: client modules via
-                    // update_drawables_local (no live OBJECT_REGISTRY shroud re-bind).
-                    // Do not also call full update_drawables — that double-ticks and
-                    // overwrites presentation FOW with live shroud status.
-                    if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
-                        log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
-                    }
-                } else {
-                    // Boot/loading residual without presentation frame: still avoid
-                    // dual-world OBJECT_REGISTRY shroud/pose bind. Prefer the same
-                    // local shell tick as InGame presentation path (drawables local +
-                    // UI/message pump). update_drawables now early-outs on empty
-                    // registry, but shell tick covers UI residual more completely.
-                    if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
-                        log::trace!(
-                            "GameClient boot presentation shell update failed (non-fatal): {e}"
-                        );
-                    }
-                }
+                // Wave 586: GameClient presentation shell residual via helper.
+                self.host_tick_game_client_presentation_shell();
             }
         }
 
@@ -18518,6 +18445,72 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.templates.contains_key(name)
+    }
+
+    /// Wave 586: GameClient presentation shell tick residual.
+    ///
+    /// Host path applies frozen presentation FOW/pose/cinematic residual, then
+    /// `update_presentation_shell` (local drawable modules + UI/message pump).
+    ///
+    /// Full `GameClient::update()` stays disconnected on purpose:
+    /// - Main owns OS intake → commands (no dual `update_input` ownership)
+    /// - Main owns audio dispatch from PresentationFrame (no dual `update_audio`)
+    /// - Main `RenderPipeline` is sole 3D present (no dual `draw_display`)
+    /// - full `update()` also `finish_frame_timing` sleeps — would double-pace host frames
+    /// Dual-world registry path remains available inside GameClient when
+    /// `OBJECT_REGISTRY` is populated (opt-in bridge); production host keeps it empty.
+    #[cfg(feature = "game_client")]
+    fn host_tick_game_client_presentation_shell(&mut self) {
+        // Wave 586: presentation freeze residual when a frame is installed.
+        let visual_delta = if self.presentation_or_boot_time_frozen() {
+            0.0
+        } else {
+            game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
+        };
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            // C++ per-drawable shroud residual from frozen presentation FOW.
+            let shroud_entries: Vec<(u32, bool)> = pres
+                .objects
+                .iter()
+                .map(|o| (o.id.0, o.fow_visibility.fully_obscures_drawable()))
+                .collect();
+            self.game_client
+                .apply_presentation_shroud_to_drawables(shroud_entries);
+            // Presentation pose residual → bound drawables (no OBJECT_REGISTRY).
+            let pose_entries = pres.objects.iter().filter_map(|o| {
+                if o.destroyed {
+                    return None;
+                }
+                Some((
+                    o.id.0,
+                    [o.position.x, o.position.y, o.position.z],
+                    o.orientation,
+                ))
+            });
+            let n = self
+                .game_client
+                .apply_presentation_pose_to_drawables(pose_entries);
+            if n > 0 {
+                log::trace!("presentation pose applied to {n} drawables");
+            }
+            // Presentation cinematic letterbox residual → client display.
+            self.game_client
+                .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);
+            // Military caption residual → InGameUI (duration from freeze).
+            self.game_client.apply_presentation_military_caption(
+                pres.military_caption.as_deref(),
+                pres.military_caption_remaining_ms,
+            );
+            // Cinematic text residual → InGameUI HUD message.
+            self.game_client
+                .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
+        }
+        // PRES_SHELL_ONLY_DRAWABLE_TICK: client modules via update_drawables_local.
+        // Do not call full update_drawables — double-ticks and overwrites presentation FOW.
+        // Boot/loading without freeze still uses the same shell tick (empty registry early-out).
+        if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
+            log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
+        }
     }
 
     /// Wave 585: host UI-state residual (boot/loading without presentation freeze).

@@ -124,8 +124,15 @@ Host `GameLogic::update_simulation` now owns path follow, projectile drain/step,
 
 Remaining engine residual after host update:
 - GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host completes/spawns))
-- Presentation build + client/render orchestration
+- Presentation build + client/render orchestration (`host_tick_game_client_presentation_shell`; full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep)
 - Input translation and audio device ownership
+
+### Host dual-read close (Wave 585–586)
+
+Main `CncGameEngine` production call path has **zero non-helper** `self.game_logic.*`
+dual-reads. All host GameLogic access is behind `host_*` / `presentation_or_boot_*` /
+`apply_*` / `boot_*` helpers (Wave 585 closed UI/shell/world probes; Wave 586
+centralizes GameClient presentation shell tick).
 
 `gamelogic::GameWorld` is still not the sole production authority. AI `launch_attack` prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression.
 
@@ -172,7 +179,8 @@ see same-frame AI orders without a second engine drain.
 
 `gameworld_shadow` maintains a `GameWorldShadow` session: stable host `ObjectId`→
 `EntityId` map, delta sync (health/transform/economy), and `WorldMutation` damage
-parity (`queue_damage_for_host` / `apply_pending`). Opt-in runtime: `GENERALS_GAMEWORLD_SHADOW=1` holds a session on `CnCGameEngine`.
+parity (`queue_damage_for_host` / `apply_pending`). Production default ON
+(`GENERALS_GAMEWORLD_SHADOW=0` opts out) holds a session on `CnCGameEngine`.
 `Object::take_damage_from` records `host_damage_log / host_heal_log / host_owner_log` events drained each tick.
 Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow maps spawns and applies Destroy mutations. `host_spawn_log` applies via `WorldMutation::Spawn` (sole shadow create) then host→entity map.
 
