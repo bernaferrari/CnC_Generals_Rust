@@ -90,10 +90,18 @@ pub fn honesty_presentation_visual_speed_probe_source() -> bool {
     {
         return false;
     }
-    eng.matches("Wave 251").count() >= 3
+    // Wave 550: call sites centralized via presentation_or_boot_visual_speed
+    // (still presentation-first; raw dual-read only inside helper).
+    let consumer_ok = (eng.matches("Wave 251").count() >= 3
         && eng.contains("p.visual_speed_multiplier")
         && eng.contains("visual_dt")
-        && eng.contains("render_time_delta")
+        && eng.contains("render_time_delta"))
+        || (eng.contains("fn presentation_or_boot_visual_speed")
+            && eng.contains("Wave 550")
+            && eng.contains("presentation_or_boot_visual_speed()")
+            && eng.contains("visual_dt")
+            && eng.contains("render_time_delta"));
+    consumer_ok
 }
 
 /// Live residual: source honesty pack latches.

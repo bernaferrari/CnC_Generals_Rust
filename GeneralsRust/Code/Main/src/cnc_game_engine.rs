@@ -15357,11 +15357,7 @@ impl CnCGameEngine {
 
         let dt = dt.max(0.0);
         // Wave 251: prefer presentation visual speed residual when a frame is installed.
-        let visual_speed = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.visual_speed_multiplier)
-            .unwrap_or_else(|| self.game_logic.visual_speed_multiplier());
+        let visual_speed = self.presentation_or_boot_visual_speed();
         let visual_dt = dt * visual_speed.max(0.0);
 
         // Diagnostic: log first few Menu update_internal calls
@@ -16322,11 +16318,7 @@ impl CnCGameEngine {
             .map(|p| p.time_frozen_for_simulation)
             .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation());
         // Wave 251: prefer presentation visual speed residual when a frame is installed.
-        let visual_speed = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.visual_speed_multiplier)
-            .unwrap_or_else(|| self.game_logic.visual_speed_multiplier());
+        let visual_speed = self.presentation_or_boot_visual_speed();
         let render_time_delta = if time_frozen {
             0.0
         } else {
@@ -18291,6 +18283,18 @@ impl CnCGameEngine {
             .unwrap_or_else(|| self.game_logic.game_mode())
     }
 
+    /// Wave 550: presentation freeze owns visual speed residual when installed.
+    /// Boot residual without freeze uses host GameLogic probe.
+    #[inline]
+    fn presentation_or_boot_visual_speed(&self) -> f32 {
+        // Wave 550: presentation freeze owns visual speed residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.visual_speed_multiplier;
+        }
+        // Boot residual only.
+        self.game_logic.visual_speed_multiplier()
+    }
+
     fn map_ai_difficulty_to_save(difficulty: crate::ai::AIDifficulty) -> GameDifficulty {
         match difficulty {
             crate::ai::AIDifficulty::Easy => GameDifficulty::Easy,
@@ -19195,15 +19199,16 @@ impl CnCGameEngine {
 
     fn apply_script_frame_limit(&mut self) {
         let global_data = game_engine::common::global_data::read();
+        // Wave 550: presentation freeze owns FPS-limit visual_speed residual when
+        // installed (no host visual_speed_multiplier dual-read). Replay flag is
+        // engine-mode residual (not world dual-read) — always from GameLogic.
+        let visual_speed = self.presentation_or_boot_visual_speed();
+
         let max_fps = Self::effective_fps_limit_for_frame(
             self.script_fps_limit,
             global_data.writable.use_fps_limit,
             global_data.writable.frames_per_second_limit,
-            // Wave 251: prefer presentation visual speed residual when installed.
-            self.last_presentation_frame
-                .as_ref()
-                .map(|p| p.visual_speed_multiplier)
-                .unwrap_or_else(|| self.game_logic.visual_speed_multiplier()),
+            visual_speed,
             global_data.tivo_fast_mode,
             self.game_logic.isInReplayGame(),
         );
