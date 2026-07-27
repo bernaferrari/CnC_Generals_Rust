@@ -18365,6 +18365,9 @@ impl GameLogic {
                             let _ = gamelogic::helpers::TheEva::set_should_play(
                                 gamelogic::helpers::EvaEvent::BuildingStolen,
                             );
+                            crate::game_logic::host_eva_log::record_event(
+                                gamelogic::helpers::EvaEvent::BuildingStolen,
+                            );
                             self.hero_abilities.record_eva_building_stolen();
                         }
                         let msg =
@@ -66817,6 +66820,7 @@ impl GameLogic {
             _ => return,
         };
         let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        crate::game_logic::host_eva_log::record_event(event);
         self.eva_special_launched_misc = self.eva_special_launched_misc.saturating_add(1);
     }
 
@@ -66844,6 +66848,7 @@ impl GameLogic {
         let _ = gamelogic::helpers::TheEva::set_should_play(
             gamelogic::helpers::EvaEvent::BeaconDetected,
         );
+        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::BeaconDetected);
         self.eva_beacon_detected = self.eva_beacon_detected.saturating_add(1);
     }
 
@@ -66905,6 +66910,7 @@ impl GameLogic {
             _ => return,
         };
         let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        crate::game_logic::host_eva_log::record_event(event);
         self.eva_hero_detected = self.eva_hero_detected.saturating_add(1);
     }
 
@@ -66952,6 +66958,7 @@ impl GameLogic {
             _ => return,
         };
         let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        crate::game_logic::host_eva_log::record_event(event);
         self.eva_superweapon_launched = self.eva_superweapon_launched.saturating_add(1);
     }
 
@@ -66995,6 +67002,7 @@ impl GameLogic {
             _ => return,
         };
         let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        crate::game_logic::host_eva_log::record_event(event);
         self.eva_superweapon_detected = self.eva_superweapon_detected.saturating_add(1);
     }
 
@@ -67046,6 +67054,7 @@ impl GameLogic {
             _ => return,
         };
         let _ = gamelogic::helpers::TheEva::set_should_play(event);
+        crate::game_logic::host_eva_log::record_event(event);
         self.eva_superweapon_ready = self.eva_superweapon_ready.saturating_add(1);
     }
 
@@ -68811,6 +68820,9 @@ impl GameLogic {
         let _ = gamelogic::helpers::TheEva::set_should_play(
             gamelogic::helpers::EvaEvent::UpgradeComplete,
         );
+        crate::game_logic::host_eva_log::record_event(
+            gamelogic::helpers::EvaEvent::UpgradeComplete,
+        );
         self.eva_upgrade_complete = self.eva_upgrade_complete.saturating_add(1);
     }
 
@@ -68822,6 +68834,7 @@ impl GameLogic {
         let _ = gamelogic::helpers::TheEva::set_should_play(
             gamelogic::helpers::EvaEvent::GeneralLevelUp,
         );
+        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::GeneralLevelUp);
         self.eva_general_level_up = self.eva_general_level_up.saturating_add(1);
     }
 
@@ -68861,12 +68874,11 @@ impl GameLogic {
             return;
         }
         let _ = gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::LowPower);
+        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::LowPower);
         self.eva_low_power = self.eva_low_power.saturating_add(1);
         self.eva_low_power_next_frame = self
             .frame
             .saturating_add(EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL);
-        // Wave 533: presentation EVA pulse residual.
-        crate::game_logic::host_eva_log::record("EVA_LowPower");
     }
 
     /// C++ TheEva->setShouldPlay(EVA_InsufficientFunds) residual (local player).
@@ -68884,12 +68896,13 @@ impl GameLogic {
         let _ = gamelogic::helpers::TheEva::set_should_play(
             gamelogic::helpers::EvaEvent::InsufficientFunds,
         );
+        crate::game_logic::host_eva_log::record_event(
+            gamelogic::helpers::EvaEvent::InsufficientFunds,
+        );
         self.eva_insufficient_funds = self.eva_insufficient_funds.saturating_add(1);
         self.eva_insufficient_funds_next_frame = self
             .frame
             .saturating_add(EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL);
-        // Wave 533: presentation EVA pulse residual.
-        crate::game_logic::host_eva_log::record("EVA_InsufficientFunds");
     }
 
     pub fn honesty_eva_low_power_ok(&self) -> bool {
@@ -69035,16 +69048,18 @@ impl GameLogic {
                 let _ = gamelogic::helpers::TheEva::set_should_play(
                     gamelogic::helpers::EvaEvent::BaseUnderAttack,
                 );
+                crate::game_logic::host_eva_log::record_event(
+                    gamelogic::helpers::EvaEvent::BaseUnderAttack,
+                );
                 self.eva_base_under_attack = self.eva_base_under_attack.saturating_add(1);
-                // Wave 533: presentation EVA pulse residual.
-                crate::game_logic::host_eva_log::record("EVA_BaseUnderAttack");
             } else if local_ally {
                 let _ = gamelogic::helpers::TheEva::set_should_play(
                     gamelogic::helpers::EvaEvent::AllyUnderAttack,
                 );
+                crate::game_logic::host_eva_log::record_event(
+                    gamelogic::helpers::EvaEvent::AllyUnderAttack,
+                );
                 self.eva_ally_under_attack = self.eva_ally_under_attack.saturating_add(1);
-                // Wave 533: presentation EVA pulse residual.
-                crate::game_logic::host_eva_log::record("EVA_AllyUnderAttack");
             }
         }
         true
@@ -69085,22 +69100,26 @@ impl GameLogic {
             let _ = gamelogic::helpers::TheEva::set_should_play(
                 gamelogic::helpers::EvaEvent::BuildingLost,
             );
+            crate::game_logic::host_eva_log::record_event(
+                gamelogic::helpers::EvaEvent::BuildingLost,
+            );
             self.saboteur.record_eva_building_lost();
             let _ = gamelogic::helpers::TheEva::set_should_play(
                 gamelogic::helpers::EvaEvent::BuildingLost,
             );
+            crate::game_logic::host_eva_log::record_event(
+                gamelogic::helpers::EvaEvent::BuildingLost,
+            );
             self.saboteur.record_eva_building_lost();
-            // Wave 533: presentation EVA pulse residual.
-            crate::game_logic::host_eva_log::record("EVA_BuildingLost");
         } else if is_infantry || is_vehicle {
             let _ =
                 gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
+            crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
             let _ =
                 gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
+            crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
-            // Wave 533: presentation EVA pulse residual.
-            crate::game_logic::host_eva_log::record("EVA_UnitLost");
             // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) residual for spacebar jump.
             let msg = localization::localize("RADAR:UnitLost", "Unit lost");
             self.queue_radar_message_at(msg, death_pos, radar_notifications::RadarKind::Generic);
@@ -69114,6 +69133,7 @@ impl GameLogic {
         let _ = gamelogic::helpers::TheEva::set_should_play(
             gamelogic::helpers::EvaEvent::VehicleStolen,
         );
+        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::VehicleStolen);
         self.car_bomb.record_eva_vehicle_stolen();
     }
 
@@ -69122,6 +69142,9 @@ impl GameLogic {
             return;
         }
         let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::BuildingBeingStolen,
+        );
+        crate::game_logic::host_eva_log::record_event(
             gamelogic::helpers::EvaEvent::BuildingBeingStolen,
         );
         self.hero_abilities.record_eva_building_being_stolen();
@@ -69135,6 +69158,7 @@ impl GameLogic {
         let _ = gamelogic::helpers::TheEva::set_should_play(
             gamelogic::helpers::EvaEvent::BuildingStolen,
         );
+        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::BuildingStolen);
         self.hero_abilities.record_eva_building_stolen();
     }
 
@@ -69143,6 +69167,9 @@ impl GameLogic {
             return;
         }
         let _ = gamelogic::helpers::TheEva::set_should_play(
+            gamelogic::helpers::EvaEvent::BuildingSabotaged,
+        );
+        crate::game_logic::host_eva_log::record_event(
             gamelogic::helpers::EvaEvent::BuildingSabotaged,
         );
         self.saboteur.record_eva_building_sabotaged();
@@ -69155,6 +69182,7 @@ impl GameLogic {
         }
         let _ =
             gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::CashStolen);
+        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::CashStolen);
         self.saboteur.record_eva_cash_stolen();
     }
 
