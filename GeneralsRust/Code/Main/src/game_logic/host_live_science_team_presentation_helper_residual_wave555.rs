@@ -138,8 +138,12 @@ pub fn honesty_science_team_presentation_helper_source_markers_residual_wave555(
         team.contains("Wave 555") && team.contains("local_team()") && team.contains("player_team");
     let routes = eng.contains("presentation_or_boot_unlocked_sciences(player_id)")
         && eng.contains("presentation_or_boot_local_team()");
-    let lp = fn_body(eng, "fn local_player_id_for_ui(").unwrap_or("");
-    let lt = fn_body(eng, "fn local_team_for_ui(").unwrap_or("");
+    let lp = fn_body(eng, "fn host_local_player_id_for_ui(")
+        .or_else(|| fn_body(eng, "fn local_player_id_for_ui("))
+        .unwrap_or("");
+    let lt = fn_body(eng, "fn host_local_team_for_ui(")
+        .or_else(|| fn_body(eng, "fn local_team_for_ui("))
+        .unwrap_or("");
     // Wave 574: boot path may be boot_local_player_id_from_host.
     let ui_ok = (lp.contains("Wave 240") || lp.contains("Wave 574") || lp.contains("Wave 555"))
         && (lp.contains("player_exists")

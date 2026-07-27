@@ -16442,7 +16442,16 @@ impl CnCGameEngine {
 
     /// Local/human player id for UI command issue. Prefers presentation freeze.
     /// Wave 574: boot path via `boot_local_player_id_from_host`.
+    /// Wave 607: via `host_local_player_id_for_ui`.
     fn local_player_id_for_ui(&self) -> u32 {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_local_player_id_for_ui()
+    }
+
+    /// Local/human player id for UI command issue. Prefers presentation freeze.
+    /// Wave 574: boot path via `boot_local_player_id_from_host`.
+    fn host_local_player_id_for_ui(&self) -> u32 {
+        // Wave 607: host UI residual helper.
         // Wave 240/555: presentation freeze owns local player residual when installed.
         if self.last_presentation_frame.is_some() {
             return self
@@ -16454,7 +16463,15 @@ impl CnCGameEngine {
     }
 
     /// Local team for UI. Prefers presentation freeze.
+    /// Wave 607: via `host_local_team_for_ui`.
     fn local_team_for_ui(&self) -> crate::game_logic::Team {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_local_team_for_ui()
+    }
+
+    /// Local team for UI. Prefers presentation freeze.
+    fn host_local_team_for_ui(&self) -> crate::game_logic::Team {
+        // Wave 607: host UI residual helper.
         // Wave 240/555: via presentation_or_boot_local_team helper.
         self.presentation_or_boot_local_team()
     }
@@ -16491,10 +16508,24 @@ impl CnCGameEngine {
     /// When freeze is installed, missing player_info fails closed (no host
     /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
     /// Wave 573: boot path via `boot_player_info_from_host`.
+    /// Wave 607: via `host_ui_player_info`.
     fn ui_player_info(
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_player_info(player_id)
+    }
+
+    /// Wave 234/549: player roster probe prefers presentation freeze.
+    /// When freeze is installed, missing player_info fails closed (no host
+    /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
+    /// Wave 573: boot path via `boot_player_info_from_host`.
+    fn host_ui_player_info(
+        &self,
+        player_id: u32,
+    ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
+        // Wave 607: host UI residual helper.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             // Wave 549: presentation freeze owns player roster residual — even if miss.
             return frame.player_info(player_id).cloned();
@@ -16504,18 +16535,43 @@ impl CnCGameEngine {
     }
 
     #[inline]
+    /// Wave 607: via `host_ui_player_team`.
     fn ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_player_team(player_id)
+    }
+
+    #[inline]
+    fn host_ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
+        // Wave 607: host UI residual helper.
         self.ui_player_info(player_id).map(|p| p.team)
     }
 
     #[inline]
+    /// Wave 607: via `host_ui_player_name`.
     fn ui_player_name(&self, player_id: u32) -> Option<String> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_player_name(player_id)
+    }
+
+    #[inline]
+    fn host_ui_player_name(&self, player_id: u32) -> Option<String> {
+        // Wave 607: host UI residual helper.
         self.ui_player_info(player_id).map(|p| p.name)
     }
 
     #[inline]
     /// Wave 575: local team name via presentation_or_boot_local_team (freeze prefer).
+    /// Wave 607: via `host_ui_local_player_team_name`.
     fn ui_local_player_team_name(&self) -> Option<String> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_local_player_team_name()
+    }
+
+    #[inline]
+    /// Wave 575: local team name via presentation_or_boot_local_team (freeze prefer).
+    fn host_ui_local_player_team_name(&self) -> Option<String> {
+        // Wave 607: host UI residual helper.
         // Wave 575: prefer presentation-or-boot local team residual.
         Some(
             self.presentation_or_boot_local_team()
@@ -16526,7 +16582,16 @@ impl CnCGameEngine {
 
     /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
     /// Wave 252: script default camera residuals via presentation freeze.
+    /// Wave 607: via `host_ui_script_default_camera_max_height`.
     fn ui_script_default_camera_max_height(&self) -> f32 {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_script_default_camera_max_height()
+    }
+
+    /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
+    /// Wave 252: script default camera residuals via presentation freeze.
+    fn host_ui_script_default_camera_max_height(&self) -> f32 {
+        // Wave 607: host UI residual helper.
         // Wave 252: presentation freeze first.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.script_default_camera_max_height;
@@ -17961,7 +18026,16 @@ impl CnCGameEngine {
 
     /// Wave 570: script message residual — prefer pipeline/last presentation freeze
     /// `new_script_messages`, drain live queue when freeze installed; boot residual takes live.
+    /// Wave 607: via `host_take_presentation_or_boot_new_script_messages`.
     fn take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
+        // Wave 607: thin wrapper — presentation/boot drain via host helper.
+        self.host_take_presentation_or_boot_new_script_messages()
+    }
+
+    /// Wave 570: script message residual — prefer pipeline/last presentation freeze
+    /// `new_script_messages`, drain live queue when freeze installed; boot residual takes live.
+    fn host_take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
+        // Wave 607: host presentation/boot drain residual.
         // Wave 570: presentation freeze owns script message residual when installed.
         if let Some(pres) = self
             .render_pipeline
@@ -17977,7 +18051,14 @@ impl CnCGameEngine {
         self.game_logic.take_new_script_messages()
     }
 
+    /// Wave 607: via `host_take_presentation_or_boot_defeat_events`.
     fn take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
+        // Wave 607: thin wrapper — presentation/boot drain via host helper.
+        self.host_take_presentation_or_boot_defeat_events()
+    }
+
+    fn host_take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
+        // Wave 607: host presentation/boot drain residual.
         // Wave 569: presentation freeze owns defeat residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             let ids = pres.defeated_player_ids.clone();
@@ -17990,9 +18071,20 @@ impl CnCGameEngine {
 
     /// Wave 569: alliance residual — prefer presentation freeze `alliance_events`,
     /// drain live queue when freeze installed; boot residual takes live.
+    /// Wave 607: via `host_take_presentation_or_boot_alliance_events`.
     fn take_presentation_or_boot_alliance_events(
         &mut self,
     ) -> Vec<crate::game_logic::AllianceNotification> {
+        // Wave 607: thin wrapper — presentation/boot drain via host helper.
+        self.host_take_presentation_or_boot_alliance_events()
+    }
+
+    /// Wave 569: alliance residual — prefer presentation freeze `alliance_events`,
+    /// drain live queue when freeze installed; boot residual takes live.
+    fn host_take_presentation_or_boot_alliance_events(
+        &mut self,
+    ) -> Vec<crate::game_logic::AllianceNotification> {
+        // Wave 607: host presentation/boot drain residual.
         // Wave 569: presentation freeze owns alliance residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             let ev = pres.alliance_events.clone();

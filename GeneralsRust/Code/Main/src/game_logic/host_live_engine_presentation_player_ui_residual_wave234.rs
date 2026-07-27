@@ -105,11 +105,14 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
     for api in [
         "fn ui_player_info(",
+        "fn host_ui_player_info(",
         "fn ui_selected_ids(",
         "fn local_team_for_ui(",
+        "fn host_local_team_for_ui(",
         "fn ui_local_science_purchase_points(",
         "fn ui_selection_seed_id(",
         "fn ui_local_player_team_name(",
+        "fn host_ui_local_player_team_name(",
     ] {
         if !eng.contains(api) {
             return false;
@@ -124,7 +127,8 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
             "fn try_purchase_next_generals_science(",
             "ui_local_science_purchase_points",
         ),
-        ("fn ui_player_info(", "last_presentation_frame"),
+        // Wave 607: logic lives in host_ui_player_info; thin wrapper delegates.
+        ("fn host_ui_player_info(", "last_presentation_frame"),
     ] {
         let Some(body) = fn_body(eng, name) else {
             return false;

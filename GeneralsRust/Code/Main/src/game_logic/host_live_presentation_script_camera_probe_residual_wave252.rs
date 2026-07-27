@@ -110,7 +110,10 @@ pub fn honesty_presentation_script_camera_probe_source() -> bool {
     {
         return false;
     }
-    let Some(max_h) = fn_body(eng, "fn ui_script_default_camera_max_height(") else {
+    // Wave 607: max-height logic lives in host helper; thin wrapper delegates.
+    let Some(max_h) = fn_body(eng, "fn host_ui_script_default_camera_max_height(")
+        .or_else(|| fn_body(eng, "fn ui_script_default_camera_max_height("))
+    else {
         return false;
     };
     let Some(pitch) = fn_body(eng, "fn ui_script_default_camera_pitch(") else {
@@ -120,6 +123,7 @@ pub fn honesty_presentation_script_camera_probe_source() -> bool {
         && max_h.contains("last_presentation_frame")
         && pitch.contains("Wave 252")
         && pitch.contains("last_presentation_frame")
+        && eng.contains("fn host_ui_script_default_camera_max_height(")
         // production consumers use helpers (not bare dual-read outside helpers)
         && eng.contains("self.ui_script_default_camera_max_height()")
         && eng.contains("self.ui_script_default_camera_pitch()")

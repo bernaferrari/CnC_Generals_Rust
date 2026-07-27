@@ -125,7 +125,9 @@ pub fn honesty_boot_player_info_helper_source_markers_residual_wave573() -> bool
         residual_action_store(ResidualBootPlayerInfoHelperAction::SourceMarkers);
         return false;
     };
-    let Some(ui) = fn_body(eng, "fn ui_player_info(") else {
+    let Some(ui) =
+        fn_body(eng, "fn host_ui_player_info(").or_else(|| fn_body(eng, "fn ui_player_info("))
+    else {
         residual_action_store(ResidualBootPlayerInfoHelperAction::SourceMarkers);
         return false;
     };

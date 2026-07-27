@@ -126,11 +126,15 @@ pub fn honesty_defeat_alliance_helper_source_markers_residual_wave569() -> bool 
     let eng = eng_source();
     let pf = pf_source();
     let field_ok = pf.contains("defeated_player_ids") && pf.contains("pub alliance_events:");
-    let Some(def) = fn_body(eng, "fn take_presentation_or_boot_defeat_events(") else {
+    let Some(def) = fn_body(eng, "fn host_take_presentation_or_boot_defeat_events(")
+        .or_else(|| fn_body(eng, "fn take_presentation_or_boot_defeat_events("))
+    else {
         residual_action_store(ResidualDefeatAllianceHelperAction::SourceMarkers);
         return false;
     };
-    let Some(all) = fn_body(eng, "fn take_presentation_or_boot_alliance_events(") else {
+    let Some(all) = fn_body(eng, "fn host_take_presentation_or_boot_alliance_events(")
+        .or_else(|| fn_body(eng, "fn take_presentation_or_boot_alliance_events("))
+    else {
         residual_action_store(ResidualDefeatAllianceHelperAction::SourceMarkers);
         return false;
     };

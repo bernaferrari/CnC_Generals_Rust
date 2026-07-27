@@ -122,7 +122,9 @@ pub fn honesty_host_pause_team_helper_source_markers_residual_wave575() -> bool 
         residual_action_store(ResidualHostPauseTeamHelperAction::SourceMarkers);
         return false;
     };
-    let Some(name) = fn_body(eng, "fn ui_local_player_team_name(") else {
+    let Some(name) = fn_body(eng, "fn host_ui_local_player_team_name(")
+        .or_else(|| fn_body(eng, "fn ui_local_player_team_name("))
+    else {
         residual_action_store(ResidualHostPauseTeamHelperAction::SourceMarkers);
         return false;
     };
