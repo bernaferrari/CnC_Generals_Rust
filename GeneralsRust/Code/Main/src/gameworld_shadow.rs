@@ -2441,6 +2441,7 @@ impl GameWorldShadow {
     pub fn writeback_death_type_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::host_usa_pilot::HostDeathType;
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, u8, u8)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2450,9 +2451,18 @@ impl GameWorldShadow {
             };
             let want = HostDeathType::from_ordinal(ent.death_type);
             if obj.status.death_type != want {
+                let prev = obj.status.death_type.ordinal();
+                let next = want.ordinal();
+                // Direct assign — avoid host_death_type_log re-entry during writeback.
                 obj.status.death_type = want;
+                // Wave 632: GameWorld death-type last-write residual —
+                // host applies destroy/pilot bookkeeping from ready log.
+                ready.push((ObjectId(hid), prev, next));
                 updated += 1;
             }
+        }
+        for (oid, prev, next) in ready {
+            crate::game_logic::host_death_type_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -7869,6 +7879,8 @@ pub fn shadow_session_after_host_tick(
     // Wave 623: drain body-damage ready log after GW body-state writeback.
     let _body_ready = logic.host_apply_body_damage_ready_completions();
     let _ = shadow.writeback_death_type_to_host(logic);
+    // Wave 632: drain death-type ready log after GW writeback.
+    let _dt_ready = logic.host_apply_death_type_ready_completions();
     let _ = shadow.writeback_radar_extend_to_host(logic);
     // Wave 625: drain radar-extend ready log after GW writeback.
     let _radar_ready = logic.host_apply_radar_extend_ready_completions();
@@ -9070,6 +9082,7 @@ mod tests {
         let _ = shadow.writeback_production_door_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
@@ -10478,6 +10491,7 @@ mod tests {
         let _ = shadow.writeback_production_door_to_host(&mut logic);
         let _ = shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
@@ -15192,6 +15206,7 @@ mod tests {
         let _ = shadow.writeback_production_door_to_host(&mut logic);
         shadow.writeback_body_damage_to_host(&mut logic);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
@@ -15248,6 +15263,7 @@ mod tests {
         }
         assert!(shadow.writeback_body_damage_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_death_type_to_host(&mut logic);
+        let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
@@ -18727,6 +18743,7 @@ mod tests {
             o.status.death_type = HostDeathType::Normal;
         }
         assert!(shadow.writeback_death_type_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
