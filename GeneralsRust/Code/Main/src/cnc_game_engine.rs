@@ -15558,29 +15558,8 @@ impl CnCGameEngine {
             // flushed in-phase (early commands + post-AI phase 8b). Engine does
             // not re-drain the command list before shadow.
 
-            // GameWorld shadow session AFTER host logic + projectiles + path so
-            // host_damage_log / host_move_log / attack logs from this frame are not
-            // drained a frame late. Defaults on (GENERALS_GAMEWORLD_SHADOW=0 to opt out).
-            // Host remains temporary mid-frame owner; shadow is last-writer for HP/cash/pose.
-            if let Some(ref mut shadow) = self.gameworld_shadow {
-                let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
-                    shadow,
-                    &mut self.game_logic,
-                );
-                if !probe.full_match() {
-                    log::warn!("{}", probe.format_report());
-                }
-                // Architecture residual: observe-path presentation from GameWorld
-                // (no live Main GameLogic dual-read for this view).
-                let gw_view = crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0);
-                self.last_gameworld_presentation_entity_count = gw_view.entities.len();
-            } else {
-                let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&mut self.game_logic);
-                self.last_gameworld_presentation_entity_count = 0;
-            }
-            if couple_shadow {
-                crate::gameworld_shadow::end_shadow_coupled_tick();
-            }
+            // Wave 597: GameWorld shadow session residual via host helper.
+            self.host_run_gameworld_shadow_after_logic(couple_shadow);
 
             // Wave 589: presentation finalize residual via helper (build + audio + FX).
             self.host_finalize_presentation_after_logic();
@@ -18551,6 +18530,39 @@ impl CnCGameEngine {
             self.gameworld_shadow.as_ref(),
         );
         self.render_pipeline.set_presentation_frame(Some(env_frame));
+    }
+
+    /// Wave 597: GameWorld shadow session after host logic residual.
+    ///
+    /// Runs `shadow_session_after_host_tick` (or maybe_shadow), seeds
+    /// `last_gameworld_presentation_entity_count` from observe-path view, and
+    /// ends a coupled shadow tick when requested. Host remains temporary
+    /// mid-frame owner; shadow is last-writer for HP/cash/pose.
+    fn host_run_gameworld_shadow_after_logic(&mut self, couple_shadow: bool) {
+        // Wave 597: GameWorld shadow session residual.
+        // GameWorld shadow session AFTER host logic + projectiles + path so
+        // host_damage_log / host_move_log / attack logs from this frame are not
+        // drained a frame late. Defaults on (GENERALS_GAMEWORLD_SHADOW=0 to opt out).
+        // Host remains temporary mid-frame owner; shadow is last-writer for HP/cash/pose.
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
+                shadow,
+                &mut self.game_logic,
+            );
+            if !probe.full_match() {
+                log::warn!("{}", probe.format_report());
+            }
+            // Architecture residual: observe-path presentation from GameWorld
+            // (no live Main GameLogic dual-read for this view).
+            let gw_view = crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0);
+            self.last_gameworld_presentation_entity_count = gw_view.entities.len();
+        } else {
+            let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&mut self.game_logic);
+            self.last_gameworld_presentation_entity_count = 0;
+        }
+        if couple_shadow {
+            crate::gameworld_shadow::end_shadow_coupled_tick();
+        }
     }
 
     /// Wave 589: post-logic presentation finalize residual.
