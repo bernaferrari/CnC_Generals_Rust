@@ -124,12 +124,11 @@ pub fn honesty_cmd_filters_presentation_only_source() -> bool {
 /// Source residual: env hints presentation-only (Wave 455: no live GameLogic dual-read).
 pub fn honesty_env_hints_presentation_only_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
-    // Wave 455 supersedes Wave 217 env_logic dual-read path.
+    // Wave 455/466: presentation-only env apply; seed passes GameWorld shadow.
     eng.contains("fn ensure_presentation_env_for_hints")
         && eng.contains("Wave 455: presentation-only env boundary")
-        && eng.contains(
-            "Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic)",
-        )
+        && eng.contains("self.gameworld_shadow.as_ref()")
+        && eng.contains("Wave 466: prefer host+GameWorld shadow freeze")
         && eng.contains("Self::apply_heightmap_hint(&mut self.render_pipeline)")
         && eng.contains("Self::apply_skybox_hint(&mut self.render_pipeline)")
         && !eng.contains("Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic)")

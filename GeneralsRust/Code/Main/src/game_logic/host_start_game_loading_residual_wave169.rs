@@ -103,7 +103,7 @@ pub fn honesty_start_game_from_ui_loading_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 5500)];
+    let body = &src[i..src.len().min(i + 7000)];
     body.contains("prepare_cpp_load_screen_for_mode")
         && body.contains("GameState::Loading")
         && body.contains("load_map")

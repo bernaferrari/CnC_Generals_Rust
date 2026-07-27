@@ -187,7 +187,7 @@ pub fn simulate_minimap_bounds_presentation_first_callsites() -> bool {
     let mut from = 0usize;
     while let Some(rel) = src[from..].find("Self::reinitialize_minimap_renderer(") {
         let i = from + rel;
-        let lo = i.saturating_sub(200);
+        let lo = i.saturating_sub(400);
         if src[lo..i].contains("ensure_presentation_env_for_hints") {
             ok_n += 1;
         }

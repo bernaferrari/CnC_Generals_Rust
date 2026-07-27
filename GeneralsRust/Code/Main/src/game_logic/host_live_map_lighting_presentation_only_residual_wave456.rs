@@ -179,11 +179,7 @@ pub fn simulate_map_lighting_presentation_only_source() -> bool {
 /// Residual: call sites seed presentation then apply without &game_logic.
 pub fn simulate_map_lighting_presentation_only_callsites() -> bool {
     let src = cnc_source();
-    let ensure_n = src
-        .matches(
-            "Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic)",
-        )
-        .count();
+    let ensure_n = src.matches("self.gameworld_shadow.as_ref()").count();
     let apply_n = src.matches("Self::apply_map_lighting(").count();
     // Count call sites that still pass game_logic as third arg after apply_map_lighting(
     let mut three_arg_calls = 0usize;

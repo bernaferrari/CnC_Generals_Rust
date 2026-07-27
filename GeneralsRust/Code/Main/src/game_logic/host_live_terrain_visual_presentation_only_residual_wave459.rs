@@ -177,7 +177,7 @@ pub fn simulate_terrain_visual_presentation_only_callsites() -> bool {
     let mut from = 0usize;
     while let Some(rel) = src[from..].find("Self::sync_render_terrain_visual(") {
         let i = from + rel;
-        let lo = i.saturating_sub(220);
+        let lo = i.saturating_sub(400);
         let prior = &src[lo..i];
         let call_win = &src[i..src.len().min(i + 220)];
         if prior.contains("ensure_presentation_env_for_hints")
