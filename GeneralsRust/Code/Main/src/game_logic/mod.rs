@@ -268,6 +268,7 @@ pub mod host_live_cleanup_hazard_dual_world_empty_gate_residual_wave317;
 pub mod host_live_client_dual_world_empty_gate_residual_wave249;
 pub mod host_live_cmd_filter_env_presentation_only_residual_wave217;
 pub mod host_live_collision_system_dual_world_empty_gate_residual_wave313;
+pub mod host_live_combat_kill_particle_observe_residual_wave562;
 pub mod host_live_combat_model_condition_channel_residual_wave487;
 pub mod host_live_command_attack_log_residual_wave197;
 pub mod host_live_command_beacon_note_residual_wave210;
@@ -2278,6 +2279,14 @@ pub use host_live_cancel_clears_exit_delay_residual_wave485::{
     CANCEL_CLEARS_EXIT_DELAY_METHOD_NAMES_WAVE485, CANCEL_CLEARS_EXIT_DELAY_NAV_STEPS_WAVE485,
     CANCEL_CLEARS_EXIT_DELAY_SOURCE_MARKERS_WAVE485,
     RUNTIME_HOST_CANCEL_CLEARS_EXIT_DELAY_CMD_NAMES_WAVE485,
+};
+pub use host_live_combat_kill_particle_observe_residual_wave562::{
+    honesty_combat_kill_particle_observe_method_names_residual_wave562,
+    honesty_combat_kill_particle_observe_nav_commands_residual_wave562,
+    honesty_combat_kill_particle_observe_residual_pack_wave562,
+    honesty_combat_kill_particle_observe_source_markers_residual_wave562,
+    residual_combat_kill_particle_observe_last_action, residual_combat_kill_particle_observe_ok,
+    simulate_live_combat_kill_particle_observe_honesty,
 };
 pub use host_live_combat_model_condition_channel_residual_wave487::{
     honesty_combat_model_condition_channel_method_names_residual_wave487,
