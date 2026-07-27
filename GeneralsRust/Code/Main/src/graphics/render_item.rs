@@ -158,6 +158,20 @@ impl RenderItem {
     }
 
     /// Update world matrix - equivalent to C++ RenderItem::SetWorldMatrix()
+    /// Wave 499: C++ TINT_STATUS_POISONED residual — greenish diffuse bias.
+    pub fn apply_poison_tint(&mut self) {
+        const POISON: [f32; 3] = [0.15, 0.85, 0.20];
+        const BLEND: f32 = 0.45;
+        let d = &mut self.material.diffuse_color;
+        d.x = d.x * (1.0 - BLEND) + POISON[0] * BLEND;
+        d.y = d.y * (1.0 - BLEND) + POISON[1] * BLEND;
+        d.z = d.z * (1.0 - BLEND) + POISON[2] * BLEND;
+        let e = &mut self.material.emissive_color;
+        e.x = (e.x + POISON[0] * 0.15).min(2.0);
+        e.y = (e.y + POISON[1] * 0.25).min(2.0);
+        e.z = (e.z + POISON[2] * 0.10).min(2.0);
+    }
+
     pub fn set_world_matrix(&mut self, matrix: Mat4) {
         self.world_matrix = matrix;
         // Extract position from matrix

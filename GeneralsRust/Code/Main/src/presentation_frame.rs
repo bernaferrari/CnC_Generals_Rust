@@ -581,6 +581,10 @@ pub struct UnitRenderInput {
     pub is_firing_weapon: bool,
     /// Wave 497: body damage ordinal for mesh variant resolve (0..3).
     pub body_damage_state: u8,
+    /// Wave 499: C++ TINT_STATUS_POISONED residual.
+    pub poison_tinted: bool,
+    /// Wave 499: C++ DefectionHelper flash residual.
+    pub defector_flash: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -620,6 +624,8 @@ impl UnitRenderInput {
             attacking: ro.attacking,
             is_firing_weapon: ro.is_firing_weapon,
             body_damage_state: ro.body_damage_state,
+            poison_tinted: ro.poison_tinted,
+            defector_flash: ro.defector_flash,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -706,7 +712,15 @@ impl UnitRenderInput {
 
     /// C++ TintEnvelope residual intensity (linear fade over decay frames).
     pub fn selection_flash_intensity(&self) -> f32 {
-        crate::game_logic::host_saboteur::selection_flash_intensity(self.selection_flash_remaining)
+        let base = crate::game_logic::host_saboteur::selection_flash_intensity(
+            self.selection_flash_remaining,
+        );
+        // Wave 499: defector cover flash forces full white selection flash residual.
+        if self.defector_flash {
+            base.max(1.0)
+        } else {
+            base
+        }
     }
 }
 
@@ -8126,6 +8140,8 @@ mod tests {
             attacking: false,
             is_firing_weapon: false,
             body_damage_state: 0,
+            poison_tinted: false,
+            defector_flash: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
