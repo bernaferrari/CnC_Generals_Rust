@@ -11757,6 +11757,8 @@ mod tests {
         );
         let pres = eng
             .find("PresentationFrame::build_from_logic")
+            .or_else(|| eng.find("PresentationFrame::build_for_engine"))
+            .or_else(|| eng.find("PresentationFrame::build_with_victory_for_engine"))
             .expect("presentation build");
         let host_update = eng
             .find("game_logic.update_with_dt(")
