@@ -15402,7 +15402,15 @@ impl CnCGameEngine {
     }
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
+    /// Wave 609: via `host_presentation_mouse_game_logic`.
     fn presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_presentation_mouse_game_logic()
+    }
+
+    /// Wave 542: mouse command classification is presentation-only when freeze installed.
+    fn host_presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
+        // Wave 609: host UI/presentation residual helper.
         if self.last_presentation_frame.is_some() {
             None
         } else {
@@ -16600,7 +16608,14 @@ impl CnCGameEngine {
         self.game_logic.script_default_camera_max_height()
     }
 
+    /// Wave 609: via `host_ui_script_default_camera_pitch`.
     fn ui_script_default_camera_pitch(&self) -> f32 {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_ui_script_default_camera_pitch()
+    }
+
+    fn host_ui_script_default_camera_pitch(&self) -> f32 {
+        // Wave 609: host UI/presentation residual helper.
         // Wave 252: presentation freeze first.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.script_default_camera_pitch;
@@ -16609,7 +16624,14 @@ impl CnCGameEngine {
         self.game_logic.script_default_camera_pitch()
     }
 
+    /// Wave 609: via `host_ui_selection_seed_id`.
     fn ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_ui_selection_seed_id()
+    }
+
+    fn host_ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+        // Wave 609: host UI/presentation residual helper.
         // Wave 215/544: prefer engine selection residual, then presentation freeze.
         // When a presentation freeze is installed, empty selection seed fails closed
         // (no host player_selected_objects dual-read mid-frame).
@@ -16644,6 +16666,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 238: local economy prefers presentation freeze.
+    /// Wave 609: via `host_ui_local_economy`.
     fn ui_local_economy(
         &self,
     ) -> (
@@ -16651,6 +16674,19 @@ impl CnCGameEngine {
         i32, /*power*/
         i32, /*max_power*/
     ) {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_ui_local_economy()
+    }
+
+    /// Wave 238: local economy prefers presentation freeze.
+    fn host_ui_local_economy(
+        &self,
+    ) -> (
+        i32, /*money*/
+        i32, /*power*/
+        i32, /*max_power*/
+    ) {
+        // Wave 609: host UI/presentation residual helper.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             let money = frame.local_supplies as i32;
             let power = frame.local_power;
@@ -17956,7 +17992,15 @@ impl CnCGameEngine {
     }
 
     /// Prefer presentation-frozen game mode when a frame is installed.
+    /// Wave 609: via `host_presentation_or_live_game_mode`.
     fn presentation_or_live_game_mode(&self) -> GameMode {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_presentation_or_live_game_mode()
+    }
+
+    /// Prefer presentation-frozen game mode when a frame is installed.
+    fn host_presentation_or_live_game_mode(&self) -> GameMode {
+        // Wave 609: host UI/presentation residual helper.
         self.last_presentation_frame
             .as_ref()
             .map(|p| p.game_mode)
