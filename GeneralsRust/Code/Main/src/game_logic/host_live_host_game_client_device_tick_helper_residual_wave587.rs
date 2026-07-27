@@ -26,6 +26,7 @@ pub const LIVE_HOST_GAME_CLIENT_DEVICE_TICK_HELPER_METHOD_NAMES_WAVE587: &[&str]
     "host_tick_game_client_presentation_shell",
     "update_input",
     "inject_game_client_key",
+    "host_inject_game_client_key",
     "inject_game_client_mouse_move",
     "inject_game_client_mouse_button",
     "Wave 587",
@@ -135,6 +136,7 @@ pub fn honesty_host_game_client_device_tick_helper_source_markers_residual_wave5
         && body.contains("Main-injected")
         && !body.contains("game_client.update()");
     let inject_ok = eng.contains("fn inject_game_client_key")
+        && eng.contains("fn host_inject_game_client_key")
         && eng.contains("fn inject_game_client_mouse_move")
         && eng.contains("fn inject_game_client_mouse_button")
         && eng.contains("with_keyboard")
