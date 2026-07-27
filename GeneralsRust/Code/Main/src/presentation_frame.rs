@@ -11427,19 +11427,23 @@ mod tests {
         let gl = include_str!("game_logic/game_logic.rs");
         assert!(
             gl.contains("gameworld_construction_sole_tick_enabled()")
-                && gl.contains("effective_rate"),
-            "host construction must gate advance on sole-tick and log rate"
+                && gl.contains("record_rate_only")
+                && gl.contains("Wave 478: publish dozer/power rate only"),
+            "host construction under sole-tick must publish rate only (no percent stomp)"
         );
         let log = include_str!("game_logic/host_construction_progress_log.rs");
         assert!(
-            log.contains("effective_rate: f32"),
-            "construction progress log must carry effective_rate"
+            log.contains("effective_rate: f32")
+                && log.contains("rate_only: bool")
+                && log.contains("pub fn record_rate_only"),
+            "construction progress log must carry rate_only residual"
         );
         let sw = include_str!("gameworld_shadow.rs");
         assert!(
             sw.contains("fn tick_construction_progress")
-                && sw.contains("tick_construction_progress("),
-            "shadow session must sole-tick construction"
+                && sw.contains("tick_construction_progress(")
+                && sw.contains("if ev.rate_only"),
+            "shadow session must sole-tick construction and skip rate-only stomps"
         );
     }
 

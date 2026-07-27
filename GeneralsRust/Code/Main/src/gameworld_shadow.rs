@@ -3959,6 +3959,11 @@ impl GameWorldShadow {
         for ev in events {
             self.construction_rate_by_host
                 .insert(ev.object.0, ev.effective_rate);
+            // Wave 478: sole-tick rate-only events must not stomp GW construction percent.
+            if ev.rate_only {
+                n += 1;
+                continue;
+            }
             if self.queue_set_construction_for_host(ev.object, ev.percent, ev.under_construction) {
                 n += 1;
             }
@@ -8886,7 +8891,8 @@ mod tests {
         let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        assert!(gameworld_construction_sole_tick_enabled());
+        // Tick path is authority-gated; sole-tick freeze is host-side (coupled frame).
+        assert!(gameworld_construction_authority_enabled());
         use crate::game_logic::host_construction_progress_log::{self};
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
