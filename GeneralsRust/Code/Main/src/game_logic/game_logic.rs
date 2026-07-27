@@ -25322,10 +25322,9 @@ impl GameLogic {
         }
         // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks shared SP cds.
         if crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled() {
-            // Still publish current cooldown snapshot for shadow apply.
-            for player in self.players.values() {
-                player.record_host_cooldowns();
-            }
+            // Wave 479: do not republish full cooldown snapshots each frame —
+            // that stomped GW sole-tick progress. Fire/reset still records via
+            // reset_shared_special_power_timer → record_host_cooldowns.
             return;
         }
         let mut ready_events: Vec<(Team, String)> = Vec::new();

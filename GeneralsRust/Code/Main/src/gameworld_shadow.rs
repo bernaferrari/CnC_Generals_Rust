@@ -8998,6 +8998,8 @@ mod tests {
         let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        // Sole-tick tick path requires coupled engine frame (same as host freeze).
+        begin_shadow_coupled_tick();
         assert!(gameworld_special_power_sole_tick_enabled());
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_player_cooldown_log;
@@ -9005,6 +9007,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let pid = 0u32;
         let Some(p) = logic.get_player_mut(pid) else {
+            end_shadow_coupled_tick();
             match prev_a {
                 Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
                 None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
@@ -9037,6 +9040,7 @@ mod tests {
             (rem - 3.0).abs() < 1e-3,
             "expected ~3.0 remaining after 2s tick, got {rem}"
         );
+        end_shadow_coupled_tick();
         match prev_a {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
