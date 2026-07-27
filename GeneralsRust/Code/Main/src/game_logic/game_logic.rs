@@ -26105,6 +26105,27 @@ impl GameLogic {
     /// radar log (GW decides absolute values; host still owns UI bookkeeping).
     /// Wave 632: GameWorld death-type writeback records ordinal changes; host
     /// applies destroy/pilot presentation bookkeeping residual.
+    /// Wave 633: GameWorld model-condition writeback records bit changes; host
+    /// applies presentation bookkeeping residual (drawable model condition log).
+    pub fn host_apply_model_condition_ready_completions(&mut self) -> usize {
+        // Wave 633: GameWorld model-condition writeback records bit changes; host
+        // applies presentation bookkeeping residual (drawable model condition log).
+        let events = crate::game_logic::host_model_condition_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            if ev.previous_bits == ev.new_bits {
+                continue;
+            }
+            // Bits already writeback-synced; re-record host model-condition log
+            // for presentation consumers without recomputing from health.
+            if let Some(obj) = self.objects.get(&ev.object) {
+                obj.record_host_model_condition();
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
     pub fn host_apply_death_type_ready_completions(&mut self) -> usize {
         // Wave 632: GameWorld death-type writeback records ordinal changes; host
         // applies destroy/pilot presentation bookkeeping residual.
