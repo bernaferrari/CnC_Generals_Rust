@@ -86,6 +86,7 @@ pub mod host_entity_power_log;
 pub mod host_eva_log;
 pub mod host_experience_log;
 pub mod host_faerie_fire_log;
+pub mod host_fire_intent_ready_log;
 pub mod host_formation_log;
 pub mod host_fow_log;
 pub mod host_ground_height_log;
@@ -410,6 +411,7 @@ pub mod host_live_host_death_type_ready_log_helper_residual_wave632;
 pub mod host_live_host_destroy_ready_log_helper_residual_wave621;
 pub mod host_live_host_economy_ready_log_helper_residual_wave631;
 pub mod host_live_host_enqueue_shell_cmd_helper_residual_wave582;
+pub mod host_live_host_fire_intent_ready_log_helper_residual_wave640;
 pub mod host_live_host_game_client_device_tick_helper_residual_wave587;
 pub mod host_live_host_game_client_menu_shell_helper_residual_wave588;
 pub mod host_live_host_game_client_shell_tick_helper_residual_wave586;
@@ -2723,6 +2725,15 @@ pub use host_live_host_enqueue_shell_cmd_helper_residual_wave582::{
     honesty_host_enqueue_shell_cmd_helper_source_markers_residual_wave582,
     residual_host_enqueue_shell_cmd_helper_last_action, residual_host_enqueue_shell_cmd_helper_ok,
     simulate_live_host_enqueue_shell_cmd_helper_honesty,
+};
+pub use host_live_host_fire_intent_ready_log_helper_residual_wave640::{
+    honesty_host_fire_intent_ready_log_helper_method_names_residual_wave640,
+    honesty_host_fire_intent_ready_log_helper_nav_commands_residual_wave640,
+    honesty_host_fire_intent_ready_log_helper_residual_pack_wave640,
+    honesty_host_fire_intent_ready_log_helper_source_markers_residual_wave640,
+    residual_host_fire_intent_ready_log_helper_last_action,
+    residual_host_fire_intent_ready_log_helper_ok,
+    simulate_live_host_fire_intent_ready_log_helper_honesty,
 };
 pub use host_live_host_game_client_device_tick_helper_residual_wave587::{
     honesty_host_game_client_device_tick_helper_method_names_residual_wave587,

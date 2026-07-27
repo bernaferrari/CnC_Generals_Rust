@@ -26119,6 +26119,25 @@ impl GameLogic {
     /// applies AI/status/attack-log residual (without re-assigning target).
     /// Wave 639: GameWorld move-target writeback records destination changes;
     /// host applies AI/status/movement residual without re-assigning destination.
+    /// Wave 640: GameWorld fire-intent writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_fire_intent.
+    pub fn host_apply_fire_intent_ready_completions(&mut self) -> usize {
+        // Wave 640: GameWorld fire-intent writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_fire_intent.
+        let events = crate::game_logic::host_fire_intent_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            // Fire-intent already writeback-synced; re-record host fire-intent
+            // log for presentation / combat consumers.
+            obj.record_host_fire_intent();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_move_target_ready_completions(&mut self) -> usize {
         // Wave 639: GameWorld move-target writeback records destination changes;
         // host applies AI/status/movement residual without re-assigning destination.
