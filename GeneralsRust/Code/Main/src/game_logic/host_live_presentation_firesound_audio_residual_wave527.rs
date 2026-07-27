@@ -32,7 +32,7 @@ pub const PRESENTATION_FIRESOUND_AUDIO_METHOD_NAMES_WAVE527: &[&str] = &[
 ];
 
 pub const PRESENTATION_FIRESOUND_AUDIO_SOURCE_MARKERS_WAVE527: &[&str] = &[
-    "Wave 527: FireSound loop residual uses host sound name + looping flag + snapshot pose",
+    "Wave 527/528: FireSound loop residual uses host sound name + looping flag + snapshot pose",
     "Wave 527: FiringTracker loop uses concrete FireSound name when non-empty",
     ".looping()",
     "WeaponFireLoopStop",
@@ -115,7 +115,7 @@ pub fn honesty_presentation_firesound_audio_source_markers_residual_wave527() ->
     PRESENTATION_FIRESOUND_AUDIO_SOURCE_MARKERS_WAVE527.len() == 4
         && residual_name_index(
             PRESENTATION_FIRESOUND_AUDIO_SOURCE_MARKERS_WAVE527,
-            "Wave 527: FireSound loop residual uses host sound name + looping flag + snapshot pose",
+            "Wave 527/528: FireSound loop residual uses host sound name + looping flag + snapshot pose",
         ) == Some(0)
         && residual_name_index(
             PRESENTATION_FIRESOUND_AUDIO_SOURCE_MARKERS_WAVE527,
@@ -139,7 +139,7 @@ pub fn honesty_presentation_firesound_audio_nav_commands_residual_wave527() -> b
 pub fn simulate_presentation_firesound_audio_collect_source() -> bool {
     let pf = pf_source();
     let ok = pf.contains(
-        "Wave 527: FireSound loop residual uses host sound name + looping flag + snapshot pose",
+        "Wave 527/528: FireSound loop residual uses host sound name + looping flag + snapshot pose",
     ) && pf
         .contains("Wave 527: FiringTracker loop uses concrete FireSound name when non-empty")
         && pf.contains(".looping()")

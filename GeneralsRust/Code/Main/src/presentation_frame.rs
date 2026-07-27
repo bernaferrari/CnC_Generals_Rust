@@ -8707,7 +8707,8 @@ impl PresentationFrame {
     }
 
     /// Collect presentation→audio requests (no GameLogic borrow).
-    /// Wave 527: FireSound loop residual uses host sound name + looping flag + snapshot pose.
+    /// Wave 527/528: FireSound loop residual uses host sound name + looping flag + snapshot pose.
+    /// Wave 528: WeaponFireLoopStop is stop-only (no FireSound replay).
     /// Fail-closed: not Miles/device spatial parity — names resolve via SoundEffectsTable.
     pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
         use crate::game_logic::AudioEventRequest;
@@ -8731,18 +8732,12 @@ impl PresentationFrame {
                 continue;
             }
             if let PresentationEvent::WeaponFireLoopStopped { unit, sound } = ev {
-                let name = if sound.is_empty() {
-                    "WeaponFireLoopStop"
-                } else {
-                    // Stop uses same event key as start for AudioManager stop_object residual.
-                    sound.as_str()
-                };
-                let mut req = AudioEventRequest::new(name).with_object(*unit);
-                // Non-looping stop residual — managers match object_id + event_type.
+                // Wave 528: explicit stop residual (must not re-trigger FireSound play).
+                let _ = sound;
+                let mut req = AudioEventRequest::new("WeaponFireLoopStop").with_object(*unit);
                 if let Some(pos) = pose_by_id.get(unit) {
                     req = req.with_position(*pos);
                 }
-                // Priority bump so stop is not dropped under budget.
                 req = req.with_priority(200);
                 out.push(req);
                 continue;

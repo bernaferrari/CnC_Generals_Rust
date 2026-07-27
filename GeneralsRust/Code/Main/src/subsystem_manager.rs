@@ -429,6 +429,8 @@ pub struct AudioManagerSubsystem {
     _sounds_on: bool,
     _speech_on: bool,
     queued_events: Vec<crate::game_logic::AudioEventRequest>,
+    /// Wave 528: object ids with active presentation FireSound loops (stop residual).
+    looping_object_audio: HashSet<u32>,
     sound_effects_table: Option<crate::assets::SoundEffectsTable>,
     gameplay_dispatch: Arc<crate::game_logic::audio_dispatch_impl::MainAudioDispatch>,
 }
@@ -448,6 +450,7 @@ impl AudioManagerSubsystem {
             _sounds_on: true,
             _speech_on: true,
             queued_events: Vec::new(),
+            looping_object_audio: HashSet::new(),
             sound_effects_table: None,
             gameplay_dispatch: dispatch,
         }
@@ -542,6 +545,7 @@ impl SubsystemInterface for AudioManagerSubsystem {
         if let Some(audio_manager) = &mut self.audio_manager {
             audio_manager.stop_all_sounds();
         }
+        self.looping_object_audio.clear();
         Ok(())
     }
 
@@ -556,6 +560,7 @@ impl SubsystemInterface for AudioManagerSubsystem {
         }
 
         // Apply high-level toggles/events that don't require archive lookups yet.
+        // Wave 528: presentation FireSound loop stop is stop-only (no replay).
         for event in self.drain_events() {
             match event.event_type.as_str() {
                 "MusicDisable" => {
@@ -570,9 +575,22 @@ impl SubsystemInterface for AudioManagerSubsystem {
                         audio_manager.resume_audio(crate::assets::AudioAffect::Music);
                     }
                 }
+                "WeaponFireLoopStop" => {
+                    if let Some(id) = event.object_id {
+                        self.looping_object_audio.remove(&id.0);
+                        log::trace!("presentation FireSound loop stop residual object={}", id.0);
+                    }
+                }
                 _ => {
                     if !self._sounds_on {
                         continue;
+                    }
+
+                    // Track looping FireSound residual from presentation.
+                    if event.is_looping {
+                        if let Some(id) = event.object_id {
+                            self.looping_object_audio.insert(id.0);
+                        }
                     }
 
                     let Some(table) = self.sound_effects_table.as_ref() else {
