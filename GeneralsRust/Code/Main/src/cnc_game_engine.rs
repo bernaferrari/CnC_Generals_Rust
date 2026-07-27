@@ -16640,6 +16640,72 @@ impl CnCGameEngine {
             pres.eva_base_under_attack_count,
             pres.eva_ally_under_attack_count,
         );
+        // Wave 536: full-matrix EvaAlert pulses → HUD/chat + client Eva speech residual.
+        // Fail-closed: counters still drive the classic 4 lines above (dedupe via last_*).
+        self.apply_presentation_eva_alerts(pres);
+    }
+
+    /// Wave 536: map presentation `EvaAlert` names onto chat/HUD and GameClient Eva.
+    ///
+    /// Names arrive as `EVA_{Variant}` from `host_eva_log::eva_event_audio_name`.
+    /// Client `EvaMessage::from_name` expects C++ table tokens (`LOWPOWER`, …).
+    fn apply_presentation_eva_alerts(
+        &mut self,
+        pres: &crate::presentation_frame::PresentationFrame,
+    ) {
+        use crate::presentation_frame::PresentationEvent;
+        for ev in &pres.events {
+            let PresentationEvent::EvaAlert { name } = ev else {
+                continue;
+            };
+            if name.is_empty() {
+                continue;
+            }
+            let human = Self::eva_alert_human_message(name);
+            self.chat_panel.add_eva_message(&human);
+            self.game_hud.push_info_message(&human);
+            self.ui_manager.game_hud_mut().push_info_message(&human);
+
+            #[cfg(feature = "game_client")]
+            {
+                let token = Self::eva_alert_client_token(name);
+                let _ = game_client::eva::simulate_eva_set_should_play_by_name(&token);
+            }
+        }
+    }
+
+    /// `EVA_LOWPOWER` / table token → chat line residual.
+    fn eva_alert_human_message(name: &str) -> String {
+        let key = name
+            .strip_prefix("EVA_")
+            .unwrap_or(name)
+            .trim()
+            .to_ascii_uppercase();
+        match key.as_str() {
+            "LOWPOWER" => "Warning: low power".into(),
+            "INSUFFICIENTFUNDS" => "Insufficient funds".into(),
+            "BASEUNDERATTACK" => "Our base is under attack".into(),
+            "ALLYUNDERATTACK" => "Ally under attack".into(),
+            "BUILDINGLOST" => "Building lost".into(),
+            "UNITLOST" => "Unit lost".into(),
+            "BEACONDETECTED" => "Beacon detected".into(),
+            "UPGRADECOMPLETE" => "Upgrade complete".into(),
+            "GENERALLEVELUP" => "General level up".into(),
+            "VEHICLESTOLEN" => "Vehicle stolen".into(),
+            "BUILDINGSTOLEN" => "Building stolen".into(),
+            "BUILDINGBEINGSTOLEN" => "Building being stolen".into(),
+            "BUILDINGSABOTAGED" => "Building sabotaged".into(),
+            "CASHSTOLEN" => "Cash stolen".into(),
+            other => format!("EVA: {}", other.replace('_', " ").to_ascii_lowercase()),
+        }
+    }
+
+    /// `EVA_LOWPOWER` → `LOWPOWER` for `EvaMessage::from_name` (C++ table token).
+    fn eva_alert_client_token(name: &str) -> String {
+        name.strip_prefix("EVA_")
+            .unwrap_or(name)
+            .trim()
+            .to_ascii_uppercase()
     }
 
     fn sync_eva_messages_from_host_counts(
