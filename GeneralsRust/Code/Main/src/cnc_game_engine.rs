@@ -16134,20 +16134,9 @@ impl CnCGameEngine {
                     self.game_hud.push_radar_message(msg);
                 }
             }
-            // Wave 462: prefer pipeline/last presentation new_script_messages residual.
-            let new_script_messages: Vec<String> = if let Some(pres) = self
-                .render_pipeline
-                .presentation_frame()
-                .or(self.last_presentation_frame.as_ref())
-            {
-                let msgs = pres.new_script_messages.clone();
-                // Drain live queue so peeked presentation fields are not re-applied.
-                let _ = self.game_logic.take_new_script_messages();
-                msgs
-            } else {
-                // Boot residual only.
-                self.game_logic.take_new_script_messages()
-            };
+            // Wave 570: presentation-or-boot script message residual via helper.
+            let new_script_messages: Vec<String> =
+                self.take_presentation_or_boot_new_script_messages();
             for msg in &new_script_messages {
                 self.game_hud.push_script_message(msg);
             }
@@ -18270,6 +18259,25 @@ impl CnCGameEngine {
 
     /// Wave 569: defeat residual — prefer presentation freeze `defeated_player_ids`,
     /// drain live queue when freeze installed; boot residual takes live.
+
+    /// Wave 570: script message residual — prefer pipeline/last presentation freeze
+    /// `new_script_messages`, drain live queue when freeze installed; boot residual takes live.
+    fn take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
+        // Wave 570: presentation freeze owns script message residual when installed.
+        if let Some(pres) = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref())
+        {
+            let msgs = pres.new_script_messages.clone();
+            // Drain live queue so peeked presentation fields are not re-applied.
+            let _ = self.game_logic.take_new_script_messages();
+            return msgs;
+        }
+        // Boot residual only.
+        self.game_logic.take_new_script_messages()
+    }
+
     fn take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
         // Wave 569: presentation freeze owns defeat residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
