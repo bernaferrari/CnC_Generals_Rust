@@ -1,6 +1,6 @@
 //! Wave 471 residual peels: engine free-fn GameLogic dual-reads for env/path
 //! are collapsed to presentation env seed only.
-//! - free GameLogic helpers: ensure seed + Option camera bootstrap/heights only
+//! - free GameLogic helpers: none after Wave 474 (ensure is instance method)
 //! - minimap reinit is instance (`&mut self`)
 //! - mid-frame path stub removed (Wave 469)
 //! Never flips shell `playable_claim`.
@@ -9,7 +9,7 @@
 //! Architecture residual - Main free helpers no longer dual-read live sim for path/env.
 //!
 //! Sources (cnc_game_engine.rs):
-//! - fn ensure_presentation_env_for_hints(..., game_logic: &GameLogic, shadow)
+//! - fn ensure_presentation_env_for_hints(&mut self) — instance seed (Wave 474)
 //! - fn reinitialize_minimap_renderer(&mut self) — no free GameLogic param
 //! - no fn update_unit_pathfinding
 //!
@@ -173,16 +173,9 @@ pub fn honesty_engine_env_free_fn_game_logic_only_seed_nav_commands_residual_wav
 pub fn simulate_engine_env_free_fn_game_logic_only_seed_source() -> bool {
     let src = cnc_source();
     let free = free_fns_taking_game_logic(src);
-    // Allowed free GameLogic params after Wave 473:
-    // - ensure_presentation_env_for_hints (&GameLogic) seed freeze only
-    let allowed = ["ensure_presentation_env_for_hints"];
-    let ok = free == ["ensure_presentation_env_for_hints"]
-        || (free.len() == 1 && free[0] == "ensure_presentation_env_for_hints")
-        // No required &mut GameLogic free helpers for path/minimap.
-        && !src.contains("fn reinitialize_minimap_renderer(
-        render_pipeline: &mut RenderPipeline,
-        graphics_system: &GraphicsSystem,
-        game_logic: &mut GameLogic")
+    // Wave 474: no free GameLogic helpers remain (ensure is &mut self).
+    let ok = free.is_empty()
+        && src.contains("fn ensure_presentation_env_for_hints(&mut self)")
         && !src.contains("fn update_unit_pathfinding");
     residual_action_store(ResidualEngineEnvFreeFnGameLogicOnlySeedAction::FreeFnSource);
     ok
@@ -237,20 +230,17 @@ mod tests {
     #[test]
     fn engine_env_free_fn_game_logic_only_seed_sources() {
         let free = free_fns_taking_game_logic(cnc_source());
-        let allowed = [
-            "ensure_presentation_env_for_hints",
-            "bootstrap_camera_for_loaded_map",
-            "sample_startup_camera_heights",
-        ];
         assert!(
-            free.iter().all(|n| allowed.contains(&n.as_str())),
+            free.is_empty(),
             "unexpected free GameLogic helpers: {free:?}"
         );
-        assert!(free
-            .iter()
-            .any(|n| n == "ensure_presentation_env_for_hints"));
+        assert!(cnc_source().contains("fn ensure_presentation_env_for_hints(&mut self)"));
         assert!(simulate_engine_env_free_fn_game_logic_only_seed_source());
         assert!(simulate_engine_env_instance_minimap_path_source());
+        assert!(
+            !cnc_source().contains("fn preload_all_models"),
+            "dead preload_all_models must stay removed"
+        );
     }
 
     #[test]
