@@ -26077,6 +26077,46 @@ impl GameLogic {
         id
     }
 
+    /// Wave 622: under damage authority, GameWorld experience writeback records
+    /// veterancy level-ups; host applies combat bonus residual for those IDs.
+    pub fn host_apply_veterancy_ready_completions(&mut self) -> usize {
+        // Wave 622: under damage authority, GameWorld experience writeback records
+        // veterancy level-ups; host applies combat bonus residual for those IDs.
+        if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+            return 0;
+        }
+        use crate::game_logic::VeterancyLevel as V;
+        let events = crate::game_logic::host_veterancy_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.object) else {
+                continue;
+            };
+            if obj.status.destroyed && !obj.is_alive() {
+                continue;
+            }
+            let prev = match ev.previous_ordinal {
+                1 => V::Veteran,
+                2 => V::Elite,
+                3 => V::Heroic,
+                _ => V::Rookie,
+            };
+            let next = match ev.new_ordinal {
+                1 => V::Veteran,
+                2 => V::Elite,
+                3 => V::Heroic,
+                _ => V::Rookie,
+            };
+            if next == prev {
+                continue;
+            }
+            // Level already writeback-synced; apply combat residual bonuses.
+            obj.apply_veterancy_bonuses(prev, next);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn process_destroy_list(&mut self) {
         // Wave 621: under damage authority, GameWorld health writeback records
         // lethal IDs; host marks them here before draining the destroy queue.
