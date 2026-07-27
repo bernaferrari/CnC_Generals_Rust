@@ -2682,6 +2682,8 @@ impl GameWorldShadow {
     /// Write shadow entity owner last-writer onto host object team.
     pub fn writeback_owner_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, crate::game_logic::Team, crate::game_logic::Team)> =
+            Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2693,11 +2695,18 @@ impl GameWorldShadow {
                 continue;
             };
             if obj.team != want_team {
+                let prev = obj.team;
                 // Direct assign to avoid re-logging host_owner_log during writeback.
                 obj.team = want_team;
                 obj.team_color = want_team.get_color();
+                // Wave 629: GameWorld owner last-write residual —
+                // host applies capture side effects from ready log.
+                ready.push((ObjectId(hid), prev, want_team));
                 updated += 1;
             }
+        }
+        for (oid, prev, next) in ready {
+            crate::game_logic::host_owner_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -7844,6 +7853,8 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_hijacker_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
+    // Wave 629: drain owner-ready log after GW owner writeback.
+    let _owner_ready = logic.host_apply_owner_ready_completions();
     let mut writebacks = 0usize;
     // HP last-writer: damage mutations and/or absolute heal SetHealth events.
     if auth && (!events.is_empty() || !heal_events.is_empty() || !experience_events.is_empty()) {
@@ -10343,6 +10354,7 @@ mod tests {
             o.team_color = Team::USA.get_color();
         }
         let wb = shadow.writeback_owner_to_host(&mut logic);
+        let _ = crate::game_logic::host_owner_ready_log::drain();
         let o = logic.get_objects().get(&id).expect("o");
         assert!(
             wb >= 1,

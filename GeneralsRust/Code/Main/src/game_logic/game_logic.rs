@@ -26096,6 +26096,24 @@ impl GameLogic {
     /// host applies door model-condition residual for the new phase.
     /// Wave 628: GameWorld contain writeback records membership changes;
     /// host applies garrison AI residual + enter/exit honesty counters.
+    /// Wave 629: GameWorld owner writeback records team changes; host applies
+    /// capture residual (kick passengers, deselect, idle, score).
+    pub fn host_apply_owner_ready_completions(&mut self) -> usize {
+        // Wave 629: GameWorld owner writeback records team changes; host applies
+        // capture residual (kick passengers, deselect, idle, score).
+        let events = crate::game_logic::host_owner_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            if ev.previous_team == ev.new_team {
+                continue;
+            }
+            // Team already writeback-synced; run capture residual side effects.
+            self.on_capture_object_residual(ev.object, ev.previous_team, ev.new_team);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_contain_ready_completions(&mut self) -> usize {
         // Wave 628: GameWorld contain writeback records membership changes;
         // host applies garrison AI residual + enter/exit honesty counters.

@@ -169,6 +169,7 @@ Remaining engine residual after host update:
   - Construction-complete-clear ready log: GW writeback → `host_construction_complete_clear_ready_log` → host bit clear (Wave 626)
   - Production-door ready log: GW writeback → `host_production_door_ready_log` → host door model apply (Wave 627)
   - Contain ready log: session writeback_contain → `host_contain_ready_log` → host garrison AI residual (Wave 628)
+  - Owner ready log: GW writeback → `host_owner_ready_log` → host capture residual (Wave 629)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
