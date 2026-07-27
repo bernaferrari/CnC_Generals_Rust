@@ -430,6 +430,7 @@ pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
 pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
+pub mod host_live_production_door_model_condition_log_residual_wave486;
 pub mod host_live_production_exit_delay_sole_tick_residual_wave464;
 pub mod host_live_production_quantity_writeback_residual_wave463;
 pub mod host_live_production_sole_tick_exit_delay_arm_residual_wave480;
@@ -2207,6 +2208,22 @@ pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE478,
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
     RUNTIME_HOST_CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_CMD_NAMES_WAVE478,
+};
+pub use host_live_production_door_model_condition_log_residual_wave486::{
+    honesty_production_door_model_condition_log_method_names_residual_wave486,
+    honesty_production_door_model_condition_log_nav_commands_residual_wave486,
+    honesty_production_door_model_condition_log_residual_pack_wave486,
+    honesty_production_door_model_condition_log_source_markers_residual_wave486,
+    residual_production_door_model_condition_log_last_action,
+    residual_production_door_model_condition_log_ok,
+    simulate_live_production_door_model_condition_log_honesty,
+    simulate_production_door_model_condition_log_door_tick_source,
+    simulate_production_door_model_condition_log_writeback_source,
+    ResidualProductionDoorModelConditionLogAction,
+    PRODUCTION_DOOR_MODEL_CONDITION_LOG_METHOD_NAMES_WAVE486,
+    PRODUCTION_DOOR_MODEL_CONDITION_LOG_NAV_STEPS_WAVE486,
+    PRODUCTION_DOOR_MODEL_CONDITION_LOG_SOURCE_MARKERS_WAVE486,
+    RUNTIME_HOST_PRODUCTION_DOOR_MODEL_CONDITION_LOG_CMD_NAMES_WAVE486,
 };
 pub use host_live_production_sole_tick_exit_delay_arm_residual_wave480::{
     honesty_production_sole_tick_exit_delay_arm_method_names_residual_wave480,
