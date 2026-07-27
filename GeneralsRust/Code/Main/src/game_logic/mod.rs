@@ -371,6 +371,7 @@ pub mod host_live_mob_member_slaved_update_dual_world_empty_gate_residual_wave37
 pub mod host_live_modules_dual_world_empty_gate_residual_wave340;
 pub mod host_live_mouse_input_presentation_only_residual_wave236;
 pub mod host_live_move_to_state_dual_world_empty_gate_residual_wave422;
+pub mod host_live_named_shell_host_only_tracker_residual_wave476;
 pub mod host_live_neutron_blast_dual_world_empty_gate_residual_wave327;
 pub mod host_live_neutron_missile_slow_death_update_dual_world_empty_gate_residual_wave396;
 pub mod host_live_nuclear_missile_power_dual_world_empty_gate_residual_wave441;
@@ -2182,6 +2183,18 @@ pub use host_live_map_ground_no_registry_pose_dual_write_residual_wave475::{
     MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_NAV_STEPS_WAVE475,
     MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_SOURCE_MARKERS_WAVE475,
     RUNTIME_HOST_MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_CMD_NAMES_WAVE475,
+};
+pub use host_live_named_shell_host_only_tracker_residual_wave476::{
+    honesty_named_shell_host_only_tracker_method_names_residual_wave476,
+    honesty_named_shell_host_only_tracker_nav_commands_residual_wave476,
+    honesty_named_shell_host_only_tracker_residual_pack_wave476,
+    residual_named_shell_host_only_tracker_last_action, residual_named_shell_host_only_tracker_ok,
+    simulate_live_named_shell_host_only_tracker_honesty, simulate_named_shell_dual_mirror_absent,
+    simulate_named_shell_host_only_tracker_source, ResidualNamedShellHostOnlyTrackerAction,
+    NAMED_SHELL_HOST_ONLY_TRACKER_METHOD_NAMES_WAVE476,
+    NAMED_SHELL_HOST_ONLY_TRACKER_NAV_STEPS_WAVE476,
+    NAMED_SHELL_HOST_ONLY_TRACKER_SOURCE_MARKERS_WAVE476,
+    RUNTIME_HOST_NAMED_SHELL_HOST_ONLY_TRACKER_CMD_NAMES_WAVE476,
 };
 
 pub use host_live_camera_center_presentation_height_residual_wave460::{

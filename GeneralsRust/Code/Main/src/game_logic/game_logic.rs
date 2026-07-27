@@ -5534,74 +5534,14 @@ impl GameLogic {
             return;
         }
 
-        // Default host path: register the host ObjectId on the named tracker.
-        // Dual ObjectManager/OBJECT_REGISTRY mirror only when engine bridge is on.
-        if !crate::gameworld_shadow::engine_object_bridge_enabled() {
-            if let Err(err) = tracker.register_named_object(name.to_string(), host_id.0) {
-                log::warn!(
-                    "Failed to register host shell object '{}' -> {}: {}",
-                    name,
-                    host_id.0,
-                    err
-                );
-            }
-            return;
-        }
-
-        let team_arc = object.team_name.as_deref().and_then(|team_name| {
-            gamelogic::team::get_team_factory()
-                .lock()
-                .ok()
-                .and_then(|mut factory| factory.find_team(team_name))
-        });
-
-        let terrain_height = self
-            .terrain_height_at(Vec3::new(object.position.x, 0.0, object.position.y))
-            .unwrap_or(0.0);
-        let position = gamelogic::common::Coord3D::new(
-            object.position.x,
-            object.position.y,
-            object.position.z + terrain_height,
-        );
-
-        let object_id = match gamelogic::object_manager::get_object_manager().write() {
-            Ok(mut manager) => match manager.create_object(
-                object.template.as_str(),
-                position,
-                team_arc,
-                gamelogic::object_manager::ObjectCreationFlags::from_template(),
-            ) {
-                Ok(id) => id,
-                Err(err) => {
-                    log::warn!(
-                        "Failed to mirror named shell object '{}' ({}) into legacy runtime: {}",
-                        name,
-                        object.template,
-                        err
-                    );
-                    return;
-                }
-            },
-            Err(_) => {
-                log::warn!(
-                    "Failed to lock GameLogic object manager while mirroring named shell object '{}'",
-                    name
-                );
-                return;
-            }
-        };
-
-        if let Some(obj_arc) = gamelogic::helpers::TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(mut obj) = obj_arc.write() {
-                obj.set_name(gamelogic::common::AsciiString::from(name));
-            }
-        }
-
-        if let Err(err) = tracker.register_named_object(name.to_string(), object_id) {
+        // Wave 476: host-only named tracker registration.
+        // Dual ObjectManager/OBJECT_REGISTRY mirror retired — host ObjectId is the name key;
+        // GameWorld shadow materialize owns any GW entity map when dual-tick is enabled.
+        if let Err(err) = tracker.register_named_object(name.to_string(), host_id.0) {
             log::warn!(
-                "Failed to register mirrored shell object '{}' -> {}: {}",
+                "Failed to register host shell object '{}' -> {}: {}",
                 name,
-                object_id,
+                host_id.0,
                 err
             );
         }
