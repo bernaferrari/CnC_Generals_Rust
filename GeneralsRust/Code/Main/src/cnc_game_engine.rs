@@ -17110,8 +17110,11 @@ impl CnCGameEngine {
 
     /// Local/human player id for UI command issue. Prefers presentation freeze.
     fn local_player_id_for_ui(&self) -> u32 {
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            return frame.local_player_id;
+        // Wave 240/555: presentation freeze owns local player residual when installed.
+        if self.last_presentation_frame.is_some() {
+            return self
+                .presentation_or_boot_local_player_id()
+                .unwrap_or(self.current_player_id);
         }
         // Wave 240: boot residual via player_exists / min_player_id probes.
         if self.game_logic.player_exists(self.current_player_id) {
@@ -17122,13 +17125,8 @@ impl CnCGameEngine {
 
     /// Local team for UI. Prefers presentation freeze.
     fn local_team_for_ui(&self) -> crate::game_logic::Team {
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            return frame.local_team();
-        }
-        // Wave 240: boot residual via player_team probe.
-        self.game_logic
-            .player_team(self.current_player_id)
-            .unwrap_or(crate::game_logic::Team::USA)
+        // Wave 240/555: via presentation_or_boot_local_team helper.
+        self.presentation_or_boot_local_team()
     }
 
     /// Wave 234/549: player roster probe prefers presentation freeze.
@@ -18327,6 +18325,33 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.get_difficulty()
+    }
+
+    /// Wave 555: presentation freeze owns unlocked-sciences residual when installed.
+    /// Boot residual without freeze uses host probe API.
+    #[inline]
+
+    /// Wave 555: presentation freeze owns local team residual when installed.
+    /// Boot residual without freeze uses host player_team probe.
+    #[inline]
+    fn presentation_or_boot_local_team(&self) -> crate::game_logic::Team {
+        // Wave 555: presentation freeze owns local team residual when installed.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return frame.local_team();
+        }
+        // Boot residual only.
+        self.game_logic
+            .player_team(self.current_player_id)
+            .unwrap_or(crate::game_logic::Team::USA)
+    }
+
+    fn presentation_or_boot_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
+        // Wave 555: presentation freeze owns unlocked-sciences residual when installed.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return frame.local_unlocked_sciences.clone();
+        }
+        // Boot residual only.
+        self.game_logic.player_unlocked_sciences(player_id)
     }
 
     /// Wave 552: Menu residual — only trust freeze when it *affirms* shell-map
@@ -21423,12 +21448,9 @@ impl CnCGameEngine {
                 "SCIENCE_SpyDrone",
             ],
         };
-        // Wave 238: unlocked sciences prefer presentation freeze; boot via probe API.
-        let unlocked: Vec<String> = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_unlocked_sciences.clone()
-        } else {
-            self.game_logic.player_unlocked_sciences(player_id)
-        };
+        // Wave 238/555: unlocked sciences prefer presentation freeze; boot via
+        // player_unlocked_sciences probe API (presentation_or_boot_unlocked_sciences).
+        let unlocked: Vec<String> = self.presentation_or_boot_unlocked_sciences(player_id);
 
         let mut chosen = None;
         for &name in candidates {

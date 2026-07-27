@@ -520,6 +520,7 @@ pub mod host_live_rmb_target_presentation_only_residual_wave228;
 pub mod host_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_residual_wave391;
 pub mod host_live_salvage_crate_collide_dual_world_empty_gate_residual_wave390;
 pub mod host_live_save_restart_presentation_fail_closed_residual_wave545;
+pub mod host_live_science_team_presentation_helper_residual_wave555;
 pub mod host_live_script_actions_dual_world_empty_gate_residual_wave295;
 pub mod host_live_script_conditions_dual_world_empty_gate_residual_wave271;
 pub mod host_live_script_engine_dual_world_empty_gate_residual_wave348;
@@ -2594,6 +2595,15 @@ pub use host_live_save_restart_presentation_fail_closed_residual_wave545::{
     residual_save_restart_presentation_fail_closed_last_action,
     residual_save_restart_presentation_fail_closed_ok,
     simulate_live_save_restart_presentation_fail_closed_honesty,
+};
+pub use host_live_science_team_presentation_helper_residual_wave555::{
+    honesty_science_team_presentation_helper_method_names_residual_wave555,
+    honesty_science_team_presentation_helper_nav_commands_residual_wave555,
+    honesty_science_team_presentation_helper_residual_pack_wave555,
+    honesty_science_team_presentation_helper_source_markers_residual_wave555,
+    residual_science_team_presentation_helper_last_action,
+    residual_science_team_presentation_helper_ok,
+    simulate_live_science_team_presentation_helper_honesty,
 };
 pub use host_live_shell_bypass_presentation_helper_residual_wave552::{
     honesty_shell_bypass_presentation_helper_method_names_residual_wave552,
