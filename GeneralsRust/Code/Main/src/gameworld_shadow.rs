@@ -4,7 +4,7 @@
 //! plus a **stable** host `ObjectId` → `EntityId` map so damage/spawn/destroy can be
 //! applied as `WorldMutation`s without pointer ownership.
 //!
-//! Opt-in runtime: `GENERALS_GAMEWORLD_SHADOW=1`.
+//! Production default ON; opt out with `GENERALS_GAMEWORLD_SHADOW=0`.
 //!
 //! Policy: borrow host for sync phases only; never store long-lived host references.
 
