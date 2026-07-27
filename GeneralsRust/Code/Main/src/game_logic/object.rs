@@ -6407,6 +6407,50 @@ impl Object {
         true
     }
 
+    /// Wave 623: apply BodyDamageType transition residual after GW writeback.
+    ///
+    /// Does not recompute state from HP (GameWorld is last-writer for the enum).
+    /// Applies model bits + BoneFX/TransitionDamageFX/FXListDie peels.
+    pub(crate) fn apply_body_damage_state_change_residual(
+        &mut self,
+        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    ) {
+        use crate::game_logic::host_enum_table_residual::{
+            host_apply_body_damage_model_bits, HostBodyDamageType,
+        };
+        self.body_damage_state = state;
+        crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
+        if old_state != state {
+            if self.bone_fx_damage.is_none()
+                && crate::game_logic::host_bone_fx_damage::wants_bone_fx(&self.template_name)
+            {
+                self.bone_fx_damage =
+                    Some(crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::default());
+            }
+            if let Some(bfx) = self.bone_fx_damage.as_mut() {
+                let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
+            }
+        }
+        self.ensure_transition_damage_fx();
+        if let Some(cfg) = self.transition_damage_fx.as_ref() {
+            if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
+                cfg, old_state, state,
+            ) {
+                self.pending_transition_damage_fx.push(ev);
+            }
+        }
+        if matches!(state, HostBodyDamageType::Rubble)
+            && !matches!(old_state, HostBodyDamageType::Rubble)
+        {
+            self.fire_fx_list_die();
+            self.fire_create_object_die();
+        }
+        self.model_condition_bits =
+            host_apply_body_damage_model_bits(self.model_condition_bits, state);
+        self.record_host_model_condition();
+    }
+
     pub fn refresh_model_condition_bits(&mut self) {
         use crate::game_logic::host_enum_table_residual::{
             host_apply_body_damage_model_bits, host_calc_body_damage_state, HostBodyDamageType,
