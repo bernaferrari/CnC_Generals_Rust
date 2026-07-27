@@ -15499,76 +15499,8 @@ impl CnCGameEngine {
         let network_frame_data_ready =
             Self::network_frame_data_ready_gate(self.host_is_in_multiplayer_game());
         if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
-            // Retail m_TiVOFastMode residual: extra logic steps while armed.
-            let ff_steps = if self.replay_fast_forward { 4 } else { 1 };
-            // Headless residual: cap catch-up (4 logic frames ≈ 133ms) so a slow
-            // present/update path cannot freeze the host control loop for seconds.
-            let headless_step_budget = if self.runtime_host_headless {
-                Some(4usize)
-            } else {
-                None
-            };
-            // Coupled host→shadow frame: sole-tick systems freeze host percent only
-            // while this is set AND the engine owns a live GameWorldShadow that will
-            // write back after the host tick. Host-only gates / missing shadow leave
-            // host construction/production advancing (fail-open).
-            let couple_shadow = self.gameworld_shadow.is_some();
-            if couple_shadow {
-                crate::gameworld_shadow::begin_shadow_coupled_tick();
-            }
-            // Update game logic first
-            for _ in 0..ff_steps {
-                // Wave 584: host logic tick residual via helper.
-                self.host_update_logic_frame(dt, headless_step_budget);
-            }
-            // Script FPS applied from presentation residual after snapshot build (below).
-            // Live take remains for boot path when no frame is produced this tick.
-
-            // Single-authority policy: Main GameLogic is the match host by default.
-            // Dual-tick of the ported gamelogic crate is opt-in (GENERALS_ALLOW_DUAL_TICK)
-            // and is fatal under GENERALS_VERIFY_SINGLE_AUTHORITY verification builds.
-            let policy = crate::authoritative_world::dual_tick_policy();
-            if let Err(e) = crate::authoritative_world::apply_post_authority_crate_tick(
-                policy,
-                crate::game_logic::tick_gamelogic_crate,
-            ) {
-                log::error!("{e}");
-                // Verification: refuse to continue a dual-world silent failure.
-                if crate::authoritative_world::verification_single_authority() {
-                    panic!("{e}");
-                }
-            }
-            // C++ parity: when script time-freeze is active, gameplay simulation should not
-            // advance outside script evaluation.
-            // Host side systems (projectiles) run *before* shadow session + PresentationFrame
-            // so damage logs and end-of-frame identity include this frame's side systems.
-            // Path following already ran inside GameLogic::update_movement.
-            // Projectiles + path following are owned by GameLogic::update_simulation
-            // (update_combat drain/step + update_movement). Engine must not run a
-            // second mid-frame CombatSystem/PathfindingSystem mover.
-            // Wave 250: prefer presentation freeze residual when a frame is installed.
-            let time_frozen = self.presentation_or_boot_time_frozen();
-            if !time_frozen {
-                // Hit SFX residual: prefer presentation audio events; legacy direct
-                // Hit playback removed with dual CombatSystem step.
-                let _ = dt;
-            }
-
-            // AI/player commands queued during GameLogic::update_simulation are
-            // flushed in-phase (early commands + post-AI phase 8b). Engine does
-            // not re-drain the command list before shadow.
-
-            // Wave 597: GameWorld shadow session residual via host helper.
-            self.host_run_gameworld_shadow_after_logic(couple_shadow);
-
-            // Wave 589: presentation finalize residual via helper (build + audio + FX).
-            self.host_finalize_presentation_after_logic();
-
-            #[cfg(feature = "game_client")]
-            {
-                // Wave 586: GameClient presentation shell residual via helper.
-                self.host_tick_game_client_presentation_shell();
-            }
+            // Wave 602: host InGame logic+shadow+presentation residual via helper.
+            self.host_run_ingame_logic_presentation_frame(dt);
         }
 
         // Wave 598: InGame HUD presentation residual via host helper.
@@ -17424,7 +17356,16 @@ impl CnCGameEngine {
         });
     }
 
+    /// Wave 602: via `host_route_shell_owned_screen_change`.
     fn route_shell_owned_screen_change(&mut self, screen: Screen) {
+        // Wave 602: thin wrapper — shell screen route via host helper.
+        self.host_route_shell_owned_screen_change(screen);
+    }
+
+    /// Wave 602: host shell-owned screen route residual (MainMenu/Options/Credits/
+    /// LoadGame/Skirmish WND push path).
+    fn host_route_shell_owned_screen_change(&mut self, screen: Screen) {
+        // Wave 602: host shell screen route residual.
         match screen {
             Screen::MainMenu => self.enter_shell_menu_from_runtime_host(None),
             Screen::Options => self.enter_shell_options_from_runtime_host(),
@@ -17785,6 +17726,86 @@ impl CnCGameEngine {
     fn restart_mission_from_ui(&mut self) {
         // Wave 601: thin wrapper — restart via host helper.
         self.host_restart_mission_from_ui();
+    }
+
+    /// Wave 602: InGame logic frame residual (host tick → dual-tick policy → shadow →
+    /// presentation finalize → client presentation shell).
+    ///
+    /// Couples GameWorld shadow when live, advances host logic (with retail FF /
+    /// headless budget), optionally dual-ticks the ported crate, then runs the
+    /// post-logic shadow session and presentation finalize helpers.
+    fn host_run_ingame_logic_presentation_frame(&mut self, dt: f32) {
+        // Wave 602: InGame logic+presentation residual.
+        // Retail m_TiVOFastMode residual: extra logic steps while armed.
+        let ff_steps = if self.replay_fast_forward { 4 } else { 1 };
+        // Headless residual: cap catch-up (4 logic frames ≈ 133ms) so a slow
+        // present/update path cannot freeze the host control loop for seconds.
+        let headless_step_budget = if self.runtime_host_headless {
+            Some(4usize)
+        } else {
+            None
+        };
+        // Coupled host→shadow frame: sole-tick systems freeze host percent only
+        // while this is set AND the engine owns a live GameWorldShadow that will
+        // write back after the host tick. Host-only gates / missing shadow leave
+        // host construction/production advancing (fail-open).
+        let couple_shadow = self.gameworld_shadow.is_some();
+        if couple_shadow {
+            crate::gameworld_shadow::begin_shadow_coupled_tick();
+        }
+        // Update game logic first
+        for _ in 0..ff_steps {
+            // Wave 584: host logic tick residual via helper.
+            self.host_update_logic_frame(dt, headless_step_budget);
+        }
+        // Script FPS applied from presentation residual after snapshot build (below).
+        // Live take remains for boot path when no frame is produced this tick.
+
+        // Single-authority policy: Main GameLogic is the match host by default.
+        // Dual-tick of the ported gamelogic crate is opt-in (GENERALS_ALLOW_DUAL_TICK)
+        // and is fatal under GENERALS_VERIFY_SINGLE_AUTHORITY verification builds.
+        let policy = crate::authoritative_world::dual_tick_policy();
+        if let Err(e) = crate::authoritative_world::apply_post_authority_crate_tick(
+            policy,
+            crate::game_logic::tick_gamelogic_crate,
+        ) {
+            log::error!("{e}");
+            // Verification: refuse to continue a dual-world silent failure.
+            if crate::authoritative_world::verification_single_authority() {
+                panic!("{e}");
+            }
+        }
+        // C++ parity: when script time-freeze is active, gameplay simulation should not
+        // advance outside script evaluation.
+        // Host side systems (projectiles) run *before* shadow session + PresentationFrame
+        // so damage logs and end-of-frame identity include this frame's side systems.
+        // Path following already ran inside GameLogic::update_movement.
+        // Projectiles + path following are owned by GameLogic::update_simulation
+        // (update_combat drain/step + update_movement). Engine must not run a
+        // second mid-frame CombatSystem/PathfindingSystem mover.
+        // Wave 250: prefer presentation freeze residual when a frame is installed.
+        let time_frozen = self.presentation_or_boot_time_frozen();
+        if !time_frozen {
+            // Hit SFX residual: prefer presentation audio events; legacy direct
+            // Hit playback removed with dual CombatSystem step.
+            let _ = dt;
+        }
+
+        // AI/player commands queued during GameLogic::update_simulation are
+        // flushed in-phase (early commands + post-AI phase 8b). Engine does
+        // not re-drain the command list before shadow.
+
+        // Wave 597: GameWorld shadow session residual via host helper.
+        self.host_run_gameworld_shadow_after_logic(couple_shadow);
+
+        // Wave 589: presentation finalize residual via helper (build + audio + FX).
+        self.host_finalize_presentation_after_logic();
+
+        #[cfg(feature = "game_client")]
+        {
+            // Wave 586: GameClient presentation shell residual via helper.
+            self.host_tick_game_client_presentation_shell();
+        }
     }
 
     /// Wave 601: host restart-mission residual.

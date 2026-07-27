@@ -137,6 +137,8 @@ Remaining engine residual after host update:
   - Match outcome: `host_broadcast_match_outcome_residuals` (defeat/alliance/victory; Wave 599)
   - Post-HUD client: `host_tick_post_presentation_client_residuals` (camera/audio/UI/popup/music; Wave 600)
   - Restart/pause: `host_restart_mission_from_ui` + `host_set_paused` (Wave 601)
+  - InGame logic frame: `host_run_ingame_logic_presentation_frame` (tick+dual-tick+shadow+finalize+shell; Wave 602)
+  - Shell screen route: `host_route_shell_owned_screen_change` (Wave 602)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
