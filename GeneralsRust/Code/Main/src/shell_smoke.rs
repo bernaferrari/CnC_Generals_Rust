@@ -2396,6 +2396,11 @@ use crate::game_logic::host_live_host_post_presentation_client_helper_residual_w
     honesty_host_post_presentation_client_helper_nav_commands_residual_wave600,
     simulate_live_host_post_presentation_client_helper_honesty,
 };
+use crate::game_logic::host_live_host_restart_pause_helper_residual_wave601::{
+    honesty_host_restart_pause_helper_method_names_residual_wave601,
+    honesty_host_restart_pause_helper_nav_commands_residual_wave601,
+    simulate_live_host_restart_pause_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5914,6 +5919,9 @@ pub struct ShellSmokeResult {
     pub host_post_presentation_client_helper_method_names_wave600_ok: bool,
     pub host_post_presentation_client_helper_nav_commands_wave600_ok: bool,
     pub host_post_presentation_client_helper_live_wave600_ok: bool,
+    pub host_restart_pause_helper_method_names_wave601_ok: bool,
+    pub host_restart_pause_helper_nav_commands_wave601_ok: bool,
+    pub host_restart_pause_helper_live_wave601_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9257,6 +9265,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_post_presentation_client_helper_nav_commands_residual_wave600();
     let host_post_presentation_client_helper_live_wave600_ok =
         simulate_live_host_post_presentation_client_helper_honesty();
+    let host_restart_pause_helper_method_names_wave601_ok =
+        honesty_host_restart_pause_helper_method_names_residual_wave601();
+    let host_restart_pause_helper_nav_commands_wave601_ok =
+        honesty_host_restart_pause_helper_nav_commands_residual_wave601();
+    let host_restart_pause_helper_live_wave601_ok =
+        simulate_live_host_restart_pause_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11046,6 +11060,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_post_presentation_client_helper_method_names_wave600_ok,
         host_post_presentation_client_helper_nav_commands_wave600_ok,
         host_post_presentation_client_helper_live_wave600_ok,
+        host_restart_pause_helper_method_names_wave601_ok,
+        host_restart_pause_helper_nav_commands_wave601_ok,
+        host_restart_pause_helper_live_wave601_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -20316,6 +20333,21 @@ mod tests {
         assert!(
             r.host_post_presentation_client_helper_live_wave600_ok,
             "host post presentation client helper live residual wave600: {}",
+            r.detail
+        );
+        assert!(
+            r.host_restart_pause_helper_method_names_wave601_ok,
+            "host restart pause helper method names residual pack wave601: {}",
+            r.detail
+        );
+        assert!(
+            r.host_restart_pause_helper_nav_commands_wave601_ok,
+            "host restart pause helper nav commands residual pack wave601: {}",
+            r.detail
+        );
+        assert!(
+            r.host_restart_pause_helper_live_wave601_ok,
+            "host restart pause helper live residual wave601: {}",
             r.detail
         );
         assert!(

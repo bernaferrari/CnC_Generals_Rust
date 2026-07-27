@@ -1,12 +1,12 @@
 //! Wave 575 residual peels: host pause dual-write is centralized through
-//! `set_host_paused`, and `ui_local_player_team_name` routes through
+//! `host_set_paused`, and `ui_local_player_team_name` routes through
 //! `presentation_or_boot_local_team`. Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 574 boot local player helper residual.
 //! Host residual only — network deferred.
 //!
 //! Sources:
-//! - `cnc_game_engine.rs` set_host_paused / ui_local_player_team_name
+//! - `cnc_game_engine.rs` host_set_paused / ui_local_player_team_name
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -21,7 +21,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const LIVE_HOST_PAUSE_TEAM_HELPER_METHOD_NAMES_WAVE575: &[&str] = &[
-    "set_host_paused",
+    "host_set_paused",
     "ui_local_player_team_name",
     "presentation_or_boot_local_team",
     "set_paused",
@@ -106,7 +106,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 
 pub fn honesty_host_pause_team_helper_method_names_residual_wave575() -> bool {
     let names = LIVE_HOST_PAUSE_TEAM_HELPER_METHOD_NAMES_WAVE575;
-    let ok = residual_name_index(names, "set_host_paused").is_some()
+    let ok = residual_name_index(names, "host_set_paused").is_some()
         && residual_name_index(names, "ui_local_player_team_name").is_some()
         && residual_name_index(names, "presentation_or_boot_local_team").is_some()
         && residual_name_index(names, "set_paused").is_some()
@@ -118,7 +118,7 @@ pub fn honesty_host_pause_team_helper_method_names_residual_wave575() -> bool {
 
 pub fn honesty_host_pause_team_helper_source_markers_residual_wave575() -> bool {
     let eng = eng_source();
-    let Some(pause) = fn_body(eng, "fn set_host_paused(") else {
+    let Some(pause) = fn_body(eng, "fn host_set_paused(") else {
         residual_action_store(ResidualHostPauseTeamHelperAction::SourceMarkers);
         return false;
     };
@@ -133,10 +133,10 @@ pub fn honesty_host_pause_team_helper_source_markers_residual_wave575() -> bool 
         && name.contains("presentation_or_boot_local_team()")
         && !name.contains("player_team(");
     let raw_set = eng.matches("self.game_logic.set_paused").count();
-    let call_ok = eng.contains("self.set_host_paused(true)")
-        && eng.contains("self.set_host_paused(false)")
-        && eng.contains("self.set_host_paused(!self.game_paused)");
-    // only inside set_host_paused
+    let call_ok = eng.contains("self.host_set_paused(true)")
+        && eng.contains("self.host_set_paused(false)")
+        && eng.contains("self.host_set_paused(!self.game_paused)");
+    // only inside host_set_paused
     let ok =
         pause_ok && name_ok && call_ok && raw_set == 1 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostPauseTeamHelperAction::SourceMarkers);
@@ -160,7 +160,7 @@ pub fn honesty_host_pause_team_helper_nav_commands_residual_wave575() -> bool {
 pub fn simulate_host_pause_team_helper_collect_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("Wave 575")
-        && eng.contains("fn set_host_paused")
+        && eng.contains("fn host_set_paused")
         && eng.contains("fn ui_local_player_team_name");
     residual_action_store(ResidualHostPauseTeamHelperAction::CollectSource);
     ok
@@ -168,7 +168,7 @@ pub fn simulate_host_pause_team_helper_collect_source() -> bool {
 
 pub fn simulate_host_pause_team_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("self.set_host_paused(")
+    let ok = eng.contains("self.host_set_paused(")
         && eng.contains("presentation_or_boot_local_team()")
         && eng.contains("apply_presentation_popup_music_residual");
     residual_action_store(ResidualHostPauseTeamHelperAction::DispatchSource);

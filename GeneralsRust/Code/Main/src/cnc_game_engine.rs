@@ -15127,7 +15127,7 @@ impl CnCGameEngine {
             GameState::Menu => {
                 info!("Entering Menu state — transition_to_state start");
                 // C++ shell menus keep the shell map simulation alive behind the UI.
-                self.set_host_paused(false);
+                self.host_set_paused(false);
                 self.active_menu_shell_hook = None;
                 info!("Menu transition: calling hide_gameplay_layouts");
                 self.hide_gameplay_layouts();
@@ -15154,7 +15154,7 @@ impl CnCGameEngine {
             GameState::InGame => {
                 info!("Entering InGame state");
                 // Start game logic, enable input
-                self.set_host_paused(false);
+                self.host_set_paused(false);
                 // C++ hides the shell when a match begins. Leaving layouts visible can
                 // re-init MainMenu on shell ticks and bounce status mid-match. Prefer
                 // hide_shell over a pop-loop (pop can re-enter layout shutdown/init).
@@ -15176,7 +15176,7 @@ impl CnCGameEngine {
             GameState::Paused => {
                 info!("Entering Paused state");
                 // Freeze game logic, show pause menu
-                self.set_host_paused(true);
+                self.host_set_paused(true);
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::PauseMenu);
                 self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
@@ -15186,7 +15186,7 @@ impl CnCGameEngine {
             }
             GameState::Victory => {
                 info!("Entering Victory state - match won");
-                self.set_host_paused(true);
+                self.host_set_paused(true);
                 if self.ui_manager.current_screen() != Some(crate::ui::Screen::Victory) {
                     self.ui_manager
                         .show_match_result(true, self.current_player_id);
@@ -15195,7 +15195,7 @@ impl CnCGameEngine {
             }
             GameState::Defeat => {
                 info!("Entering Defeat state - match lost");
-                self.set_host_paused(true);
+                self.host_set_paused(true);
                 if self.ui_manager.current_screen() != Some(crate::ui::Screen::Victory) {
                     self.ui_manager
                         .show_match_result(false, self.current_player_id);
@@ -16582,8 +16582,8 @@ impl CnCGameEngine {
         self.game_logic.process_commands();
     }
 
-    fn set_host_paused(&mut self, paused: bool) {
-        // Wave 575: paired host pause residual.
+    fn host_set_paused(&mut self, paused: bool) {
+        // Wave 575/601: paired host pause residual.
         self.game_paused = paused;
         self.game_logic.set_paused(paused);
     }
@@ -17584,7 +17584,7 @@ impl CnCGameEngine {
         // Wave 571: presentation freeze owns popup/music residual when installed.
         for popup in &pres.pending_popup_messages {
             if popup.pause {
-                self.set_host_paused(true);
+                self.host_set_paused(true);
             }
             if popup.pause_music {
                 if let Some(sink) = self.background_music.take() {
@@ -17608,7 +17608,7 @@ impl CnCGameEngine {
         // Wave 571: boot residual only.
         for popup in self.game_logic.take_popup_message_requests() {
             if popup.pause {
-                self.set_host_paused(true);
+                self.host_set_paused(true);
             }
             if popup.pause_music {
                 if let Some(sink) = self.background_music.take() {
@@ -17781,7 +17781,18 @@ impl CnCGameEngine {
         let _ = self.game_logic.take_camera_motion_blur_requests();
     }
 
+    /// Wave 601: via `host_restart_mission_from_ui`.
     fn restart_mission_from_ui(&mut self) {
+        // Wave 601: thin wrapper — restart via host helper.
+        self.host_restart_mission_from_ui();
+    }
+
+    /// Wave 601: host restart-mission residual.
+    ///
+    /// Presentation freeze owns map/faction when installed; boot residual uses
+    /// host probes. Starts a new match through `start_game_from_ui`.
+    fn host_restart_mission_from_ui(&mut self) {
+        // Wave 601: host restart-mission residual.
         // Wave 545: presentation freeze owns restart map/faction residual.
         // Wave 554: via presentation_or_boot_map_name / presentation_or_live_game_mode.
         let map = self.presentation_or_boot_map_name();
@@ -19238,7 +19249,7 @@ impl CnCGameEngine {
                     slot, save_info.map_name, save_info.display_name
                 );
 
-                self.set_host_paused(false);
+                self.host_set_paused(false);
                 self.match_over = false;
                 self.victory_summary = None;
                 self.selected_objects.clear();
@@ -19354,7 +19365,7 @@ impl CnCGameEngine {
         self.host_load_map_or_default(&map_name);
 
         // Reset transient state.
-        self.set_host_paused(false);
+        self.host_set_paused(false);
         self.match_over = false;
         self.victory_summary = None;
         self.selected_objects.clear();
@@ -24347,7 +24358,7 @@ impl CnCGameEngine {
     }
 
     fn toggle_pause(&mut self) {
-        self.set_host_paused(!self.game_paused);
+        self.host_set_paused(!self.game_paused);
 
         info!(
             "Game {}",
