@@ -10843,8 +10843,8 @@ impl CnCGameEngine {
                         let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                         let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(100.0);
                         let loc = glam::Vec3::new(x, y, z);
-                        self.game_logic
-                            .queue_command(crate::command_system::GameCommand {
+                        self.host_queue_and_process_command_silent(
+                            crate::command_system::GameCommand {
                                 command_type:
                                     crate::command_system::CommandType::ForceAttackGround {
                                         location: loc,
@@ -10858,8 +10858,8 @@ impl CnCGameEngine {
                                     shift: false,
                                     alt: false,
                                 },
-                            });
-                        self.game_logic.process_commands();
+                            },
+                        );
                         self.runtime_host_last_gameplay_cmd =
                             format!("force_attack_ok:{},{},{}:{}", x, y, z, selected.len());
                     }
@@ -10886,8 +10886,8 @@ impl CnCGameEngine {
                             None
                         };
                         if let Some(target_id) = target_id {
-                            self.game_logic
-                                .queue_command(crate::command_system::GameCommand {
+                            self.host_queue_and_process_command_silent(
+                                crate::command_system::GameCommand {
                                     command_type:
                                         crate::command_system::CommandType::ForceAttackObject {
                                             target_id,
@@ -10901,8 +10901,8 @@ impl CnCGameEngine {
                                         shift: false,
                                         alt: false,
                                     },
-                                });
-                            self.game_logic.process_commands();
+                                },
+                            );
                             self.runtime_host_last_gameplay_cmd =
                                 format!("force_attack_object_ok:{}", target_id.0);
                         } else {
@@ -11028,8 +11028,8 @@ impl CnCGameEngine {
                         let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                         let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(120.0);
                         let dest = glam::Vec3::new(x, y, z);
-                        self.game_logic
-                            .queue_command(crate::command_system::GameCommand {
+                        self.host_queue_and_process_command_silent(
+                            crate::command_system::GameCommand {
                                 command_type: crate::command_system::CommandType::AddWaypoint {
                                     destination: dest,
                                 },
@@ -11042,8 +11042,8 @@ impl CnCGameEngine {
                                     shift: true,
                                     alt: true,
                                 },
-                            });
-                        self.game_logic.process_commands();
+                            },
+                        );
                         self.runtime_host_last_gameplay_cmd =
                             format!("waypoint_ok:{},{},{}:{}", x, y, z, selected.len());
                     }
@@ -16782,15 +16782,14 @@ impl CnCGameEngine {
                 }
             }
         };
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type,
-                player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: selected,
-                modifier_keys: crate::command_system::ModifierKeys::default(),
-            });
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type,
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
         self.host_process_commands_with_command_sound();
     }
 
@@ -17058,13 +17057,14 @@ impl CnCGameEngine {
         self.host_process_commands_with_command_sound();
     }
 
-    /// Wave 576: queue + process without Command SFX (upgrade/honesty residual paths).
+    /// Wave 576/578: queue + process without Command SFX (upgrade/honesty/UI residual paths).
+    /// Wave 578: force_attack/construct/science residual peels use this helper.
     #[inline]
     fn host_queue_and_process_command_silent(
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
-        // Wave 576: silent queue+process residual.
+        // Wave 576/578: silent queue+process residual.
         self.game_logic.queue_command(command);
         self.game_logic.process_commands();
     }
@@ -17424,24 +17424,22 @@ impl CnCGameEngine {
             .clear_structure_placement();
         self.play_sound_effect(SoundType::Command);
 
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type: crate::command_system::CommandType::DozerConstruct {
-                    template_name: template,
-                    location,
-                    orientation: self
-                        .game_hud
-                        .construction_panel
-                        .placement_preview()
-                        .facing_radians,
-                },
-                player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: selected,
-                modifier_keys: crate::command_system::ModifierKeys::default(),
-            });
-        self.game_logic.process_commands();
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DozerConstruct {
+                template_name: template,
+                location,
+                orientation: self
+                    .game_hud
+                    .construction_panel
+                    .placement_preview()
+                    .facing_radians,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
     }
 
     fn place_wall_line_from_ui(&mut self, template_name: &str, start: glam::Vec3, end: glam::Vec3) {
@@ -17469,20 +17467,18 @@ impl CnCGameEngine {
 
         // Keep placement armed for chained wall segments residual.
         self.play_sound_effect(SoundType::Command);
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type: crate::command_system::CommandType::DozerConstructLine {
-                    template_name: template,
-                    start,
-                    end,
-                },
-                player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: units,
-                modifier_keys: crate::command_system::ModifierKeys::default(),
-            });
-        self.game_logic.process_commands();
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DozerConstructLine {
+                template_name: template,
+                start,
+                end,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: units,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
         let msg = "Wall line ordered";
         self.game_hud.push_info_message(msg);
         self.ui_manager.game_hud_mut().push_info_message(msg);
@@ -17630,19 +17626,17 @@ impl CnCGameEngine {
         } else {
             producers
         };
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type: crate::command_system::CommandType::QueueUnitCreate {
-                    template_name: template_name.to_string(),
-                    quantity,
-                },
-                player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: units,
-                modifier_keys: crate::command_system::ModifierKeys::default(),
-            });
-        self.game_logic.process_commands();
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::QueueUnitCreate {
+                template_name: template_name.to_string(),
+                quantity,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: units,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
     }
 
     /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
@@ -17922,16 +17916,14 @@ impl CnCGameEngine {
             }
             _ => {}
         }
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type,
-                player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: selected,
-                modifier_keys: crate::command_system::ModifierKeys::default(),
-            });
-        self.game_logic.process_commands();
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type,
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
     }
 
     fn route_shell_owned_screen_change(&mut self, screen: Screen) {
@@ -20284,8 +20276,8 @@ impl CnCGameEngine {
                     // no-op
                 } else {
                     let loc = self.mouse_world_position;
-                    self.game_logic
-                        .queue_command(crate::command_system::GameCommand {
+                    self.host_queue_and_process_command_silent(
+                        crate::command_system::GameCommand {
                             command_type: crate::command_system::CommandType::ForceAttackGround {
                                 location: loc,
                             },
@@ -20298,7 +20290,8 @@ impl CnCGameEngine {
                                 shift: false,
                                 alt: false,
                             },
-                        });
+                        },
+                    );
                     self.host_process_commands_with_command_sound();
                     let msg = "Force-attack ground";
                     self.game_hud.push_info_message(msg);
@@ -21717,7 +21710,6 @@ impl CnCGameEngine {
                 selected_units: Vec::new(),
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
-        self.game_logic.process_commands();
         let msg = format!("Purchased {science_name}");
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);

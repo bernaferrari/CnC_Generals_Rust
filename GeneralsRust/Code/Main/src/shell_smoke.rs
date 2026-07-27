@@ -2281,6 +2281,11 @@ use crate::game_logic::host_live_host_camera_start_helper_residual_wave577::{
     honesty_host_camera_start_helper_nav_commands_residual_wave577,
     simulate_live_host_camera_start_helper_honesty,
 };
+use crate::game_logic::host_live_host_silent_command_peel_residual_wave578::{
+    honesty_host_silent_command_peel_method_names_residual_wave578,
+    honesty_host_silent_command_peel_nav_commands_residual_wave578,
+    simulate_live_host_silent_command_peel_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5730,6 +5735,9 @@ pub struct ShellSmokeResult {
     pub host_camera_start_helper_method_names_wave577_ok: bool,
     pub host_camera_start_helper_nav_commands_wave577_ok: bool,
     pub host_camera_start_helper_live_wave577_ok: bool,
+    pub host_silent_command_peel_method_names_wave578_ok: bool,
+    pub host_silent_command_peel_nav_commands_wave578_ok: bool,
+    pub host_silent_command_peel_live_wave578_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8938,6 +8946,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_camera_start_helper_nav_commands_wave577_ok =
         honesty_host_camera_start_helper_nav_commands_residual_wave577();
     let host_camera_start_helper_live_wave577_ok = simulate_live_host_camera_start_helper_honesty();
+    let host_silent_command_peel_method_names_wave578_ok =
+        honesty_host_silent_command_peel_method_names_residual_wave578();
+    let host_silent_command_peel_nav_commands_wave578_ok =
+        honesty_host_silent_command_peel_nav_commands_residual_wave578();
+    let host_silent_command_peel_live_wave578_ok = simulate_live_host_silent_command_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10658,6 +10671,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_camera_start_helper_method_names_wave577_ok,
         host_camera_start_helper_nav_commands_wave577_ok,
         host_camera_start_helper_live_wave577_ok,
+        host_silent_command_peel_method_names_wave578_ok,
+        host_silent_command_peel_nav_commands_wave578_ok,
+        host_silent_command_peel_live_wave578_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19583,6 +19599,21 @@ mod tests {
         assert!(
             r.host_camera_start_helper_live_wave577_ok,
             "host camera/start helper live residual wave577: {}",
+            r.detail
+        );
+        assert!(
+            r.host_silent_command_peel_method_names_wave578_ok,
+            "host silent command peel method names residual pack wave578: {}",
+            r.detail
+        );
+        assert!(
+            r.host_silent_command_peel_nav_commands_wave578_ok,
+            "host silent command peel nav commands residual pack wave578: {}",
+            r.detail
+        );
+        assert!(
+            r.host_silent_command_peel_live_wave578_ok,
+            "host silent command peel live residual wave578: {}",
             r.detail
         );
         assert!(
