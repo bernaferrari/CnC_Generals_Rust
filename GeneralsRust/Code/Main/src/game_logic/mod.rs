@@ -462,6 +462,7 @@ pub mod host_live_selection_commands_presentation_only_residual_wave218;
 pub mod host_live_selection_dual_world_empty_gate_residual_wave278;
 pub mod host_live_selection_query_probe_residual_wave245;
 pub mod host_live_sell_deconstruction_sole_tick_no_stomp_residual_wave481;
+pub mod host_live_sell_finish_skips_topple_destroy_residual_wave482;
 pub mod host_live_skirmish_conditions_dual_world_empty_gate_residual_wave292;
 pub mod host_live_skirmish_player_dual_world_empty_gate_residual_wave329;
 pub mod host_live_slaved_update_dual_world_empty_gate_residual_wave402;
@@ -2204,6 +2205,21 @@ pub use host_live_sell_deconstruction_sole_tick_no_stomp_residual_wave481::{
     SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_METHOD_NAMES_WAVE481,
     SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_NAV_STEPS_WAVE481,
     SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_SOURCE_MARKERS_WAVE481,
+};
+pub use host_live_sell_finish_skips_topple_destroy_residual_wave482::{
+    honesty_sell_finish_skips_topple_destroy_method_names_residual_wave482,
+    honesty_sell_finish_skips_topple_destroy_nav_commands_residual_wave482,
+    honesty_sell_finish_skips_topple_destroy_residual_pack_wave482,
+    residual_sell_finish_skips_topple_destroy_last_action,
+    residual_sell_finish_skips_topple_destroy_ok,
+    simulate_live_sell_finish_skips_topple_destroy_honesty,
+    simulate_sell_finish_skips_topple_destroy_mark_source,
+    simulate_sell_finish_skips_topple_destroy_sell_finish_source,
+    ResidualSellFinishSkipsToppleDestroyAction,
+    RUNTIME_HOST_SELL_FINISH_SKIPS_TOPPLE_DESTROY_CMD_NAMES_WAVE482,
+    SELL_FINISH_SKIPS_TOPPLE_DESTROY_METHOD_NAMES_WAVE482,
+    SELL_FINISH_SKIPS_TOPPLE_DESTROY_NAV_STEPS_WAVE482,
+    SELL_FINISH_SKIPS_TOPPLE_DESTROY_SOURCE_MARKERS_WAVE482,
 };
 
 pub use host_live_special_power_sole_tick_no_cooldown_stomp_residual_wave479::{

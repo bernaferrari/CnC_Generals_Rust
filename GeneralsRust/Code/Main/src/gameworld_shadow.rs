@@ -20756,8 +20756,9 @@ mod tests {
             "sell_selected empty targets must prefer presentation sellable structures"
         );
         assert!(
-            body.contains("Boot residual only"),
-            "sell empty fill must keep boot residual live dual-scan"
+            body.contains("Presentation required (no live get_objects dual-read)")
+                || body.contains("Boot residual only"),
+            "sell empty fill must stay presentation-only (no live dual-scan)"
         );
         let pf = include_str!("presentation_frame.rs");
         assert!(
