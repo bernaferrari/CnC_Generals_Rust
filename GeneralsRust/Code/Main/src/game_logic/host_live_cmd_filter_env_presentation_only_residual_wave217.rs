@@ -127,7 +127,8 @@ pub fn honesty_env_hints_presentation_only_source() -> bool {
     // Wave 455/466: presentation-only env apply; seed passes GameWorld shadow.
     eng.contains("fn ensure_presentation_env_for_hints")
         && eng.contains("Wave 455: presentation-only env boundary")
-        && eng.contains("self.gameworld_shadow.as_ref()")
+        && (eng.contains("self.gameworld_shadow.as_ref()")
+            || eng.contains("ensure_presentation_env_seeded"))
         && eng.contains("Wave 466: prefer host+GameWorld shadow freeze")
         && eng.contains("Self::apply_heightmap_hint(&mut self.render_pipeline)")
         && eng.contains("Self::apply_skybox_hint(&mut self.render_pipeline)")

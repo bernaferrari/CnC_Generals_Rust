@@ -406,6 +406,7 @@ pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
 pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
+pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
 pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
@@ -3079,6 +3080,20 @@ pub use host_live_presentation_env_seed_gameworld_residual_wave466::{
     PRESENTATION_ENV_SEED_GAMEWORLD_NAV_STEPS_WAVE466,
     PRESENTATION_ENV_SEED_GAMEWORLD_SOURCE_MARKERS_WAVE466,
     RUNTIME_HOST_PRESENTATION_ENV_SEED_GAMEWORLD_CMD_NAMES_WAVE466,
+};
+pub use host_live_presentation_env_seed_mirror_last_residual_wave467::{
+    honesty_presentation_env_seed_mirror_last_method_names_residual_wave467,
+    honesty_presentation_env_seed_mirror_last_nav_commands_residual_wave467,
+    honesty_presentation_env_seed_mirror_last_residual_pack_wave467,
+    residual_presentation_env_seed_mirror_last_last_action,
+    residual_presentation_env_seed_mirror_last_ok,
+    simulate_live_presentation_env_seed_mirror_last_honesty,
+    simulate_presentation_env_seed_mirror_last_callsites,
+    simulate_presentation_env_seed_mirror_last_source, ResidualPresentationEnvSeedMirrorLastAction,
+    PRESENTATION_ENV_SEED_MIRROR_LAST_METHOD_NAMES_WAVE467,
+    PRESENTATION_ENV_SEED_MIRROR_LAST_NAV_STEPS_WAVE467,
+    PRESENTATION_ENV_SEED_MIRROR_LAST_SOURCE_MARKERS_WAVE467,
+    RUNTIME_HOST_PRESENTATION_ENV_SEED_MIRROR_LAST_CMD_NAMES_WAVE467,
 };
 pub use host_live_presentation_fow_only_residual_wave213::{
     honesty_live_presentation_fow_only_method_names_residual_wave213,
