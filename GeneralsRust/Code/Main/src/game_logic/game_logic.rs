@@ -8334,8 +8334,14 @@ impl GameLogic {
                 }
                 // C++ StructureToppleUpdate::update residual (buildings).
                 // C++ HeightDieUpdate residual (bombs/missiles).
-                if !topple_kill && obj.tick_height_die(self.frame, 0.0) {
-                    topple_kill = true;
+                // Wave 771: under coupled shadow, HeightDieUpdate is owned by
+                // GW tick_status_timer_expirations + host_height_die_kill_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    if !topple_kill && obj.tick_height_die(self.frame, 0.0) {
+                        topple_kill = true;
+                    }
                 }
                 // C++ JetSlowDeathBehavior residual.
                 if !topple_kill

@@ -290,6 +290,13 @@ pub struct Entity {
     pub topple_lean_radians: f32,
     /// True when entity has active topple residual data.
     pub topple_active: bool,
+    /// Host HeightDieUpdate residual active.
+    pub height_die_active: bool,
+    pub height_die_target_hat: f32,
+    pub height_die_only_when_descending: bool,
+    pub height_die_earliest_frame: u32,
+    pub height_die_last_height: f32,
+    pub height_die_has_died: bool,
     /// Host Object::status.is_carbomb residual.
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
@@ -993,6 +1000,12 @@ impl EntityStore {
             topple_kill_when_toppled: false,
             topple_lean_radians: 0.0,
             topple_active: false,
+            height_die_active: false,
+            height_die_target_hat: 0.0,
+            height_die_only_when_descending: true,
+            height_die_earliest_frame: 0,
+            height_die_last_height: f32::MAX,
+            height_die_has_died: false,
             is_carbomb: false,
             hijacked: false,
             ignoring_stealth: false,

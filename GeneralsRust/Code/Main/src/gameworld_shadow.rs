@@ -3335,6 +3335,21 @@ impl GameWorldShadow {
                         e.topple_kill_when_toppled = false;
                         e.topple_lean_radians = 0.0;
                     }
+                    if let Some(hd) = obj.height_die.as_ref() {
+                        e.height_die_active = hd.active;
+                        e.height_die_target_hat = hd.target_height_above_terrain;
+                        e.height_die_only_when_descending = hd.only_when_descending;
+                        e.height_die_earliest_frame = hd.earliest_death_frame;
+                        e.height_die_last_height = hd.last_height;
+                        e.height_die_has_died = hd.has_died;
+                    } else {
+                        e.height_die_active = false;
+                        e.height_die_target_hat = 0.0;
+                        e.height_die_only_when_descending = true;
+                        e.height_die_earliest_frame = 0;
+                        e.height_die_last_height = f32::MAX;
+                        e.height_die_has_died = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7163,6 +7178,34 @@ impl GameWorldShadow {
                     e.topple_angular_velocity += e.topple_angular_acceleration;
                 }
                 changed = true;
+            }
+            // Wave 771: HeightDieUpdate residual (die when altitude reaches target).
+            if e.height_die_active && !e.height_die_has_died {
+                let hat = e.transform.position.y - e.ground_height;
+                let contained = e.contained_by_host != 0;
+                if contained {
+                    e.height_die_last_height = hat;
+                    changed = true;
+                } else if frame < e.height_die_earliest_frame {
+                    e.height_die_last_height = hat;
+                    changed = true;
+                } else {
+                    let mut direction_ok = true;
+                    if e.height_die_only_when_descending && hat >= e.height_die_last_height {
+                        direction_ok = false;
+                    }
+                    e.height_die_last_height = hat;
+                    if direction_ok && hat <= e.height_die_target_hat {
+                        e.height_die_has_died = true;
+                        e.height_die_active = false;
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_height_die_kill_log::record(
+                                crate::game_logic::ObjectId(hid),
+                            );
+                        }
+                    }
+                    changed = true;
+                }
             }
             if changed {
                 n += 1;
@@ -11103,6 +11146,35 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_active = obj.height_die.as_ref().map(|h| h.active).unwrap_or(false);
+                let host_died = obj.height_die.as_ref().map(|h| h.has_died).unwrap_or(false);
+                if host_active != ent.height_die_active
+                    || host_died != ent.height_die_has_died
+                    || obj
+                        .height_die
+                        .as_ref()
+                        .map(|h| {
+                            (h.last_height - ent.height_die_last_height).abs() > f32::EPSILON
+                                || (h.target_height_above_terrain - ent.height_die_target_hat).abs()
+                                    > f32::EPSILON
+                        })
+                        .unwrap_or(ent.height_die_active)
+                {
+                    if ent.height_die_active || ent.height_die_has_died {
+                        use crate::game_logic::host_height_die::HostHeightDieData;
+                        let hd = obj.height_die.get_or_insert_with(HostHeightDieData::default);
+                        hd.active = ent.height_die_active;
+                        hd.target_height_above_terrain = ent.height_die_target_hat;
+                        hd.only_when_descending = ent.height_die_only_when_descending;
+                        hd.earliest_death_frame = ent.height_die_earliest_frame;
+                        hd.last_height = ent.height_die_last_height;
+                        hd.has_died = ent.height_die_has_died;
+                    } else {
+                        obj.height_die = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12490,6 +12562,15 @@ pub fn shadow_session_after_host_tick(
                 obj.status.destroyed = true;
                 obj.status.death_type =
                     crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 771: HeightDieUpdate kill → host destroy (no dual timer).
+        for id in crate::game_logic::host_height_die_kill_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                obj.health.current = 0.0;
+                obj.status.destroyed = true;
+                obj.refresh_model_condition_bits();
             }
             logic.mark_object_for_destruction(id, None);
         }
