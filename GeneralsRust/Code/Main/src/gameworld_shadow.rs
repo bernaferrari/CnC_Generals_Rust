@@ -257,6 +257,10 @@ pub fn end_shadow_coupled_tick() {
             EARLY_PLAYER_META_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_PLAYER_COOLDOWN_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_PRODUCTION_DOOR_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PRODUCTION_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PRODUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_CONSTRUCTION_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -2287,6 +2291,110 @@ pub fn eager_apply_host_production_door_after_logic(
     EARLY_PRODUCTION_DOOR_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
+// Wave 709: post-logic production / production-progress / construction batch handoff.
+thread_local! {
+    static EARLY_PRODUCTION_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_production_log::HostProductionEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_PRODUCTION_PROGRESS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_production_progress_log::HostProductionProgressEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_CONSTRUCTION_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_construction_log::HostConstructionEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_CONSTRUCTION_PROGRESS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_construction_progress_log::HostConstructionProgressEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_production_batch() -> Option<(Vec<crate::game_logic::host_production_log::HostProductionEvent>, bool)> {
+    EARLY_PRODUCTION_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_production_progress_batch() -> Option<(Vec<crate::game_logic::host_production_progress_log::HostProductionProgressEvent>, bool)> {
+    EARLY_PRODUCTION_PROGRESS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_construction_batch() -> Option<(Vec<crate::game_logic::host_construction_log::HostConstructionEvent>, bool)> {
+    EARLY_CONSTRUCTION_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_construction_progress_batch() -> Option<(Vec<crate::game_logic::host_construction_progress_log::HostConstructionProgressEvent>, bool)> {
+    EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 709: post-logic drain `host_production_log` into GameWorld production mutations.
+pub fn eager_apply_host_production_after_logic(
+    shadow: &mut GameWorldShadow,
+    logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 709: post-logic production materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_production_log::drain();
+    if events.is_empty() {
+        EARLY_PRODUCTION_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_production_events(&events, logic);
+    EARLY_PRODUCTION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 709: post-logic drain `host_production_progress_log` into GameWorld production progress.
+pub fn eager_apply_host_production_progress_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 709: post-logic production-progress materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_production_progress_log::drain();
+    if events.is_empty() {
+        EARLY_PRODUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_production_progress_events(&events);
+    EARLY_PRODUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 709: post-logic drain `host_construction_log` into GameWorld construction.
+pub fn eager_apply_host_construction_after_logic(
+    shadow: &mut GameWorldShadow,
+    logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 709: post-logic construction materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_construction_log::drain();
+    if events.is_empty() {
+        EARLY_CONSTRUCTION_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_construction_events(&events, logic);
+    EARLY_CONSTRUCTION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 709: post-logic drain `host_construction_progress_log` into GameWorld construction progress.
+pub fn eager_apply_host_construction_progress_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 709: post-logic construction-progress materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_construction_progress_log::drain();
+    if events.is_empty() {
+        EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_construction_progress_events(&events);
+    EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
 
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
 #[cfg(test)]
@@ -10237,10 +10345,23 @@ pub fn shadow_session_after_host_tick(
         None => (crate::game_logic::host_veterancy_log::drain(), false),
     };
     let move_events = crate::game_logic::host_move_log::drain();
-    let production_events = crate::game_logic::host_production_log::drain();
-    let production_progress_events = crate::game_logic::host_production_progress_log::drain();
-    let construction_events = crate::game_logic::host_construction_log::drain();
-    let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
+    // Wave 709: prefer post-logic production / construction batches.
+    let (production_events, early_production_applied) = match take_early_production_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_production_log::drain(), false),
+    };
+    let (production_progress_events, early_production_progress_applied) = match take_early_production_progress_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_production_progress_log::drain(), false),
+    };
+    let (construction_events, early_construction_applied) = match take_early_construction_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_construction_log::drain(), false),
+    };
+    let (construction_progress_events, early_construction_progress_applied) = match take_early_construction_progress_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_construction_progress_log::drain(), false),
+    };
     // Wave 707: prefer post-logic special-power batch.
     let (special_power_events, early_special_power_applied) = match take_early_special_power_batch()
     {
@@ -10288,8 +10409,17 @@ pub fn shadow_session_after_host_tick(
     shadow.sync_from_host_with(logic, write_health);
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
-    let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
-    let _pp_applied = shadow.apply_host_production_progress_events(&production_progress_events);
+    // Wave 709: skip GW re-apply when post-logic eager path already ran.
+    let _prod_applied = if early_production_applied {
+        0
+    } else {
+        shadow.apply_host_production_events(&production_events, logic)
+    };
+    let _pp_applied = if early_production_progress_applied {
+        0
+    } else {
+        shadow.apply_host_production_progress_events(&production_progress_events)
+    };
     // Sole progress tick under PRODUCTION_AUTHORITY (host skips advance; Wave 477 no progress stomp).
     let _prod_tick = shadow
         .tick_production_queues(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
@@ -10304,9 +10434,17 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_production_door_events(&production_door_events)
     };
-    let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
-    let _construction_progress_applied =
-        shadow.apply_host_construction_progress_events(&construction_progress_events);
+    // Wave 709: skip GW re-apply when post-logic eager path already ran.
+    let _construction_applied = if early_construction_applied {
+        0
+    } else {
+        shadow.apply_host_construction_events(&construction_events, logic)
+    };
+    let _construction_progress_applied = if early_construction_progress_applied {
+        0
+    } else {
+        shadow.apply_host_construction_progress_events(&construction_progress_events)
+    };
     let _construction_tick = shadow
         .tick_construction_progress(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
     // Wave 707: skip GW re-apply when post-logic eager path already ran.
