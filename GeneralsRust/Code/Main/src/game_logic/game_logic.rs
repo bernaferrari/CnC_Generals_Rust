@@ -6357,8 +6357,18 @@ impl GameLogic {
 
         // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.
         // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
-        self.update_microwave_disable();
-        self.update_microwave_emitter_field();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_microwave_disable();
+        }
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_microwave_emitter_field();
+        }
 
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
@@ -6481,11 +6491,21 @@ impl GameLogic {
         // Host China FireWall residual: tick fire damage along wall segments.
         // FireWallSegment object DeletionUpdate residual + zone damage ticks.
         self.update_firewall_segment_objects();
-        self.update_firewalls();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_firewalls();
+        }
 
         // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
-        self.update_inferno_fire_zones();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_inferno_fire_zones();
+        }
         // Wave 802: under coupled shadow, field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -6508,11 +6528,21 @@ impl GameLogic {
         // Fail-closed vs full FireWeaponWhenDead exclusive effect matrix.
         self.update_bomb_truck_poison_zones();
         // Nuclear Tanks SmallRadiationField residual ticks.
-        self.update_nuclear_tanks_radiation_zones();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_nuclear_tanks_radiation_zones();
+        }
 
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
-        self.update_scud_poison_zones();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_scud_poison_zones();
+        }
         self.update_tensile_formations();
         // Wave 820: under coupled shadow, fire-spread owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -6635,7 +6665,12 @@ impl GameLogic {
         self.update_spy_drone_grow();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
-        self.update_toxin_tractor_poison_zones();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_toxin_tractor_poison_zones();
+        }
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
@@ -39613,6 +39648,21 @@ impl GameLogic {
         }
     }
 
+    pub(crate) fn tick_zone_damage_fields_sole(&mut self) {
+        // Wave 825: post-writeback sole-tick for host zone/field damage residuals.
+        self.update_scud_poison_zones();
+        self.update_nuclear_tanks_radiation_zones();
+        self.update_firewalls();
+        self.update_inferno_fire_zones();
+        self.update_spectre_orbit_fields();
+        self.update_toxin_tractor_poison_zones();
+        self.update_anthrax_toxin_fields();
+        self.update_nuclear_radiation_fields();
+        self.update_neutron_slow_death_fields();
+        self.update_microwave_emitter_field();
+        self.update_microwave_disable();
+    }
+
     fn update_scud_poison_zones(&mut self) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
@@ -62370,13 +62420,33 @@ impl GameLogic {
         }
 
         // NuclearMissile residual radiation field ticks (after impact blasts).
-        self.update_nuclear_radiation_fields();
-        self.update_neutron_slow_death_fields();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_nuclear_radiation_fields();
+        }
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_neutron_slow_death_fields();
+        }
         self.update_wave_guides();
         // AnthraxBomb residual toxin field ticks (after impact blasts).
-        self.update_anthrax_toxin_fields();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_anthrax_toxin_fields();
+        }
         // SpectreGunship residual orbit damage ticks (after insertion).
-        self.update_spectre_orbit_fields();
+        // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_spectre_orbit_fields();
+        }
         self.spawn_spectre_howitzer_shell_objects_for_new_spawns();
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
