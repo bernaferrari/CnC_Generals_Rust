@@ -234,6 +234,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_MODEL_MESH_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_FOW_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_KIND_OF_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_FAERIE_FIRE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_REPULSOR_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_DISABLE_TIMERS_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1596,6 +1599,93 @@ pub fn eager_apply_host_kind_of_after_logic(
     }
     let n = shadow.apply_host_kind_of_events(&events);
     EARLY_KIND_OF_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 701: post-logic faerie-fire / repulsor / disable-timers batch handoff.
+thread_local! {
+    static EARLY_FAERIE_FIRE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_faerie_fire_log::HostFaerieFireEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_REPULSOR_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_repulsor_log::HostRepulsorEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_DISABLE_TIMERS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_disable_timers_log::HostDisableTimersEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_faerie_fire_batch() -> Option<(
+    Vec<crate::game_logic::host_faerie_fire_log::HostFaerieFireEvent>,
+    bool,
+)> {
+    EARLY_FAERIE_FIRE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_repulsor_batch() -> Option<(
+    Vec<crate::game_logic::host_repulsor_log::HostRepulsorEvent>,
+    bool,
+)> {
+    EARLY_REPULSOR_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_disable_timers_batch() -> Option<(
+    Vec<crate::game_logic::host_disable_timers_log::HostDisableTimersEvent>,
+    bool,
+)> {
+    EARLY_DISABLE_TIMERS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 701: post-logic drain `host_faerie_fire_log` into GameWorld SetFaerieFire.
+pub fn eager_apply_host_faerie_fire_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 701: post-logic faerie-fire materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_faerie_fire_log::drain();
+    if events.is_empty() {
+        EARLY_FAERIE_FIRE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_faerie_fire_events(&events);
+    EARLY_FAERIE_FIRE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 701: post-logic drain `host_repulsor_log` into GameWorld SetRepulsor.
+pub fn eager_apply_host_repulsor_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 701: post-logic repulsor materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_repulsor_log::drain();
+    if events.is_empty() {
+        EARLY_REPULSOR_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_repulsor_events(&events);
+    EARLY_REPULSOR_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 701: post-logic drain `host_disable_timers_log` into GameWorld SetDisableTimers.
+pub fn eager_apply_host_disable_timers_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 701: post-logic disable-timers materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_disable_timers_log::drain();
+    if events.is_empty() {
+        EARLY_DISABLE_TIMERS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_disable_timers_events(&events);
+    EARLY_DISABLE_TIMERS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9513,9 +9603,22 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_kind_of_log::drain(), false),
     };
-    let faerie_events = crate::game_logic::host_faerie_fire_log::drain();
-    let repulsor_events = crate::game_logic::host_repulsor_log::drain();
-    let disable_timer_events = crate::game_logic::host_disable_timers_log::drain();
+    // Wave 701: prefer post-logic faerie-fire batch.
+    let (faerie_events, early_faerie_fire_applied) = match take_early_faerie_fire_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_faerie_fire_log::drain(), false),
+    };
+    // Wave 701: prefer post-logic repulsor batch.
+    let (repulsor_events, early_repulsor_applied) = match take_early_repulsor_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_repulsor_log::drain(), false),
+    };
+    // Wave 701: prefer post-logic disable-timers batch.
+    let (disable_timer_events, early_disable_timers_applied) =
+        match take_early_disable_timers_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_disable_timers_log::drain(), false),
+        };
     // Wave 688: prefer post-logic owner batch.
     let (owner_events, early_owner_applied) = match take_early_owner_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -9903,9 +10006,24 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_kind_of_events(&kind_of_events)
     };
-    let _ff_applied = shadow.apply_host_faerie_fire_events(&faerie_events);
-    let _rp_applied = shadow.apply_host_repulsor_events(&repulsor_events);
-    let _dt_applied = shadow.apply_host_disable_timers_events(&disable_timer_events);
+    // Wave 701: skip GW re-apply when post-logic eager path already ran.
+    let _ff_applied = if early_faerie_fire_applied {
+        0
+    } else {
+        shadow.apply_host_faerie_fire_events(&faerie_events)
+    };
+    // Wave 701: skip GW re-apply when post-logic eager path already ran.
+    let _rp_applied = if early_repulsor_applied {
+        0
+    } else {
+        shadow.apply_host_repulsor_events(&repulsor_events)
+    };
+    // Wave 701: skip GW re-apply when post-logic eager path already ran.
+    let _dt_applied = if early_disable_timers_applied {
+        0
+    } else {
+        shadow.apply_host_disable_timers_events(&disable_timer_events)
+    };
     // Wave 688: skip GW re-apply when post-logic eager path already ran.
     let _owners = if !early_owner_applied {
         shadow.apply_host_owner_events(logic, &owner_events)
