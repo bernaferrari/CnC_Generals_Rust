@@ -2063,7 +2063,7 @@ pub struct GameLogic {
     /// C++ GenerateMinefieldBehavior structure mine placements.
     structure_minefield_placements: u32,
     /// C++ SpecialPowerCompletionDie + PowerPlantUpdate residual log.
-    special_power_completion_log:
+    pub(crate) special_power_completion_log:
         crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog,
     /// C++ StickyBombUpdate follow-position residual ticks.
     pub(crate) sticky_bomb_follow_ticks: u32,
@@ -6308,7 +6308,12 @@ impl GameLogic {
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
         self.update_propaganda_tower_pulse(dt);
         self.update_overcharge_drain(dt);
-        self.update_power_plant_rods();
+        // Wave 810: under coupled shadow, rods completion owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_power_plant_rods();
+        }
 
         // Host China Battlemaster HordeUpdate residual (ExactMatch allies Radius 75 / Count 5).
         // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.

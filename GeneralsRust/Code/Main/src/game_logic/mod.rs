@@ -244,6 +244,7 @@ pub mod host_live_host_beam_flare_shell_dual_peel_residual_wave806;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
 pub mod host_live_host_firewall_radar_dual_peel_residual_wave809;
+pub mod host_live_host_power_plant_rods_dual_peel_residual_wave810;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -329,6 +330,7 @@ pub mod host_spy_satellite_ping_log;
 pub mod host_flashbang_comanche_helix_projectile_log;
 pub mod host_scorpion_missile_projectile_log;
 pub mod host_sticky_booby_attach_log;
+pub mod host_power_plant_rods_log;
 pub mod host_armor_residual;
 pub mod host_aurora_bomb;
 pub mod host_aurora_bomb_projectile_log;
@@ -4209,6 +4211,18 @@ pub use host_live_host_firewall_radar_dual_peel_residual_wave809::{
     simulate_host_firewall_radar_dual_peel_dispatch_source,
     simulate_live_host_firewall_radar_dual_peel_honesty,
 };
+pub use host_live_host_power_plant_rods_dual_peel_residual_wave810::{
+    honesty_host_power_plant_rods_dual_peel_method_names_residual_wave810,
+    honesty_host_power_plant_rods_dual_peel_nav_commands_residual_wave810,
+    honesty_host_power_plant_rods_dual_peel_residual_pack_wave810,
+    honesty_host_power_plant_rods_dual_peel_source_markers_residual_wave810,
+    residual_host_power_plant_rods_dual_peel_last_action,
+    residual_host_power_plant_rods_dual_peel_ok,
+    simulate_host_power_plant_rods_dual_peel_collect_source,
+    simulate_host_power_plant_rods_dual_peel_dispatch_source,
+    simulate_live_host_power_plant_rods_dual_peel_honesty,
+};
+
 
 
 

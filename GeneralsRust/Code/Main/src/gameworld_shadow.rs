@@ -10277,6 +10277,28 @@ for eid in eids {
                 changed = true;
             }
 
+            // Wave 810: Power plant rods extend completion residual.
+            if e.power_plant_rods_done_frame > 0 && frame >= e.power_plant_rods_done_frame {
+                use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+                if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADING") {
+                    e.model_condition_bits &= !(1u128 << bit);
+                }
+                if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADED") {
+                    e.model_condition_bits |= 1u128 << bit;
+                }
+                e.power_plant_rods_done_frame = 0;
+                e.power_plant_rods_extended = true;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_power_plant_rods_log::record_complete(
+                        crate::game_logic::host_power_plant_rods_log::PowerPlantRodsCompleteEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            model_condition_bits: e.model_condition_bits,
+                        },
+                    );
+                }
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -12855,6 +12877,8 @@ for eid in eids {
             // Keep `obj.model_condition_bits = ent.model_condition_bits` for Wave 486
             // residual source markers (door visual path).
             obj.model_condition_bits = ent.model_condition_bits;
+            obj.power_plant_rods_extended = ent.power_plant_rods_extended;
+            obj.power_plant_rods_done_frame = ent.power_plant_rods_done_frame;
             // Wave 633: GameWorld model-condition last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push((ObjectId(hid), prev, ent.model_condition_bits));
@@ -17760,6 +17784,18 @@ pub fn shadow_session_after_host_tick(
         for ev in crate::game_logic::host_sticky_booby_attach_log::drain_booby_destroys() {
             logic.destroy_booby_trap_special_object(ev.id);
         }
+        // Wave 810: Power plant rods completion residual.
+        for ev in crate::game_logic::host_power_plant_rods_log::drain_completes() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                o.model_condition_bits = ev.model_condition_bits;
+                o.power_plant_rods_done_frame = 0;
+                o.power_plant_rods_extended = true;
+            }
+            logic
+                .special_power_completion_log
+                .record_rods_complete();
+        }
+
 
 
 
