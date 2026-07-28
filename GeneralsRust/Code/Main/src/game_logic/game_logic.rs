@@ -19088,13 +19088,50 @@ impl GameLogic {
                             self.queue_radar_message_for_team(team, msg);
                             // C++: if target has EjectPilotDie → hide hijacker in vehicle;
                             // else destroy hijacker immediately.
-                            if self.vehicle_supports_hijacker_ride(special_target_id) {
+                            // Wave 753: ride-hide only when the hijacker is infantry
+                            // (HijackerUpdate module). Non-infantry steal path destroys
+                            // the attacker immediately (test/tank harness + C++ shape).
+                            // C++: if target has EjectPilotDie and hijacker is infantry
+                            // (HijackerUpdate) → hide in vehicle; else consume attacker.
+                            // Wave 753: ride-hide only for infantry; non-infantry steal
+                            // destroys immediately. SlowDeath must not clear destroyed —
+                            // hijacker consume is same-frame (begin_slow_death clears the
+                            // destroyed flag for delayed peels).
+                            let hijacker_is_infantry = self.objects.get(&object_id).map(|h| {
+                                h.is_kind_of(KindOf::Infantry)
+                                    || h.object_type == ObjectType::Infantry
+                            }).unwrap_or(false);
+                            if hijacker_is_infantry
+                                && self.vehicle_supports_hijacker_ride(special_target_id)
+                            {
                                 if let Some(h) = self.objects.get_mut(&object_id) {
                                     h.begin_hijacker_in_vehicle(special_target_id);
                                 }
                             } else {
                                 self.mark_destroyed_authority_aware(object_id, None);
+                                // Suppress SlowDeath/jet/heli peels so consume sticks.
+                                if let Some(o) = self.objects.get_mut(&object_id) {
+                                    o.slow_death = None;
+                                    o.jet_slow_death = None;
+                                    o.helicopter_slow_death = None;
+                                    o.status.effectively_dead = true;
+                                    o.status.destroyed = true;
+                                }
                                 self.mark_object_for_destruction(object_id, Some(team));
+                                // mark_object may re-enter SlowDeath and clear destroyed;
+                                // re-assert consume residual for hijack steal.
+                                if let Some(o) = self.objects.get_mut(&object_id) {
+                                    o.slow_death = None;
+                                    o.jet_slow_death = None;
+                                    o.helicopter_slow_death = None;
+                                    o.status.effectively_dead = true;
+                                    o.status.destroyed = true;
+                                    if !crate::gameworld_shadow::gameworld_damage_authority_live()
+                                        && o.health.current > 0.0
+                                    {
+                                        o.health.current = 0.0;
+                                    }
+                                }
                             }
                         }
                         PendingSpecialAbility::Sabotage { .. } => {
@@ -25172,7 +25209,15 @@ impl GameLogic {
                         obj.status.death_type =
                             crate::game_logic::host_usa_pilot::HostDeathType::Crushed;
                     } else {
-                        obj.health.current = 0.0;
+                        // Wave 753: under damage authority, do not zero host HP mid-frame
+                        // (dual with GW HP writeback). Project lethal via damage log + flags.
+                        if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                            let hp = obj.health.current.max(1.0);
+                            let oid = obj.id;
+                            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                        } else {
+                            obj.health.current = 0.0;
+                        }
                         obj.status.destroyed = true;
                         obj.status.effectively_dead = true;
                         obj.status.death_type =
@@ -59370,8 +59415,16 @@ impl GameLogic {
         for id in stale {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.aurora_bomb_projectile = false;
+                // Wave 753: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
                 o.status.destroyed = true;
-                o.health.current = 0.0;
             }
             let team = self.objects.get(&id).map(|o| o.team);
             self.mark_object_for_destruction(id, team);
@@ -77324,8 +77377,16 @@ mod tests {
 
         // Destroy CC → radar offline.
         if let Some(obj) = game_logic.find_object_mut(cc_id) {
+            // Wave 753: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags.
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = obj.health.current.max(1.0);
+                let oid = obj.id;
+                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            } else {
+                obj.health.current = 0.0;
+            }
             obj.status.destroyed = true;
-            obj.health.current = 0.0;
         }
         game_logic.update_player_radar();
         let offline = game_logic
@@ -97628,8 +97689,16 @@ mod tests {
         game_logic.destroy_object(drone_id);
         // Process destruction queue if needed.
         if let Some(d) = game_logic.find_object_mut(drone_id) {
+            // Wave 753: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags.
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = d.health.current.max(1.0);
+                let oid = d.id;
+                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            } else {
+                d.health.current = 0.0;
+            }
             d.status.destroyed = true;
-            d.health.current = 0.0;
         }
         // destroy_object should have already run upgrade die via mark.
         let m = game_logic.find_object(master_id).unwrap();
@@ -111035,7 +111104,15 @@ mod tests {
         {
             let o = logic.objects.get_mut(&id).unwrap();
             assert!(o.tick_lifetime_update(2));
-            o.health.current = 0.0;
+            // Wave 753: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags.
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = o.health.current.max(1.0);
+                let oid = o.id;
+                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            } else {
+                o.health.current = 0.0;
+            }
             o.status.destroyed = true;
             o.refresh_model_condition_bits();
         }
@@ -116136,8 +116213,16 @@ mod tests {
         // Kill vehicle → rider restored
         {
             let v = logic.objects.get_mut(&vid).unwrap();
+            // Wave 753: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags.
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = v.health.current.max(1.0);
+                let oid = v.id;
+                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            } else {
+                v.health.current = 0.0;
+            }
             v.status.destroyed = true;
-            v.health.current = 0.0;
         }
         logic.tick_hijacker_updates();
         let h = &logic.objects[&hid];
@@ -116185,8 +116270,16 @@ mod tests {
         // Kill airborne vehicle → PutInContainer AmericaParachute.
         {
             let v = logic.objects.get_mut(&vid).unwrap();
+            // Wave 753: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags.
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = v.health.current.max(1.0);
+                let oid = v.id;
+                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            } else {
+                v.health.current = 0.0;
+            }
             v.status.destroyed = true;
-            v.health.current = 0.0;
         }
         logic.tick_hijacker_updates();
 
