@@ -255,6 +255,7 @@ pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
 pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
+pub mod host_live_host_starting_units_table_residual_wave832;
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
 pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
@@ -2896,6 +2897,12 @@ pub use host_live_host_map_start_army_spawn_residual_wave831::{
     honesty_host_map_start_army_spawn_nav_commands_residual_wave831,
     honesty_host_map_start_army_spawn_residual_pack_wave831,
     simulate_live_host_map_start_army_spawn_honesty,
+};
+pub use host_live_host_starting_units_table_residual_wave832::{
+    honesty_host_starting_units_table_method_names_residual_wave832,
+    honesty_host_starting_units_table_nav_commands_residual_wave832,
+    honesty_host_starting_units_table_residual_pack_wave832,
+    simulate_live_host_starting_units_table_honesty,
 };
 
 pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
