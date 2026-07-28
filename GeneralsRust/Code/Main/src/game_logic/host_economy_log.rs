@@ -30,6 +30,10 @@ pub fn record(player_id: u32, supplies: u32, power_available: i32) {
     });
 }
 
+pub fn has_pending(player_id: u32) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.player_id == player_id))
+}
+
 pub fn drain() -> Vec<HostEconomyEvent> {
     let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
     // Keep last non-empty batch for PresentationFrame after shadow session.
