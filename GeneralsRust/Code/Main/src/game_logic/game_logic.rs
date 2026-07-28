@@ -7407,13 +7407,21 @@ impl GameLogic {
             let template = ev.template;
             let mut spawn_pos = Vec3::new(ev.spawn_pos[0], ev.spawn_pos[1], ev.spawn_pos[2]);
             let rally = ev.rally.map(|r| Vec3::new(r[0], r[1], r[2]));
-            // Push spawn a bit off the footprint center to reduce stacking.
-            let jitter_dir = Vec3::new(
-                (spawn_pos.x * 17.0 + spawn_pos.z).sin(),
-                0.0,
-                (spawn_pos.z * 31.0 + spawn_pos.x).cos(),
-            )
-            .normalize_or_zero();
+            // Wave 739: under production sole-tick, GameWorld ready-log pose is
+            // authoritative — do not re-jitter/reposition the unit here (host
+            // create_object already placed at GW exit pose). Non-sole path keeps
+            // host stacking jitter residual.
+            let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
+            let jitter_dir = if sole {
+                Vec3::ZERO
+            } else {
+                Vec3::new(
+                    (spawn_pos.x * 17.0 + spawn_pos.z).sin(),
+                    0.0,
+                    (spawn_pos.z * 31.0 + spawn_pos.x).cos(),
+                )
+                .normalize_or_zero()
+            };
             // C++ VoiceCreated + UnitReady residual.
             self.notify_unit_production_complete(new_id, producer_id, &template);
             // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.
@@ -7443,21 +7451,25 @@ impl GameLogic {
             {
                 self.stealth_fighter_science.record_production_spawn();
             }
-            if let Some(unit) = self.objects.get(&new_id) {
-                let selection_radius = unit.selection_radius.max(4.0);
-                spawn_pos += jitter_dir * selection_radius;
-            }
-            if let Some(unit) = self.objects.get_mut(&new_id) {
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(
-                        new_id,
-                        Some([spawn_pos.x, spawn_pos.y, spawn_pos.z]),
-                    );
-                    // Factory exit residual still needs host pose for same-frame doors.
-                    unit.set_position(spawn_pos);
-                    unit.record_host_movement();
-                } else {
-                    unit.set_position(spawn_pos);
+            // Wave 739: sole-tick keeps create_object/GW exit pose; non-sole
+            // applies host stacking jitter + factory exit pose residual.
+            if !sole {
+                if let Some(unit) = self.objects.get(&new_id) {
+                    let selection_radius = unit.selection_radius.max(4.0);
+                    spawn_pos += jitter_dir * selection_radius;
+                }
+                if let Some(unit) = self.objects.get_mut(&new_id) {
+                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                        crate::game_logic::host_move_log::record(
+                            new_id,
+                            Some([spawn_pos.x, spawn_pos.y, spawn_pos.z]),
+                        );
+                        // Factory exit residual still needs host pose for same-frame doors.
+                        unit.set_position(spawn_pos);
+                        unit.record_host_movement();
+                    } else {
+                        unit.set_position(spawn_pos);
+                    }
                 }
             }
             // C++ QueueProductionExitUpdate exit path residual:

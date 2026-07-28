@@ -216,6 +216,7 @@ Remaining engine residual after host update:
   - production unit spawn is GW entity-first under sole-tick: writeback pre-spawns entity, host binds ObjectId (Wave 736; host still allocates ObjectId)
   - production ObjectId prefers free GW entity raw under sole-tick (Wave 737; collision falls back to host allocate)
   - sole-tick production spawn without GW entity bind is fail-closed (Wave 738; opt-in WITHOUT_GW_BIND)
+  - sole-tick production spawn-ready apply does not re-jitter/reposition (Wave 739; GW exit pose authoritative)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
