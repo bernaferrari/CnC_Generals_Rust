@@ -199,6 +199,8 @@ pub fn end_shadow_coupled_tick() {
             EARLY_EXPERIENCE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_AI_STATE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_FIRE_INTENT_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_OWNER_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_MOVEMENT_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -541,6 +543,63 @@ pub fn eager_apply_host_fire_intent_after_logic(
     }
     let n = shadow.apply_host_fire_intent_events(&events);
     EARLY_FIRE_INTENT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 688: post-logic owner / movement batch handoff (avoid double-apply).
+thread_local! {
+    static EARLY_OWNER_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_owner_log::HostOwnerEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_MOVEMENT_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_movement_log::HostMovementEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_owner_batch() -> Option<(Vec<crate::game_logic::host_owner_log::HostOwnerEvent>, bool)>
+{
+    EARLY_OWNER_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_movement_batch() -> Option<(
+    Vec<crate::game_logic::host_movement_log::HostMovementEvent>,
+    bool,
+)> {
+    EARLY_MOVEMENT_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 688: post-logic drain `host_owner_log` into GameWorld TransferOwner.
+pub fn eager_apply_host_owner_after_logic(
+    shadow: &mut GameWorldShadow,
+    logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 688: post-logic owner materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_owner_log::drain();
+    if events.is_empty() {
+        EARLY_OWNER_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_owner_events(logic, &events);
+    EARLY_OWNER_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 688: post-logic drain `host_movement_log` into GameWorld SetMovement.
+pub fn eager_apply_host_movement_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 688: post-logic movement residual materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_movement_log::drain();
+    if events.is_empty() {
+        EARLY_MOVEMENT_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_movement_events(&events);
+    EARLY_MOVEMENT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8310,7 +8369,11 @@ pub fn shadow_session_after_host_tick(
     let disguise_events = crate::game_logic::host_disguise_log::drain();
     let vision_camo_events = crate::game_logic::host_vision_camo_log::drain();
     let weapon_stats_events = crate::game_logic::host_weapon_stats_log::drain();
-    let movement_events = crate::game_logic::host_movement_log::drain();
+    // Wave 688: prefer post-logic movement batch.
+    let (movement_events, early_movement_applied) = match take_early_movement_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_movement_log::drain(), false),
+    };
     let selection_radius_events = crate::game_logic::host_selection_radius_log::drain();
     let model_condition_events = crate::game_logic::host_model_condition_log::drain();
     let demo_mine_cheer_events = crate::game_logic::host_demo_mine_cheer_log::drain();
@@ -8325,7 +8388,11 @@ pub fn shadow_session_after_host_tick(
     let faerie_events = crate::game_logic::host_faerie_fire_log::drain();
     let repulsor_events = crate::game_logic::host_repulsor_log::drain();
     let disable_timer_events = crate::game_logic::host_disable_timers_log::drain();
-    let owner_events = crate::game_logic::host_owner_log::drain();
+    // Wave 688: prefer post-logic owner batch.
+    let (owner_events, early_owner_applied) = match take_early_owner_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_owner_log::drain(), false),
+    };
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
@@ -8523,7 +8590,12 @@ pub fn shadow_session_after_host_tick(
     let _rp_applied = shadow.apply_host_rebuild_producer_events(&rebuild_producer_events);
     let sole_healing_events = crate::game_logic::host_sole_healing_log::drain();
     let _sh_applied = shadow.apply_host_sole_healing_events(&sole_healing_events);
-    let _mv_applied = shadow.apply_host_movement_events(&movement_events);
+    // Wave 688: skip GW re-apply when post-logic eager path already ran.
+    let _mv_applied = if !early_movement_applied {
+        shadow.apply_host_movement_events(&movement_events)
+    } else {
+        movement_events.len()
+    };
     let physics_motive_events = crate::game_logic::host_physics_motive_log::drain();
     let _pm_applied = shadow.apply_host_physics_motive_events(&physics_motive_events);
     let loco_events = crate::game_logic::host_locomotor_log::drain();
@@ -8545,7 +8617,12 @@ pub fn shadow_session_after_host_tick(
     let _ff_applied = shadow.apply_host_faerie_fire_events(&faerie_events);
     let _rp_applied = shadow.apply_host_repulsor_events(&repulsor_events);
     let _dt_applied = shadow.apply_host_disable_timers_events(&disable_timer_events);
-    let _owners = shadow.apply_host_owner_events(logic, &owner_events);
+    // Wave 688: skip GW re-apply when post-logic eager path already ran.
+    let _owners = if !early_owner_applied {
+        shadow.apply_host_owner_events(logic, &owner_events)
+    } else {
+        owner_events.len()
+    };
     // When GameWorld owns path integrate, do not clobber entity poses with host
     // pre-integrate positions; still pull move targets / movement residuals above.
     if !gameworld_movement_authority_enabled() {
