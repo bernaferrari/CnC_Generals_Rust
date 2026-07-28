@@ -2806,6 +2806,11 @@ use crate::game_logic::host_live_host_eager_fire_spawn_helper_residual_wave682::
     honesty_host_eager_fire_spawn_helper_nav_commands_residual_wave682,
     simulate_live_host_eager_fire_spawn_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_move_attack_helper_residual_wave683::{
+    honesty_host_eager_move_attack_helper_method_names_residual_wave683,
+    honesty_host_eager_move_attack_helper_nav_commands_residual_wave683,
+    simulate_live_host_eager_move_attack_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6570,6 +6575,9 @@ pub struct ShellSmokeResult {
     pub host_eager_fire_spawn_helper_method_names_wave682_ok: bool,
     pub host_eager_fire_spawn_helper_nav_commands_wave682_ok: bool,
     pub host_eager_fire_spawn_helper_live_wave682_ok: bool,
+    pub host_eager_move_attack_helper_method_names_wave683_ok: bool,
+    pub host_eager_move_attack_helper_nav_commands_wave683_ok: bool,
+    pub host_eager_move_attack_helper_live_wave683_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10403,6 +10411,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_fire_spawn_helper_nav_commands_residual_wave682();
     let host_eager_fire_spawn_helper_live_wave682_ok =
         simulate_live_host_eager_fire_spawn_helper_honesty();
+    let host_eager_move_attack_helper_method_names_wave683_ok =
+        honesty_host_eager_move_attack_helper_method_names_residual_wave683();
+    let host_eager_move_attack_helper_nav_commands_wave683_ok =
+        honesty_host_eager_move_attack_helper_nav_commands_residual_wave683();
+    let host_eager_move_attack_helper_live_wave683_ok =
+        simulate_live_host_eager_move_attack_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12438,6 +12452,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_fire_spawn_helper_method_names_wave682_ok,
         host_eager_fire_spawn_helper_nav_commands_wave682_ok,
         host_eager_fire_spawn_helper_live_wave682_ok,
+        host_eager_move_attack_helper_method_names_wave683_ok,
+        host_eager_move_attack_helper_nav_commands_wave683_ok,
+        host_eager_move_attack_helper_live_wave683_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -22938,6 +22955,21 @@ mod tests {
         assert!(
             r.host_eager_fire_spawn_helper_live_wave682_ok,
             "host eager_fire_spawn helper live residual wave682: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_move_attack_helper_method_names_wave683_ok,
+            "host eager_move_attack helper method names residual pack wave683: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_move_attack_helper_nav_commands_wave683_ok,
+            "host eager_move_attack helper nav commands residual pack wave683: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_move_attack_helper_live_wave683_ok,
+            "host eager_move_attack helper live residual wave683: {}",
             r.detail
         );
         assert!(

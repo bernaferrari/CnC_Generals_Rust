@@ -291,6 +291,44 @@ pub fn eager_apply_host_fire_spawns_after_logic(
     let spawns = crate::game_logic::host_fire_spawn_log::drain();
     shadow.apply_host_fire_spawn_events(logic, spawns)
 }
+/// Wave 683: immediately after the host logic frame on a coupled tick, drain
+/// `host_attack_log` / `host_move_log` into GameWorld attack/move targets.
+///
+/// Runs before `shadow_session_after_host_tick` so AI/path residuals see current
+/// orders the same frame. Session drains stay idempotent (logs already empty).
+///
+/// Safe exclusive borrows: caller passes `&mut GameWorldShadow` + `&GameLogic`.
+pub fn eager_apply_host_move_attack_after_logic(
+    shadow: &mut GameWorldShadow,
+    logic: &GameLogic,
+) -> (usize, usize) {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return (0, 0);
+    }
+    // Wave 683: post-logic move/attack materialize (exclusive shadow borrow).
+    let attack_events = crate::game_logic::host_attack_log::drain();
+    let move_events = crate::game_logic::host_move_log::drain();
+    let mut attacks = 0usize;
+    let mut moves = 0usize;
+    for ev in &attack_events {
+        if shadow.queue_set_attack_target_for_host(ev.attacker, ev.target) {
+            attacks = attacks.saturating_add(1);
+        }
+    }
+    for ev in &move_events {
+        if shadow.queue_set_move_target_for_host(ev.unit, ev.destination) {
+            moves = moves.saturating_add(1);
+        }
+    }
+    // Host movement.target residual (path follow destinations not always logged).
+    if gameworld_movement_authority_enabled() {
+        let _ = shadow.apply_host_move_targets(logic);
+    }
+    if attacks > 0 || moves > 0 {
+        let _ = shadow.apply_pending();
+    }
+    (attacks, moves)
+}
 
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
 #[cfg(test)]
