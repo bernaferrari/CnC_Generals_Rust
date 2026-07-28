@@ -207,6 +207,7 @@ Remaining engine residual after host update:
   - train/construct/upgrade free default template names are opt-in only (Wave 727)
   - sell auto-target newest structure is opt-in; formation buddy has no free ranger template (Wave 728)
   - train/construct/upgrade auto-pick producer/builder is opt-in only (Wave 729)
+  - return_supplies/rally empty-selection auto-pick is opt-in only (Wave 730)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

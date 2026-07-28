@@ -1391,7 +1391,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("capture_") {
                             capture_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["return_supplies"]);
+                        let _ = write_control(&control_path, &["return_supplies|auto_target=1"]);
                         gameplay_step = 18;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 18
@@ -1471,7 +1471,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("attitude_") {
                             attitude_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["rally|x=90|y=0|z=90"]);
+                        let _ = write_control(&control_path, &["rally|x=90|y=0|z=90|auto_target=1"]);
                         gameplay_step = 23;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 23
