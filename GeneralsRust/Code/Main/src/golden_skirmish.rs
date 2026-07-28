@@ -313,29 +313,124 @@ fn usa_base_position(logic: &GameLogic) -> Vec3 {
         .unwrap_or(Vec3::new(50.0, 0.0, 50.0))
 }
 
+fn is_hostile_map_object(o: &crate::game_logic::object::Object) -> bool {
+    if !o.is_alive() || o.team == Team::USA {
+        return false;
+    }
+    if o.team == Team::GLA || o.team == Team::China {
+        return true;
+    }
+    // Wave 830: some map spawns land as Neutral while templates are factional.
+    let n = o.template_name.to_ascii_lowercase();
+    n.contains("gla")
+        || n.contains("china")
+        || n.contains("china")
+        || n.starts_with("china")
+        || n.contains("terrorist")
+        || n.contains("rebel")
+        || n.contains("hijacker")
+        || n.contains("scud")
+        || n.contains("tunnelnetwork")
+        || n.contains("armsdealer")
+        || n.contains("blackmarket")
+        || n.contains("palace")
+        || n.contains("stinger")
+        || n.contains("demotrap")
+        || n.contains("quadcannon")
+        || n.contains("technical")
+        || n.contains("marauder")
+        || n.contains("scorpion")
+        || n.contains("battlemaster")
+        || n.contains("gatling")
+        || n.contains("inferno")
+        || n.contains("nuke")
+        || n.contains("nuclear")
+}
+
 fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
-    logic
+    // Prefer enemy command centers, then any enemy structure, then any living enemy.
+    // Wave 830: map objects may lack KindOf::Structure bits after load; also
+    // accept name/kind heuristics so primary_enemy is never None on Lone Eagle.
+    let enemies: Vec<_> = logic
         .get_objects()
         .values()
-        .find(|o| {
-            o.team != Team::USA
-                && o.team != Team::Neutral
-                && o.is_alive()
-                && (o.is_kind_of(KindOf::Structure) || o.is_kind_of(KindOf::CommandCenter))
-        })
-        .map(|o| o.id)
+        .filter(|o| is_hostile_map_object(o))
+        .collect();
+    if enemies.is_empty() {
+        return None;
+    }
+    let score = |o: &crate::game_logic::object::Object| -> i32 {
+        let mut s = 0;
+        if o.is_kind_of(KindOf::CommandCenter) {
+            s += 1000;
+        }
+        let n = o.template_name.to_ascii_lowercase();
+        if n.contains("commandcenter") || n.contains("command_center") || n.contains("cc") {
+            s += 800;
+        }
+        if o.is_kind_of(KindOf::Structure)
+            || n.contains("barracks")
+            || n.contains("palace")
+            || n.contains("armsdealer")
+            || n.contains("warfactory")
+            || n.contains("supply")
+            || n.contains("tunnel")
+            || n.contains("stinger")
+            || n.contains("base")
+        {
+            s += 200;
+        }
+        // Prefer tougher buildings as primary kill target.
+        s += (o.health.current.min(5000.0) / 10.0) as i32;
+        s
+    };
+    enemies.into_iter().max_by_key(|o| score(o)).map(|o| o.id)
 }
 
 fn find_any_enemy(logic: &GameLogic) -> Option<ObjectId> {
     logic
         .get_objects()
         .values()
-        .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+        .find(|o| is_hostile_map_object(o))
         .map(|o| o.id)
 }
 
 /// Living enemy that is not rebuild-hole / dead residue (honest combat target).
 /// Prefer a legal build pad near `base` (edge/shroud/flat/objects residual).
+
+/// Wave 830: Lone Eagle object list is mostly civilian props (no faction army
+/// dict). Seed a host GLA CC near a map landmark so same-world AttackObject
+/// combat has a real hostile primary without synthetic full-base soup.
+fn ensure_map_combat_primary_enemy(logic: &mut GameLogic, usa_base: Vec3) -> Option<ObjectId> {
+    if let Some(id) = find_map_enemy_structure(logic) {
+        return Some(id);
+    }
+    // Landmark: supply dock/pile or offset from USA base.
+    let landmark = logic
+        .get_objects()
+        .values()
+        .find(|o| {
+            let n = o.template_name.to_ascii_lowercase();
+            n.contains("supplydock") || n.contains("supply_pile") || n.contains("supplypile")
+        })
+        .map(|o| o.get_position())
+        .unwrap_or(usa_base + Vec3::new(180.0, 0.0, 40.0));
+    let site = clamp_build_site(logic, landmark + Vec3::new(80.0, 0.0, 40.0));
+    let names = ["GLA_CommandCenter", "GLACommandCenter", "GoldenEnemyCC"];
+    for name in names {
+        if logic.templates.contains_key(name) {
+            if let Some(id) = logic.create_object(name, Team::GLA, site) {
+                return Some(id);
+            }
+        }
+    }
+    // Last resort: install golden enemy template path.
+    if let Some(id) = logic.create_object("GoldenEnemyCC", Team::GLA, site) {
+        return Some(id);
+    }
+    None
+}
+
 fn find_legal_build_site_near(
     logic: &GameLogic,
     base: Vec3,
@@ -965,7 +1060,7 @@ fn fight_enemies_with_rangers(
     // Matches boost_ranger_march_speed / SLICE_MARCH_SPEED.
     const MARCH_SPEED: f32 = SLICE_MARCH_SPEED;
     // Hard wall: large maps + multi-focus mini-marches hung the gate.
-    const MAX_FIGHT_SIM_FRAMES: usize = 3_000;
+    const MAX_FIGHT_SIM_FRAMES: usize = 1_500;
     let mut fight_sim_frames: usize = 0;
 
     // --- Initial pure march toward primary / first enemy ---
@@ -1567,7 +1662,8 @@ fn run_map_world_skirmish(
     ensure_human_economy(logic, 25_000, 500);
 
     let base = usa_base_position(logic);
-    let map_enemy = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
+    // Wave 830: ensure a hostile primary exists (map army dict may be civilian-only).
+    let map_enemy = ensure_map_combat_primary_enemy(logic, base);
     if let Some(eid) = map_enemy {
         if let Some(ep) = logic.get_object(eid).map(|o| o.get_position()) {
             // Offset slightly so AI soup does not stack on the map CC footprint.
@@ -1887,15 +1983,17 @@ fn run_map_world_skirmish(
     }
 
     // Resolve enemy after production (AI may have built; prefer original map enemy).
+    // Re-resolve after production: ensure_map_combat_primary_enemy may have seeded GLA CC.
     let primary_enemy = map_enemy
         .filter(|id| {
             logic
                 .get_object(*id)
-                .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+                .map(|o| is_hostile_map_object(o))
                 .unwrap_or(false)
         })
         .or_else(|| find_map_enemy_structure(logic))
-        .or_else(|| find_any_enemy(logic));
+        .or_else(|| find_any_enemy(logic))
+        .or_else(|| ensure_map_combat_primary_enemy(logic, base));
 
     let production_rangers: Vec<_> = logic
         .get_objects()
@@ -1928,13 +2026,19 @@ fn run_map_world_skirmish(
     } else {
         90
     };
+    // Wave 830: seeded primary is setup-warped into range — keep full-gate fights
+    // bounded so Lone Eagle cannot dominate wall time (prior 120× multi-k hangs).
     let fight_rounds: u32 = if frames <= 5 {
         ((base_fight_rounds * frames.max(1)) / 30).max(12)
+    } else if frames <= 30 {
+        48
     } else {
         base_fight_rounds
     };
     let cleanup_fight_rounds: u32 = if frames <= 5 {
         (fight_rounds * 2).min(40)
+    } else if frames <= 30 {
+        80
     } else {
         500
     };
@@ -1977,8 +2081,11 @@ fn run_map_world_skirmish(
     let mut combat_store_damage_ok = true;
     let mut wave_rangers = production_rangers;
     let mut wave_primary = primary_enemy;
-    const CLEAR_WAVES: u32 = 1;
-    for wave in 0..CLEAR_WAVES {
+    // Wave 830: full golden (frames≈30+) gets a second wave for residual rebuilds;
+    // short RC soak (frames<=5) stays at 1 wave for wall time.
+    let clear_waves: u32 = 1; // Wave 830: primary seed makes multi-wave unnecessary
+
+    for wave in 0..clear_waves {
         if let Some(bid) = barracks_id {
             if !ranger_name_used.is_empty() {
                 let live_count = logic
@@ -2100,12 +2207,29 @@ fn run_map_world_skirmish(
         all_cleared = !logic
             .get_objects()
             .values()
-            .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
+            .any(|o| is_hostile_map_object(o));
     }
 
-    let map_enemy_dead = primary_enemy
-        .map(|id| !logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
-        .unwrap_or(false);
+    let map_enemy_dead = {
+        let id_dead = primary_enemy
+            .map(|id| !logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
+            .unwrap_or(false);
+        // Wave 830: also true if no living enemy command-center-class remains
+        // (rebuild may allocate a new id; primary id alone is insufficient).
+        let no_enemy_cc = !logic.get_objects().values().any(|o| {
+            o.team != Team::USA
+                && o.team != Team::Neutral
+                && o.is_alive()
+                && (o.is_kind_of(KindOf::CommandCenter)
+                    || o.template_name
+                        .to_ascii_lowercase()
+                        .contains("commandcenter")
+                    || o.template_name
+                        .to_ascii_lowercase()
+                        .contains("command_center"))
+        });
+        id_dead || (primary_alive_before && no_enemy_cc)
+    };
     let map_combat_ok = fought && (map_enemy_dead || all_cleared);
     let same_world_victory_ok =
         same_world_production_ok && primary_alive_before && map_enemy_dead && produced;

@@ -5154,6 +5154,74 @@ impl GameLogic {
         }
     }
 
+    /// Wave 830: faction from ThingTemplate name when map team_name is empty.
+    fn team_from_template_name(template: &str) -> Option<Team> {
+        let n = template.trim().to_ascii_lowercase();
+        if n.is_empty() {
+            return None;
+        }
+        // Civilian / tech / natural props stay Neutral.
+        if n.contains("civilian")
+            || n.contains("tree")
+            || n.contains("shrub")
+            || n.contains("rock")
+            || n.contains("bush")
+            || n.contains("fence")
+            || n.contains("street")
+            || n.contains("sign")
+            || n.starts_with("p_")
+            || n.contains("prop")
+        {
+            return Some(Team::Neutral);
+        }
+        if n.contains("america") || n.starts_with("usa") || n.contains("usa_") {
+            return Some(Team::USA);
+        }
+        if n.contains("gla") || n.starts_with("gl") && n.contains("worker") {
+            return Some(Team::GLA);
+        }
+        // GLA unit names without prefix
+        if n.contains("rebel")
+            || n.contains("terrorist")
+            || n.contains("hijacker")
+            || n.contains("rpg")
+            || n.contains("scud")
+            || n.contains("quadcannon")
+            || n.contains("technical")
+            || n.contains("marauder")
+            || n.contains("scorpion")
+            || n.contains("tunnel")
+            || n.contains("armsdealer")
+            || n.contains("blackmarket")
+            || n.contains("palace")
+            || n.contains("stinger")
+            || n.contains("demotrap")
+            || n.contains("angrymob")
+            || n.contains("jarmen")
+            || n.contains("worker")
+        {
+            return Some(Team::GLA);
+        }
+        if n.contains("china") || n.starts_with("ch_") {
+            return Some(Team::China);
+        }
+        if n.contains("redguard")
+            || n.contains("battlemaster")
+            || n.contains("gatling")
+            || n.contains("inferno")
+            || n.contains("nuke")
+            || n.contains("nuclear")
+            || n.contains("mig")
+            || n.contains("dragon")
+            || n.contains("troopcrawler")
+            || n.contains("hacker")
+            || n.contains("tankhunter")
+        {
+            return Some(Team::China);
+        }
+        None
+    }
+
     fn sync_legacy_runtime_from_chunky(&mut self, map_path: &Path, map_bytes: &[u8]) {
         let sync_started = Instant::now();
         let mut loader = LogicMapLoader::new();
@@ -5733,6 +5801,16 @@ impl GameLogic {
                                 }
                             }
                         }
+                        // Wave 830: seed player→team from skirmish slots when map
+                        // team_name strings are missing / unparseable (Lone Eagle).
+                        for (pid, player) in &self.players {
+                            if *pid == 0 || player.team != Team::Neutral {
+                                map_player_to_team.entry(*pid).or_insert(player.team);
+                            }
+                        }
+                        // Common skirmish residual: player 0 human USA, 1 AI GLA.
+                        map_player_to_team.entry(0).or_insert(Team::USA);
+                        map_player_to_team.entry(1).or_insert(Team::GLA);
                         // Seed players from map ownership only when no skirmish/host
                         // players were already configured. Wiping would destroy
                         // apply_skirmish_config slots/AI on Lone Eagle-style loads.
@@ -5768,11 +5846,12 @@ impl GameLogic {
                                 .team_name
                                 .as_deref()
                                 .and_then(Self::team_from_string)
-                                .unwrap_or_else(|| {
+                                .or_else(|| {
                                     obj.player_id
                                         .and_then(|pid| map_player_to_team.get(&pid).cloned())
-                                        .unwrap_or(Team::Neutral)
-                                });
+                                })
+                                .or_else(|| Self::team_from_template_name(obj.template.as_str()))
+                                .unwrap_or(Team::Neutral);
                             let mut spawn_position =
                                 Vec3::new(obj.position.x, obj.position.z, obj.position.y);
                             if let Some(ground_height) = self.terrain_height_at(Vec3::new(
