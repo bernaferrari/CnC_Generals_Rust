@@ -9725,10 +9725,28 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = "train_fail_no_player".into();
                         return;
                     };
-                    // Host residual: complete nearest under-construction barracks so a
-                    // just-placed construct can produce without waiting full build time.
+                    // Wave 718: force-complete unfinished barracks is opt-in only.
+                    // Default fail-closed: train against already-constructed producers
+                    // (honest retail timing). Enable with force_complete=1 arg or
+                    // GENERALS_RUNTIME_HOST_TRAIN_FORCE_COMPLETE=1 for vertical-slice smoke.
+                    let allow_force_complete = args
+                        .get("force_complete")
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1" || s.eq_ignore_ascii_case("true") || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_TRAIN_FORCE_COMPLETE").is_some_and(
+                            |v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            },
+                        );
                     let mut force_completed: Vec<crate::game_logic::ObjectId> = Vec::new();
-                    {
+                    if allow_force_complete {
                         let mut unfinished: Vec<crate::game_logic::ObjectId> = if let Some(frame) =
                             self.last_presentation_frame.as_ref()
                         {

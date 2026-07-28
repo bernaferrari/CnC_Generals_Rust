@@ -2981,6 +2981,11 @@ use crate::game_logic::host_live_host_special_power_same_frame_ready_eva_residua
     honesty_host_special_power_same_frame_ready_eva_nav_commands_residual_wave717,
     simulate_live_host_special_power_same_frame_ready_eva_honesty,
 };
+use crate::game_logic::host_live_host_train_force_complete_opt_in_residual_wave718::{
+    honesty_host_train_force_complete_opt_in_method_names_residual_wave718,
+    honesty_host_train_force_complete_opt_in_nav_commands_residual_wave718,
+    simulate_live_host_train_force_complete_opt_in_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6850,6 +6855,9 @@ pub struct ShellSmokeResult {
     pub host_special_power_same_frame_ready_eva_method_names_wave717_ok: bool,
     pub host_special_power_same_frame_ready_eva_nav_commands_wave717_ok: bool,
     pub host_special_power_same_frame_ready_eva_live_wave717_ok: bool,
+    pub host_train_force_complete_opt_in_method_names_wave718_ok: bool,
+    pub host_train_force_complete_opt_in_nav_commands_wave718_ok: bool,
+    pub host_train_force_complete_opt_in_live_wave718_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10891,6 +10899,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_special_power_same_frame_ready_eva_nav_commands_residual_wave717();
     let host_special_power_same_frame_ready_eva_live_wave717_ok =
         simulate_live_host_special_power_same_frame_ready_eva_honesty();
+    let host_train_force_complete_opt_in_method_names_wave718_ok =
+        honesty_host_train_force_complete_opt_in_method_names_residual_wave718();
+    let host_train_force_complete_opt_in_nav_commands_wave718_ok =
+        honesty_host_train_force_complete_opt_in_nav_commands_residual_wave718();
+    let host_train_force_complete_opt_in_live_wave718_ok =
+        simulate_live_host_train_force_complete_opt_in_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13031,6 +13045,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_special_power_same_frame_ready_eva_method_names_wave717_ok,
         host_special_power_same_frame_ready_eva_nav_commands_wave717_ok,
         host_special_power_same_frame_ready_eva_live_wave717_ok,
+        host_train_force_complete_opt_in_method_names_wave718_ok,
+        host_train_force_complete_opt_in_nav_commands_wave718_ok,
+        host_train_force_complete_opt_in_live_wave718_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24056,6 +24073,21 @@ mod tests {
         assert!(
             r.host_special_power_same_frame_ready_eva_live_wave717_ok,
             "host special_power_same_frame_ready_eva live residual wave717: {}",
+            r.detail
+        );
+        assert!(
+            r.host_train_force_complete_opt_in_method_names_wave718_ok,
+            "host train_force_complete_opt_in method names residual pack wave718: {}",
+            r.detail
+        );
+        assert!(
+            r.host_train_force_complete_opt_in_nav_commands_wave718_ok,
+            "host train_force_complete_opt_in nav commands residual pack wave718: {}",
+            r.detail
+        );
+        assert!(
+            r.host_train_force_complete_opt_in_live_wave718_ok,
+            "host train_force_complete_opt_in live residual wave718: {}",
             r.detail
         );
         assert!(
