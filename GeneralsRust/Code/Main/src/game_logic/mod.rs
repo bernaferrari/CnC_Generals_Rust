@@ -166,6 +166,7 @@ pub mod host_live_host_production_object_id_prefers_gw_entity_residual_wave737;
 pub mod host_live_host_production_spawn_requires_gw_bind_residual_wave738;
 pub mod host_live_host_production_spawn_pose_no_rejitter_residual_wave739;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
+pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3444,6 +3445,15 @@ pub use host_live_host_rebuild_spawn_entity_first_residual_wave740::{
     residual_host_rebuild_spawn_entity_first_last_action,
     residual_host_rebuild_spawn_entity_first_ok,
     simulate_live_host_rebuild_spawn_entity_first_honesty,
+};
+pub use host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741::{
+    honesty_host_rebuild_spawn_requires_gw_bind_method_names_residual_wave741,
+    honesty_host_rebuild_spawn_requires_gw_bind_nav_commands_residual_wave741,
+    honesty_host_rebuild_spawn_requires_gw_bind_residual_pack_wave741,
+    honesty_host_rebuild_spawn_requires_gw_bind_source_markers_residual_wave741,
+    residual_host_rebuild_spawn_requires_gw_bind_last_action,
+    residual_host_rebuild_spawn_requires_gw_bind_ok,
+    simulate_live_host_rebuild_spawn_requires_gw_bind_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,
