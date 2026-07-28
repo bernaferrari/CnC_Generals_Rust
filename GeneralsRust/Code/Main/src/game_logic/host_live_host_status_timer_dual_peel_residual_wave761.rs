@@ -89,7 +89,8 @@ pub fn simulate_host_status_timer_dual_peel_dispatch_source() -> bool {
     let ok=sh_source().matches("Wave 761").count() >= 2
         && gl.matches("Wave 761").count() >= 3
         && gl.contains("shadow_coupled_tick_active()")
-        && gl.contains("tick_fire_sound_loop")
+        && gl.contains("tick_continuous_fire_coast")
+        && gl.contains("tick_repulsor_status")
         && gl.contains("pop_pending_bind");
     residual_action_store(ResidualHostStatusTimerDualPeelAction::DispatchSource); ok
 }

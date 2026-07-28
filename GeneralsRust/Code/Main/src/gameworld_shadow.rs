@@ -3290,6 +3290,8 @@ impl GameWorldShadow {
                         e.defection_flash_this_frame = false;
                         e.defection_final_white_flash = false;
                     }
+                    e.fire_sound_loop_until_frame = obj.fire_sound_loop_until_frame;
+                    e.fire_sound_loop_name = obj.fire_sound_loop_name.clone();
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -3819,6 +3821,8 @@ impl GameWorldShadow {
                         e.defection_flash_this_frame = false;
                         e.defection_final_white_flash = false;
                     }
+                    e.fire_sound_loop_until_frame = obj.fire_sound_loop_until_frame;
+                    e.fire_sound_loop_name = obj.fire_sound_loop_name.clone();
 
                 e.is_carbomb = obj.status.is_carbomb;
                 e.hijacked = obj.status.hijacked;
@@ -7010,6 +7014,21 @@ impl GameWorldShadow {
                     }
                     changed = true;
                 }
+            }
+            // Wave 767: FireSoundLoopTime residual (FiringTracker audio loop stop).
+            if e.fire_sound_loop_until_frame > 0 && frame >= e.fire_sound_loop_until_frame {
+                let sound = std::mem::take(&mut e.fire_sound_loop_name);
+                e.fire_sound_loop_until_frame = 0;
+                if !sound.is_empty() {
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_fire_sound_loop_log::record(
+                            crate::game_logic::ObjectId(hid),
+                            sound,
+                            false,
+                        );
+                    }
+                }
+                changed = true;
             }
             if changed {
                 n += 1;
@@ -10862,6 +10881,12 @@ impl GameWorldShadow {
                         d.pending_audio.push("DefectorTimerDing".into());
                     }
                 }
+            }
+            if obj.fire_sound_loop_until_frame != ent.fire_sound_loop_until_frame
+                || obj.fire_sound_loop_name != ent.fire_sound_loop_name
+            {
+                obj.fire_sound_loop_until_frame = ent.fire_sound_loop_until_frame;
+                obj.fire_sound_loop_name = ent.fire_sound_loop_name.clone();
             }
 
             set_flag!(obj.status.masked, ent.masked);

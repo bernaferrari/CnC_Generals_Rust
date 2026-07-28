@@ -82,7 +82,7 @@ pub fn simulate_host_subdual_heal_dual_peel_collect_source() -> bool {
 pub fn simulate_host_subdual_heal_dual_peel_dispatch_source() -> bool {
     let ok=sh_source().contains("e.subdual_damage = (e.subdual_damage - e.subdual_heal_amount).max(0.0)")
         && sh_source().contains("obj.subdual_damage = ent.subdual_damage")
-        && gl_source().contains("tick_fire_sound_loop(self.frame)")
+        && gl_source().contains("tick_continuous_fire_coast")
         && !gl_source().contains("obj.tick_subdual_damage();")
         && include_str!("object.rs").contains("tick_subdual_damage();");
     residual_action_store(ResidualHostSubdualHealDualPeelAction::DispatchSource); ok

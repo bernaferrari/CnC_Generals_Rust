@@ -3305,6 +3305,12 @@ use crate::game_logic::host_live_host_defection_timer_dual_peel_residual_wave766
     honesty_host_defection_timer_dual_peel_nav_commands_residual_wave766,
     simulate_live_host_defection_timer_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_fire_sound_loop_dual_peel_residual_wave767::{
+    honesty_host_fire_sound_loop_dual_peel_method_names_residual_wave767,
+    honesty_host_fire_sound_loop_dual_peel_nav_commands_residual_wave767,
+    simulate_live_host_fire_sound_loop_dual_peel_honesty,
+};
+
 
 
 
@@ -7250,6 +7256,9 @@ pub struct ShellSmokeResult {
     pub host_defection_timer_dual_peel_method_names_wave766_ok: bool,
     pub host_defection_timer_dual_peel_nav_commands_wave766_ok: bool,
     pub host_defection_timer_dual_peel_live_wave766_ok: bool,
+    pub host_fire_sound_loop_dual_peel_method_names_wave767_ok: bool,
+    pub host_fire_sound_loop_dual_peel_nav_commands_wave767_ok: bool,
+    pub host_fire_sound_loop_dual_peel_live_wave767_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11585,6 +11594,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_defection_timer_dual_peel_nav_commands_residual_wave766();
     let host_defection_timer_dual_peel_live_wave766_ok =
         simulate_live_host_defection_timer_dual_peel_honesty();
+    let host_fire_sound_loop_dual_peel_method_names_wave767_ok =
+        honesty_host_fire_sound_loop_dual_peel_method_names_residual_wave767();
+    let host_fire_sound_loop_dual_peel_nav_commands_wave767_ok =
+        honesty_host_fire_sound_loop_dual_peel_nav_commands_residual_wave767();
+    let host_fire_sound_loop_dual_peel_live_wave767_ok =
+        simulate_live_host_fire_sound_loop_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13872,6 +13887,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_defection_timer_dual_peel_method_names_wave766_ok,
         host_defection_timer_dual_peel_nav_commands_wave766_ok,
         host_defection_timer_dual_peel_live_wave766_ok,
+        host_fire_sound_loop_dual_peel_method_names_wave767_ok,
+        host_fire_sound_loop_dual_peel_nav_commands_wave767_ok,
+        host_fire_sound_loop_dual_peel_live_wave767_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25632,6 +25650,21 @@ mod tests {
         assert!(
             r.host_defection_timer_dual_peel_live_wave766_ok,
             "host defection_timer_dual_peel live residual wave766: {}",
+            r.detail
+        );
+        assert!(
+            r.host_fire_sound_loop_dual_peel_method_names_wave767_ok,
+            "host fire_sound_loop_dual_peel method names residual pack wave767: {}",
+            r.detail
+        );
+        assert!(
+            r.host_fire_sound_loop_dual_peel_nav_commands_wave767_ok,
+            "host fire_sound_loop_dual_peel nav commands residual pack wave767: {}",
+            r.detail
+        );
+        assert!(
+            r.host_fire_sound_loop_dual_peel_live_wave767_ok,
+            "host fire_sound_loop_dual_peel live residual wave767: {}",
             r.detail
         );
         assert!(
