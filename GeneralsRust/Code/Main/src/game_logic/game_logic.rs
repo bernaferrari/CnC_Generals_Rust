@@ -1730,7 +1730,7 @@ pub struct GameLogic {
     battlemaster_residual_units_hit: u32,
     battlemaster_residual_uranium_upgrades: u32,
     battlemaster_residual_nationalism_upgrades: u32,
-    battlemaster_residual_horde_grants: u32,
+    pub(crate) battlemaster_residual_horde_grants: u32,
 
     /// Host residual: China Red Guard gun + bayonet + horde / nationalism honesty.
     /// Fail-closed: not full WeaponSet tertiary auto-choose / RubOff matrix.
@@ -6318,7 +6318,12 @@ impl GameLogic {
         // Host China Battlemaster HordeUpdate residual (ExactMatch allies Radius 75 / Count 5).
         // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
         // Retail UpdateRate 1000ms — residual rechecks each frame when battlemasters exist.
-        self.update_battlemaster_horde_status();
+        // Wave 812: under coupled shadow, horde status owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_battlemaster_horde_status();
+        }
 
         // Host China infantry HordeUpdate residual (Red Guard / Tank Hunter, Radius 30 / Count 5).
         // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
@@ -44716,7 +44721,7 @@ impl GameLogic {
     }
 
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
-    fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
+    pub(crate) fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::{
             battlemaster_weapon, has_nationalism_upgrade, has_uranium_shells_upgrade,
             is_battlemaster_template,
