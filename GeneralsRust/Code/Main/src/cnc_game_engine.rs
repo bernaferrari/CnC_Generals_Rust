@@ -17984,6 +17984,15 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 687: post-logic AI-state / fire-intent before full session.
+                let _ai_st = crate::gameworld_shadow::eager_apply_host_ai_state_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _fi = crate::gameworld_shadow::eager_apply_host_fire_intent_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

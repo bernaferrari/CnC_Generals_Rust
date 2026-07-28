@@ -197,6 +197,8 @@ pub fn end_shadow_coupled_tick() {
             EARLY_HEAL_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_MAX_HEALTH_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_EXPERIENCE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_AI_STATE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_FIRE_INTENT_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -480,6 +482,65 @@ pub fn eager_apply_host_experience_after_logic(
     }
     let n = shadow.apply_host_experience_events(&events);
     EARLY_EXPERIENCE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 687: post-logic AI-state / fire-intent batch handoff (avoid double-apply).
+thread_local! {
+    static EARLY_AI_STATE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ai_state_log::HostAiStateEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_FIRE_INTENT_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_fire_intent_log::HostFireIntentEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_ai_state_batch() -> Option<(
+    Vec<crate::game_logic::host_ai_state_log::HostAiStateEvent>,
+    bool,
+)> {
+    EARLY_AI_STATE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_fire_intent_batch() -> Option<(
+    Vec<crate::game_logic::host_fire_intent_log::HostFireIntentEvent>,
+    bool,
+)> {
+    EARLY_FIRE_INTENT_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 687: post-logic drain `host_ai_state_log` into GameWorld SetAiState.
+pub fn eager_apply_host_ai_state_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 687: post-logic AI-state materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_ai_state_log::drain();
+    if events.is_empty() {
+        EARLY_AI_STATE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_ai_state_events(&events);
+    EARLY_AI_STATE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 687: post-logic drain `host_fire_intent_log` into GameWorld SetFireIntent.
+pub fn eager_apply_host_fire_intent_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 687: post-logic fire-intent materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_fire_intent_log::drain();
+    if events.is_empty() {
+        EARLY_FIRE_INTENT_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_fire_intent_events(&events);
+    EARLY_FIRE_INTENT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8278,7 +8339,11 @@ pub fn shadow_session_after_host_tick(
     let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
     let special_power_events = crate::game_logic::host_special_power_log::drain();
     let stored_supplies_events = crate::game_logic::host_stored_supplies_log::drain();
-    let ai_state_events = crate::game_logic::host_ai_state_log::drain();
+    // Wave 687: prefer post-logic AI-state batch.
+    let (ai_state_events, early_ai_state_applied) = match take_early_ai_state_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_ai_state_log::drain(), false),
+    };
     let contain_events = crate::game_logic::host_contain_log::drain();
     let radar_events = crate::game_logic::host_radar_log::drain();
     let player_progress_events = crate::game_logic::host_player_progress_log::drain();
@@ -8313,7 +8378,12 @@ pub fn shadow_session_after_host_tick(
     }
 
     let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
-    let _ai_applied = shadow.apply_host_ai_state_events(&ai_state_events);
+    // Wave 687: skip GW re-apply when post-logic eager path already ran.
+    let _ai_applied = if !early_ai_state_applied {
+        shadow.apply_host_ai_state_events(&ai_state_events)
+    } else {
+        ai_state_events.len()
+    };
     let _contain_applied = shadow.apply_host_contain_events(&contain_events);
     // Wave 628: contain membership last-write + ready-log residual.
     let _contain_wb = shadow.writeback_contain_to_host(logic);
@@ -8358,8 +8428,16 @@ pub fn shadow_session_after_host_tick(
     let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
     let combat_attack_events = crate::game_logic::host_combat_attack_log::drain();
     let _ca_applied = shadow.apply_host_combat_attack_events(&combat_attack_events);
-    let fire_intent_events = crate::game_logic::host_fire_intent_log::drain();
-    let _fi_applied = shadow.apply_host_fire_intent_events(&fire_intent_events);
+    // Wave 687: prefer post-logic fire-intent batch.
+    let (fire_intent_events, early_fire_intent_applied) = match take_early_fire_intent_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_fire_intent_log::drain(), false),
+    };
+    let _fi_applied = if !early_fire_intent_applied {
+        shadow.apply_host_fire_intent_events(&fire_intent_events)
+    } else {
+        fire_intent_events.len()
+    };
     let projectile_events = crate::game_logic::host_projectile_log::drain();
     let _proj_applied = shadow.apply_host_projectile_events(&projectile_events);
     // Fire-spawn authority: materialize deferred weapon discharges into CombatSystem

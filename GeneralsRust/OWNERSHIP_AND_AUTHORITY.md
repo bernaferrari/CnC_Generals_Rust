@@ -164,6 +164,7 @@ Remaining engine residual after host update:
   - Eager damage: post-logic drain `host_damage_log` → GW Damage/Destroy (Wave 684; session handoff, no double-apply)
   - Eager heal: post-logic drain `host_heal_log` → GW SetHealth (Wave 685; session handoff, no double-apply)
   - Eager max-health/XP: post-logic drain `host_max_health_log`/`host_experience_log` → GW (Wave 686; session handoff)
+  - Eager AI-state/fire-intent: post-logic drain `host_ai_state_log`/`host_fire_intent_log` → GW (Wave 687; session handoff)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
