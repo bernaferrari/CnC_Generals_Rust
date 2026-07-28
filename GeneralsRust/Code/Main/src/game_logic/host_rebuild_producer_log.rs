@@ -53,3 +53,7 @@ pub fn drain() -> Vec<HostRebuildProducerEvent> {
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
 }
+
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}

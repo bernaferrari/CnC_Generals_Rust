@@ -2921,6 +2921,11 @@ use crate::game_logic::host_live_host_eager_stealth_sole_radar_helper_residual_w
     honesty_host_eager_stealth_sole_radar_helper_nav_commands_residual_wave705,
     simulate_live_host_eager_stealth_sole_radar_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_hijack_rebuild_supplies_helper_residual_wave706::{
+    honesty_host_eager_hijack_rebuild_supplies_helper_method_names_residual_wave706,
+    honesty_host_eager_hijack_rebuild_supplies_helper_nav_commands_residual_wave706,
+    simulate_live_host_eager_hijack_rebuild_supplies_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6754,6 +6759,9 @@ pub struct ShellSmokeResult {
     pub host_eager_stealth_sole_radar_helper_method_names_wave705_ok: bool,
     pub host_eager_stealth_sole_radar_helper_nav_commands_wave705_ok: bool,
     pub host_eager_stealth_sole_radar_helper_live_wave705_ok: bool,
+    pub host_eager_hijack_rebuild_supplies_helper_method_names_wave706_ok: bool,
+    pub host_eager_hijack_rebuild_supplies_helper_nav_commands_wave706_ok: bool,
+    pub host_eager_hijack_rebuild_supplies_helper_live_wave706_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10723,6 +10731,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_stealth_sole_radar_helper_nav_commands_residual_wave705();
     let host_eager_stealth_sole_radar_helper_live_wave705_ok =
         simulate_live_host_eager_stealth_sole_radar_helper_honesty();
+    let host_eager_hijack_rebuild_supplies_helper_method_names_wave706_ok =
+        honesty_host_eager_hijack_rebuild_supplies_helper_method_names_residual_wave706();
+    let host_eager_hijack_rebuild_supplies_helper_nav_commands_wave706_ok =
+        honesty_host_eager_hijack_rebuild_supplies_helper_nav_commands_residual_wave706();
+    let host_eager_hijack_rebuild_supplies_helper_live_wave706_ok =
+        simulate_live_host_eager_hijack_rebuild_supplies_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12827,6 +12841,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_stealth_sole_radar_helper_method_names_wave705_ok,
         host_eager_stealth_sole_radar_helper_nav_commands_wave705_ok,
         host_eager_stealth_sole_radar_helper_live_wave705_ok,
+        host_eager_hijack_rebuild_supplies_helper_method_names_wave706_ok,
+        host_eager_hijack_rebuild_supplies_helper_nav_commands_wave706_ok,
+        host_eager_hijack_rebuild_supplies_helper_live_wave706_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23672,6 +23689,21 @@ mod tests {
         assert!(
             r.host_eager_stealth_sole_radar_helper_live_wave705_ok,
             "host eager_stealth_sole_radar helper live residual wave705: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_hijack_rebuild_supplies_helper_method_names_wave706_ok,
+            "host eager_hijack_rebuild_supplies helper method names residual pack wave706: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_hijack_rebuild_supplies_helper_nav_commands_wave706_ok,
+            "host eager_hijack_rebuild_supplies helper nav commands residual pack wave706: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_hijack_rebuild_supplies_helper_live_wave706_ok,
+            "host eager_hijack_rebuild_supplies helper live residual wave706: {}",
             r.detail
         );
         assert!(

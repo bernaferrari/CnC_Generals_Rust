@@ -248,6 +248,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_STEALTH_DELAY_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_SOLE_HEALING_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_RADAR_EXTEND_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_HIJACKER_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_REBUILD_PRODUCER_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_STORED_SUPPLIES_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -2017,6 +2020,93 @@ pub fn eager_apply_host_radar_extend_after_logic(
     }
     let n = shadow.apply_host_radar_extend_events(&events);
     EARLY_RADAR_EXTEND_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 706: post-logic hijacker / rebuild-producer / stored-supplies batch handoff.
+thread_local! {
+    static EARLY_HIJACKER_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_hijacker_log::HostHijackerEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_REBUILD_PRODUCER_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_rebuild_producer_log::HostRebuildProducerEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_STORED_SUPPLIES_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_stored_supplies_log::HostStoredSuppliesEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_hijacker_batch() -> Option<(
+    Vec<crate::game_logic::host_hijacker_log::HostHijackerEvent>,
+    bool,
+)> {
+    EARLY_HIJACKER_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_rebuild_producer_batch() -> Option<(
+    Vec<crate::game_logic::host_rebuild_producer_log::HostRebuildProducerEvent>,
+    bool,
+)> {
+    EARLY_REBUILD_PRODUCER_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_stored_supplies_batch() -> Option<(
+    Vec<crate::game_logic::host_stored_supplies_log::HostStoredSuppliesEvent>,
+    bool,
+)> {
+    EARLY_STORED_SUPPLIES_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 706: post-logic drain `host_hijacker_log` into GameWorld SetHijacker.
+pub fn eager_apply_host_hijacker_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 706: post-logic hijacker materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_hijacker_log::drain();
+    if events.is_empty() {
+        EARLY_HIJACKER_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_hijacker_events(&events);
+    EARLY_HIJACKER_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 706: post-logic drain `host_rebuild_producer_log` into GameWorld SetRebuildProducer.
+pub fn eager_apply_host_rebuild_producer_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 706: post-logic rebuild-producer materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_rebuild_producer_log::drain();
+    if events.is_empty() {
+        EARLY_REBUILD_PRODUCER_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_rebuild_producer_events(&events);
+    EARLY_REBUILD_PRODUCER_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 706: post-logic drain `host_stored_supplies_log` into GameWorld SetStoredSupplies.
+pub fn eager_apply_host_stored_supplies_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 706: post-logic stored-supplies materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_stored_supplies_log::drain();
+    if events.is_empty() {
+        EARLY_STORED_SUPPLIES_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_stored_supplies_events(&events);
+    EARLY_STORED_SUPPLIES_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9974,7 +10064,12 @@ pub fn shadow_session_after_host_tick(
     let construction_events = crate::game_logic::host_construction_log::drain();
     let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
     let special_power_events = crate::game_logic::host_special_power_log::drain();
-    let stored_supplies_events = crate::game_logic::host_stored_supplies_log::drain();
+    // Wave 706: prefer post-logic stored-supplies batch.
+    let (stored_supplies_events, early_stored_supplies_applied) =
+        match take_early_stored_supplies_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_stored_supplies_log::drain(), false),
+        };
     // Wave 687: prefer post-logic AI-state batch.
     let (ai_state_events, early_ai_state_applied) = match take_early_ai_state_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -10013,7 +10108,12 @@ pub fn shadow_session_after_host_tick(
         let _sp_wb = shadow.writeback_special_power_to_host(logic);
     }
 
-    let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
+    // Wave 706: skip GW re-apply when post-logic eager path already ran.
+    let _ss_applied = if early_stored_supplies_applied {
+        0
+    } else {
+        shadow.apply_host_stored_supplies_events(&stored_supplies_events)
+    };
     // Wave 687: skip GW re-apply when post-logic eager path already ran.
     let _ai_applied = if !early_ai_state_applied {
         shadow.apply_host_ai_state_events(&ai_state_events)
@@ -10222,8 +10322,16 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_hive_events(&hive_events)
     };
-    let hijack_events = crate::game_logic::host_hijacker_log::drain();
-    let _hj_applied = shadow.apply_host_hijacker_events(&hijack_events);
+    // Wave 706: prefer post-logic hijacker batch.
+    let (hijack_events, early_hijacker_applied) = match take_early_hijacker_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_hijacker_log::drain(), false),
+    };
+    let _hj_applied = if early_hijacker_applied {
+        0
+    } else {
+        shadow.apply_host_hijacker_events(&hijack_events)
+    };
     // Wave 694: skip GW re-apply when post-logic eager path already ran.
     let _stf_applied = if early_stealth_flags_applied {
         0
@@ -10311,8 +10419,17 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_shock_stun_events(&shock_stun_events)
     };
-    let rebuild_producer_events = crate::game_logic::host_rebuild_producer_log::drain();
-    let _rp_applied = shadow.apply_host_rebuild_producer_events(&rebuild_producer_events);
+    // Wave 706: prefer post-logic rebuild-producer batch.
+    let (rebuild_producer_events, early_rebuild_producer_applied) =
+        match take_early_rebuild_producer_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_rebuild_producer_log::drain(), false),
+        };
+    let _rp_applied = if early_rebuild_producer_applied {
+        0
+    } else {
+        shadow.apply_host_rebuild_producer_events(&rebuild_producer_events)
+    };
     // Wave 705: prefer post-logic sole-healing batch.
     let (sole_healing_events, early_sole_healing_applied) = match take_early_sole_healing_batch() {
         Some((ev, applied)) => (ev, applied),
