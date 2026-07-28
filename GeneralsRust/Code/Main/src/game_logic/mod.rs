@@ -114,6 +114,7 @@ pub mod host_identity_ready_log;
 pub mod host_kind_of_log;
 pub mod host_live_host_eager_destroy_unmap_helper_residual_wave681;
 pub mod host_live_host_eager_fire_spawn_helper_residual_wave682;
+pub mod host_live_host_eager_move_attack_helper_residual_wave683;
 pub mod host_live_host_eager_spawn_map_helper_residual_wave680;
 pub mod host_live_host_production_spawn_ready_log_helper_residual_wave679;
 pub mod host_live_host_projectiles_ready_log_helper_residual_wave678;
@@ -2923,6 +2924,14 @@ pub use host_live_host_eager_fire_spawn_helper_residual_wave682::{
     honesty_host_eager_fire_spawn_helper_source_markers_residual_wave682,
     residual_host_eager_fire_spawn_helper_last_action, residual_host_eager_fire_spawn_helper_ok,
     simulate_live_host_eager_fire_spawn_helper_honesty,
+};
+pub use host_live_host_eager_move_attack_helper_residual_wave683::{
+    honesty_host_eager_move_attack_helper_method_names_residual_wave683,
+    honesty_host_eager_move_attack_helper_nav_commands_residual_wave683,
+    honesty_host_eager_move_attack_helper_residual_pack_wave683,
+    honesty_host_eager_move_attack_helper_source_markers_residual_wave683,
+    residual_host_eager_move_attack_helper_last_action, residual_host_eager_move_attack_helper_ok,
+    simulate_live_host_eager_move_attack_helper_honesty,
 };
 pub use host_live_host_eager_spawn_map_helper_residual_wave680::{
     honesty_host_eager_spawn_map_helper_method_names_residual_wave680,
