@@ -7182,7 +7182,9 @@ impl GameLogic {
     ///
     /// Still host ObjectId authority (`create_object` + spawn log). GameWorld
     /// receives the unit via host_spawn_log / production Complete channel after
-    /// sole-tick readiness (Waves 614/608). Not full GW spawn-ID authority.
+    /// sole-tick readiness (Waves 614/608). Wave 679: successful IDs enter
+    /// `host_production_spawn_ready_log` before door/notify/exit residual.
+    /// Not full GW spawn-ID authority.
     fn host_spawn_production_unit(
         &mut self,
         template: &str,
@@ -7201,15 +7203,7 @@ impl GameLogic {
     ) {
         // Wave 608: host production complete/spawn apply residual.
         // Wave 595: host unit production completion residual.
-        for (team, template, mut spawn_pos, rally, producer_id) in unit_completions {
-            // Push spawn a bit off the footprint center to reduce stacking.
-            let jitter_dir = Vec3::new(
-                (spawn_pos.x * 17.0 + spawn_pos.z).sin(),
-                0.0,
-                (spawn_pos.z * 31.0 + spawn_pos.x).cos(),
-            )
-            .normalize_or_zero();
-            // Use template selection heuristic later once the object is created.
+        for (team, template, spawn_pos, rally, producer_id) in unit_completions {
             // Wave 615: production unit spawn via host helper (still host ID authority).
             if let Some(new_id) = self.host_spawn_production_unit(&template, team, spawn_pos) {
                 crate::game_logic::host_production_log::record_complete(
@@ -7217,87 +7211,121 @@ impl GameLogic {
                     template.clone(),
                     new_id,
                 );
-                // C++ VoiceCreated + UnitReady residual.
-                self.notify_unit_production_complete(new_id, producer_id, &template);
-                // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.
-                if let Some(prod) = self.objects.get_mut(&producer_id) {
-                    let now = self.frame.max(1);
-                    prod.set_construction_complete_condition_at(now);
-                    prod.start_production_door_cycle(self.frame);
-                    self.production_door_cycles = self.production_door_cycles.saturating_add(1);
-                    // C++ QueueProductionExitUpdate ExitDelay residual after release.
-                    if let Some(building) = prod.building_data.as_mut() {
-                        let delay = crate::game_logic::host_dock_contain_exit_heal_residual::queue_exit_delay_seconds_for_template(
-                            &prod.template_name,
-                        );
-                        building.arm_exit_delay(delay);
-                        // Wave 480: under sole-tick, progress log is power-only —
-                        // publish exit arm so GW QueueProductionExitUpdate advances.
-                        if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
-                            crate::game_logic::host_production_progress_log::record_exit_delay_only(
-                                producer_id,
-                                delay,
-                            );
-                        }
-                    }
-                }
-                // SCIENCE_StealthFighter residual: record gated production spawn.
-                if crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science(
-                    &template,
-                ) {
-                    self.stealth_fighter_science.record_production_spawn();
-                }
-                if let Some(unit) = self.objects.get(&new_id) {
-                    let selection_radius = unit.selection_radius.max(4.0);
-                    spawn_pos += jitter_dir * selection_radius;
-                }
-                if let Some(unit) = self.objects.get_mut(&new_id) {
-                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        crate::game_logic::host_move_log::record(
-                            new_id,
-                            Some([spawn_pos.x, spawn_pos.y, spawn_pos.z]),
-                        );
-                        // Factory exit residual still needs host pose for same-frame doors.
-                        unit.set_position(spawn_pos);
-                        unit.record_host_movement();
-                    } else {
-                        unit.set_position(spawn_pos);
-                    }
-                }
-                // C++ QueueProductionExitUpdate exit path residual:
-                // natural rally first; custom rally appended; else double natural
-                // so Red Guards do not stack on the door.
-                let (natural, forward) = if let Some(prod) = self.objects.get(&producer_id) {
-                    let f = prod.thing.get_direction_vector();
-                    let natural = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                        prod.get_position(),
-                        f,
-                        crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_NATURAL_RALLY_MODEL,
-                    );
-                    // Generic residual: if producer is not China barracks family, fall back
-                    // to forward * selection_radius natural.
-                    let p_name = prod.template_name.to_ascii_lowercase();
-                    let natural = if p_name.contains("chinabarracks")
-                        || (p_name.contains("barracks") && p_name.contains("china"))
-                    {
-                        natural
-                    } else {
-                        prod.get_position() + f * prod.selection_radius.max(10.0)
-                    };
-                    (natural, f)
-                } else {
-                    (spawn_pos, glam::Vec3::new(0.0, 0.0, -1.0))
-                };
-                self.path_approach_with_state(new_id, natural, AIState::Moving);
-                if let Some(rally_point) = rally {
-                    let _ = self.append_unit_waypoint(new_id, rally_point);
-                } else {
-                    // Double natural residual (C++ exitPath.push_back(tmp) twice).
-                    let doubled = natural + forward.normalize_or_zero() * 5.0;
-                    let _ = self.append_unit_waypoint(new_id, doubled);
-                }
+                // Wave 679: production spawn ObjectId ready residual —
+                // host door/notify/exit/path apply drains the ready log.
+                crate::game_logic::host_production_spawn_ready_log::record(
+                    new_id,
+                    producer_id,
+                    template,
+                    [spawn_pos.x, spawn_pos.y, spawn_pos.z],
+                    rally.map(|r| [r.x, r.y, r.z]),
+                );
+                let _ = self.host_apply_production_spawn_ready_completions();
             }
         }
+    }
+
+    /// Wave 679: drain production-spawn ready log and apply host presentation residual
+    /// (notify/door/exit/path) for the newly allocated host ObjectId.
+    /// Still host ObjectId authority — not full GameWorld spawn-ID ownership.
+    pub fn host_apply_production_spawn_ready_completions(&mut self) -> usize {
+        // Wave 679: drain production-spawn ready log and apply host presentation residual.
+        let events = crate::game_logic::host_production_spawn_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let new_id = ev.unit;
+            let producer_id = ev.producer;
+            let template = ev.template;
+            let mut spawn_pos = Vec3::new(ev.spawn_pos[0], ev.spawn_pos[1], ev.spawn_pos[2]);
+            let rally = ev.rally.map(|r| Vec3::new(r[0], r[1], r[2]));
+            // Push spawn a bit off the footprint center to reduce stacking.
+            let jitter_dir = Vec3::new(
+                (spawn_pos.x * 17.0 + spawn_pos.z).sin(),
+                0.0,
+                (spawn_pos.z * 31.0 + spawn_pos.x).cos(),
+            )
+            .normalize_or_zero();
+            // C++ VoiceCreated + UnitReady residual.
+            self.notify_unit_production_complete(new_id, producer_id, &template);
+            // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.
+            if let Some(prod) = self.objects.get_mut(&producer_id) {
+                let now = self.frame.max(1);
+                prod.set_construction_complete_condition_at(now);
+                prod.start_production_door_cycle(self.frame);
+                self.production_door_cycles = self.production_door_cycles.saturating_add(1);
+                // C++ QueueProductionExitUpdate ExitDelay residual after release.
+                if let Some(building) = prod.building_data.as_mut() {
+                    let delay = crate::game_logic::host_dock_contain_exit_heal_residual::queue_exit_delay_seconds_for_template(
+                        &prod.template_name,
+                    );
+                    building.arm_exit_delay(delay);
+                    // Wave 480: under sole-tick, progress log is power-only —
+                    // publish exit arm so GW QueueProductionExitUpdate advances.
+                    if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+                        crate::game_logic::host_production_progress_log::record_exit_delay_only(
+                            producer_id,
+                            delay,
+                        );
+                    }
+                }
+            }
+            // SCIENCE_StealthFighter residual: record gated production spawn.
+            if crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science(&template)
+            {
+                self.stealth_fighter_science.record_production_spawn();
+            }
+            if let Some(unit) = self.objects.get(&new_id) {
+                let selection_radius = unit.selection_radius.max(4.0);
+                spawn_pos += jitter_dir * selection_radius;
+            }
+            if let Some(unit) = self.objects.get_mut(&new_id) {
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                    crate::game_logic::host_move_log::record(
+                        new_id,
+                        Some([spawn_pos.x, spawn_pos.y, spawn_pos.z]),
+                    );
+                    // Factory exit residual still needs host pose for same-frame doors.
+                    unit.set_position(spawn_pos);
+                    unit.record_host_movement();
+                } else {
+                    unit.set_position(spawn_pos);
+                }
+            }
+            // C++ QueueProductionExitUpdate exit path residual:
+            // natural rally first; custom rally appended; else double natural
+            // so Red Guards do not stack on the door.
+            let (natural, forward) = if let Some(prod) = self.objects.get(&producer_id) {
+                let f = prod.thing.get_direction_vector();
+                let natural = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                    prod.get_position(),
+                    f,
+                    crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_NATURAL_RALLY_MODEL,
+                );
+                // Generic residual: if producer is not China barracks family, fall back
+                // to forward * selection_radius natural.
+                let p_name = prod.template_name.to_ascii_lowercase();
+                let natural = if p_name.contains("chinabarracks")
+                    || (p_name.contains("barracks") && p_name.contains("china"))
+                {
+                    natural
+                } else {
+                    prod.get_position() + f * prod.selection_radius.max(10.0)
+                };
+                (natural, f)
+            } else {
+                (spawn_pos, glam::Vec3::new(0.0, 0.0, -1.0))
+            };
+            self.path_approach_with_state(new_id, natural, AIState::Moving);
+            if let Some(rally_point) = rally {
+                let _ = self.append_unit_waypoint(new_id, rally_point);
+            } else {
+                // Double natural residual (C++ exitPath.push_back(tmp) twice).
+                let doubled = natural + forward.normalize_or_zero() * 5.0;
+                let _ = self.append_unit_waypoint(new_id, doubled);
+            }
+            n = n.saturating_add(1);
+        }
+        n
     }
 
     /// C++ GameLogic starting-unit residual (PlayerTemplate StartingUnit0..N).

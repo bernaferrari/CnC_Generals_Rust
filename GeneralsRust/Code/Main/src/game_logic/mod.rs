@@ -112,6 +112,7 @@ pub mod host_hive_ready_log;
 pub mod host_identity_log;
 pub mod host_identity_ready_log;
 pub mod host_kind_of_log;
+pub mod host_live_host_production_spawn_ready_log_helper_residual_wave679;
 pub mod host_live_host_projectiles_ready_log_helper_residual_wave678;
 pub mod host_locomotor_ready_log;
 pub mod host_model_condition_log;
@@ -135,6 +136,7 @@ pub mod host_production_door_ready_log;
 pub mod host_production_log;
 pub mod host_production_progress_log;
 pub mod host_production_ready_log;
+pub mod host_production_spawn_ready_log;
 pub mod host_projectiles_ready_log;
 pub mod host_radar_extend_log;
 pub mod host_radar_extend_ready_log;
@@ -3249,6 +3251,15 @@ pub use host_live_host_production_spawn_helper_residual_wave615::{
     honesty_host_production_spawn_helper_source_markers_residual_wave615,
     residual_host_production_spawn_helper_last_action, residual_host_production_spawn_helper_ok,
     simulate_live_host_production_spawn_helper_honesty,
+};
+pub use host_live_host_production_spawn_ready_log_helper_residual_wave679::{
+    honesty_host_production_spawn_ready_log_helper_method_names_residual_wave679,
+    honesty_host_production_spawn_ready_log_helper_nav_commands_residual_wave679,
+    honesty_host_production_spawn_ready_log_helper_residual_pack_wave679,
+    honesty_host_production_spawn_ready_log_helper_source_markers_residual_wave679,
+    residual_host_production_spawn_ready_log_helper_last_action,
+    residual_host_production_spawn_ready_log_helper_ok,
+    simulate_live_host_production_spawn_ready_log_helper_honesty,
 };
 pub use host_live_host_projectiles_ready_log_helper_residual_wave678::{
     honesty_host_projectiles_ready_log_helper_method_names_residual_wave678,

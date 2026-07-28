@@ -156,6 +156,7 @@ Remaining engine residual after host update:
   - Production complete collect: `host_collect_production_completions` (Wave 613; GW sole-ticks progress, host try_complete+spawn)
   - Production ready log: GW writeback → `host_production_ready_log` → host collect drain (Wave 614; host still spawns)
   - Production unit spawn: `host_spawn_production_unit` (Wave 615; still host ObjectId authority)
+  - Production spawn ready log: host ObjectId → `host_production_spawn_ready_log` → door/notify/exit residual (Wave 679; still host ID authority)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
