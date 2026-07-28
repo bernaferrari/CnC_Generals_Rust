@@ -268,6 +268,7 @@ pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave7
 pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wave760;
 pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
 pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
+pub mod host_live_host_zone_damage_dual_peel_residual_wave825;
 pub mod host_locomotor_ready_log;
 pub mod host_model_condition_log;
 pub mod host_model_condition_ready_log;
@@ -3015,6 +3016,12 @@ pub use host_live_host_pending_patriot_dual_peel_residual_wave824::{
     honesty_host_pending_patriot_dual_peel_nav_commands_residual_wave824,
     honesty_host_pending_patriot_dual_peel_residual_pack_wave824,
     simulate_live_host_pending_patriot_dual_peel_honesty,
+};
+pub use host_live_host_zone_damage_dual_peel_residual_wave825::{
+    honesty_host_zone_damage_dual_peel_method_names_residual_wave825,
+    honesty_host_zone_damage_dual_peel_nav_commands_residual_wave825,
+    honesty_host_zone_damage_dual_peel_residual_pack_wave825,
+    simulate_live_host_zone_damage_dual_peel_honesty,
 };
 
 pub use host_live_host_auto_select_mobile_opt_in_residual_wave726::{
