@@ -193,6 +193,7 @@ pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
 pub mod host_live_host_defection_timer_dual_peel_residual_wave766;
 pub mod host_live_host_fire_sound_loop_dual_peel_residual_wave767;
+pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -370,7 +371,8 @@ mod host_jet_slow_death;
 mod host_keep_object_die;
 pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
-mod host_lifetime_update;
+pub mod host_lifetime_update;
+pub mod host_lifetime_expire_log;
 pub mod host_listening_outpost;
 pub mod host_live_a10_strike_dual_world_empty_gate_residual_wave330;
 pub mod host_live_action_manager_dual_world_empty_gate_residual_wave347;
@@ -3715,6 +3717,16 @@ pub use host_live_host_fire_sound_loop_dual_peel_residual_wave767::{
     residual_host_fire_sound_loop_dual_peel_ok,
     simulate_live_host_fire_sound_loop_dual_peel_honesty,
 };
+pub use host_live_host_lifetime_expire_dual_peel_residual_wave768::{
+    honesty_host_lifetime_expire_dual_peel_method_names_residual_wave768,
+    honesty_host_lifetime_expire_dual_peel_nav_commands_residual_wave768,
+    honesty_host_lifetime_expire_dual_peel_residual_pack_wave768,
+    honesty_host_lifetime_expire_dual_peel_source_markers_residual_wave768,
+    residual_host_lifetime_expire_dual_peel_last_action,
+    residual_host_lifetime_expire_dual_peel_ok,
+    simulate_live_host_lifetime_expire_dual_peel_honesty,
+};
+
 
 
 

@@ -3292,6 +3292,13 @@ impl GameWorldShadow {
                     }
                     e.fire_sound_loop_until_frame = obj.fire_sound_loop_until_frame;
                     e.fire_sound_loop_name = obj.fire_sound_loop_name.clone();
+                    if let Some(l) = obj.lifetime_update.as_ref() {
+                        e.lifetime_expire_at_frame = l.expire_at_frame;
+                        e.lifetime_active = l.active;
+                    } else {
+                        e.lifetime_expire_at_frame = 0;
+                        e.lifetime_active = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -3823,6 +3830,13 @@ impl GameWorldShadow {
                     }
                     e.fire_sound_loop_until_frame = obj.fire_sound_loop_until_frame;
                     e.fire_sound_loop_name = obj.fire_sound_loop_name.clone();
+                    if let Some(l) = obj.lifetime_update.as_ref() {
+                        e.lifetime_expire_at_frame = l.expire_at_frame;
+                        e.lifetime_active = l.active;
+                    } else {
+                        e.lifetime_expire_at_frame = 0;
+                        e.lifetime_active = false;
+                    }
 
                 e.is_carbomb = obj.status.is_carbomb;
                 e.hijacked = obj.status.hijacked;
@@ -7027,6 +7041,19 @@ impl GameWorldShadow {
                             false,
                         );
                     }
+                }
+                changed = true;
+            }
+            // Wave 768: LifetimeUpdate residual (auto-die after min/max frames).
+            if e.lifetime_active
+                && e.lifetime_expire_at_frame > 0
+                && frame >= e.lifetime_expire_at_frame
+            {
+                e.lifetime_active = false;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_lifetime_expire_log::record(
+                        crate::game_logic::ObjectId(hid),
+                    );
                 }
                 changed = true;
             }
@@ -10888,6 +10915,19 @@ impl GameWorldShadow {
                 obj.fire_sound_loop_until_frame = ent.fire_sound_loop_until_frame;
                 obj.fire_sound_loop_name = ent.fire_sound_loop_name.clone();
             }
+            {
+                let host_active = obj.lifetime_update.as_ref().map(|l| l.active).unwrap_or(false);
+                let host_exp = obj.lifetime_update.as_ref().map(|l| l.expire_at_frame).unwrap_or(0);
+                if host_active != ent.lifetime_active || host_exp != ent.lifetime_expire_at_frame {
+                    if ent.lifetime_active || ent.lifetime_expire_at_frame != 0 {
+                        let l = obj.lifetime_update.get_or_insert_with(Default::default);
+                        l.active = ent.lifetime_active;
+                        l.expire_at_frame = ent.lifetime_expire_at_frame;
+                    } else {
+                        obj.lifetime_update = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12253,6 +12293,11 @@ pub fn shadow_session_after_host_tick(
         // Wave 639: drain move-target ready log after GW writeback.
         let _mt_ready = logic.host_apply_move_target_ready_completions();
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
+        // Wave 768: LifetimeUpdate expire → host mark-for-destruction (no dual timer).
+        for id in crate::game_logic::host_lifetime_expire_log::drain() {
+            logic.mark_object_for_destruction(id, None);
+        }
+
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready = logic.host_apply_combat_status_ready_completions();
     }
