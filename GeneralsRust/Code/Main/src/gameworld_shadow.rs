@@ -2997,6 +2997,7 @@ pub struct GameWorldShadow {
     special_power_frozen_by_host: HashMap<u32, bool>,
     /// Pending A10 missile drops (mirrored from host registry under dual-tick).
     a10_pending_drops: Vec<crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop>,
+    artillery_pending_drops: Vec<crate::game_logic::host_artillery_barrage_flight::PendingArtilleryShellDrop>,
 }
 
 impl GameWorldShadow {
@@ -3011,6 +3012,7 @@ impl GameWorldShadow {
             construction_rate_by_host: HashMap::new(),
             special_power_frozen_by_host: HashMap::new(),
             a10_pending_drops: Vec::new(),
+            artillery_pending_drops: Vec::new(),
         }
     }
 
@@ -3881,6 +3883,50 @@ impl GameWorldShadow {
                     e.emp_pulse_spheroid = obj.emp_pulse_spheroid;
                     e.emp_pulse_spheroid_expires_frame =
                         obj.emp_pulse_spheroid_expires_frame.unwrap_or(0);
+                    if let Some(d) = obj.a10_strike_transport.as_ref() {
+                        e.a10_strike_transport_active = true;
+                        e.a10_strike_transport_tier = match d.tier {
+                            crate::game_logic::special_power_strikes::A10StrikeScienceTier::Level2 => 1,
+                            crate::game_logic::special_power_strikes::A10StrikeScienceTier::Level3 => 2,
+                            _ => 0,
+                        };
+                        e.a10_strike_transport_target_x = d.target.x;
+                        e.a10_strike_transport_target_y = d.target.y;
+                        e.a10_strike_transport_target_z = d.target.z;
+                        e.a10_strike_transport_launch_x = d.launch.x;
+                        e.a10_strike_transport_launch_y = d.launch.y;
+                        e.a10_strike_transport_launch_z = d.launch.z;
+                    } else {
+                        e.a10_strike_transport_active = false;
+                    }
+                    e.a10_strike_missile = obj.a10_strike_missile;
+                    e.a10_strike_missile_vel_y = if obj.a10_strike_missile {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
+                    if let Some(d) = obj.artillery_barrage_transport.as_ref() {
+                        e.artillery_barrage_transport_active = true;
+                        e.artillery_barrage_transport_tier = match d.tier {
+                            crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier::Level2 => 1,
+                            crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier::Level3 => 2,
+                            _ => 0,
+                        };
+                        e.artillery_barrage_transport_target_x = d.target.x;
+                        e.artillery_barrage_transport_target_y = d.target.y;
+                        e.artillery_barrage_transport_target_z = d.target.z;
+                        e.artillery_barrage_transport_launch_x = d.launch.x;
+                        e.artillery_barrage_transport_launch_y = d.launch.y;
+                        e.artillery_barrage_transport_launch_z = d.launch.z;
+                    } else {
+                        e.artillery_barrage_transport_active = false;
+                    }
+                    e.artillery_barrage_shell = obj.artillery_barrage_shell;
+                    e.artillery_barrage_shell_vel_y = if obj.artillery_barrage_shell {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -4522,6 +4568,7 @@ impl GameWorldShadow {
 
         // Wave 792: mirror A10 pending missile drops for GW sole-tick.
         self.a10_pending_drops = logic.a10_strike_flight_reg.pending_drops.clone();
+        self.artillery_pending_drops = logic.artillery_barrage_flight_reg.pending_drops.clone();
 
         // Align frame.
         let target = logic.get_frame() as u64;
@@ -8552,6 +8599,107 @@ impl GameWorldShadow {
                 }
                 changed = true;
             }
+            // Wave 792: A10 Thunderbolt transport residual.
+            if e.a10_strike_transport_active {
+                let dest_x = e.a10_strike_transport_target_x;
+                let dest_z = e.a10_strike_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 22.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = new_pos.y.max(140.0);
+                let mut vel = glam::Vec3::ZERO;
+                if dist >= 5.0 {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
+                }
+                e.transform.position = new_pos;
+                if vel.length_squared() > 1e-6 {
+                    e.transform.orientation = vel.z.atan2(vel.x);
+                }
+                changed = true;
+            }
+            if e.a10_strike_missile {
+                if e.a10_strike_missile_vel_y == 0.0 {
+                    e.a10_strike_missile_vel_y = -20.0;
+                }
+                e.transform.position.y += e.a10_strike_missile_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.a10_strike_missile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_a10_strike_drop_log::record_detonate(
+                            crate::game_logic::host_a10_strike_drop_log::A10DetonateEvent {
+                                missile: crate::game_logic::ObjectId(hid),
+                                producer,
+                                team,
+                                pos: glam::Vec3::new(
+                                    e.transform.position.x,
+                                    0.0,
+                                    e.transform.position.z,
+                                ),
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 793: ArtilleryBarrage transport residual.
+            if e.artillery_barrage_transport_active {
+                use crate::game_logic::special_power_strikes::ARTILLERY_BARRAGE_PREFERRED_HEIGHT;
+                let dest_x = e.artillery_barrage_transport_target_x;
+                let dest_z = e.artillery_barrage_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 14.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = ARTILLERY_BARRAGE_PREFERRED_HEIGHT.max(120.0);
+                let mut vel = glam::Vec3::ZERO;
+                if dist >= 5.0 {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
+                }
+                e.transform.position = new_pos;
+                if vel.length_squared() > 1e-6 {
+                    e.transform.orientation = vel.z.atan2(vel.x);
+                }
+                changed = true;
+            }
+            if e.artillery_barrage_shell {
+                if e.artillery_barrage_shell_vel_y == 0.0 {
+                    e.artillery_barrage_shell_vel_y = -18.0;
+                }
+                e.transform.position.y += e.artillery_barrage_shell_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.artillery_barrage_shell = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_artillery_barrage_drop_log::record_detonate(
+                            crate::game_logic::host_artillery_barrage_drop_log::ArtilleryDetonateEvent {
+                                shell: crate::game_logic::ObjectId(hid),
+                                producer,
+                                team,
+                                pos: glam::Vec3::new(
+                                    e.transform.position.x,
+                                    0.0,
+                                    e.transform.position.z,
+                                ),
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
             if changed {
                 n += 1;
             }
@@ -8580,6 +8728,38 @@ impl GameWorldShadow {
                 };
                 crate::game_logic::host_a10_strike_drop_log::record_drop(
                     crate::game_logic::host_a10_strike_drop_log::A10DropEvent {
+                        team,
+                        target: p.target,
+                        producer: crate::game_logic::ObjectId(p.source_id),
+                    },
+                );
+                n = n.saturating_add(1);
+            }
+        }
+
+        // Wave 793 pending ArtilleryBarrage shell drops (registry sole-tick).
+        {
+            let mut due = Vec::new();
+            let mut keep = Vec::new();
+            for p in self.artillery_pending_drops.drain(..) {
+                if p.drop_frame <= frame {
+                    due.push(p);
+                } else {
+                    keep.push(p);
+                }
+            }
+            self.artillery_pending_drops = keep;
+            for p in due {
+                let team = if let Some(&eid) = self.host_to_entity.get(&p.source_id) {
+                    self.world
+                        .entity(eid)
+                        .map(|e| Self::entity_team_from_ordinal(e.team_ordinal))
+                        .unwrap_or(crate::game_logic::Team::Neutral)
+                } else {
+                    crate::game_logic::Team::Neutral
+                };
+                crate::game_logic::host_artillery_barrage_drop_log::record_drop(
+                    crate::game_logic::host_artillery_barrage_drop_log::ArtilleryDropEvent {
                         team,
                         target: p.target,
                         producer: crate::game_logic::ObjectId(p.source_id),
@@ -13205,6 +13385,41 @@ impl GameWorldShadow {
                     obj.movement.velocity.y = ent.a10_strike_missile_vel_y;
                 }
             }
+            {
+                if ent.artillery_barrage_transport_active {
+                    use crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightData;
+                    use crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier;
+                    let tier = match ent.artillery_barrage_transport_tier {
+                        1 => ArtilleryBarrageScienceTier::Level2,
+                        2 => ArtilleryBarrageScienceTier::Level3,
+                        _ => ArtilleryBarrageScienceTier::Level1,
+                    };
+                    let d = obj.artillery_barrage_transport.get_or_insert_with(|| {
+                        HostArtilleryBarrageFlightData::start(
+                            glam::Vec3::ZERO,
+                            glam::Vec3::ZERO,
+                            tier,
+                        )
+                    });
+                    d.tier = tier;
+                    d.target = glam::Vec3::new(
+                        ent.artillery_barrage_transport_target_x,
+                        ent.artillery_barrage_transport_target_y,
+                        ent.artillery_barrage_transport_target_z,
+                    );
+                    d.launch = glam::Vec3::new(
+                        ent.artillery_barrage_transport_launch_x,
+                        ent.artillery_barrage_transport_launch_y,
+                        ent.artillery_barrage_transport_launch_z,
+                    );
+                } else {
+                    obj.artillery_barrage_transport = None;
+                }
+                obj.artillery_barrage_shell = ent.artillery_barrage_shell;
+                if ent.artillery_barrage_shell {
+                    obj.movement.velocity.y = ent.artillery_barrage_shell_vel_y;
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -15010,6 +15225,51 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.missile, None);
         }
+        // Wave 793: ArtilleryBarrage drop + detonate (no dual flight).
+        logic.artillery_barrage_flight_reg.pending_drops = shadow.artillery_pending_drops.clone();
+        for ev in crate::game_logic::host_artillery_barrage_drop_log::drain_drops() {
+            use crate::game_logic::special_power_strikes::ARTILLERY_BARRAGE_SHELL_OBJECT;
+            use crate::game_logic::{KindOf, ThingTemplate};
+            if !logic.templates.contains_key(ARTILLERY_BARRAGE_SHELL_OBJECT) {
+                let mut t = ThingTemplate::new(ARTILLERY_BARRAGE_SHELL_OBJECT);
+                t.set_health(50.0).add_kind_of(KindOf::Projectile);
+                logic
+                    .templates
+                    .insert(ARTILLERY_BARRAGE_SHELL_OBJECT.to_string(), t);
+            }
+            let drop_pos = glam::Vec3::new(ev.target.x, 100.0, ev.target.z);
+            if let Some(sid) = logic.create_object(ARTILLERY_BARRAGE_SHELL_OBJECT, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&sid) {
+                    o.producer_id = Some(ev.producer);
+                    o.artillery_barrage_shell = true;
+                    o.movement.velocity = glam::Vec3::new(0.0, -18.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                }
+                logic.artillery_barrage_flight_reg.record_drop();
+            }
+        }
+        for ev in crate::game_logic::host_artillery_barrage_drop_log::drain_dets() {
+            use crate::game_logic::combat::DamageType;
+            use crate::game_logic::special_power_strikes::{
+                ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_RADIUS,
+            };
+            logic.apply_fuel_air_radius_damage(
+                ev.shell,
+                ev.producer,
+                ev.team,
+                ev.pos,
+                ARTILLERY_BARRAGE_DAMAGE,
+                ARTILLERY_BARRAGE_RADIUS,
+                DamageType::Explosive,
+            );
+            logic.artillery_barrage_flight_reg.record_impact();
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.shell) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.shell, None);
+        }
+
 
 
 
