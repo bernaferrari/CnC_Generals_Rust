@@ -18285,6 +18285,11 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 712: post-logic remaining spawn residual (mid-frame map + session handoff).
+                let _spn = crate::gameworld_shadow::eager_apply_host_spawn_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
