@@ -11390,6 +11390,8 @@ pub fn shadow_session_after_host_tick(
     // Wave 647: drain hijacker ready log after GW writeback.
     let _hj_ready = logic.host_apply_hijacker_ready_completions();
     let _construction_wb = shadow.writeback_construction_to_host(logic);
+    // Wave 715: same-frame host construction complete from ready-log after GW writeback.
+    logic.host_apply_construction_completions_after_ready_writeback();
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     // Wave 629: drain owner-ready log after GW owner writeback.
     let _owner_ready = logic.host_apply_owner_ready_completions();
