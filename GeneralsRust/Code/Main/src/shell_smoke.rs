@@ -3600,6 +3600,11 @@ use crate::game_logic::host_live_host_zone_damage_dual_peel_residual_wave825::{
     honesty_host_zone_damage_dual_peel_nav_commands_residual_wave825,
     simulate_live_host_zone_damage_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_combat_field_dual_peel_residual_wave826::{
+    honesty_host_combat_field_dual_peel_method_names_residual_wave826,
+    honesty_host_combat_field_dual_peel_nav_commands_residual_wave826,
+    simulate_live_host_combat_field_dual_peel_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7715,6 +7720,9 @@ pub struct ShellSmokeResult {
     pub host_zone_damage_dual_peel_method_names_wave825_ok: bool,
     pub host_zone_damage_dual_peel_nav_commands_wave825_ok: bool,
     pub host_zone_damage_dual_peel_live_wave825_ok: bool,
+    pub host_combat_field_dual_peel_method_names_wave826_ok: bool,
+    pub host_combat_field_dual_peel_nav_commands_wave826_ok: bool,
+    pub host_combat_field_dual_peel_live_wave826_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12403,6 +12411,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_zone_damage_dual_peel_nav_commands_residual_wave825();
     let host_zone_damage_dual_peel_live_wave825_ok =
         simulate_live_host_zone_damage_dual_peel_honesty();
+    let host_combat_field_dual_peel_method_names_wave826_ok =
+        honesty_host_combat_field_dual_peel_method_names_residual_wave826();
+    let host_combat_field_dual_peel_nav_commands_wave826_ok =
+        honesty_host_combat_field_dual_peel_nav_commands_residual_wave826();
+    let host_combat_field_dual_peel_live_wave826_ok =
+        simulate_live_host_combat_field_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14867,6 +14881,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_zone_damage_dual_peel_method_names_wave825_ok,
         host_zone_damage_dual_peel_nav_commands_wave825_ok,
         host_zone_damage_dual_peel_live_wave825_ok,
+        host_combat_field_dual_peel_method_names_wave826_ok,
+        host_combat_field_dual_peel_nav_commands_wave826_ok,
+        host_combat_field_dual_peel_live_wave826_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
