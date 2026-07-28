@@ -17965,6 +17965,11 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 684: post-logic damage into GameWorld before full session.
+                let _dmg = crate::gameworld_shadow::eager_apply_host_damage_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
