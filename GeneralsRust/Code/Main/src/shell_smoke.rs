@@ -3620,6 +3620,11 @@ use crate::game_logic::host_live_host_build_edge_margin_residual_wave829::{
     honesty_host_build_edge_margin_nav_commands_residual_wave829,
     simulate_live_host_build_edge_margin_honesty,
 };
+use crate::game_logic::host_live_host_map_primary_enemy_residual_wave830::{
+    honesty_host_map_primary_enemy_method_names_residual_wave830,
+    honesty_host_map_primary_enemy_nav_commands_residual_wave830,
+    simulate_live_host_map_primary_enemy_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7747,6 +7752,9 @@ pub struct ShellSmokeResult {
     pub host_build_edge_margin_method_names_wave829_ok: bool,
     pub host_build_edge_margin_nav_commands_wave829_ok: bool,
     pub host_build_edge_margin_live_wave829_ok: bool,
+    pub host_map_primary_enemy_method_names_wave830_ok: bool,
+    pub host_map_primary_enemy_nav_commands_wave830_ok: bool,
+    pub host_map_primary_enemy_live_wave830_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12457,6 +12465,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_build_edge_margin_nav_commands_wave829_ok =
         honesty_host_build_edge_margin_nav_commands_residual_wave829();
     let host_build_edge_margin_live_wave829_ok = simulate_live_host_build_edge_margin_honesty();
+    let host_map_primary_enemy_method_names_wave830_ok =
+        honesty_host_map_primary_enemy_method_names_residual_wave830();
+    let host_map_primary_enemy_nav_commands_wave830_ok =
+        honesty_host_map_primary_enemy_nav_commands_residual_wave830();
+    let host_map_primary_enemy_live_wave830_ok = simulate_live_host_map_primary_enemy_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14933,6 +14946,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_build_edge_margin_method_names_wave829_ok,
         host_build_edge_margin_nav_commands_wave829_ok,
         host_build_edge_margin_live_wave829_ok,
+        host_map_primary_enemy_method_names_wave830_ok,
+        host_map_primary_enemy_nav_commands_wave830_ok,
+        host_map_primary_enemy_live_wave830_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

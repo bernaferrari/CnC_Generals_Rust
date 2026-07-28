@@ -216,6 +216,7 @@ pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
 pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
 pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
+pub mod host_live_host_map_primary_enemy_residual_wave830;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
@@ -2882,6 +2883,12 @@ pub use host_live_host_build_edge_margin_residual_wave829::{
     honesty_host_build_edge_margin_nav_commands_residual_wave829,
     honesty_host_build_edge_margin_residual_pack_wave829,
     simulate_live_host_build_edge_margin_honesty,
+};
+pub use host_live_host_map_primary_enemy_residual_wave830::{
+    honesty_host_map_primary_enemy_method_names_residual_wave830,
+    honesty_host_map_primary_enemy_nav_commands_residual_wave830,
+    honesty_host_map_primary_enemy_residual_pack_wave830,
+    simulate_live_host_map_primary_enemy_honesty,
 };
 
 pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
