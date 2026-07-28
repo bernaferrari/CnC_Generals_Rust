@@ -234,6 +234,7 @@ pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797;
 pub mod host_live_host_toxin_stream_projectile_dual_peel_residual_wave798;
 pub mod host_live_host_angry_mob_projectile_dual_peel_residual_wave799;
+pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -311,6 +312,7 @@ pub mod host_ai_path_combat_residual_wave105;
 pub mod host_ambush;
 pub mod host_angry_mob;
 pub mod host_angry_mob_projectile_log;
+pub mod host_cannon_shell_projectile_log;
 pub mod host_armor_residual;
 pub mod host_aurora_bomb;
 pub mod host_aurora_bomb_projectile_log;
@@ -4080,6 +4082,17 @@ pub use host_live_host_angry_mob_projectile_dual_peel_residual_wave799::{
     simulate_host_angry_mob_projectile_dual_peel_dispatch_source,
     honesty_host_angry_mob_projectile_dual_peel_residual_pack_wave799,
     simulate_live_host_angry_mob_projectile_dual_peel_honesty,
+};
+pub use host_live_host_cannon_shell_projectile_dual_peel_residual_wave800::{
+    residual_host_cannon_shell_projectile_dual_peel_ok,
+    residual_host_cannon_shell_projectile_dual_peel_last_action,
+    honesty_host_cannon_shell_projectile_dual_peel_method_names_residual_wave800,
+    honesty_host_cannon_shell_projectile_dual_peel_source_markers_residual_wave800,
+    honesty_host_cannon_shell_projectile_dual_peel_nav_commands_residual_wave800,
+    simulate_host_cannon_shell_projectile_dual_peel_collect_source,
+    simulate_host_cannon_shell_projectile_dual_peel_dispatch_source,
+    honesty_host_cannon_shell_projectile_dual_peel_residual_pack_wave800,
+    simulate_live_host_cannon_shell_projectile_dual_peel_honesty,
 };
 
 

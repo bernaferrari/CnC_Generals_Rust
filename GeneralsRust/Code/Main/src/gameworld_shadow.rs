@@ -4054,6 +4054,61 @@ impl GameWorldShadow {
                     } else {
                         e.angry_mob_projectile_has_intended = false;
                     }
+                    e.scud_launcher_missile_projectile = obj.scud_launcher_missile_projectile;
+                    e.scud_launcher_missile_toxin = obj.scud_launcher_missile_toxin;
+                    if let Some(a) = obj.scud_launcher_missile_aim {
+                        e.scud_launcher_missile_has_aim = true;
+                        e.scud_launcher_missile_aim_x = a[0];
+                        e.scud_launcher_missile_aim_y = a[1];
+                        e.scud_launcher_missile_aim_z = a[2];
+                    } else {
+                        e.scud_launcher_missile_has_aim = false;
+                    }
+                    e.scud_launcher_missile_travelled = obj.scud_launcher_missile_travelled;
+                    if let Some(f) = obj.scud_launcher_missile_fuel_expires_frame {
+                        e.scud_launcher_missile_has_fuel = true;
+                        e.scud_launcher_missile_fuel_expires_frame = f;
+                    } else {
+                        e.scud_launcher_missile_has_fuel = false;
+                    }
+                    e.neutron_cannon_shell_projectile = obj.neutron_cannon_shell_projectile;
+                    if let Some(a) = obj.neutron_shell_from {
+                        e.neutron_shell_has_from = true;
+                        e.neutron_shell_from_x = a[0];
+                        e.neutron_shell_from_y = a[1];
+                        e.neutron_shell_from_z = a[2];
+                    } else {
+                        e.neutron_shell_has_from = false;
+                    }
+                    if let Some(a) = obj.neutron_shell_aim {
+                        e.neutron_shell_has_aim = true;
+                        e.neutron_shell_aim_x = a[0];
+                        e.neutron_shell_aim_y = a[1];
+                        e.neutron_shell_aim_z = a[2];
+                    } else {
+                        e.neutron_shell_has_aim = false;
+                    }
+                    e.neutron_shell_launch_frame = obj.neutron_shell_launch_frame.unwrap_or(0);
+                    e.neutron_shell_flight_frames = obj.neutron_shell_flight_frames;
+                    e.nuke_cannon_shell_projectile = obj.nuke_cannon_shell_projectile;
+                    if let Some(a) = obj.nuke_shell_from {
+                        e.nuke_shell_has_from = true;
+                        e.nuke_shell_from_x = a[0];
+                        e.nuke_shell_from_y = a[1];
+                        e.nuke_shell_from_z = a[2];
+                    } else {
+                        e.nuke_shell_has_from = false;
+                    }
+                    if let Some(a) = obj.nuke_shell_aim {
+                        e.nuke_shell_has_aim = true;
+                        e.nuke_shell_aim_x = a[0];
+                        e.nuke_shell_aim_y = a[1];
+                        e.nuke_shell_aim_z = a[2];
+                    } else {
+                        e.nuke_shell_has_aim = false;
+                    }
+                    e.nuke_shell_launch_frame = obj.nuke_shell_launch_frame.unwrap_or(0);
+                    e.nuke_shell_flight_frames = obj.nuke_shell_flight_frames;
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -7755,6 +7810,24 @@ impl GameWorldShadow {
                             crate::game_logic::host_height_die_kill_log::record(
                                 crate::game_logic::ObjectId(hid),
                             );
+                            // Wave 800: SCUD warhead detonation on HeightDie residual.
+                            if e.scud_launcher_missile_projectile {
+                                e.scud_launcher_missile_projectile = false;
+                                let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                                let source = e.producer_id.map(crate::game_logic::ObjectId);
+                                let pos = e.transform.position;
+                                crate::game_logic::host_cannon_shell_projectile_log::record_impact(
+                                    crate::game_logic::host_cannon_shell_projectile_log::CannonShellImpactEvent {
+                                        id: crate::game_logic::ObjectId(hid),
+                                        source,
+                                        team,
+                                        pos: glam::Vec3::new(pos.x, pos.y, pos.z),
+                                        kind: crate::game_logic::host_cannon_shell_projectile_log::CannonShellKind::Scud {
+                                            toxin: e.scud_launcher_missile_toxin,
+                                        },
+                                    },
+                                );
+                            }
                         }
                     }
                     changed = true;
@@ -9229,6 +9302,202 @@ impl GameWorldShadow {
                                 intended,
                                 pos: aim,
                                 kind: e.angry_mob_projectile_kind,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+
+            // Wave 800: SCUD launcher missile residual.
+            if e.scud_launcher_missile_projectile {
+                use crate::game_logic::host_scud_launcher::{
+                    SCUD_MISSILE_DIVE_DISTANCE, SCUD_MISSILE_INITIAL_VELOCITY,
+                    SCUD_MISSILE_LOFT_HEIGHT, SCUD_MISSILE_TURN_DISTANCE,
+                };
+                let speed = SCUD_MISSILE_INITIAL_VELOCITY / 30.0;
+                let pos = e.transform.position;
+                let (aim_x, aim_y, aim_z) = if e.scud_launcher_missile_has_aim {
+                    (
+                        e.scud_launcher_missile_aim_x,
+                        e.scud_launcher_missile_aim_y,
+                        e.scud_launcher_missile_aim_z,
+                    )
+                } else {
+                    (pos.x, pos.y, pos.z)
+                };
+                let fuel_done = e.scud_launcher_missile_has_fuel
+                    && e.scud_launcher_missile_fuel_expires_frame <= frame;
+                let travelled = e.scud_launcher_missile_travelled;
+                let dx = aim_x - pos.x;
+                let dy = aim_y - pos.y;
+                let dz = aim_z - pos.z;
+                let horiz = (dx * dx + dz * dz).sqrt();
+                let (vx, vy, vz) = if travelled < SCUD_MISSILE_TURN_DISTANCE {
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                    let (dxn, dyn_y, dzn) = if dist > 0.001 {
+                        (dx / dist, dy / dist, dz / dist)
+                    } else {
+                        (0.0, 1.0, 0.0)
+                    };
+                    let mut vy = dyn_y * speed;
+                    if pos.y < aim_y + SCUD_MISSILE_LOFT_HEIGHT {
+                        vy = speed * 0.85;
+                    }
+                    (dxn * speed, vy, dzn * speed)
+                } else if horiz > SCUD_MISSILE_DIVE_DISTANCE {
+                    let loft_y = aim_y + SCUD_MISSILE_LOFT_HEIGHT * 0.5;
+                    let lx = aim_x - pos.x;
+                    let ly = loft_y - pos.y;
+                    let lz = aim_z - pos.z;
+                    let dist = (lx * lx + ly * ly + lz * lz).sqrt();
+                    if dist > 0.001 {
+                        (lx / dist * speed, ly / dist * speed, lz / dist * speed)
+                    } else {
+                        (0.0, -speed, 0.0)
+                    }
+                } else {
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                    if dist > 0.001 {
+                        (dx / dist * speed, dy / dist * speed, dz / dist * speed)
+                    } else {
+                        (0.0, -speed, 0.0)
+                    }
+                };
+                let step = (vx * vx + vy * vy + vz * vz).sqrt().max(speed);
+                let new_x = pos.x + vx;
+                let new_y = pos.y + vy;
+                let new_z = pos.z + vz;
+                e.transform.position.x = new_x;
+                e.transform.position.y = new_y;
+                e.transform.position.z = new_z;
+                e.scud_launcher_missile_travelled += step;
+                if vx * vx + vz * vz > 1e-6 {
+                    e.transform.orientation = vz.atan2(vx);
+                }
+                let near = (aim_x - new_x) * (aim_x - new_x) + (aim_z - new_z) * (aim_z - new_z)
+                    < 12.0 * 12.0
+                    && new_y <= aim_y + 15.0;
+                if fuel_done || near {
+                    e.scud_launcher_missile_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_cannon_shell_projectile_log::record_impact(
+                            crate::game_logic::host_cannon_shell_projectile_log::CannonShellImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                team,
+                                pos: glam::Vec3::new(new_x, new_y, new_z),
+                                kind: crate::game_logic::host_cannon_shell_projectile_log::CannonShellKind::Scud {
+                                    toxin: e.scud_launcher_missile_toxin,
+                                },
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 800: Neutron cannon shell residual.
+            if e.neutron_cannon_shell_projectile {
+                use crate::game_logic::host_neutron_shell::neutron_shell_bezier_point;
+                let pos = e.transform.position;
+                let from = if e.neutron_shell_has_from {
+                    glam::Vec3::new(
+                        e.neutron_shell_from_x,
+                        e.neutron_shell_from_y,
+                        e.neutron_shell_from_z,
+                    )
+                } else {
+                    glam::Vec3::new(pos.x, pos.y, pos.z)
+                };
+                let aim = if e.neutron_shell_has_aim {
+                    glam::Vec3::new(
+                        e.neutron_shell_aim_x,
+                        e.neutron_shell_aim_y,
+                        e.neutron_shell_aim_z,
+                    )
+                } else {
+                    from
+                };
+                let launch = e.neutron_shell_launch_frame;
+                let total = e.neutron_shell_flight_frames.max(1);
+                let elapsed = frame.saturating_sub(launch);
+                let t = (elapsed as f32 / total as f32).clamp(0.0, 1.0);
+                let new_pos = neutron_shell_bezier_point(from, aim, t);
+                let dx = new_pos.x - pos.x;
+                let dz = new_pos.z - pos.z;
+                e.transform.position.x = new_pos.x;
+                e.transform.position.y = new_pos.y;
+                e.transform.position.z = new_pos.z;
+                if dx * dx + dz * dz > 1e-6 {
+                    e.transform.orientation = dz.atan2(dx);
+                }
+                if elapsed >= total || t >= 0.999 {
+                    e.neutron_cannon_shell_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_cannon_shell_projectile_log::record_impact(
+                            crate::game_logic::host_cannon_shell_projectile_log::CannonShellImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                team,
+                                pos: aim,
+                                kind: crate::game_logic::host_cannon_shell_projectile_log::CannonShellKind::Neutron,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 800: Nuke cannon shell residual.
+            if e.nuke_cannon_shell_projectile {
+                use crate::game_logic::host_nuke_cannon::nuke_shell_bezier_point;
+                let pos = e.transform.position;
+                let from = if e.nuke_shell_has_from {
+                    glam::Vec3::new(
+                        e.nuke_shell_from_x,
+                        e.nuke_shell_from_y,
+                        e.nuke_shell_from_z,
+                    )
+                } else {
+                    glam::Vec3::new(pos.x, pos.y, pos.z)
+                };
+                let aim = if e.nuke_shell_has_aim {
+                    glam::Vec3::new(
+                        e.nuke_shell_aim_x,
+                        e.nuke_shell_aim_y,
+                        e.nuke_shell_aim_z,
+                    )
+                } else {
+                    from
+                };
+                let launch = e.nuke_shell_launch_frame;
+                let frames = e.nuke_shell_flight_frames.max(1);
+                let elapsed = frame.saturating_sub(launch);
+                let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+                let new_pos = nuke_shell_bezier_point(from, aim, t);
+                let dx = new_pos.x - pos.x;
+                let dz = new_pos.z - pos.z;
+                e.transform.position.x = new_pos.x;
+                e.transform.position.y = new_pos.y;
+                e.transform.position.z = new_pos.z;
+                if dx * dx + dz * dz > 1.0e-6 {
+                    e.transform.orientation = dz.atan2(dx);
+                }
+                if elapsed >= frames {
+                    e.nuke_cannon_shell_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_cannon_shell_projectile_log::record_impact(
+                            crate::game_logic::host_cannon_shell_projectile_log::CannonShellImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                team,
+                                pos: aim,
+                                kind: crate::game_logic::host_cannon_shell_projectile_log::CannonShellKind::Nuke,
                             },
                         );
                     }
@@ -14137,6 +14406,79 @@ impl GameWorldShadow {
                     None
                 };
             }
+            {
+                obj.scud_launcher_missile_projectile = ent.scud_launcher_missile_projectile;
+                obj.scud_launcher_missile_toxin = ent.scud_launcher_missile_toxin;
+                if ent.scud_launcher_missile_has_aim {
+                    obj.scud_launcher_missile_aim = Some([
+                        ent.scud_launcher_missile_aim_x,
+                        ent.scud_launcher_missile_aim_y,
+                        ent.scud_launcher_missile_aim_z,
+                    ]);
+                } else {
+                    obj.scud_launcher_missile_aim = None;
+                }
+                obj.scud_launcher_missile_travelled = ent.scud_launcher_missile_travelled;
+                obj.scud_launcher_missile_fuel_expires_frame = if ent.scud_launcher_missile_has_fuel {
+                    Some(ent.scud_launcher_missile_fuel_expires_frame)
+                } else {
+                    None
+                };
+                obj.neutron_cannon_shell_projectile = ent.neutron_cannon_shell_projectile;
+                if ent.neutron_shell_has_from {
+                    obj.neutron_shell_from = Some([
+                        ent.neutron_shell_from_x,
+                        ent.neutron_shell_from_y,
+                        ent.neutron_shell_from_z,
+                    ]);
+                } else {
+                    obj.neutron_shell_from = None;
+                }
+                if ent.neutron_shell_has_aim {
+                    obj.neutron_shell_aim = Some([
+                        ent.neutron_shell_aim_x,
+                        ent.neutron_shell_aim_y,
+                        ent.neutron_shell_aim_z,
+                    ]);
+                } else {
+                    obj.neutron_shell_aim = None;
+                }
+                obj.neutron_shell_launch_frame = if ent.neutron_shell_launch_frame > 0
+                    || ent.neutron_cannon_shell_projectile
+                {
+                    Some(ent.neutron_shell_launch_frame)
+                } else {
+                    None
+                };
+                obj.neutron_shell_flight_frames = ent.neutron_shell_flight_frames;
+                obj.nuke_cannon_shell_projectile = ent.nuke_cannon_shell_projectile;
+                if ent.nuke_shell_has_from {
+                    obj.nuke_shell_from = Some([
+                        ent.nuke_shell_from_x,
+                        ent.nuke_shell_from_y,
+                        ent.nuke_shell_from_z,
+                    ]);
+                } else {
+                    obj.nuke_shell_from = None;
+                }
+                if ent.nuke_shell_has_aim {
+                    obj.nuke_shell_aim = Some([
+                        ent.nuke_shell_aim_x,
+                        ent.nuke_shell_aim_y,
+                        ent.nuke_shell_aim_z,
+                    ]);
+                } else {
+                    obj.nuke_shell_aim = None;
+                }
+                obj.nuke_shell_launch_frame = if ent.nuke_shell_launch_frame > 0
+                    || ent.nuke_cannon_shell_projectile
+                {
+                    Some(ent.nuke_shell_launch_frame)
+                } else {
+                    None
+                };
+                obj.nuke_shell_flight_frames = ent.nuke_shell_flight_frames;
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -16156,6 +16498,42 @@ pub fn shadow_session_after_host_tick(
             let _ = logic.apply_angry_mob_projectile_at(ev.pos, ev.source, ev.intended, kind);
             logic.mark_object_for_destruction(ev.id, team);
         }
+        // Wave 800: SCUD/Neutron/Nuke shell impacts (no dual flight).
+        for ev in crate::game_logic::host_cannon_shell_projectile_log::drain_impacts() {
+            use crate::game_logic::host_cannon_shell_projectile_log::CannonShellKind;
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.scud_launcher_missile_projectile = false;
+                o.neutron_cannon_shell_projectile = false;
+                o.nuke_cannon_shell_projectile = false;
+                o.set_position(ev.pos);
+            }
+            match ev.kind {
+                CannonShellKind::Scud { toxin } => {
+                    let _ = logic.apply_scud_area_at(ev.pos, ev.source, ev.team, toxin);
+                }
+                CannonShellKind::Neutron => {
+                    let caster_team = ev
+                        .source
+                        .and_then(|sid| logic.get_objects().get(&sid).map(|s| s.team))
+                        .unwrap_or(ev.team);
+                    let _ = logic.apply_neutron_blast_at(ev.pos, caster_team, ev.source, true);
+                }
+                CannonShellKind::Nuke => {
+                    let _ = logic.apply_nuke_cannon_primary_at(ev.pos, ev.source, ev.team);
+                }
+            }
+            logic.mark_object_for_destruction(ev.id, Some(ev.team));
+        }
+
 
 
 
