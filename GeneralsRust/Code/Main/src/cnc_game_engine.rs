@@ -17952,6 +17952,16 @@ impl CnCGameEngine {
             // Wave 584: host logic tick residual via helper.
             self.host_update_logic_frame(dt, headless_step_budget);
         }
+        // Wave 682: post-logic fire-spawn materialize under coupled shadow tick.
+        // Drains host_fire_spawn_log into CombatSystem before full shadow session.
+        if couple_shadow {
+            if let Some(ref mut shadow) = self.gameworld_shadow {
+                let _fs = crate::gameworld_shadow::eager_apply_host_fire_spawns_after_logic(
+                    shadow,
+                    &mut self.game_logic,
+                );
+            }
+        }
         // Script FPS applied from presentation residual after snapshot build (below).
         // Live take remains for boot path when no frame is produced this tick.
 
