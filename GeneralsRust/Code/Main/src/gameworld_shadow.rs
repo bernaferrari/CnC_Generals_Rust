@@ -18729,6 +18729,9 @@ pub fn shadow_session_after_host_tick(
             logic.apply_hacker_income_event(ev);
         }
 
+        // Wave 823: patriot assist laser endpoints sole-tick after GW writeback positions.
+        logic.tick_patriot_assist_lasers_sole();
+
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready = logic.host_apply_combat_status_ready_completions();
     }

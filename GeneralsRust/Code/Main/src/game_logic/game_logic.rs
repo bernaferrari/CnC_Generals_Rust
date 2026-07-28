@@ -1893,7 +1893,8 @@ pub struct GameLogic {
     /// BinaryDataStream residual: LaserToTarget beams spawned.
     patriot_assist_laser_to_target: u32,
     /// Active residual BinaryDataStream assist lasers (DeletionUpdate lifetime).
-    patriot_assist_lasers: Vec<crate::game_logic::host_base_defense::ResidualPatriotAssistLaser>,
+    pub(crate) patriot_assist_lasers:
+        Vec<crate::game_logic::host_base_defense::ResidualPatriotAssistLaser>,
     /// Weapon.ini LaserName residual beams (combat fire → presentation freeze).
     weapon_lasers: Vec<crate::game_logic::host_weapon_laser::ResidualWeaponLaser>,
     /// Honesty: Weapon.ini LaserName SpecialObject Things spawned.
@@ -17458,7 +17459,12 @@ impl GameLogic {
         // primary fire this combat pass (AssistingClipSize / DelayBetweenShots).
         self.update_pending_patriot_assists();
         // BinaryDataStream laser residual: expire DeletionUpdate lifetime beams.
-        self.update_patriot_assist_lasers();
+        // Wave 823: under coupled shadow, patriot assist lasers sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_patriot_assist_lasers();
+        }
         // Weapon.ini LaserName residual lifetime / scroll.
         crate::game_logic::host_weapon_laser::update_weapon_lasers(
             &mut self.weapon_lasers,
@@ -35256,7 +35262,11 @@ impl GameLogic {
     /// - LaserUpdate endpoint track residual (parent/target positions)
     /// - W3DLaserDraw ScrollRate residual
     /// - DeletionUpdate lifetime expiry
-    pub fn update_patriot_assist_lasers(&mut self) {
+    pub(crate) fn tick_patriot_assist_lasers_sole(&mut self) {
+        self.update_patriot_assist_lasers();
+    }
+
+    fn update_patriot_assist_lasers(&mut self) {
         use crate::game_logic::host_base_defense::{
             expire_patriot_assist_lasers, track_patriot_assist_laser_endpoints,
         };
