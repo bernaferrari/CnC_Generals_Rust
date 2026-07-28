@@ -245,6 +245,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_AI_MOOD_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_AI_REQUEST_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_SHOCK_STUN_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_STEALTH_DELAY_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_SOLE_HEALING_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_RADAR_EXTEND_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1927,6 +1930,93 @@ pub fn eager_apply_host_shock_stun_after_logic(
     }
     let n = shadow.apply_host_shock_stun_events(&events);
     EARLY_SHOCK_STUN_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 705: post-logic stealth-delay / sole-healing / radar-extend batch handoff.
+thread_local! {
+    static EARLY_STEALTH_DELAY_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_stealth_delay_log::HostStealthDelayEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_SOLE_HEALING_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_sole_healing_log::HostSoleHealingEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_RADAR_EXTEND_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_radar_extend_log::HostRadarExtendEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_stealth_delay_batch() -> Option<(
+    Vec<crate::game_logic::host_stealth_delay_log::HostStealthDelayEvent>,
+    bool,
+)> {
+    EARLY_STEALTH_DELAY_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_sole_healing_batch() -> Option<(
+    Vec<crate::game_logic::host_sole_healing_log::HostSoleHealingEvent>,
+    bool,
+)> {
+    EARLY_SOLE_HEALING_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_radar_extend_batch() -> Option<(
+    Vec<crate::game_logic::host_radar_extend_log::HostRadarExtendEvent>,
+    bool,
+)> {
+    EARLY_RADAR_EXTEND_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 705: post-logic drain `host_stealth_delay_log` into GameWorld SetStealthDelay.
+pub fn eager_apply_host_stealth_delay_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 705: post-logic stealth-delay materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_stealth_delay_log::drain();
+    if events.is_empty() {
+        EARLY_STEALTH_DELAY_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_stealth_delay_events(&events);
+    EARLY_STEALTH_DELAY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 705: post-logic drain `host_sole_healing_log` into GameWorld SetSoleHealing.
+pub fn eager_apply_host_sole_healing_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 705: post-logic sole-healing materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_sole_healing_log::drain();
+    if events.is_empty() {
+        EARLY_SOLE_HEALING_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_sole_healing_events(&events);
+    EARLY_SOLE_HEALING_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 705: post-logic drain `host_radar_extend_log` into GameWorld SetRadarExtend.
+pub fn eager_apply_host_radar_extend_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 705: post-logic radar-extend materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_radar_extend_log::drain();
+    if events.is_empty() {
+        EARLY_RADAR_EXTEND_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_radar_extend_events(&events);
+    EARLY_RADAR_EXTEND_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -10140,8 +10230,17 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_stealth_flags_events(&stealth_flags_events)
     };
-    let stealth_delay_events = crate::game_logic::host_stealth_delay_log::drain();
-    let _sd_applied = shadow.apply_host_stealth_delay_events(&stealth_delay_events);
+    // Wave 705: prefer post-logic stealth-delay batch.
+    let (stealth_delay_events, early_stealth_delay_applied) = match take_early_stealth_delay_batch()
+    {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_stealth_delay_log::drain(), false),
+    };
+    let _sd_applied = if early_stealth_delay_applied {
+        0
+    } else {
+        shadow.apply_host_stealth_delay_events(&stealth_delay_events)
+    };
     // Wave 695: skip GW re-apply when post-logic eager path already ran.
     let _ol_applied = if early_overlord_applied {
         0
@@ -10192,8 +10291,16 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_death_type_events(&death_type_events)
     };
-    let radar_extend_events = crate::game_logic::host_radar_extend_log::drain();
-    let _re_applied = shadow.apply_host_radar_extend_events(&radar_extend_events);
+    // Wave 705: prefer post-logic radar-extend batch.
+    let (radar_extend_events, early_radar_extend_applied) = match take_early_radar_extend_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_radar_extend_log::drain(), false),
+    };
+    let _re_applied = if early_radar_extend_applied {
+        0
+    } else {
+        shadow.apply_host_radar_extend_events(&radar_extend_events)
+    };
     // Wave 704: prefer post-logic shock-stun batch.
     let (shock_stun_events, early_shock_stun_applied) = match take_early_shock_stun_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -10206,8 +10313,16 @@ pub fn shadow_session_after_host_tick(
     };
     let rebuild_producer_events = crate::game_logic::host_rebuild_producer_log::drain();
     let _rp_applied = shadow.apply_host_rebuild_producer_events(&rebuild_producer_events);
-    let sole_healing_events = crate::game_logic::host_sole_healing_log::drain();
-    let _sh_applied = shadow.apply_host_sole_healing_events(&sole_healing_events);
+    // Wave 705: prefer post-logic sole-healing batch.
+    let (sole_healing_events, early_sole_healing_applied) = match take_early_sole_healing_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_sole_healing_log::drain(), false),
+    };
+    let _sh_applied = if early_sole_healing_applied {
+        0
+    } else {
+        shadow.apply_host_sole_healing_events(&sole_healing_events)
+    };
     // Wave 688: skip GW re-apply when post-logic eager path already ran.
     let _mv_applied = if !early_movement_applied {
         shadow.apply_host_movement_events(&movement_events)
