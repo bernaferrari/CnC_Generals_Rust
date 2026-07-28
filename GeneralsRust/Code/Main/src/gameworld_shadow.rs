@@ -3540,6 +3540,19 @@ impl GameWorldShadow {
                         e.enemy_near_model = false;
                         e.enemy_near_vision_range = 150.0;
                     }
+                    if let Some(pu) = obj.prone_update.as_ref() {
+                        e.prone_active = true;
+                        e.prone_frames = pu.prone_frames;
+                        e.prone_damage_to_frames_ratio = pu.damage_to_frames_ratio;
+                        e.prone_model = pu.model_prone;
+                        e.prone_no_attack = pu.no_attack;
+                    } else {
+                        e.prone_active = false;
+                        e.prone_frames = 0;
+                        e.prone_damage_to_frames_ratio = 1.0;
+                        e.prone_model = false;
+                        e.prone_no_attack = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7831,6 +7844,32 @@ impl GameWorldShadow {
                     e.enemy_near_scan_delay = e.enemy_near_scan_delay.saturating_sub(1);
                     changed = true;
                 }
+            }
+            // Wave 782: ProneUpdate residual (infantry cower countdown).
+            if e.prone_active && e.prone_frames > 0 {
+                e.prone_frames -= 1;
+                if e.prone_frames == 0 {
+                    e.prone_model = false;
+                    e.prone_no_attack = false;
+                    if let Some(bit) =
+                        crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                            "PRONE",
+                        )
+                    {
+                        e.model_condition_bits &= !(1u128 << bit);
+                    }
+                } else {
+                    e.prone_model = true;
+                    e.prone_no_attack = true;
+                    if let Some(bit) =
+                        crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                            "PRONE",
+                        )
+                    {
+                        e.model_condition_bits |= 1u128 << bit;
+                    }
+                }
+                changed = true;
             }
             if changed {
                 n += 1;
@@ -12145,6 +12184,35 @@ impl GameWorldShadow {
                     }
                 } else if obj.enemy_near.is_some() {
                     obj.enemy_near = None;
+                }
+            }
+            {
+                if ent.prone_active || ent.prone_frames > 0 {
+                    use crate::game_logic::host_prone_update::HostProneUpdateData;
+                    let pu = obj.prone_update.get_or_insert_with(HostProneUpdateData::default);
+                    pu.prone_frames = ent.prone_frames;
+                    pu.damage_to_frames_ratio = ent.prone_damage_to_frames_ratio;
+                    pu.model_prone = ent.prone_model;
+                    pu.no_attack = ent.prone_no_attack;
+                    // Mirror NO_ATTACK / PRONE bits on host residual.
+                    if ent.prone_no_attack {
+                        let _ = obj.apply_status_bits_upgrade_masks(&["NO_ATTACK"], &[]);
+                    } else if pu.prone_frames <= 0 {
+                        let _ = obj.apply_status_bits_upgrade_masks(&[], &["NO_ATTACK"]);
+                    }
+                    if let Some(bit) =
+                        crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                            "PRONE",
+                        )
+                    {
+                        if ent.prone_model {
+                            obj.model_condition_bits |= 1u128 << bit;
+                        } else {
+                            obj.model_condition_bits &= !(1u128 << bit);
+                        }
+                    }
+                } else if obj.prone_update.is_some() {
+                    obj.prone_update = None;
                 }
             }
 
