@@ -549,6 +549,12 @@ pub struct Entity {
     pub enemy_near_scan_delay_time: u32,
     pub enemy_near_model: bool,
     pub enemy_near_vision_range: f32,
+    /// Host ProneUpdate residual.
+    pub prone_active: bool,
+    pub prone_frames: i32,
+    pub prone_damage_to_frames_ratio: f32,
+    pub prone_model: bool,
+    pub prone_no_attack: bool,
     /// C++ ARMED model residual.
     pub armed: bool,
     /// Host AI request residual `selection_flash_remaining`.
@@ -1220,6 +1226,11 @@ impl EntityStore {
             enemy_near_scan_delay_time: 30,
             enemy_near_model: false,
             enemy_near_vision_range: 150.0,
+            prone_active: false,
+            prone_frames: 0,
+            prone_damage_to_frames_ratio: 1.0,
+            prone_model: false,
+            prone_no_attack: false,
             armed: false,
             selection_flash_remaining: 0,
             shock_stun_frames: 0,

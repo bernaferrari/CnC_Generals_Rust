@@ -6402,7 +6402,13 @@ impl GameLogic {
         }
         self.update_animation_steering();
         self.update_float_update();
-        self.update_prone_update();
+        // Wave 782: under coupled shadow, ProneUpdate is owned by
+        // GW tick_status_timer_expirations + writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_prone_update();
+        }
         self.update_radius_decal_update();
         self.update_checkpoint_update();
         self.update_smart_bomb_target_homing();
