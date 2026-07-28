@@ -1126,7 +1126,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
-                        let _ = write_control(&control_path, &["construct|template=USA_Barracks|spawn_dozer=1"]);
+                        let _ = write_control(&control_path, &["construct|template=USA_Barracks|spawn_dozer=1|alias_fallback=1"]);
                         gameplay_step = 3;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 3
@@ -1147,8 +1147,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         let _ = write_control(
                             &control_path,
                             &[
-                                "train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1",
-                                "train_unit|template=USA_Ranger|force_complete=1|grant_supplies=1",
+                                "train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1|alias_fallback=1",
+                                "train_unit|template=USA_Ranger|force_complete=1|grant_supplies=1|alias_fallback=1",
                             ],
                         );
                         train_sent = true;
@@ -1180,7 +1180,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         } else {
                             let _ = write_control(
                                 &control_path,
-                                &["upgrade|name=UpgradeAmericaRangerCaptureBuilding|grant_supplies=1"],
+                                &["upgrade|name=UpgradeAmericaRangerCaptureBuilding|grant_supplies=1|alias_fallback=1"],
                             );
                             gameplay_step = 5;
                             commanded_at = Some(Instant::now());
@@ -2358,7 +2358,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         {
                             let _ = write_control(
                                 &control_path,
-                                &["train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1"],
+                                &["train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1|alias_fallback=1"],
                             );
                         }
                         // Primary: select+move+attack. Residual: production+attack proves

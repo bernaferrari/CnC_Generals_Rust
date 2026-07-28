@@ -51,7 +51,8 @@ pub fn honesty_host_train_try_names_golden_opt_in_method_names_residual_wave724(
 pub fn honesty_host_train_try_names_golden_opt_in_source_markers_residual_wave724() -> bool {
     let eng=eng_source();
     let eng_ok=eng.contains("Wave 724")
-        && eng.contains("GoldenRanger enqueue fallback is opt-in only")
+        && (eng.contains("GoldenRanger enqueue fallback is opt-in only")
+            || eng.contains("alias + GoldenRanger enqueue fallbacks are opt-in only"))
         && eng.contains("try_names.push(\"GoldenRanger\")")
         && eng.contains("if allow_golden_template {\n                            try_names.push(\"GoldenRanger\");");
     // Unconditional try_names array with GoldenRanger must be gone.
