@@ -6367,7 +6367,12 @@ impl GameLogic {
         self.update_usa_tank_shell_projectiles();
         self.update_battlemaster_shell_projectiles();
         self.update_overlord_shell_projectiles();
-        self.update_inferno_shell_projectiles();
+        // Wave 803: under coupled shadow, residual owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_inferno_shell_projectiles();
+        }
         self.update_marauder_shell_projectiles();
         self.update_fire_base_shell_projectiles();
         self.update_raptor_missile_projectiles();
@@ -6400,7 +6405,12 @@ impl GameLogic {
 
         // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
-        self.update_spy_satellite_pings();
+        // Wave 803: under coupled shadow, residual owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_spy_satellite_pings();
+        }
         self.update_spy_satellites();
 
         // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.

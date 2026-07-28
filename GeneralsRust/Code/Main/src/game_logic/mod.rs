@@ -237,6 +237,7 @@ pub mod host_live_host_angry_mob_projectile_dual_peel_residual_wave799;
 pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
 pub mod host_live_host_angry_mob_member_follow_dual_peel_residual_wave801;
 pub mod host_live_host_field_object_expire_dual_peel_residual_wave802;
+pub mod host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -317,6 +318,8 @@ pub mod host_angry_mob_projectile_log;
 pub mod host_cannon_shell_projectile_log;
 pub mod host_angry_mob_member_follow_log;
 pub mod host_field_object_expire_log;
+pub mod host_inferno_shell_projectile_log;
+pub mod host_spy_satellite_ping_log;
 pub mod host_armor_residual;
 pub mod host_aurora_bomb;
 pub mod host_aurora_bomb_projectile_log;
@@ -4120,6 +4123,18 @@ pub use host_live_host_field_object_expire_dual_peel_residual_wave802::{
     simulate_host_field_object_expire_dual_peel_dispatch_source,
     simulate_live_host_field_object_expire_dual_peel_honesty,
 };
+pub use host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803::{
+    honesty_host_inferno_shell_spy_ping_dual_peel_method_names_residual_wave803,
+    honesty_host_inferno_shell_spy_ping_dual_peel_nav_commands_residual_wave803,
+    honesty_host_inferno_shell_spy_ping_dual_peel_residual_pack_wave803,
+    honesty_host_inferno_shell_spy_ping_dual_peel_source_markers_residual_wave803,
+    residual_host_inferno_shell_spy_ping_dual_peel_last_action,
+    residual_host_inferno_shell_spy_ping_dual_peel_ok,
+    simulate_host_inferno_shell_spy_ping_dual_peel_collect_source,
+    simulate_host_inferno_shell_spy_ping_dual_peel_dispatch_source,
+    simulate_live_host_inferno_shell_spy_ping_dual_peel_honesty,
+};
+
 
 
 
