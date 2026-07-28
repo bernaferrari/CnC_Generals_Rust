@@ -3965,6 +3965,20 @@ impl GameWorldShadow {
                     } else {
                         0.0
                     };
+                    if let Some(t) = obj.paradrop_transport_target {
+                        e.paradrop_transport_active = true;
+                        e.paradrop_transport_target_x = t.x;
+                        e.paradrop_transport_target_y = t.y;
+                        e.paradrop_transport_target_z = t.z;
+                    } else {
+                        e.paradrop_transport_active = false;
+                    }
+                    e.paradrop_parachute = obj.paradrop_parachute;
+                    e.paradrop_parachute_vel_y = if obj.paradrop_parachute {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -8847,6 +8861,68 @@ impl GameWorldShadow {
                                     e.transform.position.y,
                                     e.transform.position.z,
                                 ),
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 796: Paradrop cargo-plane residual.
+            if e.paradrop_transport_active {
+                use crate::game_logic::host_paradrop::PARADROP_DELIVERY_DISTANCE;
+                let dest_x = e.paradrop_transport_target_x;
+                let dest_z = e.paradrop_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 18.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = new_pos.y.max(150.0);
+                if dist > 1.0 {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    e.transform.position = new_pos;
+                    e.transform.orientation = dz.atan2(dx);
+                }
+                if dist <= PARADROP_DELIVERY_DISTANCE {
+                    e.paradrop_transport_active = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e
+                            .producer_id
+                            .map(crate::game_logic::ObjectId)
+                            .unwrap_or(crate::game_logic::ObjectId(hid));
+                        crate::game_logic::host_paradrop_cargo_drop_log::record_drop(
+                            crate::game_logic::host_paradrop_cargo_drop_log::ParadropCargoDropEvent {
+                                team,
+                                target: glam::Vec3::new(
+                                    e.paradrop_transport_target_x,
+                                    e.paradrop_transport_target_y,
+                                    e.paradrop_transport_target_z,
+                                ),
+                                producer,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            if e.paradrop_parachute {
+                if e.paradrop_parachute_vel_y == 0.0 {
+                    e.paradrop_parachute_vel_y = -8.0;
+                }
+                if e.paradrop_parachute_vel_y < -2.0 {
+                    e.paradrop_parachute_vel_y = -2.5;
+                }
+                e.transform.position.y += e.paradrop_parachute_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.paradrop_parachute = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_paradrop_cargo_drop_log::record_ground(
+                            crate::game_logic::host_paradrop_cargo_drop_log::ParadropParachuteGroundEvent {
+                                id: crate::game_logic::ObjectId(hid),
                             },
                         );
                     }
@@ -15570,6 +15646,32 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.id, None);
         }
+        // Wave 796: Paradrop cargo drop + parachute ground (no dual flight).
+        for ev in crate::game_logic::host_paradrop_cargo_drop_log::drain_drops() {
+            use crate::game_logic::host_paradrop::PARADROP_PARACHUTE_CONTAINER;
+            let drop_pos = glam::Vec3::new(ev.target.x, 100.0, ev.target.z);
+            if let Some(pid) = logic.create_object(PARADROP_PARACHUTE_CONTAINER, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&pid) {
+                    o.producer_id = Some(ev.producer);
+                    o.paradrop_parachute = true;
+                    o.movement.velocity = glam::Vec3::new(0.0, -8.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                    let _ = o.apply_eject_parachuting();
+                }
+                logic.host_paradrops.parachutes_dropped = logic
+                    .host_paradrops
+                    .parachutes_dropped
+                    .saturating_add(1);
+            }
+        }
+        for ev in crate::game_logic::host_paradrop_cargo_drop_log::drain_ground() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.id, None);
+        }
+
 
 
 

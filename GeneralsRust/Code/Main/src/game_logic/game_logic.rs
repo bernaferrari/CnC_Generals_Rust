@@ -1061,7 +1061,7 @@ pub struct GameLogic {
 
     /// Host America Paradrop / Airborne residual.
     /// Queues on DoSpecialPower and spawns infantry after approach delay — fail-closed vs full OCL plane.
-    host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry,
+    pub(crate) host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry,
 
     /// Host GLA Rebel Ambush residual.
     /// Queues on DoSpecialPower and spawns infantry near target after fade delay —
@@ -6248,7 +6248,13 @@ impl GameLogic {
 
         // Host America Paradrop residual: spawn infantry after approach delay.
         // Fail-closed vs full OCL cargo plane / parachute payload path.
-        self.update_paradrop_cargo_planes();
+        // Wave 796: under coupled shadow, Paradrop cargo flight is owned by
+        // GW tick_status_timer_expirations + drop/ground logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_paradrop_cargo_planes();
+        }
         self.update_paradrops();
 
         // Host DeliverPayload cargo residual: DropDelay-staggered spawn of payload
