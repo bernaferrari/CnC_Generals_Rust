@@ -264,6 +264,8 @@ pub struct Entity {
     pub booby_trapped: bool,
     /// Host Object::status.eject_invulnerable residual.
     pub eject_invulnerable: bool,
+    /// Host Object::status.eject_invulnerable_until_frame residual (0 = none).
+    pub eject_invulnerable_until_frame: u32,
     /// Host Object::status.pilot_did_move_to_base residual.
     pub pilot_did_move_to_base: bool,
     /// Host Object::status.parachuting residual.
@@ -920,6 +922,7 @@ impl EntityStore {
             faerie_fire: false,
             booby_trapped: false,
             eject_invulnerable: false,
+            eject_invulnerable_until_frame: 0,
             pilot_did_move_to_base: false,
             parachuting: false,
             parachute_open: false,

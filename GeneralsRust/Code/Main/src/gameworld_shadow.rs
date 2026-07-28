@@ -3282,6 +3282,7 @@ impl GameWorldShadow {
                     e.faerie_fire = obj.status.faerie_fire;
                     e.booby_trapped = obj.status.booby_trapped;
                     e.eject_invulnerable = obj.status.eject_invulnerable;
+                    e.eject_invulnerable_until_frame = obj.status.eject_invulnerable_until_frame;
                     e.pilot_did_move_to_base = obj.status.pilot_did_move_to_base;
                     e.parachuting = obj.status.parachuting;
                     e.parachute_open = obj.status.parachute_open;
@@ -3788,6 +3789,7 @@ impl GameWorldShadow {
                 e.faerie_fire = obj.status.faerie_fire;
                 e.booby_trapped = obj.status.booby_trapped;
                 e.eject_invulnerable = obj.status.eject_invulnerable;
+                    e.eject_invulnerable_until_frame = obj.status.eject_invulnerable_until_frame;
                 e.pilot_did_move_to_base = obj.status.pilot_did_move_to_base;
                 e.parachuting = obj.status.parachuting;
                 e.parachute_open = obj.status.parachute_open;
@@ -6889,6 +6891,15 @@ impl GameWorldShadow {
             }
             if e.selection_flash_remaining > 0 {
                 e.selection_flash_remaining = e.selection_flash_remaining.saturating_sub(1);
+                changed = true;
+            }
+            // Wave 762: eject-invulnerable until_frame residual (parity with host tick).
+            if e.eject_invulnerable
+                && e.eject_invulnerable_until_frame > 0
+                && frame >= e.eject_invulnerable_until_frame
+            {
+                e.eject_invulnerable = false;
+                e.eject_invulnerable_until_frame = 0;
                 changed = true;
             }
             if changed {
@@ -10726,6 +10737,9 @@ impl GameWorldShadow {
             set_flag!(obj.status.repulsor, ent.repulsor);
             set_flag!(obj.status.disabled_freefall, ent.disabled_freefall);
             set_flag!(obj.status.eject_invulnerable, ent.eject_invulnerable);
+            if obj.status.eject_invulnerable_until_frame != ent.eject_invulnerable_until_frame {
+                obj.status.eject_invulnerable_until_frame = ent.eject_invulnerable_until_frame;
+            }
             set_flag!(
                 obj.status.pilot_did_move_to_base,
                 ent.pilot_did_move_to_base

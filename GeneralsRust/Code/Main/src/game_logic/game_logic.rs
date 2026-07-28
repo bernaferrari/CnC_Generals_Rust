@@ -8217,7 +8217,13 @@ impl GameLogic {
                     obj.tick_weapon_bonus_frenzy(self.frame);
                     obj.tick_faerie_fire(self.frame);
                 }
-                obj.tick_eject_invulnerable(self.frame);
+                // Wave 762: under coupled shadow, eject-invulnerable expire is
+                // owned by GW tick_status_timer_expirations + writeback.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    obj.tick_eject_invulnerable(self.frame);
+                }
                 // C++ ObjectDefectionHelper::update residual.
                 obj.tick_defection_helper(self.frame);
                 // Snapshot FireWeaponPower residual before further mut uses.
