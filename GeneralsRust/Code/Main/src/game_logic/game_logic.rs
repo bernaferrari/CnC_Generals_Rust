@@ -6774,16 +6774,11 @@ impl GameLogic {
         let mut ready_superweapons: Vec<(ObjectId, Team, String)> = Vec::new();
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
         // Wave 617: under sole-tick, GameWorld writeback records ready structures;
-        // host only applies completion side effects for those IDs (GW decides readiness).
+        // host applies completion after writeback same frame (Wave 715; not mid-update drain).
         let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-        let ready_structures: std::collections::HashSet<ObjectId> = if construction_sole {
-            crate::game_logic::host_construction_ready_log::drain()
-                .into_iter()
-                .map(|ev| ev.structure)
-                .collect()
-        } else {
-            std::collections::HashSet::new()
-        };
+        // Empty mid-update ready set: sole completes only via post-writeback helper (Wave 715).
+        // Non-sole completes via projected percent (may_complete=true).
+        let ready_structures: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
@@ -6953,6 +6948,76 @@ impl GameLogic {
         }
         // C++ ACTIVELY_CONSTRUCTING residual for dozers/factories.
         self.update_actively_constructing_model_conditions();
+    }
+
+
+    /// Wave 715: after GW construction writeback records ready structures, host
+    /// applies completion side effects in the same coupled tick (not next frame).
+    pub(crate) fn host_apply_construction_completions_after_ready_writeback(&mut self) {
+        if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
+            return;
+        }
+        let ready: Vec<ObjectId> = crate::game_logic::host_construction_ready_log::drain()
+            .into_iter()
+            .map(|ev| ev.structure)
+            .collect();
+        if ready.is_empty() {
+            return;
+        }
+        let mut completed_superweapon_detects: Vec<(Team, String)> = Vec::new();
+        let mut completed_structures: Vec<ObjectId> = Vec::new();
+        for id in ready {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            // Writeback may already have percent=1.0 while under_construction remains set.
+            if !(obj.status.under_construction || obj.construction_percent + 1e-6 >= 1.0) {
+                continue;
+            }
+            obj.construction_percent = 1.0;
+            obj.set_status_under_construction(false);
+            obj.clear_under_construction_model_conditions();
+            let full_hp = obj.health.maximum;
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                crate::game_logic::host_heal_log::record(id, full_hp);
+            } else {
+                obj.health.current = full_hp;
+                crate::game_logic::host_heal_log::record(id, obj.health.current);
+            }
+            crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
+            crate::game_logic::host_construction_log::record(id, obj.template_name.clone());
+            completed_superweapon_detects.push((obj.team, obj.template_name.clone()));
+            completed_structures.push(id);
+        }
+        for (team, name) in completed_superweapon_detects {
+            self.try_eva_superweapon_detected(team, &name);
+        }
+        for &completed_id in &completed_structures {
+            self.on_supply_center_build_complete(completed_id);
+            for obj in self.objects.values_mut() {
+                if obj.ai_state == AIState::Constructing
+                    && obj.target == Some(completed_id)
+                    && obj.is_alive()
+                {
+                    let oid = obj.id;
+                    obj.set_target(None);
+                    obj.stop_moving();
+                    obj.set_ai_state(AIState::Idle);
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                        crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
+                    }
+                }
+            }
+            if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
+                self.record_structure_completion(team);
+            }
+            self.notify_structure_construction_complete(completed_id);
+            self.maybe_start_radar_extend(completed_id);
+            self.block_structure_object_path(completed_id);
+        }
+        if !completed_structures.is_empty() {
+            self.update_actively_constructing_model_conditions();
+        }
     }
 
     fn update_production(&mut self, dt: f32) {
@@ -24623,12 +24688,14 @@ impl GameLogic {
         // Wave 482: BuildAssistant sell finish removes the object immediately.
         // Do not defer into StructureTopple/Collapse / SlowDeath / KeepObjectDie —
         // those combat-death peels left sold structures alive forever in host-only tests.
-        let sold = self
+        let (sold, under_construction) = self
             .objects
             .get(&id)
-            .map(|o| o.status.sold)
-            .unwrap_or(false);
-        if !sold {
+            .map(|o| (o.status.sold, o.status.under_construction))
+            .unwrap_or((false, false));
+        // Wave 715: MSG_DOZER_CANCEL_CONSTRUCT / unfinished builds remove immediately.
+        // Do not defer into StructureTopple — cancel would leave the shell alive a frame+.
+        if !sold && !under_construction {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
             if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
                 return;
