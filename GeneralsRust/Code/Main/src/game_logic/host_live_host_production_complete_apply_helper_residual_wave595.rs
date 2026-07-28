@@ -163,12 +163,25 @@ pub fn honesty_host_production_complete_apply_helper_source_markers_residual_wav
         && upgrade.contains("host_production_log::record_complete")
         && upgrade.contains("ObjectId(0)")
         && upgrade.contains("apply_host_upgrade_complete");
+    // Wave 679: door/notify/exit may live in host_apply_production_spawn_ready_completions.
+    let ready_apply = fn_body(gl, "pub fn host_apply_production_spawn_ready_completions(")
+        .or_else(|| fn_body(gl, "fn host_apply_production_spawn_ready_completions("));
+    let unit_inline_residual = unit.contains("notify_unit_production_complete")
+        && unit.contains("arm_exit_delay")
+        && unit.contains("path_approach_with_state");
+    let unit_ready_residual = unit.contains("host_production_spawn_ready_log::record")
+        && unit.contains("host_apply_production_spawn_ready_completions")
+        && ready_apply
+            .map(|b| {
+                b.contains("notify_unit_production_complete")
+                    && b.contains("arm_exit_delay")
+                    && b.contains("path_approach_with_state")
+            })
+            .unwrap_or(false);
     let unit_ok = unit.contains("Wave 595")
         && (unit.contains("self.create_object(") || unit.contains("host_spawn_production_unit"))
         && unit.contains("host_production_log::record_complete")
-        && unit.contains("notify_unit_production_complete")
-        && unit.contains("arm_exit_delay")
-        && unit.contains("path_approach_with_state");
+        && (unit_inline_residual || unit_ready_residual);
     let ok = update_ok && upgrade_ok && unit_ok && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostProductionCompleteApplyHelperAction::SourceMarkers);
     ok
