@@ -954,6 +954,17 @@ pub struct Entity {
     pub particle_orbital_laser_expires_frame: u32,
     pub particle_connector_laser: bool,
     pub particle_connector_laser_expires_frame: u32,
+    /// Host FireWall segment residual.
+    pub firewall_segment: bool,
+    pub firewall_segment_expires_frame: u32,
+    pub firewall_segment_wall_id: u32,
+    pub firewall_segment_has_wall_id: bool,
+    pub firewall_segment_dir_x: f32,
+    pub firewall_segment_dir_z: f32,
+    pub firewall_segment_has_dir: bool,
+    /// Host RadarVanPing residual.
+    pub radar_van_ping: bool,
+    pub radar_van_ping_expires_frame: u32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1874,6 +1885,15 @@ impl EntityStore {
             particle_orbital_laser_expires_frame: 0,
             particle_connector_laser: false,
             particle_connector_laser_expires_frame: 0,
+            firewall_segment: false,
+            firewall_segment_expires_frame: 0,
+            firewall_segment_wall_id: 0,
+            firewall_segment_has_wall_id: false,
+            firewall_segment_dir_x: 1.0,
+            firewall_segment_dir_z: 0.0,
+            firewall_segment_has_dir: false,
+            radar_van_ping: false,
+            radar_van_ping_expires_frame: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
