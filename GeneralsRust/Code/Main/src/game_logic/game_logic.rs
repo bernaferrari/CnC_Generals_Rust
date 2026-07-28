@@ -7492,29 +7492,45 @@ impl GameLogic {
             // Anchor near command center / any structure / team base residual.
             let mut base = self.team_base_position(player.team);
             if base.is_none() {
-                // Ensure a starting building exists (C++ construction yard path).
-                let building = residual.starting_building;
-                if !building.is_empty() {
-                    let mut pos = Vec3::new(
-                        200.0 + (pid as f32) * 400.0,
-                        0.0,
-                        200.0 + (pid as f32) * 400.0,
-                    );
-                    {
-                        let (bmin, bmax) = self.world_bounds();
-                        let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
-                        pos = Vec3::new(
-                            bmin.x + (bmax.x - bmin.x) * t,
+                // Wave 734: inventing a free starting building when the map has no
+                // base is opt-in only (default fail-closed). Retail maps supply the
+                // construction yard; StartingUnit0 still places the dozer beside an
+                // existing base. Incomplete-catalog harness may set
+                // GENERALS_RUNTIME_HOST_SEED_STARTING_BUILDING=1.
+                let allow_seed_building = std::env::var_os(
+                    "GENERALS_RUNTIME_HOST_SEED_STARTING_BUILDING",
+                )
+                .is_some_and(|v| {
+                    let s = v.to_string_lossy();
+                    !(s.is_empty()
+                        || s == "0"
+                        || s.eq_ignore_ascii_case("false")
+                        || s.eq_ignore_ascii_case("no"))
+                });
+                if allow_seed_building {
+                    let building = residual.starting_building;
+                    if !building.is_empty() {
+                        let mut pos = Vec3::new(
+                            200.0 + (pid as f32) * 400.0,
                             0.0,
-                            bmin.z + (bmax.z - bmin.z) * 0.2,
+                            200.0 + (pid as f32) * 400.0,
                         );
+                        {
+                            let (bmin, bmax) = self.world_bounds();
+                            let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
+                            pos = Vec3::new(
+                                bmin.x + (bmax.x - bmin.x) * t,
+                                0.0,
+                                bmin.z + (bmax.z - bmin.z) * 0.2,
+                            );
+                        }
+                        if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
+                            pos.y = h;
+                        }
+                        self.ensure_ai_faction_templates(player.team);
+                        let _ = self.create_object(building, player.team, pos);
+                        base = Some(pos);
                     }
-                    if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
-                        pos.y = h;
-                    }
-                    self.ensure_ai_faction_templates(player.team);
-                    let _ = self.create_object(building, player.team, pos);
-                    base = Some(pos);
                 }
             }
             let Some(mut base_pos) = base else {
@@ -131119,11 +131135,17 @@ mod skirmish_starting_unit_residual_tests {
         let mut p1 = Player::new(1, Team::China, "AI", false);
         p1.is_alive = true;
         logic.add_player(p1);
-        // Structure only for USA.
+        // Structures present for both teams (retail map supplies bases).
+        // Wave 734: free invent of starting building when no base is fail-closed.
         let _ = logic.create_object(
             "USA_CommandCenter",
             Team::USA,
             glam::Vec3::new(100.0, 0.0, 100.0),
+        );
+        let _ = logic.create_object(
+            "China_CommandCenter",
+            Team::China,
+            glam::Vec3::new(500.0, 0.0, 500.0),
         );
         let before = logic
             .get_objects()
