@@ -18181,6 +18181,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 704: post-logic AI-mood / AI-request / shock-stun.
+                let _mood = crate::gameworld_shadow::eager_apply_host_ai_mood_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _ar = crate::gameworld_shadow::eager_apply_host_ai_request_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _ss = crate::gameworld_shadow::eager_apply_host_shock_stun_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

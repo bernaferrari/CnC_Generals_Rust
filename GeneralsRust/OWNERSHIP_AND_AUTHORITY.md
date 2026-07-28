@@ -181,6 +181,7 @@ Remaining engine residual after host update:
   - Eager faerie-fire/repulsor/disable-timers: post-logic drain residual logs → GW (Wave 701; session handoff)
   - Eager body-damage/death-type/physics-motive: post-logic drain residual logs → GW (Wave 702; session handoff)
   - Eager locomotor/bounce-land: post-logic drain residual logs → GW (Wave 703; session handoff)
+  - Eager AI-mood/AI-request/shock-stun: post-logic drain residual logs → GW (Wave 704; session handoff)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

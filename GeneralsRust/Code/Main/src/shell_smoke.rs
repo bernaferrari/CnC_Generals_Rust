@@ -2911,6 +2911,11 @@ use crate::game_logic::host_live_host_eager_loco_bounce_helper_residual_wave703:
     honesty_host_eager_loco_bounce_helper_nav_commands_residual_wave703,
     simulate_live_host_eager_loco_bounce_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_aimood_request_shock_helper_residual_wave704::{
+    honesty_host_eager_aimood_request_shock_helper_method_names_residual_wave704,
+    honesty_host_eager_aimood_request_shock_helper_nav_commands_residual_wave704,
+    simulate_live_host_eager_aimood_request_shock_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6738,6 +6743,9 @@ pub struct ShellSmokeResult {
     pub host_eager_loco_bounce_helper_method_names_wave703_ok: bool,
     pub host_eager_loco_bounce_helper_nav_commands_wave703_ok: bool,
     pub host_eager_loco_bounce_helper_live_wave703_ok: bool,
+    pub host_eager_aimood_request_shock_helper_method_names_wave704_ok: bool,
+    pub host_eager_aimood_request_shock_helper_nav_commands_wave704_ok: bool,
+    pub host_eager_aimood_request_shock_helper_live_wave704_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10695,6 +10703,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_loco_bounce_helper_nav_commands_residual_wave703();
     let host_eager_loco_bounce_helper_live_wave703_ok =
         simulate_live_host_eager_loco_bounce_helper_honesty();
+    let host_eager_aimood_request_shock_helper_method_names_wave704_ok =
+        honesty_host_eager_aimood_request_shock_helper_method_names_residual_wave704();
+    let host_eager_aimood_request_shock_helper_nav_commands_wave704_ok =
+        honesty_host_eager_aimood_request_shock_helper_nav_commands_residual_wave704();
+    let host_eager_aimood_request_shock_helper_live_wave704_ok =
+        simulate_live_host_eager_aimood_request_shock_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12793,6 +12807,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_loco_bounce_helper_method_names_wave703_ok,
         host_eager_loco_bounce_helper_nav_commands_wave703_ok,
         host_eager_loco_bounce_helper_live_wave703_ok,
+        host_eager_aimood_request_shock_helper_method_names_wave704_ok,
+        host_eager_aimood_request_shock_helper_nav_commands_wave704_ok,
+        host_eager_aimood_request_shock_helper_live_wave704_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23608,6 +23625,21 @@ mod tests {
         assert!(
             r.host_eager_loco_bounce_helper_live_wave703_ok,
             "host eager_loco_bounce helper live residual wave703: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_aimood_request_shock_helper_method_names_wave704_ok,
+            "host eager_aimood_request_shock helper method names residual pack wave704: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_aimood_request_shock_helper_nav_commands_wave704_ok,
+            "host eager_aimood_request_shock helper nav commands residual pack wave704: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_aimood_request_shock_helper_live_wave704_ok,
+            "host eager_aimood_request_shock helper live residual wave704: {}",
             r.detail
         );
         assert!(
