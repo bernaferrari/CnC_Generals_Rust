@@ -1737,7 +1737,7 @@ pub struct GameLogic {
     red_guard_residual_fires: u32,
     red_guard_residual_bayonet_kills: u32,
     red_guard_residual_nationalism_upgrades: u32,
-    red_guard_residual_horde_grants: u32,
+    pub(crate) red_guard_residual_horde_grants: u32,
 
     /// Host residual: China Tank Hunter RPG + TNT special + horde / nationalism honesty.
     /// Fail-closed: not full SpecialAbilityUpdate flee / MaxSpecialObjects matrix.
@@ -1745,7 +1745,7 @@ pub struct GameLogic {
     tank_hunter_residual_units_hit: u32,
     tank_hunter_residual_tnt_plants: u32,
     tank_hunter_residual_nationalism_upgrades: u32,
-    tank_hunter_residual_horde_grants: u32,
+    pub(crate) tank_hunter_residual_horde_grants: u32,
     /// Per-unit TNT special residual last plant frame (ReloadTime 7500ms).
     tank_hunter_tnt_last_frame: HashMap<ObjectId, u32>,
 
@@ -1772,7 +1772,7 @@ pub struct GameLogic {
     minigunner_residual_ramp_fast: u32,
     minigunner_residual_chain_gun_upgrades: u32,
     minigunner_residual_nationalism_upgrades: u32,
-    minigunner_residual_horde_grants: u32,
+    pub(crate) minigunner_residual_horde_grants: u32,
 
     /// Host residual: Colonel Burton sniper + knife melee honesty.
     /// Fail-closed: not full clip volley / pre-attack knife anim lock matrix.
@@ -6327,7 +6327,12 @@ impl GameLogic {
 
         // Host China infantry HordeUpdate residual (Red Guard / Tank Hunter, Radius 30 / Count 5).
         // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
-        self.update_china_infantry_horde_status();
+        // Wave 813: under coupled shadow, horde status owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_china_infantry_horde_status();
+        }
 
         // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
@@ -45516,7 +45521,7 @@ impl GameLogic {
     }
 
     /// Refresh Red Guard weapon residual from current horde / nationalism flags.
-    fn refresh_red_guard_weapon(&mut self, object_id: ObjectId) {
+    pub(crate) fn refresh_red_guard_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
         use crate::game_logic::host_red_guard::{is_red_guard_template, red_guard_weapon};
         let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -45537,7 +45542,7 @@ impl GameLogic {
     }
 
     /// Refresh Tank Hunter RPG residual from current horde / nationalism flags.
-    fn refresh_tank_hunter_weapon(&mut self, object_id: ObjectId) {
+    pub(crate) fn refresh_tank_hunter_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
         use crate::game_logic::host_tank_hunter::{is_tank_hunter_template, tank_hunter_weapon};
         let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -45558,7 +45563,7 @@ impl GameLogic {
     }
 
     /// Refresh MiniGunner dual-gun residual from continuous fire + horde / nationalism.
-    fn refresh_minigunner_weapon(&mut self, object_id: ObjectId) {
+    pub(crate) fn refresh_minigunner_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
