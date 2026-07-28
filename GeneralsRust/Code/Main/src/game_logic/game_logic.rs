@@ -8143,59 +8143,17 @@ impl GameLogic {
                 );
                 continue;
             };
-            let unit_name = residual.starting_unit0;
-            if unit_name.is_empty() {
-                continue;
-            }
 
-            // Skip only when a *mobile* builder/worker already exists for the team.
-            // Structures must not suppress StartingUnit0 (C++ always places the dozer).
-            let has_builder = self.objects.values().any(|o| {
-                o.team == player.team
-                    && o.is_alive()
-                    && o.is_mobile()
-                    && (o.can_construct()
-                        || o.template_name.eq_ignore_ascii_case(unit_name)
-                        || o.template_name.to_ascii_lowercase().contains("dozer")
-                        || o.template_name.to_ascii_lowercase().contains("worker"))
-            });
-            if has_builder {
-                let builders: Vec<String> = self
-                    .objects
-                    .values()
-                    .filter(|o| {
-                        o.team == player.team
-                            && o.is_alive()
-                            && o.is_mobile()
-                            && (o.can_construct()
-                                || o.template_name.to_ascii_lowercase().contains("dozer")
-                                || o.template_name.to_ascii_lowercase().contains("worker"))
-                    })
-                    .map(|o| o.template_name.clone())
-                    .collect();
-                log::info!(
-                    "Skirmish starting unit residual: player={} team={:?} already has mobile builder {:?}",
-                    pid,
-                    player.team,
-                    builders
-                );
-                continue;
-            }
-
-            // Anchor near command center / any structure / team base residual.
+            // --- Starting building (C++ placeStartingStructures) ---
             let mut base = self.team_base_position(player.team);
             if base.is_none() {
-                // Wave 831: C++ placeNetworkStartingUnits residual — place
-                // PlayerTemplate starting building at Player_N_Start waypoint when
-                // the map object list has no faction army (Lone Eagle multiplayer).
-                // Wave 734 env seed remains as last-resort synthetic pad.
+                // Wave 831/832: place at Player_N_Start when map has no faction army.
                 let building = residual.starting_building;
                 let mut pos_opt: Option<Vec3> = None;
                 if !building.is_empty() {
                     if let Ok(starts) =
                         super::script_loader::parse_player_start_waypoints(&self.map_name)
                     {
-                        // Prefer player.start_position when set (>=0), else slot order.
                         let want_idx = if player.start_position >= 0 {
                             player.start_position as u32
                         } else {
@@ -8210,7 +8168,6 @@ impl GameLogic {
                             }
                             pos_opt = Some(pos);
                         } else if let Some((_, wp, _)) = starts.first() {
-                            // Fallback first free start.
                             let mut pos = Vec3::new(wp.x, wp.z, wp.y);
                             if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
                                 pos.y = h;
@@ -8245,7 +8202,7 @@ impl GameLogic {
                     if self.create_object(building, player.team, pos).is_some() {
                         base = Some(pos);
                         log::info!(
-                            "Wave 831: seeded starting building {} for player {} at {:?}",
+                            "Wave 831/832: seeded starting building {} for player {} at {:?}",
                             building,
                             pid,
                             pos
@@ -8253,49 +8210,81 @@ impl GameLogic {
                     }
                 }
             }
-            let Some(mut base_pos) = base else {
+
+            let Some(base_pos0) = base.or_else(|| self.team_base_position(player.team)) else {
                 continue;
             };
+            let mut base_pos = base_pos0;
             if let Some(h) = self.terrain_height_at(Vec3::new(base_pos.x, 0.0, base_pos.z)) {
                 base_pos.y = h;
             }
-            // Offset like C++ minRadius/maxRadius around construction yard.
-            let mut unit_pos = base_pos + Vec3::new(40.0, 0.0, -40.0);
-            if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
-                unit_pos.y = h;
+
+            // --- Starting units 0..9 (C++ placeStartingUnits / MAX_MP_STARTING_UNITS) ---
+            // Wave 832: walk residual.starting_units; retail usually only unit0 (dozer).
+            let unit_names: Vec<&str> = residual
+                .starting_units
+                .iter()
+                .copied()
+                .filter(|n| !n.is_empty())
+                .collect();
+            if unit_names.is_empty() {
+                continue;
             }
             self.ensure_ai_faction_templates(player.team);
-            if let Some(id) = self.create_object(unit_name, player.team, unit_pos) {
-                log::info!(
-                    "Skirmish starting unit residual: player={} team={:?} spawned {} id={:?}",
-                    pid,
-                    player.team,
-                    unit_name,
-                    id
-                );
-            } else {
-                // Fallback retail short names used by host residual tables.
-                let fallback = match player.team {
-                    Team::USA => "AmericaVehicleDozer",
-                    Team::China => "ChinaVehicleDozer",
-                    Team::GLA => "GLAInfantryWorker",
-                    Team::Neutral => "",
-                };
-                if !fallback.is_empty() && fallback != unit_name {
-                    if let Some(id) = self.create_object(fallback, player.team, unit_pos) {
-                        log::info!(
-                            "Skirmish starting unit residual fallback: player={} {} id={:?}",
-                            pid,
-                            fallback,
-                            id
-                        );
-                    } else {
-                        log::warn!(
-                            "Skirmish starting unit residual failed for player={} tried {} / {}",
-                            pid,
-                            unit_name,
-                            fallback
-                        );
+            for (i, unit_name) in unit_names.iter().enumerate() {
+                // Skip if this exact starting unit template already exists for the team.
+                let already = self.objects.values().any(|o| {
+                    o.team == player.team
+                        && o.is_alive()
+                        && o.template_name.eq_ignore_ascii_case(unit_name)
+                });
+                // For builders/workers: also treat any mobile constructor as present.
+                let is_builder = unit_name.to_ascii_lowercase().contains("dozer")
+                    || unit_name.to_ascii_lowercase().contains("worker");
+                let has_builder = is_builder
+                    && self.objects.values().any(|o| {
+                        o.team == player.team
+                            && o.is_alive()
+                            && o.is_mobile()
+                            && (o.can_construct()
+                                || o.template_name.to_ascii_lowercase().contains("dozer")
+                                || o.template_name.to_ascii_lowercase().contains("worker"))
+                    });
+                if already || has_builder {
+                    continue;
+                }
+
+                // Offset around yard like C++ minRadius/maxRadius residual.
+                let mut unit_pos =
+                    base_pos + Vec3::new(40.0 + (i as f32) * 12.0, 0.0, -40.0 - (i as f32) * 6.0);
+                if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
+                    unit_pos.y = h;
+                }
+                if let Some(id) = self.create_object(unit_name, player.team, unit_pos) {
+                    log::info!(
+                        "Wave 832: starting unit player={} team={:?} spawned {} id={:?}",
+                        pid,
+                        player.team,
+                        unit_name,
+                        id
+                    );
+                } else if i == 0 {
+                    // Fallback retail short names for unit0 only.
+                    let fallback = match player.team {
+                        Team::USA => "AmericaVehicleDozer",
+                        Team::China => "ChinaVehicleDozer",
+                        Team::GLA => "GLAInfantryWorker",
+                        Team::Neutral => "",
+                    };
+                    if !fallback.is_empty() {
+                        if let Some(id) = self.create_object(fallback, player.team, unit_pos) {
+                            log::info!(
+                                "Wave 832: starting unit fallback player={} {} id={:?}",
+                                pid,
+                                fallback,
+                                id
+                            );
+                        }
                     }
                 }
             }
