@@ -191,6 +191,7 @@ pub mod host_live_host_eject_invuln_dual_peel_residual_wave762;
 pub mod host_live_host_force_reload_dual_peel_residual_wave763;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
+pub mod host_live_host_defection_timer_dual_peel_residual_wave766;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -305,7 +306,7 @@ mod host_create_object_die;
 pub mod host_credits_menu_residual_wave127;
 pub mod host_credits_roll_residual_wave151;
 mod host_dam_die;
-mod host_defection_helper;
+pub mod host_defection_helper;
 mod host_defector_special_power;
 pub mod host_deliver_payload;
 pub mod host_demo_suicide_bomb;
@@ -3695,6 +3696,16 @@ pub use host_live_host_subdual_heal_dual_peel_residual_wave765::{
     residual_host_subdual_heal_dual_peel_ok,
     simulate_live_host_subdual_heal_dual_peel_honesty,
 };
+pub use host_live_host_defection_timer_dual_peel_residual_wave766::{
+    honesty_host_defection_timer_dual_peel_method_names_residual_wave766,
+    honesty_host_defection_timer_dual_peel_nav_commands_residual_wave766,
+    honesty_host_defection_timer_dual_peel_residual_pack_wave766,
+    honesty_host_defection_timer_dual_peel_source_markers_residual_wave766,
+    residual_host_defection_timer_dual_peel_last_action,
+    residual_host_defection_timer_dual_peel_ok,
+    simulate_live_host_defection_timer_dual_peel_honesty,
+};
+
 
 
 

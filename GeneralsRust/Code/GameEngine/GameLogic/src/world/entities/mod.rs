@@ -246,6 +246,20 @@ pub struct Entity {
     pub subdual_heal_rate_frames: u32,
     /// Host Object::subdual_heal_countdown residual.
     pub subdual_heal_countdown: u32,
+    /// Host ObjectDefectionHelper residual: undetected defector active.
+    pub defection_undetected: bool,
+    /// Host detection timer end frame (0 = none).
+    pub defection_detection_end: u32,
+    /// Host detection timer start frame.
+    pub defection_detection_start: u32,
+    /// Host flash phase residual.
+    pub defection_flash_phase: f32,
+    /// Host doDefectorFX residual.
+    pub defection_do_fx: bool,
+    /// Presentation: selection flash this frame.
+    pub defection_flash_this_frame: bool,
+    /// Presentation: final white flash on timer expire.
+    pub defection_final_white_flash: bool,
     /// Host Object::status.is_carbomb residual.
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
@@ -923,6 +937,13 @@ impl EntityStore {
             subdual_heal_amount: 0.0,
             subdual_heal_rate_frames: 0,
             subdual_heal_countdown: 0,
+            defection_undetected: false,
+            defection_detection_end: 0,
+            defection_detection_start: 0,
+            defection_flash_phase: 0.0,
+            defection_do_fx: false,
+            defection_flash_this_frame: false,
+            defection_final_white_flash: false,
             is_carbomb: false,
             hijacked: false,
             ignoring_stealth: false,
