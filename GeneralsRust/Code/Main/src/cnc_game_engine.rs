@@ -18207,6 +18207,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 706: post-logic hijacker / rebuild-producer / stored-supplies.
+                let _hj = crate::gameworld_shadow::eager_apply_host_hijacker_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _rp = crate::gameworld_shadow::eager_apply_host_rebuild_producer_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _ssup = crate::gameworld_shadow::eager_apply_host_stored_supplies_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
