@@ -543,6 +543,12 @@ pub struct Entity {
     pub armor_crate_upgrade: u8,
     /// C++ EnemyNearUpdate model residual.
     pub enemy_near: bool,
+    /// Host EnemyNearUpdate module active (walls/props).
+    pub enemy_near_active: bool,
+    pub enemy_near_scan_delay: u32,
+    pub enemy_near_scan_delay_time: u32,
+    pub enemy_near_model: bool,
+    pub enemy_near_vision_range: f32,
     /// C++ ARMED model residual.
     pub armed: bool,
     /// Host AI request residual `selection_flash_remaining`.
@@ -1209,6 +1215,11 @@ impl EntityStore {
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             enemy_near: false,
+            enemy_near_active: false,
+            enemy_near_scan_delay: 0,
+            enemy_near_scan_delay_time: 30,
+            enemy_near_model: false,
+            enemy_near_vision_range: 150.0,
             armed: false,
             selection_flash_remaining: 0,
             shock_stun_frames: 0,

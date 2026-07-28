@@ -6393,7 +6393,13 @@ impl GameLogic {
         {
             self.update_base_regenerate();
         }
-        self.update_enemy_near();
+        // Wave 781: under coupled shadow, EnemyNearUpdate is owned by
+        // GW tick_status_timer_expirations + writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_enemy_near();
+        }
         self.update_animation_steering();
         self.update_float_update();
         self.update_prone_update();
