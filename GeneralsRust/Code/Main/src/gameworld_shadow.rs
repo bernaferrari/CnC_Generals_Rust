@@ -4126,6 +4126,35 @@ impl GameWorldShadow {
                     e.inferno_fire_field = obj.inferno_fire_field;
                     e.inferno_fire_field_expires_frame =
                         obj.inferno_fire_field_expires_frame.unwrap_or(0);
+                    e.inferno_shell_projectile = obj.inferno_shell_projectile;
+                    if let Some(a) = obj.inferno_shell_from {
+                        e.inferno_shell_has_from = true;
+                        e.inferno_shell_from_x = a[0];
+                        e.inferno_shell_from_y = a[1];
+                        e.inferno_shell_from_z = a[2];
+                    } else {
+                        e.inferno_shell_has_from = false;
+                    }
+                    if let Some(a) = obj.inferno_shell_aim {
+                        e.inferno_shell_has_aim = true;
+                        e.inferno_shell_aim_x = a[0];
+                        e.inferno_shell_aim_y = a[1];
+                        e.inferno_shell_aim_z = a[2];
+                    } else {
+                        e.inferno_shell_has_aim = false;
+                    }
+                    e.inferno_shell_launch_frame = obj.inferno_shell_launch_frame.unwrap_or(0);
+                    e.inferno_shell_flight_frames = obj.inferno_shell_flight_frames;
+                    if let Some(i) = obj.inferno_shell_intended {
+                        e.inferno_shell_has_intended = true;
+                        e.inferno_shell_intended = i;
+                    } else {
+                        e.inferno_shell_has_intended = false;
+                    }
+                    e.inferno_shell_upgraded = obj.inferno_shell_upgraded;
+                    e.spy_satellite_ping = obj.spy_satellite_ping;
+                    e.spy_satellite_ping_expires_frame =
+                        obj.spy_satellite_ping_expires_frame.unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -9576,6 +9605,80 @@ impl GameWorldShadow {
                 changed = true;
             }
 
+            // Wave 803: Inferno shell projectile residual.
+            if e.inferno_shell_projectile {
+                use crate::game_logic::host_inferno_cannon::inferno_shell_bezier_point;
+                let pos = e.transform.position;
+                let from = if e.inferno_shell_has_from {
+                    glam::Vec3::new(
+                        e.inferno_shell_from_x,
+                        e.inferno_shell_from_y,
+                        e.inferno_shell_from_z,
+                    )
+                } else {
+                    glam::Vec3::new(pos.x, pos.y, pos.z)
+                };
+                let aim = if e.inferno_shell_has_aim {
+                    glam::Vec3::new(
+                        e.inferno_shell_aim_x,
+                        e.inferno_shell_aim_y,
+                        e.inferno_shell_aim_z,
+                    )
+                } else {
+                    from
+                };
+                let launch = e.inferno_shell_launch_frame;
+                let frames = e.inferno_shell_flight_frames.max(1);
+                let elapsed = frame.saturating_sub(launch);
+                let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+                let new_pos = inferno_shell_bezier_point(from, aim, t);
+                let dx = new_pos.x - pos.x;
+                let dz = new_pos.z - pos.z;
+                e.transform.position.x = new_pos.x;
+                e.transform.position.y = new_pos.y;
+                e.transform.position.z = new_pos.z;
+                if dx * dx + dz * dz > 1.0e-6 {
+                    e.transform.orientation = dz.atan2(dx);
+                }
+                if elapsed >= frames {
+                    e.inferno_shell_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        let intended = if e.inferno_shell_has_intended {
+                            Some(crate::game_logic::ObjectId(e.inferno_shell_intended))
+                        } else {
+                            None
+                        };
+                        crate::game_logic::host_inferno_shell_projectile_log::record_impact(
+                            crate::game_logic::host_inferno_shell_projectile_log::InfernoShellImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                intended,
+                                pos: aim,
+                                upgraded: e.inferno_shell_upgraded,
+                                team,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 803: SpySatellite ping lifetime residual.
+            if e.spy_satellite_ping
+                && e.spy_satellite_ping_expires_frame > 0
+                && frame >= e.spy_satellite_ping_expires_frame
+            {
+                e.spy_satellite_ping = false;
+                e.spy_satellite_ping_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_spy_satellite_ping_log::record_expire(
+                        crate::game_logic::ObjectId(hid),
+                    );
+                }
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -14640,6 +14743,49 @@ impl GameWorldShadow {
                     None
                 };
             }
+            {
+                obj.inferno_shell_projectile = ent.inferno_shell_projectile;
+                if ent.inferno_shell_has_from {
+                    obj.inferno_shell_from = Some([
+                        ent.inferno_shell_from_x,
+                        ent.inferno_shell_from_y,
+                        ent.inferno_shell_from_z,
+                    ]);
+                } else {
+                    obj.inferno_shell_from = None;
+                }
+                if ent.inferno_shell_has_aim {
+                    obj.inferno_shell_aim = Some([
+                        ent.inferno_shell_aim_x,
+                        ent.inferno_shell_aim_y,
+                        ent.inferno_shell_aim_z,
+                    ]);
+                } else {
+                    obj.inferno_shell_aim = None;
+                }
+                obj.inferno_shell_launch_frame = if ent.inferno_shell_launch_frame > 0
+                    || ent.inferno_shell_projectile
+                {
+                    Some(ent.inferno_shell_launch_frame)
+                } else {
+                    None
+                };
+                obj.inferno_shell_flight_frames = ent.inferno_shell_flight_frames;
+                obj.inferno_shell_intended = if ent.inferno_shell_has_intended {
+                    Some(ent.inferno_shell_intended)
+                } else {
+                    None
+                };
+                obj.inferno_shell_upgraded = ent.inferno_shell_upgraded;
+                obj.spy_satellite_ping = ent.spy_satellite_ping;
+                obj.spy_satellite_ping_expires_frame = if ent.spy_satellite_ping
+                    && ent.spy_satellite_ping_expires_frame > 0
+                {
+                    Some(ent.spy_satellite_ping_expires_frame)
+                } else {
+                    None
+                };
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -16731,6 +16877,44 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.id, ev.team);
         }
+        // Wave 803: Inferno shell impact + SpySatellite ping expire.
+        for ev in crate::game_logic::host_inferno_shell_projectile_log::drain_impacts() {
+            let shell_team = logic.get_objects().get(&ev.id).map(|o| o.team);
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.inferno_shell_projectile = false;
+                o.set_position(ev.pos);
+            }
+            let _ = logic.apply_inferno_shell_residual_at(ev.pos, ev.source, ev.intended);
+            if let Some(sid) = ev.source {
+                let _ = logic.spawn_inferno_fire_zone(sid, ev.team, ev.pos, ev.upgraded);
+            }
+            logic.mark_object_for_destruction(ev.id, shell_team);
+        }
+        for id in crate::game_logic::host_spy_satellite_ping_log::drain_expires() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.spy_satellite_ping = false;
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+
 
 
 
