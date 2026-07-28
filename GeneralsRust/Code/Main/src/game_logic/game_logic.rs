@@ -59556,7 +59556,13 @@ impl GameLogic {
         self.angry_mobs.sync_mobs(&living, frame);
         self.angry_mobs.apply_due_expands(frame);
         self.flush_angry_mob_member_spawns();
-        self.update_angry_mob_member_follow();
+        // Wave 801: under coupled shadow, AngryMob member follow is owned by
+        // GW tick_status_timer_expirations + destroy logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_angry_mob_member_follow();
+        }
 
         if self.angry_mobs.active_count() == 0 {
             return;

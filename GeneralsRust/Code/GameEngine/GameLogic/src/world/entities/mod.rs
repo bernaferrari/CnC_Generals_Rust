@@ -866,6 +866,10 @@ pub struct Entity {
     pub nuke_shell_has_aim: bool,
     pub nuke_shell_launch_frame: u32,
     pub nuke_shell_flight_frames: u32,
+    /// Host AngryMob member residual.
+    pub angry_mob_member: bool,
+    pub angry_mob_nexus_id: u32,
+    pub angry_mob_has_nexus: bool,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1715,6 +1719,9 @@ impl EntityStore {
             nuke_shell_has_aim: false,
             nuke_shell_launch_frame: 0,
             nuke_shell_flight_frames: 0,
+            angry_mob_member: false,
+            angry_mob_nexus_id: 0,
+            angry_mob_has_nexus: false,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
