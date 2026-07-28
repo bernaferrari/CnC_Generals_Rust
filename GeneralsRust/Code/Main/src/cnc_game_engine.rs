@@ -9918,13 +9918,37 @@ impl CnCGameEngine {
                                 .and_then(|f| f.first_constructed_producer_id(team))
                         })
                     };
-                    let unit_candidates = [
+                    // Wave 722: synthetic GoldenRanger template insert is opt-in only.
+                    // Default fail-closed: train only against real retail/map templates.
+                    // Smoke/harness may set golden_template=1 /
+                    // GENERALS_RUNTIME_HOST_ENSURE_GOLDEN_RANGER=1.
+                    let allow_golden_template = args
+                        .get("golden_template")
+                        .or_else(|| args.get("ensure_golden_ranger"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_ENSURE_GOLDEN_RANGER")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    let mut unit_candidates = vec![
                         requested.as_str(),
                         "AmericaInfantryRanger",
                         "USA_Ranger",
                         "USARanger",
-                        "GoldenRanger",
                     ];
+                    if allow_golden_template {
+                        unit_candidates.push("GoldenRanger");
+                    }
                     // Wave 563: template residual prefers presentation freeze names.
                     let template = unit_candidates
                         .iter()
@@ -9932,8 +9956,10 @@ impl CnCGameEngine {
                         .map(|s| (*s).to_string())
                         .unwrap_or(requested);
                     if let Some(pid) = producer {
-                        // Wave 581: GoldenRanger host template residual via helper.
-                        self.host_ensure_golden_ranger_template();
+                        // Wave 722: only insert GoldenRanger host template when opted in.
+                        if allow_golden_template {
+                            self.host_ensure_golden_ranger_template();
+                        }
                         // Wave 721: free supplies floor is opt-in only (default fail-closed).
                         // Retail cash comes from skirmish/map starting resources.
                         // Smoke may set grant_supplies=1 / GENERALS_RUNTIME_HOST_GRANT_MIN_SUPPLIES=1.
@@ -18760,7 +18786,7 @@ impl CnCGameEngine {
 
     /// Wave 581: ensure GoldenRanger host template residual for train honesty path.
     fn host_ensure_golden_ranger_template(&mut self) {
-        // Wave 581: mid-command host insert residual.
+        // Wave 581/722: mid-command host insert residual (callers must opt in).
         if self.game_logic.templates.contains_key("GoldenRanger") {
             return;
         }
