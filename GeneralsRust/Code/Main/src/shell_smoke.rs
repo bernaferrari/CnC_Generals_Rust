@@ -3036,6 +3036,11 @@ use crate::game_logic::host_live_host_sell_auto_target_opt_in_residual_wave728::
     honesty_host_sell_auto_target_opt_in_nav_commands_residual_wave728,
     simulate_live_host_sell_auto_target_opt_in_honesty,
 };
+use crate::game_logic::host_live_host_auto_target_opt_in_residual_wave729::{
+    honesty_host_auto_target_opt_in_method_names_residual_wave729,
+    honesty_host_auto_target_opt_in_nav_commands_residual_wave729,
+    simulate_live_host_auto_target_opt_in_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6938,6 +6943,9 @@ pub struct ShellSmokeResult {
     pub host_sell_auto_target_opt_in_method_names_wave728_ok: bool,
     pub host_sell_auto_target_opt_in_nav_commands_wave728_ok: bool,
     pub host_sell_auto_target_opt_in_live_wave728_ok: bool,
+    pub host_auto_target_opt_in_method_names_wave729_ok: bool,
+    pub host_auto_target_opt_in_nav_commands_wave729_ok: bool,
+    pub host_auto_target_opt_in_live_wave729_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11045,6 +11053,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_sell_auto_target_opt_in_nav_commands_residual_wave728();
     let host_sell_auto_target_opt_in_live_wave728_ok =
         simulate_live_host_sell_auto_target_opt_in_honesty();
+    let host_auto_target_opt_in_method_names_wave729_ok =
+        honesty_host_auto_target_opt_in_method_names_residual_wave729();
+    let host_auto_target_opt_in_nav_commands_wave729_ok =
+        honesty_host_auto_target_opt_in_nav_commands_residual_wave729();
+    let host_auto_target_opt_in_live_wave729_ok =
+        simulate_live_host_auto_target_opt_in_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13218,6 +13232,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_sell_auto_target_opt_in_method_names_wave728_ok,
         host_sell_auto_target_opt_in_nav_commands_wave728_ok,
         host_sell_auto_target_opt_in_live_wave728_ok,
+        host_auto_target_opt_in_method_names_wave729_ok,
+        host_auto_target_opt_in_nav_commands_wave729_ok,
+        host_auto_target_opt_in_live_wave729_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24408,6 +24425,21 @@ mod tests {
         assert!(
             r.host_sell_auto_target_opt_in_live_wave728_ok,
             "host sell_auto_target_opt_in live residual wave728: {}",
+            r.detail
+        );
+        assert!(
+            r.host_auto_target_opt_in_method_names_wave729_ok,
+            "host auto_target_opt_in method names residual pack wave729: {}",
+            r.detail
+        );
+        assert!(
+            r.host_auto_target_opt_in_nav_commands_wave729_ok,
+            "host auto_target_opt_in nav commands residual pack wave729: {}",
+            r.detail
+        );
+        assert!(
+            r.host_auto_target_opt_in_live_wave729_ok,
+            "host auto_target_opt_in live residual wave729: {}",
             r.detail
         );
         assert!(

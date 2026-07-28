@@ -9810,6 +9810,27 @@ impl CnCGameEngine {
                             }
                         }
                     }
+                    // Wave 729: auto-pick first constructed producer is opt-in only.
+                    // Default fail-closed: train needs an explicit producer selection path.
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
                     // Prefer force-completed + presentation constructed producers.
                     // Live full dual-scan is boot residual or fail-open when presentation
                     // still marks force-completed barracks under_construction.
@@ -9962,11 +9983,15 @@ impl CnCGameEngine {
                                 let _ = self.host_ensure_barracks_building_data(id);
                             }
                         }
-                        pick.or_else(|| {
-                            self.last_presentation_frame
-                                .as_ref()
-                                .and_then(|f| f.first_constructed_producer_id(team))
-                        })
+                        if allow_auto_target {
+                            pick.or_else(|| {
+                                self.last_presentation_frame
+                                    .as_ref()
+                                    .and_then(|f| f.first_constructed_producer_id(team))
+                            })
+                        } else {
+                            pick
+                        }
                     };
                     // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
                     // Retail commands use the exact requested template name.
@@ -10394,7 +10419,28 @@ impl CnCGameEngine {
                             }
                         })
                         .collect();
-                    if producers.is_empty() {
+                    // Wave 729: auto-pick producer/builder when selection empty is opt-in only.
+                    // Default fail-closed: retail requires a real selection.
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if producers.is_empty() && allow_auto_target {
                         producers = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             frame.alive_upgrade_producer_structure_ids(team)
                         } else {
@@ -11686,7 +11732,28 @@ impl CnCGameEngine {
                             }
                         })
                         .collect();
-                    if builders.is_empty() {
+                    // Wave 729: auto-pick producer/builder when selection empty is opt-in only.
+                    // Default fail-closed: retail requires a real selection.
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if builders.is_empty() && allow_auto_target {
                         builders = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             frame.alive_construct_builder_ids(team)
                         } else {
