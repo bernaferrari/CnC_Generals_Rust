@@ -3299,6 +3299,19 @@ impl GameWorldShadow {
                         e.lifetime_expire_at_frame = 0;
                         e.lifetime_active = false;
                     }
+                    if let Some(p) = obj.poisoned_behavior.as_ref() {
+                        e.poison_damage_frame = p.poison_damage_frame;
+                        e.poison_overall_stop_frame = p.poison_overall_stop_frame;
+                        e.poison_damage_amount = p.poison_damage_amount;
+                        e.poison_death_type = 5; // HostDeathType::Poisoned residual ordinal
+                        e.poison_tint = p.tint_poisoned;
+                    } else {
+                        e.poison_damage_frame = 0;
+                        e.poison_overall_stop_frame = 0;
+                        e.poison_damage_amount = 0.0;
+                        e.poison_death_type = 0;
+                        e.poison_tint = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -3836,6 +3849,19 @@ impl GameWorldShadow {
                     } else {
                         e.lifetime_expire_at_frame = 0;
                         e.lifetime_active = false;
+                    }
+                    if let Some(p) = obj.poisoned_behavior.as_ref() {
+                        e.poison_damage_frame = p.poison_damage_frame;
+                        e.poison_overall_stop_frame = p.poison_overall_stop_frame;
+                        e.poison_damage_amount = p.poison_damage_amount;
+                        e.poison_death_type = 5 /* Poisoned */;
+                        e.poison_tint = p.tint_poisoned;
+                    } else {
+                        e.poison_damage_frame = 0;
+                        e.poison_overall_stop_frame = 0;
+                        e.poison_damage_amount = 0.0;
+                        e.poison_death_type = 0;
+                        e.poison_tint = false;
                     }
 
                 e.is_carbomb = obj.status.is_carbomb;
@@ -7056,6 +7082,31 @@ impl GameWorldShadow {
                     );
                 }
                 changed = true;
+            }
+            // Wave 769: PoisonedBehavior DoT residual (UNRESISTABLE retake).
+            if e.poison_overall_stop_frame != 0 {
+                if e.poison_damage_frame != 0 && frame >= e.poison_damage_frame {
+                    let amount = e.poison_damage_amount;
+                    if amount > 0.0 {
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_poison_dot_log::record(
+                                crate::game_logic::ObjectId(hid),
+                                amount,
+                                crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+                            );
+                        }
+                    }
+                    let interval = crate::game_logic::host_poisoned_behavior::poison_interval_frames();
+                    e.poison_damage_frame = frame.saturating_add(interval);
+                    changed = true;
+                }
+                if frame >= e.poison_overall_stop_frame {
+                    e.poison_damage_frame = 0;
+                    e.poison_overall_stop_frame = 0;
+                    e.poison_damage_amount = 0.0;
+                    e.poison_tint = false;
+                    changed = true;
+                }
             }
             if changed {
                 n += 1;
@@ -10928,6 +10979,42 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_stop = obj
+                    .poisoned_behavior
+                    .as_ref()
+                    .map(|p| p.poison_overall_stop_frame)
+                    .unwrap_or(0);
+                let host_next = obj
+                    .poisoned_behavior
+                    .as_ref()
+                    .map(|p| p.poison_damage_frame)
+                    .unwrap_or(0);
+                if host_stop != ent.poison_overall_stop_frame
+                    || host_next != ent.poison_damage_frame
+                    || obj
+                        .poisoned_behavior
+                        .as_ref()
+                        .map(|p| (p.poison_damage_amount - ent.poison_damage_amount).abs() > f32::EPSILON)
+                        .unwrap_or(ent.poison_damage_amount > 0.0)
+                    || obj
+                        .poisoned_behavior
+                        .as_ref()
+                        .map(|p| p.tint_poisoned != ent.poison_tint)
+                        .unwrap_or(ent.poison_tint)
+                {
+                    if ent.poison_overall_stop_frame != 0 || ent.poison_damage_frame != 0 {
+                        let p = obj.poisoned_behavior.get_or_insert_with(Default::default);
+                        p.poison_damage_frame = ent.poison_damage_frame;
+                        p.poison_overall_stop_frame = ent.poison_overall_stop_frame;
+                        p.poison_damage_amount = ent.poison_damage_amount;
+                        p.tint_poisoned = ent.poison_tint;
+                        p.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Poisoned;
+                    } else {
+                        obj.poisoned_behavior = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12296,6 +12383,17 @@ pub fn shadow_session_after_host_tick(
         // Wave 768: LifetimeUpdate expire → host mark-for-destruction (no dual timer).
         for id in crate::game_logic::host_lifetime_expire_log::drain() {
             logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 769: PoisonedBehavior DoT → host UNRESISTABLE apply (no dual timer).
+        for ev in crate::game_logic::host_poison_dot_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&ev.object) {
+                let _killed = obj.take_damage_from_typed_death(
+                    ev.amount,
+                    None,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    ev.death_type,
+                );
+            }
         }
 
         // Wave 634: drain combat-status ready log after GW writeback.
