@@ -1175,7 +1175,7 @@ pub struct GameLogic {
     scud_storm_missile_flight_reg:
         crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightRegistry,
     /// C++ CarpetBomb DeliverPayload residual counters.
-    carpet_bomb_flight_reg:
+    pub(crate) carpet_bomb_flight_reg:
         crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry,
     /// C++ ArtilleryBarrage DeliverPayload residual counters.
     pub(crate) artillery_barrage_flight_reg:
@@ -6445,7 +6445,13 @@ impl GameLogic {
         self.update_fuel_air_gas_slow_death();
         self.update_neutron_missile_flights();
         self.update_scud_storm_missile_flights();
-        self.update_carpet_bomb_flights();
+        // Wave 794: under coupled shadow, CarpetBomb flight is owned by
+        // GW tick_status_timer_expirations + drop/detonate logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_carpet_bomb_flights();
+        }
         // Wave 793: under coupled shadow, ArtilleryBarrage flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()

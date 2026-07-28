@@ -2998,6 +2998,7 @@ pub struct GameWorldShadow {
     /// Pending A10 missile drops (mirrored from host registry under dual-tick).
     a10_pending_drops: Vec<crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop>,
     artillery_pending_drops: Vec<crate::game_logic::host_artillery_barrage_flight::PendingArtilleryShellDrop>,
+    carpet_pending_drops: Vec<crate::game_logic::host_carpet_bomb_flight::PendingCarpetBombDrop>,
 }
 
 impl GameWorldShadow {
@@ -3013,6 +3014,7 @@ impl GameWorldShadow {
             special_power_frozen_by_host: HashMap::new(),
             a10_pending_drops: Vec::new(),
             artillery_pending_drops: Vec::new(),
+            carpet_pending_drops: Vec::new(),
         }
     }
 
@@ -3927,6 +3929,28 @@ impl GameWorldShadow {
                     } else {
                         0.0
                     };
+                    if let Some(d) = obj.carpet_bomb_transport.as_ref() {
+                        e.carpet_bomb_transport_active = true;
+                        e.carpet_bomb_transport_tier = match d.tier {
+                            crate::game_logic::special_power_strikes::CarpetBombFactionTier::AirForce => 1,
+                            crate::game_logic::special_power_strikes::CarpetBombFactionTier::China => 2,
+                            _ => 0,
+                        };
+                        e.carpet_bomb_transport_target_x = d.target.x;
+                        e.carpet_bomb_transport_target_y = d.target.y;
+                        e.carpet_bomb_transport_target_z = d.target.z;
+                        e.carpet_bomb_transport_launch_x = d.launch.x;
+                        e.carpet_bomb_transport_launch_y = d.launch.y;
+                        e.carpet_bomb_transport_launch_z = d.launch.z;
+                    } else {
+                        e.carpet_bomb_transport_active = false;
+                    }
+                    e.carpet_bomb_payload = obj.carpet_bomb_payload;
+                    e.carpet_bomb_payload_vel_y = if obj.carpet_bomb_payload {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -4569,6 +4593,7 @@ impl GameWorldShadow {
         // Wave 792: mirror A10 pending missile drops for GW sole-tick.
         self.a10_pending_drops = logic.a10_strike_flight_reg.pending_drops.clone();
         self.artillery_pending_drops = logic.artillery_barrage_flight_reg.pending_drops.clone();
+        self.carpet_pending_drops = logic.carpet_bomb_flight_reg.pending_drops.clone();
 
         // Align frame.
         let target = logic.get_frame() as u64;
@@ -8700,6 +8725,56 @@ impl GameWorldShadow {
                 }
                 changed = true;
             }
+            // Wave 794: CarpetBomb transport residual.
+            if e.carpet_bomb_transport_active {
+                let dest_x = e.carpet_bomb_transport_target_x;
+                let dest_z = e.carpet_bomb_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 18.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = new_pos.y.max(120.0);
+                let mut vel = glam::Vec3::ZERO;
+                if dist >= 5.0 {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
+                }
+                e.transform.position = new_pos;
+                if vel.length_squared() > 1e-6 {
+                    e.transform.orientation = vel.z.atan2(vel.x);
+                }
+                changed = true;
+            }
+            if e.carpet_bomb_payload {
+                if e.carpet_bomb_payload_vel_y == 0.0 {
+                    e.carpet_bomb_payload_vel_y = -15.0;
+                }
+                e.transform.position.y += e.carpet_bomb_payload_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.carpet_bomb_payload = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_carpet_bomb_drop_log::record_detonate(
+                            crate::game_logic::host_carpet_bomb_drop_log::CarpetBombDetonateEvent {
+                                bomb: crate::game_logic::ObjectId(hid),
+                                producer,
+                                team,
+                                pos: glam::Vec3::new(
+                                    e.transform.position.x,
+                                    0.0,
+                                    e.transform.position.z,
+                                ),
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
             if changed {
                 n += 1;
             }
@@ -8760,6 +8835,38 @@ impl GameWorldShadow {
                 };
                 crate::game_logic::host_artillery_barrage_drop_log::record_drop(
                     crate::game_logic::host_artillery_barrage_drop_log::ArtilleryDropEvent {
+                        team,
+                        target: p.target,
+                        producer: crate::game_logic::ObjectId(p.source_id),
+                    },
+                );
+                n = n.saturating_add(1);
+            }
+        }
+
+        // Wave 794 pending CarpetBomb drops (registry sole-tick).
+        {
+            let mut due = Vec::new();
+            let mut keep = Vec::new();
+            for p in self.carpet_pending_drops.drain(..) {
+                if p.drop_frame <= frame {
+                    due.push(p);
+                } else {
+                    keep.push(p);
+                }
+            }
+            self.carpet_pending_drops = keep;
+            for p in due {
+                let team = if let Some(&eid) = self.host_to_entity.get(&p.source_id) {
+                    self.world
+                        .entity(eid)
+                        .map(|e| Self::entity_team_from_ordinal(e.team_ordinal))
+                        .unwrap_or(crate::game_logic::Team::Neutral)
+                } else {
+                    crate::game_logic::Team::Neutral
+                };
+                crate::game_logic::host_carpet_bomb_drop_log::record_drop(
+                    crate::game_logic::host_carpet_bomb_drop_log::CarpetBombDropEvent {
                         team,
                         target: p.target,
                         producer: crate::game_logic::ObjectId(p.source_id),
@@ -13420,6 +13527,41 @@ impl GameWorldShadow {
                     obj.movement.velocity.y = ent.artillery_barrage_shell_vel_y;
                 }
             }
+            {
+                if ent.carpet_bomb_transport_active {
+                    use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightData;
+                    use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
+                    let tier = match ent.carpet_bomb_transport_tier {
+                        1 => CarpetBombFactionTier::AirForce,
+                        2 => CarpetBombFactionTier::China,
+                        _ => CarpetBombFactionTier::America,
+                    };
+                    let d = obj.carpet_bomb_transport.get_or_insert_with(|| {
+                        HostCarpetBombFlightData::start(
+                            glam::Vec3::ZERO,
+                            glam::Vec3::ZERO,
+                            tier,
+                        )
+                    });
+                    d.tier = tier;
+                    d.target = glam::Vec3::new(
+                        ent.carpet_bomb_transport_target_x,
+                        ent.carpet_bomb_transport_target_y,
+                        ent.carpet_bomb_transport_target_z,
+                    );
+                    d.launch = glam::Vec3::new(
+                        ent.carpet_bomb_transport_launch_x,
+                        ent.carpet_bomb_transport_launch_y,
+                        ent.carpet_bomb_transport_launch_z,
+                    );
+                } else {
+                    obj.carpet_bomb_transport = None;
+                }
+                obj.carpet_bomb_payload = ent.carpet_bomb_payload;
+                if ent.carpet_bomb_payload {
+                    obj.movement.velocity.y = ent.carpet_bomb_payload_vel_y;
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -15269,6 +15411,49 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.shell, None);
         }
+        // Wave 794: CarpetBomb drop + detonate (no dual flight).
+        logic.carpet_bomb_flight_reg.pending_drops = shadow.carpet_pending_drops.clone();
+        for ev in crate::game_logic::host_carpet_bomb_drop_log::drain_drops() {
+            use crate::game_logic::special_power_strikes::CARPET_BOMB_PAYLOAD_OBJECT;
+            use crate::game_logic::{KindOf, ThingTemplate};
+            if !logic.templates.contains_key(CARPET_BOMB_PAYLOAD_OBJECT) {
+                let mut t = ThingTemplate::new(CARPET_BOMB_PAYLOAD_OBJECT);
+                t.set_health(100.0).add_kind_of(KindOf::Projectile);
+                logic
+                    .templates
+                    .insert(CARPET_BOMB_PAYLOAD_OBJECT.to_string(), t);
+            }
+            let drop_pos = glam::Vec3::new(ev.target.x, 80.0, ev.target.z);
+            if let Some(bid) = logic.create_object(CARPET_BOMB_PAYLOAD_OBJECT, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
+                    o.producer_id = Some(ev.producer);
+                    o.carpet_bomb_payload = true;
+                    o.movement.velocity = glam::Vec3::new(0.0, -15.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                }
+                logic.carpet_bomb_flight_reg.record_drop();
+            }
+        }
+        for ev in crate::game_logic::host_carpet_bomb_drop_log::drain_dets() {
+            use crate::game_logic::combat::DamageType;
+            use crate::game_logic::special_power_strikes::{CARPET_BOMB_DAMAGE, CARPET_BOMB_RADIUS};
+            logic.apply_fuel_air_radius_damage(
+                ev.bomb,
+                ev.producer,
+                ev.team,
+                ev.pos,
+                CARPET_BOMB_DAMAGE,
+                CARPET_BOMB_RADIUS,
+                DamageType::Explosive,
+            );
+            logic.carpet_bomb_flight_reg.record_impact();
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.bomb, None);
+        }
+
 
 
 
