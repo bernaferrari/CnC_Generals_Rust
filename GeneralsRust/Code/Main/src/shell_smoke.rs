@@ -3360,6 +3360,12 @@ use crate::game_logic::host_live_host_structure_topple_crush_dual_peel_residual_
     honesty_host_structure_topple_crush_dual_peel_nav_commands_residual_wave777,
     simulate_live_host_structure_topple_crush_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_fwwd_continuous_dual_peel_residual_wave778::{
+    honesty_host_fwwd_continuous_dual_peel_method_names_residual_wave778,
+    honesty_host_fwwd_continuous_dual_peel_nav_commands_residual_wave778,
+    simulate_live_host_fwwd_continuous_dual_peel_honesty,
+};
+
 
 
 
@@ -7349,6 +7355,9 @@ pub struct ShellSmokeResult {
     pub host_structure_topple_crush_dual_peel_method_names_wave777_ok: bool,
     pub host_structure_topple_crush_dual_peel_nav_commands_wave777_ok: bool,
     pub host_structure_topple_crush_dual_peel_live_wave777_ok: bool,
+    pub host_fwwd_continuous_dual_peel_method_names_wave778_ok: bool,
+    pub host_fwwd_continuous_dual_peel_nav_commands_wave778_ok: bool,
+    pub host_fwwd_continuous_dual_peel_live_wave778_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11750,6 +11759,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_structure_topple_crush_dual_peel_nav_commands_residual_wave777();
     let host_structure_topple_crush_dual_peel_live_wave777_ok =
         simulate_live_host_structure_topple_crush_dual_peel_honesty();
+    let host_fwwd_continuous_dual_peel_method_names_wave778_ok =
+        honesty_host_fwwd_continuous_dual_peel_method_names_residual_wave778();
+    let host_fwwd_continuous_dual_peel_nav_commands_wave778_ok =
+        honesty_host_fwwd_continuous_dual_peel_nav_commands_residual_wave778();
+    let host_fwwd_continuous_dual_peel_live_wave778_ok =
+        simulate_live_host_fwwd_continuous_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14070,6 +14085,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_structure_topple_crush_dual_peel_method_names_wave777_ok,
         host_structure_topple_crush_dual_peel_nav_commands_wave777_ok,
         host_structure_topple_crush_dual_peel_live_wave777_ok,
+        host_fwwd_continuous_dual_peel_method_names_wave778_ok,
+        host_fwwd_continuous_dual_peel_nav_commands_wave778_ok,
+        host_fwwd_continuous_dual_peel_live_wave778_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25995,6 +26013,21 @@ mod tests {
         assert!(
             r.host_structure_topple_crush_dual_peel_live_wave777_ok,
             "host structure_topple_crush_dual_peel live residual wave777: {}",
+            r.detail
+        );
+        assert!(
+            r.host_fwwd_continuous_dual_peel_method_names_wave778_ok,
+            "host fwwd_continuous_dual_peel method names residual pack wave778: {}",
+            r.detail
+        );
+        assert!(
+            r.host_fwwd_continuous_dual_peel_nav_commands_wave778_ok,
+            "host fwwd_continuous_dual_peel nav commands residual pack wave778: {}",
+            r.detail
+        );
+        assert!(
+            r.host_fwwd_continuous_dual_peel_live_wave778_ok,
+            "host fwwd_continuous_dual_peel live residual wave778: {}",
             r.detail
         );
         assert!(

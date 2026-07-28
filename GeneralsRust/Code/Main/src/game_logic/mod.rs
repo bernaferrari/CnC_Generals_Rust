@@ -203,6 +203,7 @@ pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_structure_collapse_dual_peel_residual_wave775;
 pub mod host_live_host_structure_topple_dual_peel_residual_wave776;
 pub mod host_live_host_structure_topple_crush_dual_peel_residual_wave777;
+pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -340,7 +341,8 @@ pub mod host_faction_skirmish_residual;
 pub mod host_fire_base;
 pub mod host_fire_spread;
 mod host_fire_weapon_power;
-mod host_fire_weapon_when_damaged;
+pub mod host_fire_weapon_when_damaged;
+pub mod host_fwwd_continuous_log;
 mod host_fire_weapon_when_dead;
 pub mod host_firewall;
 pub mod host_frenzy;
@@ -3825,6 +3827,16 @@ pub use host_live_host_structure_topple_crush_dual_peel_residual_wave777::{
     residual_host_structure_topple_crush_dual_peel_ok,
     simulate_live_host_structure_topple_crush_dual_peel_honesty,
 };
+pub use host_live_host_fwwd_continuous_dual_peel_residual_wave778::{
+    honesty_host_fwwd_continuous_dual_peel_method_names_residual_wave778,
+    honesty_host_fwwd_continuous_dual_peel_nav_commands_residual_wave778,
+    honesty_host_fwwd_continuous_dual_peel_residual_pack_wave778,
+    honesty_host_fwwd_continuous_dual_peel_source_markers_residual_wave778,
+    residual_host_fwwd_continuous_dual_peel_last_action,
+    residual_host_fwwd_continuous_dual_peel_ok,
+    simulate_live_host_fwwd_continuous_dual_peel_honesty,
+};
+
 
 
 

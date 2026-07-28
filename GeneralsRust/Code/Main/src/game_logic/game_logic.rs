@@ -8278,10 +8278,16 @@ impl GameLogic {
                         }
                     }
                 }
-                if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
-                    // Prefer pending reaction (from onDamage) over continuous same frame.
-                    if obj.pending_fire_when_damaged_weapon.is_none() {
-                        obj.pending_fire_when_damaged_weapon = Some(w);
+                // Wave 778: under coupled shadow, FWWDB continuous is owned by
+                // GW tick_status_timer_expirations + host_fwwd_continuous_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
+                        // Prefer pending reaction (from onDamage) over continuous same frame.
+                        if obj.pending_fire_when_damaged_weapon.is_none() {
+                            obj.pending_fire_when_damaged_weapon = Some(w);
+                        }
                     }
                 }
                 // C++ LifetimeUpdate residual.

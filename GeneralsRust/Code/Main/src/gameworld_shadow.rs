@@ -3477,6 +3477,27 @@ impl GameWorldShadow {
                         e.structure_topple_building_height = 40.0;
                         e.structure_topple_facing_width = 20.0;
                     }
+                    if let Some(fw) = obj.fire_weapon_when_damaged.as_ref() {
+                        e.fwwd_active = fw.active;
+                        e.fwwd_last_continuous_frame = fw.last_continuous_frame;
+                        e.fwwd_continuous_reload_frames = fw.continuous_reload_frames;
+                        e.fwwd_continuous_pristine =
+                            fw.continuous_pristine.clone().unwrap_or_default();
+                        e.fwwd_continuous_damaged =
+                            fw.continuous_damaged.clone().unwrap_or_default();
+                        e.fwwd_continuous_really_damaged =
+                            fw.continuous_really_damaged.clone().unwrap_or_default();
+                        e.fwwd_continuous_rubble =
+                            fw.continuous_rubble.clone().unwrap_or_default();
+                    } else {
+                        e.fwwd_active = false;
+                        e.fwwd_last_continuous_frame = 0;
+                        e.fwwd_continuous_reload_frames = 30;
+                        e.fwwd_continuous_pristine.clear();
+                        e.fwwd_continuous_damaged.clear();
+                        e.fwwd_continuous_really_damaged.clear();
+                        e.fwwd_continuous_rubble.clear();
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7669,6 +7690,40 @@ impl GameWorldShadow {
                 }
                 changed = true;
             }
+            // Wave 778: FireWeaponWhenDamagedBehavior continuous residual.
+            if e.fwwd_active {
+                use crate::game_logic::host_enum_table_residual::{
+                    host_calc_body_damage_state, HostBodyDamageType,
+                };
+                let reload = e.fwwd_continuous_reload_frames.max(1);
+                let ready = e.fwwd_last_continuous_frame == 0
+                    || frame.saturating_sub(e.fwwd_last_continuous_frame) >= reload;
+                if ready {
+                    let max_h = e.max_health.max(e.health).max(1.0);
+                    let state = host_calc_body_damage_state(e.health, max_h);
+                    let name = match state {
+                        HostBodyDamageType::Pristine => e.fwwd_continuous_pristine.as_str(),
+                        HostBodyDamageType::Damaged => e.fwwd_continuous_damaged.as_str(),
+                        HostBodyDamageType::ReallyDamaged => {
+                            e.fwwd_continuous_really_damaged.as_str()
+                        }
+                        HostBodyDamageType::Rubble => e.fwwd_continuous_rubble.as_str(),
+                    };
+                    // Continuous weapons typically only for damaged+ unless pristine set.
+                    let skip_pristine = matches!(state, HostBodyDamageType::Pristine)
+                        && e.fwwd_continuous_pristine.is_empty();
+                    if !skip_pristine && !name.is_empty() {
+                        e.fwwd_last_continuous_frame = frame;
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_fwwd_continuous_log::record(
+                                crate::game_logic::ObjectId(hid),
+                                name.to_string(),
+                            );
+                        }
+                        changed = true;
+                    }
+                }
+            }
             if changed {
                 n += 1;
             }
@@ -11854,6 +11909,59 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_active = obj
+                    .fire_weapon_when_damaged
+                    .as_ref()
+                    .map(|f| f.active)
+                    .unwrap_or(false);
+                let host_last = obj
+                    .fire_weapon_when_damaged
+                    .as_ref()
+                    .map(|f| f.last_continuous_frame)
+                    .unwrap_or(0);
+                if host_active != ent.fwwd_active
+                    || host_last != ent.fwwd_last_continuous_frame
+                {
+                    if ent.fwwd_active
+                        || !ent.fwwd_continuous_damaged.is_empty()
+                        || !ent.fwwd_continuous_really_damaged.is_empty()
+                        || !ent.fwwd_continuous_pristine.is_empty()
+                        || !ent.fwwd_continuous_rubble.is_empty()
+                    {
+                        use crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData;
+                        let fw = obj
+                            .fire_weapon_when_damaged
+                            .get_or_insert_with(HostFireWeaponWhenDamagedData::default);
+                        fw.active = ent.fwwd_active;
+                        fw.last_continuous_frame = ent.fwwd_last_continuous_frame;
+                        fw.continuous_reload_frames = ent.fwwd_continuous_reload_frames;
+                        fw.continuous_pristine = if ent.fwwd_continuous_pristine.is_empty() {
+                            None
+                        } else {
+                            Some(ent.fwwd_continuous_pristine.clone())
+                        };
+                        fw.continuous_damaged = if ent.fwwd_continuous_damaged.is_empty() {
+                            None
+                        } else {
+                            Some(ent.fwwd_continuous_damaged.clone())
+                        };
+                        fw.continuous_really_damaged =
+                            if ent.fwwd_continuous_really_damaged.is_empty() {
+                                None
+                            } else {
+                                Some(ent.fwwd_continuous_really_damaged.clone())
+                            };
+                        fw.continuous_rubble = if ent.fwwd_continuous_rubble.is_empty() {
+                            None
+                        } else {
+                            Some(ent.fwwd_continuous_rubble.clone())
+                        };
+                    } else if !ent.fwwd_active {
+                        // leave host module if present but inactive timers may still exist
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -13302,6 +13410,14 @@ pub fn shadow_session_after_host_tick(
         // Wave 777: StructureTopple crush sweep → host apply (no dual last_crushed).
         for (id, samples) in crate::game_logic::host_structure_topple_crush_log::drain() {
             logic.apply_structure_topple_crush_samples(id, samples);
+        }
+        // Wave 778: FWWDB continuous → host pending fire (no dual continuous timer).
+        for (id, weapon) in crate::game_logic::host_fwwd_continuous_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                if obj.pending_fire_when_damaged_weapon.is_none() {
+                    obj.pending_fire_when_damaged_weapon = Some(weapon);
+                }
+            }
         }
 
         // Wave 634: drain combat-status ready log after GW writeback.
