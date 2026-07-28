@@ -207,6 +207,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_WEAPON_SLOT_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_WEAPON_SET_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_ENTITY_POWER_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_TURRET_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_GUARD_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_RALLY_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -799,6 +802,89 @@ pub fn eager_apply_host_entity_power_after_logic(
     }
     let n = shadow.apply_host_entity_power_events(&events);
     EARLY_ENTITY_POWER_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 692: post-logic turret / guard / rally batch handoff (avoid double-apply).
+thread_local! {
+    static EARLY_TURRET_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_turret_log::HostTurretEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_GUARD_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_guard_log::HostGuardEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_RALLY_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_rally_log::HostRallyEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_turret_batch() -> Option<(
+    Vec<crate::game_logic::host_turret_log::HostTurretEvent>,
+    bool,
+)> {
+    EARLY_TURRET_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_guard_batch() -> Option<(Vec<crate::game_logic::host_guard_log::HostGuardEvent>, bool)>
+{
+    EARLY_GUARD_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_rally_batch() -> Option<(Vec<crate::game_logic::host_rally_log::HostRallyEvent>, bool)>
+{
+    EARLY_RALLY_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 692: post-logic drain `host_turret_log` into GameWorld SetTurret.
+pub fn eager_apply_host_turret_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 692: post-logic turret materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_turret_log::drain();
+    if events.is_empty() {
+        EARLY_TURRET_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_turret_events(&events);
+    EARLY_TURRET_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 692: post-logic drain `host_guard_log` into GameWorld SetGuard.
+pub fn eager_apply_host_guard_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 692: post-logic guard materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_guard_log::drain();
+    if events.is_empty() {
+        EARLY_GUARD_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_guard_events(&events);
+    EARLY_GUARD_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 692: post-logic drain `host_rally_log` into GameWorld SetRallyPoint.
+pub fn eager_apply_host_rally_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 692: post-logic rally materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_rally_log::drain();
+    if events.is_empty() {
+        EARLY_RALLY_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_rally_events(&events);
+    EARLY_RALLY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8562,12 +8648,24 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_entity_power_log::drain(), false),
     };
-    let turret_events = crate::game_logic::host_turret_log::drain();
+    // Wave 692: prefer post-logic turret batch.
+    let (turret_events, early_turret_applied) = match take_early_turret_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_turret_log::drain(), false),
+    };
     let target_location_events = crate::game_logic::host_target_location_log::drain();
     let detector_events = crate::game_logic::host_detector_log::drain();
     let continuous_fire_events = crate::game_logic::host_continuous_fire_log::drain();
-    let guard_events = crate::game_logic::host_guard_log::drain();
-    let rally_events = crate::game_logic::host_rally_log::drain();
+    // Wave 692: prefer post-logic guard batch.
+    let (guard_events, early_guard_applied) = match take_early_guard_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_guard_log::drain(), false),
+    };
+    // Wave 692: prefer post-logic rally batch.
+    let (rally_events, early_rally_applied) = match take_early_rally_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_rally_log::drain(), false),
+    };
     let ai_attitude_events = crate::game_logic::host_ai_attitude_log::drain();
     // Wave 691: prefer post-logic weapon-set batch.
     let (weapon_set_events, early_weapon_set_applied) = match take_early_weapon_set_batch() {
@@ -8724,7 +8822,12 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_entity_power_events(&entity_power_events)
     };
-    let _tur_applied = shadow.apply_host_turret_events(&turret_events);
+    // Wave 692: skip GW re-apply when post-logic eager path already ran.
+    let _tur_applied = if early_turret_applied {
+        0
+    } else {
+        shadow.apply_host_turret_events(&turret_events)
+    };
     let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
     let _det_applied = shadow.apply_host_detector_events(&detector_events);
     let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
@@ -8775,8 +8878,18 @@ pub fn shadow_session_after_host_tick(
             shadow.apply_host_projectile_events(&crate::game_logic::host_projectile_log::drain());
     }
 
-    let _guard_applied = shadow.apply_host_guard_events(&guard_events);
-    let _rally_applied = shadow.apply_host_rally_events(&rally_events);
+    // Wave 692: skip GW re-apply when post-logic eager path already ran.
+    let _guard_applied = if early_guard_applied {
+        0
+    } else {
+        shadow.apply_host_guard_events(&guard_events)
+    };
+    // Wave 692: skip GW re-apply when post-logic eager path already ran.
+    let _rally_applied = if early_rally_applied {
+        0
+    } else {
+        shadow.apply_host_rally_events(&rally_events)
+    };
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
     let _mood_applied = shadow.apply_host_ai_mood_events(&ai_mood_events);

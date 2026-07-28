@@ -2851,6 +2851,11 @@ use crate::game_logic::host_live_host_eager_weapon_set_power_helper_residual_wav
     honesty_host_eager_weapon_set_power_helper_nav_commands_residual_wave691,
     simulate_live_host_eager_weapon_set_power_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_turret_guard_rally_helper_residual_wave692::{
+    honesty_host_eager_turret_guard_rally_helper_method_names_residual_wave692,
+    honesty_host_eager_turret_guard_rally_helper_nav_commands_residual_wave692,
+    simulate_live_host_eager_turret_guard_rally_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6642,6 +6647,9 @@ pub struct ShellSmokeResult {
     pub host_eager_weapon_set_power_helper_method_names_wave691_ok: bool,
     pub host_eager_weapon_set_power_helper_nav_commands_wave691_ok: bool,
     pub host_eager_weapon_set_power_helper_live_wave691_ok: bool,
+    pub host_eager_turret_guard_rally_helper_method_names_wave692_ok: bool,
+    pub host_eager_turret_guard_rally_helper_nav_commands_wave692_ok: bool,
+    pub host_eager_turret_guard_rally_helper_live_wave692_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10527,6 +10535,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_weapon_set_power_helper_nav_commands_residual_wave691();
     let host_eager_weapon_set_power_helper_live_wave691_ok =
         simulate_live_host_eager_weapon_set_power_helper_honesty();
+    let host_eager_turret_guard_rally_helper_method_names_wave692_ok =
+        honesty_host_eager_turret_guard_rally_helper_method_names_residual_wave692();
+    let host_eager_turret_guard_rally_helper_nav_commands_wave692_ok =
+        honesty_host_eager_turret_guard_rally_helper_nav_commands_residual_wave692();
+    let host_eager_turret_guard_rally_helper_live_wave692_ok =
+        simulate_live_host_eager_turret_guard_rally_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12589,6 +12603,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_weapon_set_power_helper_method_names_wave691_ok,
         host_eager_weapon_set_power_helper_nav_commands_wave691_ok,
         host_eager_weapon_set_power_helper_live_wave691_ok,
+        host_eager_turret_guard_rally_helper_method_names_wave692_ok,
+        host_eager_turret_guard_rally_helper_nav_commands_wave692_ok,
+        host_eager_turret_guard_rally_helper_live_wave692_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23224,6 +23241,21 @@ mod tests {
         assert!(
             r.host_eager_weapon_set_power_helper_live_wave691_ok,
             "host eager_weapon_set_power helper live residual wave691: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_turret_guard_rally_helper_method_names_wave692_ok,
+            "host eager_turret_guard_rally helper method names residual pack wave692: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_turret_guard_rally_helper_nav_commands_wave692_ok,
+            "host eager_turret_guard_rally helper nav commands residual pack wave692: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_turret_guard_rally_helper_live_wave692_ok,
+            "host eager_turret_guard_rally helper live residual wave692: {}",
             r.detail
         );
         assert!(
