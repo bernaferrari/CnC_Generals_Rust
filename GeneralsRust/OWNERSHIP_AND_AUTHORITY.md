@@ -191,6 +191,7 @@ Remaining engine residual after host update:
   - Eager destroy/contain/AI-decision residual: post-logic drain residual logs → GW (Wave 711; session handoff)
   - Eager spawn/move/attack/fire-spawn session handoff: residual early batches → GW (Wave 712; no double-apply)
   - Production ready-log sole complete: empty ready log no longer host-scans production/construction completions (Wave 713)
+  - Same-frame production complete after GW ready writeback under sole-tick (Wave 714)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

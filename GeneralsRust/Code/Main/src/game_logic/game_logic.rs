@@ -6958,9 +6958,24 @@ impl GameLogic {
     fn update_production(&mut self, dt: f32) {
         // Wave 613: production complete collect + apply via host helpers.
         // Under PRODUCTION_AUTHORITY sole-tick, GameWorld advances queue progress
-        // and writeback finishes heads; host only try_complete + spawn/apply.
+        // and writeback finishes heads; host try_complete + spawn runs after
+        // shadow writeback same frame (Wave 714) so ready-log is not a frame late.
+        if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+            return;
+        }
         let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
         // Wave 595/608: host production complete/spawn apply residual via host helpers.
+        self.apply_upgrade_production_completions(upgrade_completions);
+        self.apply_unit_production_completions(unit_completions);
+    }
+
+    /// Wave 714: after GW production writeback records ready producers, host
+    /// try_completes + spawns in the same coupled tick (not next frame).
+    pub(crate) fn host_apply_production_completions_after_ready_writeback(&mut self, dt: f32) {
+        if !crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+            return;
+        }
+        let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
         self.apply_upgrade_production_completions(upgrade_completions);
         self.apply_unit_production_completions(unit_completions);
     }

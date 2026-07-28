@@ -139,6 +139,7 @@ pub mod host_live_host_eager_sp_radar_progress_helper_residual_wave707;
 pub mod host_live_host_eager_spawn_map_helper_residual_wave680;
 pub mod host_live_host_eager_spawn_move_attack_helper_residual_wave712;
 pub mod host_live_host_production_ready_no_empty_scan_residual_wave713;
+pub mod host_live_host_production_same_frame_ready_complete_residual_wave714;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3174,6 +3175,15 @@ pub use host_live_host_production_ready_no_empty_scan_residual_wave713::{
     residual_host_production_ready_no_empty_scan_last_action,
     residual_host_production_ready_no_empty_scan_ok,
     simulate_live_host_production_ready_no_empty_scan_honesty,
+};
+pub use host_live_host_production_same_frame_ready_complete_residual_wave714::{
+    honesty_host_production_same_frame_ready_complete_method_names_residual_wave714,
+    honesty_host_production_same_frame_ready_complete_nav_commands_residual_wave714,
+    honesty_host_production_same_frame_ready_complete_residual_pack_wave714,
+    honesty_host_production_same_frame_ready_complete_source_markers_residual_wave714,
+    residual_host_production_same_frame_ready_complete_last_action,
+    residual_host_production_same_frame_ready_complete_ok,
+    simulate_live_host_production_same_frame_ready_complete_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,
