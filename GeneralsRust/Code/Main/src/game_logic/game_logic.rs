@@ -8375,14 +8375,20 @@ impl GameLogic {
                         topple_kill = obj.tick_helicopter_slow_death(self.frame, 0.0);
                     }
                 }
-                if !topple_kill
-                    && obj
-                        .slow_death
-                        .as_ref()
-                        .map(|s| s.is_active())
-                        .unwrap_or(false)
+                // Wave 774: under coupled shadow, SlowDeathBehavior is owned by
+                // GW tick_status_timer_expirations + host_slow_death_kill_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
-                    topple_kill = obj.tick_slow_death(self.frame);
+                    if !topple_kill
+                        && obj
+                            .slow_death
+                            .as_ref()
+                            .map(|s| s.is_active())
+                            .unwrap_or(false)
+                    {
+                        topple_kill = obj.tick_slow_death(self.frame);
+                    }
                 }
                 if !topple_kill && obj.structure_collapse_data.is_some() {
                     topple_kill = obj.tick_structure_collapse(self.frame);
