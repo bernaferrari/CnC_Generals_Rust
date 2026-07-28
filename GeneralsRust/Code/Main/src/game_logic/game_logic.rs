@@ -6385,7 +6385,14 @@ impl GameLogic {
         self.update_scud_poison_zones();
         self.update_tensile_formations();
         self.update_fire_spread();
-        self.update_base_regenerate();
+        // Wave 780: under coupled/damage-auth, BaseRegenerateUpdate is owned by
+        // GW tick_status_timer_expirations + host_heal_log drain.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && (crate::gameworld_shadow::shadow_coupled_tick_active()
+                || crate::gameworld_shadow::gameworld_damage_authority_live()))
+        {
+            self.update_base_regenerate();
+        }
         self.update_enemy_near();
         self.update_animation_steering();
         self.update_float_update();

@@ -3514,6 +3514,17 @@ impl GameWorldShadow {
                         e.fwwd_reaction_really_damaged.clear();
                         e.fwwd_reaction_rubble.clear();
                     }
+                    if let Some(br) = obj.base_regenerate.as_ref() {
+                        e.base_regen_active = br.active;
+                        e.base_regen_wake_frame = br.wake_frame;
+                        e.base_regen_done_sold = br.done_sold;
+                        e.base_regen_pending_damage = br.pending_damage;
+                    } else {
+                        e.base_regen_active = false;
+                        e.base_regen_wake_frame = 0;
+                        e.base_regen_done_sold = false;
+                        e.base_regen_pending_damage = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7737,6 +7748,43 @@ impl GameWorldShadow {
                             );
                         }
                         changed = true;
+                    }
+                }
+            }
+            // Wave 780: BaseRegenerateUpdate residual (structure auto-heal).
+            if e.base_regen_active && !e.base_regen_done_sold {
+                use crate::game_logic::host_base_regenerate::{
+                    base_regen_heal_amount, BASE_REGEN_HEAL_RATE_FRAMES,
+                };
+                if e.base_regen_pending_damage {
+                    // C++ onDamage non-healing: delay wake.
+                    use crate::game_logic::host_base_regenerate::BASE_REGEN_DELAY_FRAMES;
+                    e.base_regen_wake_frame = frame.saturating_add(BASE_REGEN_DELAY_FRAMES);
+                    e.base_regen_pending_damage = false;
+                    changed = true;
+                }
+                if e.sold {
+                    e.base_regen_done_sold = true;
+                    changed = true;
+                } else if !e.under_construction {
+                    let max_h = e.max_health.max(e.health).max(1.0);
+                    if e.health + f32::EPSILON < max_h
+                        && frame >= e.base_regen_wake_frame
+                    {
+                        let elapsed = frame.saturating_sub(e.base_regen_wake_frame);
+                        if elapsed % BASE_REGEN_HEAL_RATE_FRAMES == 0 {
+                            let amount = base_regen_heal_amount(max_h);
+                            if amount > 0.0 {
+                                e.health = (e.health + amount).min(max_h);
+                                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                                    crate::game_logic::host_heal_log::record(
+                                        crate::game_logic::ObjectId(hid),
+                                        e.health,
+                                    );
+                                }
+                                changed = true;
+                            }
+                        }
                     }
                 }
             }
@@ -11997,6 +12045,42 @@ impl GameWorldShadow {
                         };
                     } else if !ent.fwwd_active {
                         // leave host module if present but inactive timers may still exist
+                    }
+                }
+            }
+            {
+                let host_active = obj
+                    .base_regenerate
+                    .as_ref()
+                    .map(|b| b.active)
+                    .unwrap_or(false);
+                let host_wake = obj
+                    .base_regenerate
+                    .as_ref()
+                    .map(|b| b.wake_frame)
+                    .unwrap_or(0);
+                if host_active != ent.base_regen_active
+                    || host_wake != ent.base_regen_wake_frame
+                    || obj
+                        .base_regenerate
+                        .as_ref()
+                        .map(|b| {
+                            b.done_sold != ent.base_regen_done_sold
+                                || b.pending_damage != ent.base_regen_pending_damage
+                        })
+                        .unwrap_or(ent.base_regen_active)
+                {
+                    if ent.base_regen_active || ent.base_regen_done_sold || ent.base_regen_pending_damage {
+                        use crate::game_logic::host_base_regenerate::HostBaseRegenerateData;
+                        let br = obj
+                            .base_regenerate
+                            .get_or_insert_with(HostBaseRegenerateData::default);
+                        br.active = ent.base_regen_active;
+                        br.wake_frame = ent.base_regen_wake_frame;
+                        br.done_sold = ent.base_regen_done_sold;
+                        br.pending_damage = ent.base_regen_pending_damage;
+                    } else {
+                        obj.base_regenerate = None;
                     }
                 }
             }
