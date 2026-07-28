@@ -287,6 +287,9 @@ pub struct Object {
     /// C++ ObjectStatusMaskType residual bits (StatusBitsUpgrade set/clear).
     #[serde(default)]
     pub object_status_bits: u64,
+    /// Wave 754: EjectPilotDie onDie already fired (death-start residual).
+    #[serde(default)]
+    pub eject_pilot_die_applied: bool,
     /// C++ ModelConditionFlags residual bits (ALLOW_SURRENDER-off index layout).
     #[serde(default)]
     pub model_condition_bits: u128,
@@ -2309,6 +2312,7 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             object_status_bits: 0,
+            eject_pilot_die_applied: false,
             model_condition_bits: 0,
             radar_extend_done_frame: 0,
             radar_extend_complete: false,
@@ -2928,6 +2932,7 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             object_status_bits: 0,
+            eject_pilot_die_applied: false,
             model_condition_bits: 0,
             radar_extend_done_frame: 0,
             radar_extend_complete: false,

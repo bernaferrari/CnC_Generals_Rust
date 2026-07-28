@@ -24935,6 +24935,139 @@ impl GameLogic {
         true
     }
 
+
+    /// Wave 754: C++ EjectPilotDie::onDie residual at death start (mark_object),
+    /// not only final process_destroy remove. SlowDeath defers remove and must
+    /// not suppress pilot spawn / honesty residual.
+    pub(crate) fn maybe_apply_eject_pilot_die(&mut self, id: ObjectId) {
+        use crate::game_logic::host_usa_pilot::{
+            air_eject_spawn_height, can_eject_pilot_on_death,
+            is_eject_pilot_eligible_template, meets_eject_pilot_death_types_gate,
+            meets_eject_pilot_exempt_status_gate, meets_eject_pilot_veterancy_gate,
+            uses_air_eject_ocl, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
+        };
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        if obj.eject_pilot_die_applied {
+            return;
+        }
+        let is_vehicle =
+            obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
+        let is_aircraft =
+            obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
+        let under_construction =
+            obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+        let eligible_template = is_eject_pilot_eligible_template(&obj.template_name);
+        let vet_gate = meets_eject_pilot_veterancy_gate(obj.experience.level);
+        let death_types_gate = meets_eject_pilot_death_types_gate(obj.status.death_type);
+        let exempt_status_gate = meets_eject_pilot_exempt_status_gate(obj.status.hijacked);
+        if eligible_template
+            && !obj.is_unmanned()
+            && !under_construction
+            && is_vehicle
+            && !is_aircraft
+            && death_types_gate
+            && exempt_status_gate
+            && !vet_gate
+        {
+            self.usa_pilot.record_eject_veterancy_block();
+        }
+        if eligible_template
+            && !obj.is_unmanned()
+            && !under_construction
+            && is_vehicle
+            && !is_aircraft
+            && vet_gate
+            && exempt_status_gate
+            && !death_types_gate
+        {
+            self.usa_pilot.record_eject_death_type_block();
+        }
+        if eligible_template
+            && !obj.is_unmanned()
+            && !under_construction
+            && is_vehicle
+            && !is_aircraft
+            && vet_gate
+            && death_types_gate
+            && !exempt_status_gate
+        {
+            self.usa_pilot.record_eject_hijacked_block();
+        }
+        if !can_eject_pilot_on_death(
+            eligible_template,
+            obj.is_unmanned(),
+            under_construction,
+            is_vehicle,
+            is_aircraft,
+            vet_gate,
+            death_types_gate,
+            exempt_status_gate,
+        ) {
+            return;
+        }
+        let pilot_team = obj.team;
+        let death_pos = obj.get_position();
+        let air_path = uses_air_eject_ocl(death_pos.y, obj.status.airborne_target);
+        let veterancy = obj.experience.level;
+        // Mark applied before spawn so recursive destroy cannot double-fire.
+        if let Some(o) = self.objects.get_mut(&id) {
+            o.eject_pilot_die_applied = true;
+        }
+        if !self.templates.contains_key(EJECT_PILOT_TEMPLATE) {
+            let mut pilot_tpl = crate::game_logic::ThingTemplate::new(EJECT_PILOT_TEMPLATE);
+            pilot_tpl
+                .add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(100.0);
+            self.templates
+                .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_tpl);
+        }
+        // Offset slightly so pilot is not buried under death debris residual.
+        // Air OCL residual: keep elevated y (PutInContainer AmericaParachute).
+        let spawn_pos = if air_path {
+            glam::Vec3::new(
+                death_pos.x + 2.0,
+                air_eject_spawn_height(death_pos.y),
+                death_pos.z + 2.0,
+            )
+        } else {
+            death_pos + glam::Vec3::new(2.0, 0.0, 2.0)
+        };
+        if let Some(pilot_id) = self.create_object(EJECT_PILOT_TEMPLATE, pilot_team, spawn_pos) {
+            self.usa_pilot.record_ejection();
+            if air_path {
+                self.usa_pilot.record_air_ejection();
+            }
+            let until = crate::game_logic::host_usa_pilot::eject_pilot_invulnerable_until_frame(
+                self.frame,
+            );
+            if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+                pilot.apply_eject_invulnerable(until);
+                if air_path {
+                    let raw_y = pilot.get_position().y;
+                    pilot.apply_eject_parachuting();
+                    if crate::game_logic::host_usa_pilot::parachute_start_height_was_fudged(
+                        raw_y, 0.0,
+                    ) {
+                        self.usa_pilot.record_parachute_open_fudge();
+                    }
+                }
+                // Transfer vehicle veterancy residual (except Rookie gate already applied).
+                pilot.experience.level = veterancy;
+            }
+            self.usa_pilot.record_invulnerable_grant();
+            self.queue_audio_event(
+                AudioEventRequest::new(PILOT_EJECT_AUDIO)
+                    .with_position(spawn_pos)
+                    .with_priority(170),
+            );
+            let _ = pilot_id;
+        }
+    }
+
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
@@ -24942,6 +25075,8 @@ impl GameLogic {
         self.maybe_notify_special_power_completion(id);
         // C++ DamDie::onDie residual fires with other die modules at death start.
         self.maybe_apply_dam_die(id);
+        // Wave 754: C++ EjectPilotDie::onDie at death start (before SlowDeath defer).
+        self.maybe_apply_eject_pilot_die(id);
         // C++ OCL ApplyRandomForceNugget residual (air-death toss before debris).
         let _ = self.apply_ocl_random_force(id);
         // C++ UpgradeDie::onDie residual — free producer's upgrade slot.
@@ -28020,7 +28155,8 @@ impl GameLogic {
                 // Ground path: OCL_EjectPilotOnGround residual.
                 // VeterancyLevels = ALL -REGULAR residual: Rookie does not eject.
                 // DeathTypes = ALL -CRUSHED -SPLATTED; ExemptStatus = HIJACKED residual.
-                {
+                // Wave 754: skip if death-start mark_object already applied onDie residual.
+                if !obj.eject_pilot_die_applied {
                     use crate::game_logic::host_usa_pilot::{
                         air_eject_spawn_height, can_eject_pilot_on_death,
                         is_eject_pilot_eligible_template, meets_eject_pilot_death_types_gate,
