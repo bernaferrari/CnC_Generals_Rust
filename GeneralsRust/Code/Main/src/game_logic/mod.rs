@@ -116,6 +116,7 @@ pub mod host_live_host_eager_damage_helper_residual_wave684;
 pub mod host_live_host_eager_destroy_unmap_helper_residual_wave681;
 pub mod host_live_host_eager_fire_spawn_helper_residual_wave682;
 pub mod host_live_host_eager_heal_helper_residual_wave685;
+pub mod host_live_host_eager_max_health_xp_helper_residual_wave686;
 pub mod host_live_host_eager_move_attack_helper_residual_wave683;
 pub mod host_live_host_eager_spawn_map_helper_residual_wave680;
 pub mod host_live_host_production_spawn_ready_log_helper_residual_wave679;
@@ -2942,6 +2943,15 @@ pub use host_live_host_eager_heal_helper_residual_wave685::{
     honesty_host_eager_heal_helper_source_markers_residual_wave685,
     residual_host_eager_heal_helper_last_action, residual_host_eager_heal_helper_ok,
     simulate_live_host_eager_heal_helper_honesty,
+};
+pub use host_live_host_eager_max_health_xp_helper_residual_wave686::{
+    honesty_host_eager_max_health_xp_helper_method_names_residual_wave686,
+    honesty_host_eager_max_health_xp_helper_nav_commands_residual_wave686,
+    honesty_host_eager_max_health_xp_helper_residual_pack_wave686,
+    honesty_host_eager_max_health_xp_helper_source_markers_residual_wave686,
+    residual_host_eager_max_health_xp_helper_last_action,
+    residual_host_eager_max_health_xp_helper_ok,
+    simulate_live_host_eager_max_health_xp_helper_honesty,
 };
 pub use host_live_host_eager_move_attack_helper_residual_wave683::{
     honesty_host_eager_move_attack_helper_method_names_residual_wave683,

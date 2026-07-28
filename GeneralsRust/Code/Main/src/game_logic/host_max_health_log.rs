@@ -26,6 +26,10 @@ pub fn drain() -> Vec<HostMaxHealthEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}
+
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
 }
