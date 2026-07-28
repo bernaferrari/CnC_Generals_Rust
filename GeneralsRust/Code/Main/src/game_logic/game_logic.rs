@@ -8390,8 +8390,14 @@ impl GameLogic {
                         topple_kill = obj.tick_slow_death(self.frame);
                     }
                 }
-                if !topple_kill && obj.structure_collapse_data.is_some() {
-                    topple_kill = obj.tick_structure_collapse(self.frame);
+                // Wave 775: under coupled shadow, StructureCollapseUpdate is owned by
+                // GW tick_status_timer_expirations + host_structure_collapse_kill_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    if !topple_kill && obj.structure_collapse_data.is_some() {
+                        topple_kill = obj.tick_structure_collapse(self.frame);
+                    }
                 }
                 if !topple_kill && obj.structure_topple_data.is_some() {
                     topple_kill = obj.tick_structure_topple(self.frame);
@@ -25209,6 +25215,31 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
+        // Wave 775: StructureCollapse/Topple already ran their presentation; after Done
+        // allow normal destroy instead of KeepObjectDie forever-defer (civilian barns).
+        let collapse_done = obj
+            .structure_collapse_data
+            .as_ref()
+            .map(|d| {
+                matches!(
+                    d.state,
+                    crate::game_logic::host_structure_collapse::HostStructureCollapseState::Done
+                )
+            })
+            .unwrap_or(false);
+        let topple_done = obj
+            .structure_topple_data
+            .as_ref()
+            .map(|d| {
+                matches!(
+                    d.state,
+                    crate::game_logic::host_structure_topple::HostStructureToppleState::Done
+                )
+            })
+            .unwrap_or(false);
+        if collapse_done || topple_done {
+            return false;
+        }
         if obj.status.keep_as_rubble {
             let _ = killer;
             return true;

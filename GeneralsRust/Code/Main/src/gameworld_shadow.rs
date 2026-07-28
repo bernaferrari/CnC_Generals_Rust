@@ -3427,6 +3427,27 @@ impl GameWorldShadow {
                         e.slow_death_fling_vy = 0.0;
                         e.slow_death_fling_applied = false;
                     }
+                    if let Some(sc) = obj.structure_collapse_data.as_ref() {
+                        e.structure_collapse_state = sc.state as u8;
+                        e.structure_collapse_start_frame = sc.collapse_start_frame;
+                        e.structure_collapse_velocity = sc.collapse_velocity;
+                        e.structure_collapse_current_height = sc.current_height;
+                        e.structure_collapse_damping = sc.collapse_damping;
+                        e.structure_collapse_max_shudder = sc.max_shudder;
+                        e.structure_collapse_building_height = sc.building_height;
+                        e.structure_collapse_shudder_x = sc.shudder_x;
+                        e.structure_collapse_shudder_z = sc.shudder_z;
+                    } else {
+                        e.structure_collapse_state = 0;
+                        e.structure_collapse_start_frame = 0;
+                        e.structure_collapse_velocity = 0.0;
+                        e.structure_collapse_current_height = 0.0;
+                        e.structure_collapse_damping = 0.0;
+                        e.structure_collapse_max_shudder = 0.6;
+                        e.structure_collapse_building_height = 35.0;
+                        e.structure_collapse_shudder_x = 0.0;
+                        e.structure_collapse_shudder_z = 0.0;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7449,6 +7470,66 @@ impl GameWorldShadow {
                 if done {
                     if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                         crate::game_logic::host_slow_death_kill_log::record(
+                            crate::game_logic::ObjectId(hid),
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 775: StructureCollapseUpdate residual (building sink collapse).
+            // state: 0 Standing, 1 WaitingForStart, 2 Collapsing, 3 Done
+            if e.structure_collapse_state != 0 && e.structure_collapse_state != 3 {
+                use crate::game_logic::host_structure_collapse::STRUCTURE_COLLAPSE_GRAVITY;
+                let mut done = false;
+                match e.structure_collapse_state {
+                    1 => {
+                        // WaitingForStart — shudder residual
+                        if e.structure_collapse_max_shudder > 0.0 {
+                            let t = frame as f32 * 0.37;
+                            e.structure_collapse_shudder_x =
+                                t.sin() * e.structure_collapse_max_shudder;
+                            e.structure_collapse_shudder_z =
+                                (t * 1.3).cos() * e.structure_collapse_max_shudder;
+                        } else {
+                            e.structure_collapse_shudder_x = 0.0;
+                            e.structure_collapse_shudder_z = 0.0;
+                        }
+                        if frame >= e.structure_collapse_start_frame {
+                            e.structure_collapse_state = 2;
+                            e.structure_collapse_velocity = 0.0;
+                        }
+                    }
+                    2 => {
+                        // Collapsing
+                        e.structure_collapse_current_height -= e.structure_collapse_velocity;
+                        e.structure_collapse_velocity -= STRUCTURE_COLLAPSE_GRAVITY
+                            * (1.0 - e.structure_collapse_damping);
+                        if e.structure_collapse_max_shudder > 0.0 {
+                            let t = frame as f32 * 0.37;
+                            e.structure_collapse_shudder_x =
+                                t.sin() * e.structure_collapse_max_shudder;
+                            e.structure_collapse_shudder_z =
+                                (t * 1.3).cos() * e.structure_collapse_max_shudder;
+                        } else {
+                            e.structure_collapse_shudder_x = 0.0;
+                            e.structure_collapse_shudder_z = 0.0;
+                        }
+                        if e.structure_collapse_current_height + e.structure_collapse_building_height
+                            <= 0.0
+                        {
+                            e.structure_collapse_current_height =
+                                -e.structure_collapse_building_height;
+                            e.structure_collapse_shudder_x = 0.0;
+                            e.structure_collapse_shudder_z = 0.0;
+                            e.structure_collapse_state = 3;
+                            done = true;
+                        }
+                    }
+                    _ => {}
+                }
+                if done {
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_structure_collapse_kill_log::record(
                             crate::game_logic::ObjectId(hid),
                         );
                     }
@@ -11549,6 +11630,49 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_state = obj
+                    .structure_collapse_data
+                    .as_ref()
+                    .map(|s| s.state as u8)
+                    .unwrap_or(0);
+                if host_state != ent.structure_collapse_state
+                    || obj
+                        .structure_collapse_data
+                        .as_ref()
+                        .map(|s| {
+                            (s.current_height - ent.structure_collapse_current_height).abs()
+                                > f32::EPSILON
+                                || s.collapse_start_frame != ent.structure_collapse_start_frame
+                        })
+                        .unwrap_or(ent.structure_collapse_state != 0)
+                {
+                    if ent.structure_collapse_state != 0 {
+                        use crate::game_logic::host_structure_collapse::{
+                            HostStructureCollapseData, HostStructureCollapseState,
+                        };
+                        let sc = obj
+                            .structure_collapse_data
+                            .get_or_insert_with(HostStructureCollapseData::default);
+                        sc.state = match ent.structure_collapse_state {
+                            1 => HostStructureCollapseState::WaitingForStart,
+                            2 => HostStructureCollapseState::Collapsing,
+                            3 => HostStructureCollapseState::Done,
+                            _ => HostStructureCollapseState::Standing,
+                        };
+                        sc.collapse_start_frame = ent.structure_collapse_start_frame;
+                        sc.collapse_velocity = ent.structure_collapse_velocity;
+                        sc.current_height = ent.structure_collapse_current_height;
+                        sc.collapse_damping = ent.structure_collapse_damping;
+                        sc.max_shudder = ent.structure_collapse_max_shudder;
+                        sc.building_height = ent.structure_collapse_building_height;
+                        sc.shudder_x = ent.structure_collapse_shudder_x;
+                        sc.shudder_z = ent.structure_collapse_shudder_z;
+                    } else {
+                        obj.structure_collapse_data = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12971,6 +13095,16 @@ pub fn shadow_session_after_host_tick(
             if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 775: StructureCollapseUpdate done → host destroy (no dual timer).
+        for id in crate::game_logic::host_structure_collapse_kill_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                obj.health.current = 0.0;
+                obj.status.destroyed = true;
+                obj.status.death_type =
+                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
             logic.mark_object_for_destruction(id, None);
         }
