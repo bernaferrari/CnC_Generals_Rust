@@ -187,7 +187,15 @@ mod tests {
             .unwrap_or(0);
         assert_eq!(qlen, 1, "empty ready must not complete");
 
-        host_production_ready_log::record(id, "SfUnit", false);
+        // Wave 738: sole-tick spawn requires GW entity bind (entity-first).
+        host_production_ready_log::record_with_pose(
+            id,
+            "SfUnit",
+            false,
+            Some([0.0, 0.0, 0.0]),
+            None,
+            Some(9_714),
+        );
         logic.host_apply_production_completions_after_ready_writeback(1.0 / 30.0);
         let units = logic
             .get_objects()

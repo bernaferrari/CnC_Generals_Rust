@@ -7318,7 +7318,10 @@ impl GameLogic {
         // (entity-first).
         // Wave 737: when the GW entity raw id is free on the host, prefer it as the
         // production ObjectId so host ID space tracks GW entity-first spawns.
-        // Collision / missing bind still falls back to allocate_object_id.
+        // Wave 738: under sole-tick, spawn without a GW entity bind is fail-closed
+        // (default). Incomplete harnesses may set
+        // GENERALS_RUNTIME_HOST_PRODUCTION_SPAWN_WITHOUT_GW_BIND=1.
+        // Collision on preferred id still falls back to allocate_object_id *with* bind.
         // playable_claim stays false.
         if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
             if let Some(raw) = crate::game_logic::host_production_ready_log::pop_pending_bind() {
@@ -7334,9 +7337,28 @@ impl GameLogic {
                     if spawned.is_some() {
                         return spawned;
                     }
-                    // create_object failed — restore and fall through without preferred id.
+                    // create_object failed — restore and fall through with bind still set
+                    // only if create_object did not consume it (template miss).
                     self.next_object_id = saved_next;
                 }
+                // Bind present (preferred collision or create miss): host allocate + map.
+                return self.create_object(template, team, spawn_pos);
+            }
+            let allow_without_bind = std::env::var_os(
+                "GENERALS_RUNTIME_HOST_PRODUCTION_SPAWN_WITHOUT_GW_BIND",
+            )
+            .is_some_and(|v| {
+                let s = v.to_string_lossy();
+                !(s.is_empty()
+                    || s == "0"
+                    || s.eq_ignore_ascii_case("false")
+                    || s.eq_ignore_ascii_case("no"))
+            });
+            if !allow_without_bind {
+                log::debug!(
+                    "Wave 738: sole-tick production spawn denied without GW entity bind (template={template})"
+                );
+                return None;
             }
         }
         self.create_object(template, team, spawn_pos)
