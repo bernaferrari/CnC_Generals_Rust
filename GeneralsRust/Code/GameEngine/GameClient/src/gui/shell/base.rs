@@ -49,7 +49,7 @@ use game_engine::common::ini::get_global_data;
 use game_engine::common::random_value::init_random_with_seed;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::{GAME_NONE, GAME_SHELL};
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -2928,66 +2928,71 @@ impl SubsystemInterface for Shell {
 }
 
 thread_local! {
-    static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
+    // Wave 833: C++ TheShell is a raw global pointer — nested push/init callbacks
+    // re-enter TheShell freely. RefCell panicked ("already borrowed") when MainMenu
+    // init / status snapshot nested under Shell::push. UnsafeCell matches that
+    // single-threaded re-entrant ownership (main thread only).
+    static SHELL: UnsafeCell<Shell> = UnsafeCell::new(Shell::new());
     static PENDING_SHELL_SCHEME: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-/// Get the global shell instance.
+/// Shell guard returned by [`get_shell`].
 ///
-/// Returns a `RefMut<'static, Shell>` which implements `Deref<Target = Shell>` and
-/// `DerefMut<Target = Shell>`, so all existing call sites that used `ShellGuard`
-/// continue to work unchanged.
-pub fn get_shell() -> std::cell::RefMut<'static, Shell> {
-    SHELL.with(|cell| {
-        // SAFETY: The thread_local SHELL lives for the entire duration of the thread.
-        // This mirrors the C++ TheShell global pointer pattern where the singleton
-        // is alive for the whole process lifetime on the main thread.
-        unsafe {
-            std::mem::transmute::<std::cell::RefMut<'_, Shell>, std::cell::RefMut<'static, Shell>>(
-                cell.borrow_mut(),
-            )
-        }
+/// Not a real borrow-stack guard: Drop is a no-op. Nested `get_shell()` calls are
+/// allowed (C++ TheShell). Do not hold two guards and assume exclusive access.
+pub struct ShellMut {
+    ptr: *mut Shell,
+}
+
+impl std::ops::Deref for ShellMut {
+    type Target = Shell;
+    fn deref(&self) -> &Shell {
+        // SAFETY: main-thread TLS singleton; alive for thread lifetime.
+        unsafe { &*self.ptr }
+    }
+}
+
+impl std::ops::DerefMut for ShellMut {
+    fn deref_mut(&mut self) -> &mut Shell {
+        // SAFETY: main-thread TLS singleton; re-entrant like C++ TheShell.
+        unsafe { &mut *self.ptr }
+    }
+}
+
+/// Get the global shell instance (C++ `TheShell`).
+///
+/// Returns a thin `ShellMut` that derefs to `Shell` so existing call sites keep
+/// working. Nested acquisition is permitted; exclusive RefCell semantics are not.
+pub fn get_shell() -> ShellMut {
+    SHELL.with(|cell| ShellMut {
+        // SAFETY: SHELL TLS lives for the thread; game loop is single-threaded.
+        ptr: cell.get(),
     })
 }
 
-/// Run `f` with a mutable shell borrow when available.
+/// Run `f` with mutable shell access.
 ///
-/// Returns `None` if the shell is already borrowed (e.g. nested `MainMenuInit`
-/// while `Shell::push` holds the RefCell). Callers should treat that as success
-/// when the outer holder already applied the desired side effect (C++ TheShell
-/// re-entrancy).
+/// Always succeeds under UnsafeCell TheShell semantics (never `None` from borrow).
+/// Kept as `Option` for call-site compatibility with prior RefCell try path.
 pub fn try_with_shell_mut<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&mut Shell) -> R,
 {
-    SHELL.with(|cell| match cell.try_borrow_mut() {
-        Ok(mut shell) => Some(f(&mut shell)),
-        Err(_) => None,
-    })
+    let mut shell = get_shell();
+    Some(f(&mut shell))
 }
 
-/// Enable shell map without panicking if the shell RefCell is already borrowed.
+/// Enable shell map (always available under TheShell re-entrancy).
 pub fn show_shell_map_if_available(on: bool) {
-    if try_with_shell_mut(|shell| shell.show_shell_map(on)).is_none() {
-        log::debug!(
-            "show_shell_map({}) skipped: shell already borrowed (nested push/init)",
-            on
-        );
-    }
+    let _ = try_with_shell_mut(|shell| shell.show_shell_map(on));
 }
 
 pub fn request_shell_menu_scheme(name: &str) {
-    SHELL.with(|cell| {
-        if let Ok(mut shell) = cell.try_borrow_mut() {
-            shell.load_scheme(name);
-        } else {
-            // Defer scheme load until the outer borrow is released.
-            PENDING_SHELL_SCHEME.with(|pending| {
-                *pending.borrow_mut() = Some(name.to_string());
-            });
-            log::debug!("request_shell_menu_scheme({name}) deferred: shell already borrowed");
-        }
-    });
+    // Prefer immediate load; PENDING only if we ever need deferral again.
+    let mut shell = get_shell();
+    shell.load_scheme(name);
+    let _ = name;
+    let _ = &PENDING_SHELL_SCHEME;
 }
 
 #[cfg(test)]

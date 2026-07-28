@@ -256,6 +256,7 @@ pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
 pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
 pub mod host_live_host_starting_units_table_residual_wave832;
+pub mod host_live_host_exec_smoke_release_prefer_residual_wave833;
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
 pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
@@ -2904,6 +2905,13 @@ pub use host_live_host_starting_units_table_residual_wave832::{
     honesty_host_starting_units_table_residual_pack_wave832,
     simulate_live_host_starting_units_table_honesty,
 };
+pub use host_live_host_exec_smoke_release_prefer_residual_wave833::{
+    honesty_host_exec_smoke_release_prefer_method_names_residual_wave833,
+    honesty_host_exec_smoke_release_prefer_nav_commands_residual_wave833,
+    honesty_host_exec_smoke_release_prefer_residual_pack_wave833,
+    simulate_live_host_exec_smoke_release_prefer_honesty,
+};
+
 
 pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
     honesty_host_actively_constructing_dual_peel_method_names_residual_wave815,
