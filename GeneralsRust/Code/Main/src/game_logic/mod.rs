@@ -199,6 +199,7 @@ pub mod host_live_host_topple_fall_dual_peel_residual_wave770;
 pub mod host_live_host_height_die_dual_peel_residual_wave771;
 pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
 pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
+pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -965,7 +966,8 @@ pub mod host_skirmish_options_wnd_residual_wave166;
 pub mod host_skirmish_rules_residual_wave117;
 pub mod host_skirmish_slot_config_residual_wave116;
 pub mod host_slave_drones;
-mod host_slow_death;
+pub mod host_slow_death;
+pub mod host_slow_death_kill_log;
 pub mod host_smudge_residual_wave145;
 pub mod host_sneak_attack;
 pub mod host_sp_science_upgrade_player_team_residual_wave109;
@@ -3781,6 +3783,16 @@ pub use host_live_host_heli_slow_death_dual_peel_residual_wave773::{
     residual_host_heli_slow_death_dual_peel_ok,
     simulate_live_host_heli_slow_death_dual_peel_honesty,
 };
+pub use host_live_host_slow_death_dual_peel_residual_wave774::{
+    honesty_host_slow_death_dual_peel_method_names_residual_wave774,
+    honesty_host_slow_death_dual_peel_nav_commands_residual_wave774,
+    honesty_host_slow_death_dual_peel_residual_pack_wave774,
+    honesty_host_slow_death_dual_peel_source_markers_residual_wave774,
+    residual_host_slow_death_dual_peel_last_action,
+    residual_host_slow_death_dual_peel_ok,
+    simulate_live_host_slow_death_dual_peel_honesty,
+};
+
 
 
 

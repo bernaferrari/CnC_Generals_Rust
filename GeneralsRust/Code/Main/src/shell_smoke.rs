@@ -3340,6 +3340,12 @@ use crate::game_logic::host_live_host_heli_slow_death_dual_peel_residual_wave773
     honesty_host_heli_slow_death_dual_peel_nav_commands_residual_wave773,
     simulate_live_host_heli_slow_death_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_slow_death_dual_peel_residual_wave774::{
+    honesty_host_slow_death_dual_peel_method_names_residual_wave774,
+    honesty_host_slow_death_dual_peel_nav_commands_residual_wave774,
+    simulate_live_host_slow_death_dual_peel_honesty,
+};
+
 
 
 
@@ -7313,6 +7319,9 @@ pub struct ShellSmokeResult {
     pub host_heli_slow_death_dual_peel_method_names_wave773_ok: bool,
     pub host_heli_slow_death_dual_peel_nav_commands_wave773_ok: bool,
     pub host_heli_slow_death_dual_peel_live_wave773_ok: bool,
+    pub host_slow_death_dual_peel_method_names_wave774_ok: bool,
+    pub host_slow_death_dual_peel_nav_commands_wave774_ok: bool,
+    pub host_slow_death_dual_peel_live_wave774_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11690,6 +11699,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_heli_slow_death_dual_peel_nav_commands_residual_wave773();
     let host_heli_slow_death_dual_peel_live_wave773_ok =
         simulate_live_host_heli_slow_death_dual_peel_honesty();
+    let host_slow_death_dual_peel_method_names_wave774_ok =
+        honesty_host_slow_death_dual_peel_method_names_residual_wave774();
+    let host_slow_death_dual_peel_nav_commands_wave774_ok =
+        honesty_host_slow_death_dual_peel_nav_commands_residual_wave774();
+    let host_slow_death_dual_peel_live_wave774_ok =
+        simulate_live_host_slow_death_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13998,6 +14013,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_heli_slow_death_dual_peel_method_names_wave773_ok,
         host_heli_slow_death_dual_peel_nav_commands_wave773_ok,
         host_heli_slow_death_dual_peel_live_wave773_ok,
+        host_slow_death_dual_peel_method_names_wave774_ok,
+        host_slow_death_dual_peel_nav_commands_wave774_ok,
+        host_slow_death_dual_peel_live_wave774_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25863,6 +25881,21 @@ mod tests {
         assert!(
             r.host_heli_slow_death_dual_peel_live_wave773_ok,
             "host heli_slow_death_dual_peel live residual wave773: {}",
+            r.detail
+        );
+        assert!(
+            r.host_slow_death_dual_peel_method_names_wave774_ok,
+            "host slow_death_dual_peel method names residual pack wave774: {}",
+            r.detail
+        );
+        assert!(
+            r.host_slow_death_dual_peel_nav_commands_wave774_ok,
+            "host slow_death_dual_peel nav commands residual pack wave774: {}",
+            r.detail
+        );
+        assert!(
+            r.host_slow_death_dual_peel_live_wave774_ok,
+            "host slow_death_dual_peel live residual wave774: {}",
             r.detail
         );
         assert!(

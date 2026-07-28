@@ -3402,6 +3402,31 @@ impl GameWorldShadow {
                         e.heli_slow_death_blade_flew_off = false;
                         e.heli_slow_death_done = false;
                     }
+                    if let Some(sd) = obj.slow_death.as_ref() {
+                        e.slow_death_phase = sd.phase as u8;
+                        e.slow_death_begin_frame = sd.begin_frame;
+                        e.slow_death_sink_at_frame = sd.sink_at_frame;
+                        e.slow_death_destroy_at_frame = sd.destroy_at_frame;
+                        e.slow_death_sink_rate_per_frame = sd.sink_rate_per_frame;
+                        e.slow_death_sink_offset = sd.sink_offset;
+                        e.slow_death_destruction_altitude = sd.destruction_altitude;
+                        e.slow_death_fling_vx = sd.fling_vx;
+                        e.slow_death_fling_vz = sd.fling_vz;
+                        e.slow_death_fling_vy = sd.fling_vy;
+                        e.slow_death_fling_applied = sd.fling_applied;
+                    } else {
+                        e.slow_death_phase = 0;
+                        e.slow_death_begin_frame = 0;
+                        e.slow_death_sink_at_frame = 0;
+                        e.slow_death_destroy_at_frame = 0;
+                        e.slow_death_sink_rate_per_frame = 0.0;
+                        e.slow_death_sink_offset = 0.0;
+                        e.slow_death_destruction_altitude = -10.0;
+                        e.slow_death_fling_vx = 0.0;
+                        e.slow_death_fling_vz = 0.0;
+                        e.slow_death_fling_vy = 0.0;
+                        e.slow_death_fling_applied = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7378,6 +7403,52 @@ impl GameWorldShadow {
                 if done {
                     if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                         crate::game_logic::host_heli_slow_death_kill_log::record(
+                            crate::game_logic::ObjectId(hid),
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 774: SlowDeathBehavior residual (sink delay + destroy).
+            // phase: 0 Inactive, 1 WaitingToSink, 2 Sinking, 3 WaitingToDestroy, 4 Done
+            if e.slow_death_phase != 0 && e.slow_death_phase != 4 {
+                let mut done = false;
+                match e.slow_death_phase {
+                    1 => {
+                        // WaitingToSink
+                        if frame >= e.slow_death_sink_at_frame {
+                            e.slow_death_phase = 2;
+                        }
+                        if frame >= e.slow_death_destroy_at_frame {
+                            e.slow_death_phase = 4;
+                            done = true;
+                        }
+                    }
+                    2 => {
+                        // Sinking
+                        if e.slow_death_sink_rate_per_frame > 0.0 {
+                            e.slow_death_sink_offset -= e.slow_death_sink_rate_per_frame;
+                            if e.slow_death_sink_offset < e.slow_death_destruction_altitude {
+                                e.slow_death_sink_offset = e.slow_death_destruction_altitude;
+                            }
+                        }
+                        if frame >= e.slow_death_destroy_at_frame {
+                            e.slow_death_phase = 4;
+                            done = true;
+                        }
+                    }
+                    3 => {
+                        // WaitingToDestroy
+                        if frame >= e.slow_death_destroy_at_frame {
+                            e.slow_death_phase = 4;
+                            done = true;
+                        }
+                    }
+                    _ => {}
+                }
+                if done {
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_slow_death_kill_log::record(
                             crate::game_logic::ObjectId(hid),
                         );
                     }
@@ -11439,6 +11510,45 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_phase = obj.slow_death.as_ref().map(|s| s.phase as u8).unwrap_or(0);
+                if host_phase != ent.slow_death_phase
+                    || obj
+                        .slow_death
+                        .as_ref()
+                        .map(|s| {
+                            s.destroy_at_frame != ent.slow_death_destroy_at_frame
+                                || (s.sink_offset - ent.slow_death_sink_offset).abs() > f32::EPSILON
+                        })
+                        .unwrap_or(ent.slow_death_phase != 0)
+                {
+                    if ent.slow_death_phase != 0 {
+                        use crate::game_logic::host_slow_death::{
+                            HostSlowDeathData, HostSlowDeathPhase,
+                        };
+                        let sd = obj.slow_death.get_or_insert_with(HostSlowDeathData::default);
+                        sd.phase = match ent.slow_death_phase {
+                            1 => HostSlowDeathPhase::WaitingToSink,
+                            2 => HostSlowDeathPhase::Sinking,
+                            3 => HostSlowDeathPhase::WaitingToDestroy,
+                            4 => HostSlowDeathPhase::Done,
+                            _ => HostSlowDeathPhase::Inactive,
+                        };
+                        sd.begin_frame = ent.slow_death_begin_frame;
+                        sd.sink_at_frame = ent.slow_death_sink_at_frame;
+                        sd.destroy_at_frame = ent.slow_death_destroy_at_frame;
+                        sd.sink_rate_per_frame = ent.slow_death_sink_rate_per_frame;
+                        sd.sink_offset = ent.slow_death_sink_offset;
+                        sd.destruction_altitude = ent.slow_death_destruction_altitude;
+                        sd.fling_vx = ent.slow_death_fling_vx;
+                        sd.fling_vz = ent.slow_death_fling_vz;
+                        sd.fling_vy = ent.slow_death_fling_vy;
+                        sd.fling_applied = ent.slow_death_fling_applied;
+                    } else {
+                        obj.slow_death = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12853,6 +12963,14 @@ pub fn shadow_session_after_host_tick(
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
                 obj.refresh_model_condition_bits();
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 774: SlowDeathBehavior done → host destroy (no dual timer).
+        for id in crate::game_logic::host_slow_death_kill_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                obj.health.current = 0.0;
+                obj.status.destroyed = true;
             }
             logic.mark_object_for_destruction(id, None);
         }
