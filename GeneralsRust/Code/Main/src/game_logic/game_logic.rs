@@ -1454,7 +1454,7 @@ pub struct GameLogic {
 
     /// Host America Aurora dive bomb residual (delayed FuelAir / AuroraBomb area damage).
     /// FuelAir CreateObjectDie gas SpecialObject residual closed.
-    aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry,
+    pub(crate) aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry,
     /// Honesty: AirF/SupW Aurora FuelAir gas objects spawned on dive impact.
     aurora_fuel_air_gas_spawned: u32,
 
@@ -6517,7 +6517,13 @@ impl GameLogic {
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
         self.update_aurora_bombs();
-        self.update_aurora_bomb_projectiles();
+        // Wave 797: under coupled shadow, AuroraBomb projectile dive is owned by
+        // GW tick_status_timer_expirations + destroy logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_aurora_bomb_projectiles();
+        }
 
         // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
         // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.

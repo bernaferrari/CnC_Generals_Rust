@@ -3979,6 +3979,20 @@ impl GameWorldShadow {
                     } else {
                         0.0
                     };
+                    e.aurora_bomb_projectile = obj.aurora_bomb_projectile;
+                    if let Some(a) = obj.aurora_bomb_aim {
+                        e.aurora_bomb_has_aim = true;
+                        e.aurora_bomb_aim_x = a[0];
+                        e.aurora_bomb_aim_y = a[1];
+                        e.aurora_bomb_aim_z = a[2];
+                    } else {
+                        e.aurora_bomb_has_aim = false;
+                    }
+                    e.aurora_bomb_mission_id = obj.aurora_bomb_mission_id.unwrap_or(0);
+                    e.aurora_bomb_mission_live = obj
+                        .aurora_bomb_mission_id
+                        .map(|mid| logic.aurora_bombs.has_mission(mid))
+                        .unwrap_or(false);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -8929,6 +8943,82 @@ impl GameWorldShadow {
                 }
                 changed = true;
             }
+            // Wave 797: AuroraBomb projectile dive residual.
+            if e.aurora_bomb_projectile {
+                use crate::game_logic::host_aurora_bomb::{
+                    AURORA_BOMB_LOCO_MIN_SPEED, AURORA_BOMB_LOCO_SPEED,
+                };
+                if e.aurora_bomb_mission_id > 0 && !e.aurora_bomb_mission_live {
+                    e.aurora_bomb_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_aurora_bomb_projectile_log::record_destroy(
+                            crate::game_logic::host_aurora_bomb_projectile_log::AuroraBombProjectileDestroyEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                snap_aim: None,
+                            },
+                        );
+                    }
+                    changed = true;
+                } else {
+                    let speed = AURORA_BOMB_LOCO_SPEED / 30.0;
+                    let min_speed = AURORA_BOMB_LOCO_MIN_SPEED / 30.0;
+                    let pos = e.transform.position;
+                    let (aim_x, aim_y, aim_z) = if e.aurora_bomb_has_aim {
+                        (e.aurora_bomb_aim_x, e.aurora_bomb_aim_y, e.aurora_bomb_aim_z)
+                    } else {
+                        (pos.x, pos.y, pos.z)
+                    };
+                    let dx = aim_x - pos.x;
+                    let dy = aim_y - pos.y;
+                    let dz = aim_z - pos.z;
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                    let (mut vx, mut vy, mut vz) = if dist > 0.001 {
+                        let s = speed.max(min_speed);
+                        let mut vx = dx / dist * s;
+                        let mut vy = dy / dist * s;
+                        let mut vz = dz / dist * s;
+                        if pos.y > aim_y + 10.0 {
+                            vy = vy.min(-min_speed * 0.5);
+                        }
+                        (vx, vy, vz)
+                    } else {
+                        (0.0, -speed, 0.0)
+                    };
+                    let new_x = pos.x + vx;
+                    let new_y = pos.y + vy;
+                    let new_z = pos.z + vz;
+                    e.transform.position.x = new_x;
+                    e.transform.position.y = new_y;
+                    e.transform.position.z = new_z;
+                    if vx * vx + vz * vz > 1e-6 {
+                        e.transform.orientation = vz.atan2(vx);
+                    }
+                    let near = (aim_x - new_x) * (aim_x - new_x) + (aim_z - new_z) * (aim_z - new_z)
+                        < 8.0 * 8.0
+                        && new_y <= aim_y + 12.0;
+                    if near {
+                        e.aurora_bomb_projectile = false;
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_aurora_bomb_projectile_log::record_destroy(
+                                crate::game_logic::host_aurora_bomb_projectile_log::AuroraBombProjectileDestroyEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    snap_aim: if e.aurora_bomb_has_aim {
+                                        Some([
+                                            e.aurora_bomb_aim_x,
+                                            e.aurora_bomb_aim_y,
+                                            e.aurora_bomb_aim_z,
+                                        ])
+                                    } else {
+                                        None
+                                    },
+                                },
+                            );
+                        }
+                    }
+                    changed = true;
+                }
+            }
+
             if changed {
                 n += 1;
             }
@@ -13731,6 +13821,38 @@ impl GameWorldShadow {
                     obj.movement.velocity.y = ent.leaflet_container_vel_y;
                 }
             }
+            {
+                if ent.paradrop_transport_active {
+                    obj.paradrop_transport_target = Some(glam::Vec3::new(
+                        ent.paradrop_transport_target_x,
+                        ent.paradrop_transport_target_y,
+                        ent.paradrop_transport_target_z,
+                    ));
+                } else {
+                    obj.paradrop_transport_target = None;
+                }
+                obj.paradrop_parachute = ent.paradrop_parachute;
+                if ent.paradrop_parachute {
+                    obj.movement.velocity.y = ent.paradrop_parachute_vel_y;
+                }
+            }
+            {
+                obj.aurora_bomb_projectile = ent.aurora_bomb_projectile;
+                if ent.aurora_bomb_has_aim {
+                    obj.aurora_bomb_aim = Some([
+                        ent.aurora_bomb_aim_x,
+                        ent.aurora_bomb_aim_y,
+                        ent.aurora_bomb_aim_z,
+                    ]);
+                } else {
+                    obj.aurora_bomb_aim = None;
+                }
+                obj.aurora_bomb_mission_id = if ent.aurora_bomb_mission_id > 0 {
+                    Some(ent.aurora_bomb_mission_id)
+                } else {
+                    None
+                };
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -15671,6 +15793,27 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.id, None);
         }
+        // Wave 797: AuroraBomb projectile arrive/stale destroy (no dual flight).
+        for ev in crate::game_logic::host_aurora_bomb_projectile_log::drain_destroys() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if let Some(a) = ev.snap_aim {
+                    o.set_position(glam::Vec3::new(a[0], a[1], a[2]));
+                }
+                o.aurora_bomb_projectile = false;
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+            }
+            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
+            logic.mark_object_for_destruction(ev.id, team);
+        }
+
 
 
 
