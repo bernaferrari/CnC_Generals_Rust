@@ -14,6 +14,7 @@ pub mod host_animation_steering;
 pub mod host_anthrax_bomb_flight;
 pub mod host_anthrax_bomb_drop_log;
 pub mod host_artillery_barrage_flight;
+pub mod host_artillery_barrage_drop_log;
 pub mod host_body_damage_log;
 pub mod host_bounce_land_log;
 pub mod host_carpet_bomb_flight;
@@ -223,6 +224,7 @@ pub mod host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789;
 pub mod host_live_host_cluster_mines_flight_dual_peel_residual_wave790;
 pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
 pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
+pub mod host_live_host_artillery_barrage_flight_dual_peel_residual_wave793;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3989,6 +3991,17 @@ pub use host_live_host_a10_strike_flight_dual_peel_residual_wave792::{
     simulate_host_a10_strike_flight_dual_peel_dispatch_source,
     honesty_host_a10_strike_flight_dual_peel_residual_pack_wave792,
     simulate_live_host_a10_strike_flight_dual_peel_honesty,
+};
+pub use host_live_host_artillery_barrage_flight_dual_peel_residual_wave793::{
+    residual_host_artillery_barrage_flight_dual_peel_ok,
+    residual_host_artillery_barrage_flight_dual_peel_last_action,
+    honesty_host_artillery_barrage_flight_dual_peel_method_names_residual_wave793,
+    honesty_host_artillery_barrage_flight_dual_peel_source_markers_residual_wave793,
+    honesty_host_artillery_barrage_flight_dual_peel_nav_commands_residual_wave793,
+    simulate_host_artillery_barrage_flight_dual_peel_collect_source,
+    simulate_host_artillery_barrage_flight_dual_peel_dispatch_source,
+    honesty_host_artillery_barrage_flight_dual_peel_residual_pack_wave793,
+    simulate_live_host_artillery_barrage_flight_dual_peel_honesty,
 };
 
 

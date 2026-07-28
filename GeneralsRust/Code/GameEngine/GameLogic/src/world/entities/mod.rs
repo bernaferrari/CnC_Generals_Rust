@@ -754,6 +754,18 @@ pub struct Entity {
     /// Host A10ThunderboltMissile residual.
     pub a10_strike_missile: bool,
     pub a10_strike_missile_vel_y: f32,
+    /// Host ArtilleryBarrage transport residual.
+    pub artillery_barrage_transport_active: bool,
+    pub artillery_barrage_transport_tier: u8,
+    pub artillery_barrage_transport_target_x: f32,
+    pub artillery_barrage_transport_target_y: f32,
+    pub artillery_barrage_transport_target_z: f32,
+    pub artillery_barrage_transport_launch_x: f32,
+    pub artillery_barrage_transport_launch_y: f32,
+    pub artillery_barrage_transport_launch_z: f32,
+    /// Host ArtilleryBarrage shell residual.
+    pub artillery_barrage_shell: bool,
+    pub artillery_barrage_shell_vel_y: f32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1505,6 +1517,16 @@ impl EntityStore {
             a10_strike_transport_launch_z: 0.0,
             a10_strike_missile: false,
             a10_strike_missile_vel_y: 0.0,
+            artillery_barrage_transport_active: false,
+            artillery_barrage_transport_tier: 0,
+            artillery_barrage_transport_target_x: 0.0,
+            artillery_barrage_transport_target_y: 0.0,
+            artillery_barrage_transport_target_z: 0.0,
+            artillery_barrage_transport_launch_x: 0.0,
+            artillery_barrage_transport_launch_y: 0.0,
+            artillery_barrage_transport_launch_z: 0.0,
+            artillery_barrage_shell: false,
+            artillery_barrage_shell_vel_y: 0.0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
