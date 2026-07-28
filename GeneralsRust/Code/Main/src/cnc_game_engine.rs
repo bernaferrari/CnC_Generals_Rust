@@ -18120,6 +18120,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 699: post-logic building-type / identity / ground-height.
+                let _bt = crate::gameworld_shadow::eager_apply_host_building_type_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _id = crate::gameworld_shadow::eager_apply_host_identity_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _gh = crate::gameworld_shadow::eager_apply_host_ground_height_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

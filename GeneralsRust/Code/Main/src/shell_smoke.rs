@@ -2886,6 +2886,11 @@ use crate::game_logic::host_live_host_eager_demo_form_crush_helper_residual_wave
     honesty_host_eager_demo_form_crush_helper_nav_commands_residual_wave698,
     simulate_live_host_eager_demo_form_crush_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_btype_identity_ground_helper_residual_wave699::{
+    honesty_host_eager_btype_identity_ground_helper_method_names_residual_wave699,
+    honesty_host_eager_btype_identity_ground_helper_nav_commands_residual_wave699,
+    simulate_live_host_eager_btype_identity_ground_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6698,6 +6703,9 @@ pub struct ShellSmokeResult {
     pub host_eager_demo_form_crush_helper_method_names_wave698_ok: bool,
     pub host_eager_demo_form_crush_helper_nav_commands_wave698_ok: bool,
     pub host_eager_demo_form_crush_helper_live_wave698_ok: bool,
+    pub host_eager_btype_identity_ground_helper_method_names_wave699_ok: bool,
+    pub host_eager_btype_identity_ground_helper_nav_commands_wave699_ok: bool,
+    pub host_eager_btype_identity_ground_helper_live_wave699_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10625,6 +10633,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_demo_form_crush_helper_nav_commands_residual_wave698();
     let host_eager_demo_form_crush_helper_live_wave698_ok =
         simulate_live_host_eager_demo_form_crush_helper_honesty();
+    let host_eager_btype_identity_ground_helper_method_names_wave699_ok =
+        honesty_host_eager_btype_identity_ground_helper_method_names_residual_wave699();
+    let host_eager_btype_identity_ground_helper_nav_commands_wave699_ok =
+        honesty_host_eager_btype_identity_ground_helper_nav_commands_residual_wave699();
+    let host_eager_btype_identity_ground_helper_live_wave699_ok =
+        simulate_live_host_eager_btype_identity_ground_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12708,6 +12722,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_demo_form_crush_helper_method_names_wave698_ok,
         host_eager_demo_form_crush_helper_nav_commands_wave698_ok,
         host_eager_demo_form_crush_helper_live_wave698_ok,
+        host_eager_btype_identity_ground_helper_method_names_wave699_ok,
+        host_eager_btype_identity_ground_helper_nav_commands_wave699_ok,
+        host_eager_btype_identity_ground_helper_live_wave699_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23448,6 +23465,21 @@ mod tests {
         assert!(
             r.host_eager_demo_form_crush_helper_live_wave698_ok,
             "host eager_demo_form_crush helper live residual wave698: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_btype_identity_ground_helper_method_names_wave699_ok,
+            "host eager_btype_identity_ground helper method names residual pack wave699: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_btype_identity_ground_helper_nav_commands_wave699_ok,
+            "host eager_btype_identity_ground helper nav commands residual pack wave699: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_btype_identity_ground_helper_live_wave699_ok,
+            "host eager_btype_identity_ground helper live residual wave699: {}",
             r.detail
         );
         assert!(
