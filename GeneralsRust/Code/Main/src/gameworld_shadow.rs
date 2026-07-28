@@ -4506,6 +4506,13 @@ impl GameWorldShadow {
                         obj.hive_slaves[1].hp,
                         obj.hive_slaves[2].hp,
                     ];
+                    if let Some(ce) = logic.host_money_crates.get(oid) {
+                        e.money_crate = true;
+                        e.money_crate_expires_frame = ce.expires_frame;
+                    } else {
+                        e.money_crate = false;
+                        e.money_crate_expires_frame = 0;
+                    }
                     e.turret_angle_deg = obj.turret_angle_deg;
                     e.turret_pitch_deg = obj.turret_pitch_deg;
                     e.turret_idle_scanning = obj.turret_idle_scanning;
@@ -4912,6 +4919,13 @@ impl GameWorldShadow {
                     obj.hive_slaves[1].hp,
                     obj.hive_slaves[2].hp,
                 ];
+                if let Some(ce) = logic.host_money_crates.get(oid) {
+                    e.money_crate = true;
+                    e.money_crate_expires_frame = ce.expires_frame;
+                } else {
+                    e.money_crate = false;
+                    e.money_crate_expires_frame = 0;
+                }
                 e.turret_angle_deg = obj.turret_angle_deg;
                 e.turret_pitch_deg = obj.turret_pitch_deg;
                 e.turret_idle_scanning = obj.turret_idle_scanning;
@@ -10629,6 +10643,26 @@ for eid in eids {
                         changed = true;
                     }
                 }
+            }
+
+            // Wave 817: Money/salvage crate DeletionUpdate residual.
+            if e.money_crate
+                && e.money_crate_expires_frame > 0
+                && frame >= e.money_crate_expires_frame
+            {
+                e.money_crate = false;
+                e.money_crate_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::MoneyCrate,
+                            producer: None,
+                        },
+                    );
+                }
+                changed = true;
             }
 
             if changed {
@@ -18038,6 +18072,7 @@ pub fn shadow_session_after_host_tick(
                         o.firewall_segment_dir = None;
                     }
                     FieldObjectKind::RadarVanPing => o.radar_van_ping = false,
+                    FieldObjectKind::MoneyCrate => {}
                 }
             }
             // Wave 806: countermeasure flare producer bookkeeping.
@@ -18047,6 +18082,11 @@ pub fn shadow_session_after_host_tick(
                 }
             }
             logic.mark_object_for_destruction(ev.id, ev.team);
+
+            if matches!(ev.kind, FieldObjectKind::MoneyCrate) {
+                logic.host_money_crates.forget(ev.id);
+            }
+
         }
         // Wave 803: Inferno shell impact + SpySatellite ping expire.
         for ev in crate::game_logic::host_inferno_shell_projectile_log::drain_impacts() {

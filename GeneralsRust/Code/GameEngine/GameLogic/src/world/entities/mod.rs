@@ -1098,6 +1098,9 @@ pub struct Entity {
     pub hive_slaves_alive: [bool; 3],
     /// Host ResidualHiveSlave HP (3 slots).
     pub hive_slaves_hp: [f32; 3],
+    /// Host money/salvage crate DeletionUpdate residual.
+    pub money_crate: bool,
+    pub money_crate_expires_frame: u32,
     /// Host hijacker residual `next_detection_scan_frame`.
     pub next_detection_scan_frame: u32,
     /// Host Object::stealth_allowed_frame residual.
@@ -1995,6 +1998,8 @@ impl EntityStore {
             hive_slave_respawn_frame: 0,
             hive_slaves_alive: [false; 3],
             hive_slaves_hp: [0.0; 3],
+            money_crate: false,
+            money_crate_expires_frame: 0,
             next_detection_scan_frame: 0,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,

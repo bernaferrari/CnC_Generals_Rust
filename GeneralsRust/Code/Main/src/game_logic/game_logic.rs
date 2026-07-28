@@ -1407,7 +1407,7 @@ pub struct GameLogic {
 
     /// Host MoneyCrateCollide residual (unit + BuildingPickup).
     /// Fail-closed: not full CollideModule partition pair / Anim2D MoneyPickUp.
-    host_money_crates: crate::game_logic::host_money_crate::HostMoneyCrateRegistry,
+    pub(crate) host_money_crates: crate::game_logic::host_money_crate::HostMoneyCrateRegistry,
 
     /// Host CommandCenter / RadarVan radar-online residual (Player::hasRadar).
     /// Fail-closed: not full RadarUpgrade/RadarUpdate grant matrix / power-disable proof.
@@ -6275,7 +6275,12 @@ impl GameLogic {
 
         // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
         self.update_money_crate_collides();
-        self.update_crate_deletion_updates();
+        // Wave 817: under coupled shadow, crate lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_crate_deletion_updates();
+        }
 
         // Host GLA Rebel Ambush residual: spawn infantry near target after fade delay.
         // Fail-closed vs full OCL CreateObject / science upgrade tiers.
