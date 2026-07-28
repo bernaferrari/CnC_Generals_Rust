@@ -18011,6 +18011,15 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 690: post-logic weapon-bonus / weapon-slot before full session.
+                let _wb = crate::gameworld_shadow::eager_apply_host_weapon_bonus_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _wslot = crate::gameworld_shadow::eager_apply_host_weapon_slot_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
