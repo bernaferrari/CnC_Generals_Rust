@@ -3489,6 +3489,16 @@ impl GameWorldShadow {
                             fw.continuous_really_damaged.clone().unwrap_or_default();
                         e.fwwd_continuous_rubble =
                             fw.continuous_rubble.clone().unwrap_or_default();
+                        e.fwwd_damage_amount = fw.damage_amount;
+                        e.fwwd_last_reaction_frame = fw.last_reaction_frame;
+                        e.fwwd_reaction_pristine =
+                            fw.reaction_pristine.clone().unwrap_or_default();
+                        e.fwwd_reaction_damaged =
+                            fw.reaction_damaged.clone().unwrap_or_default();
+                        e.fwwd_reaction_really_damaged =
+                            fw.reaction_really_damaged.clone().unwrap_or_default();
+                        e.fwwd_reaction_rubble =
+                            fw.reaction_rubble.clone().unwrap_or_default();
                     } else {
                         e.fwwd_active = false;
                         e.fwwd_last_continuous_frame = 0;
@@ -3497,6 +3507,12 @@ impl GameWorldShadow {
                         e.fwwd_continuous_damaged.clear();
                         e.fwwd_continuous_really_damaged.clear();
                         e.fwwd_continuous_rubble.clear();
+                        e.fwwd_damage_amount = 1.0;
+                        e.fwwd_last_reaction_frame = 0;
+                        e.fwwd_reaction_pristine.clear();
+                        e.fwwd_reaction_damaged.clear();
+                        e.fwwd_reaction_really_damaged.clear();
+                        e.fwwd_reaction_rubble.clear();
                     }
 
                     e.is_carbomb = obj.status.is_carbomb;
@@ -11935,7 +11951,29 @@ impl GameWorldShadow {
                             .get_or_insert_with(HostFireWeaponWhenDamagedData::default);
                         fw.active = ent.fwwd_active;
                         fw.last_continuous_frame = ent.fwwd_last_continuous_frame;
+                        fw.last_reaction_frame = ent.fwwd_last_reaction_frame;
+                        fw.damage_amount = ent.fwwd_damage_amount;
                         fw.continuous_reload_frames = ent.fwwd_continuous_reload_frames;
+                        fw.reaction_pristine = if ent.fwwd_reaction_pristine.is_empty() {
+                            None
+                        } else {
+                            Some(ent.fwwd_reaction_pristine.clone())
+                        };
+                        fw.reaction_damaged = if ent.fwwd_reaction_damaged.is_empty() {
+                            None
+                        } else {
+                            Some(ent.fwwd_reaction_damaged.clone())
+                        };
+                        fw.reaction_really_damaged = if ent.fwwd_reaction_really_damaged.is_empty() {
+                            None
+                        } else {
+                            Some(ent.fwwd_reaction_really_damaged.clone())
+                        };
+                        fw.reaction_rubble = if ent.fwwd_reaction_rubble.is_empty() {
+                            None
+                        } else {
+                            Some(ent.fwwd_reaction_rubble.clone())
+                        };
                         fw.continuous_pristine = if ent.fwwd_continuous_pristine.is_empty() {
                             None
                         } else {
@@ -12014,6 +12052,42 @@ impl GameWorldShadow {
         updated
     }
 
+
+    /// Wave 779: FWWDB onDamage reaction sole-emit after GW applied damage.
+    fn try_fwwd_reaction_for_host(&mut self, host: ObjectId, actual_damage: f32, frame: u32) {
+        use crate::game_logic::host_enum_table_residual::{
+            host_calc_body_damage_state, HostBodyDamageType,
+        };
+        use crate::game_logic::host_fire_weapon_when_damaged::FWWDB_REACTION_DEBOUNCE_FRAMES;
+        let Some(eid) = self.entity_for_host(host) else {
+            return;
+        };
+        let Some(e) = self.world.world_mut().entity_mut(eid) else {
+            return;
+        };
+        if !e.fwwd_active || actual_damage < e.fwwd_damage_amount {
+            return;
+        }
+        if e.fwwd_last_reaction_frame > 0
+            && frame.saturating_sub(e.fwwd_last_reaction_frame) < FWWDB_REACTION_DEBOUNCE_FRAMES
+        {
+            return;
+        }
+        let max_h = e.max_health.max(e.health).max(1.0);
+        let state = host_calc_body_damage_state(e.health, max_h);
+        let name = match state {
+            HostBodyDamageType::Pristine => e.fwwd_reaction_pristine.as_str(),
+            HostBodyDamageType::Damaged => e.fwwd_reaction_damaged.as_str(),
+            HostBodyDamageType::ReallyDamaged => e.fwwd_reaction_really_damaged.as_str(),
+            HostBodyDamageType::Rubble => e.fwwd_reaction_rubble.as_str(),
+        };
+        if name.is_empty() {
+            return;
+        }
+        e.fwwd_last_reaction_frame = frame;
+        crate::game_logic::host_fwwd_reaction_log::record(host, name.to_string());
+    }
+
     pub fn apply_host_damage_events(
         &mut self,
         events: &[crate::game_logic::host_damage_log::HostDamageEvent],
@@ -12031,6 +12105,13 @@ impl GameWorldShadow {
             }
         }
         let applied = self.apply_pending();
+        // Wave 779: after GW HP mutations, sole-emit FWWDB onDamage reactions.
+        let frame = self.world.frame() as u32;
+        for ev in events {
+            if ev.amount > 0.0 {
+                self.try_fwwd_reaction_for_host(ev.target, ev.amount, frame);
+            }
+        }
         (queued, applied)
     }
 
@@ -13417,6 +13498,13 @@ pub fn shadow_session_after_host_tick(
                 if obj.pending_fire_when_damaged_weapon.is_none() {
                     obj.pending_fire_when_damaged_weapon = Some(weapon);
                 }
+            }
+        }
+        // Wave 779: FWWDB reaction → host pending fire (no dual reaction debounce).
+        for (id, weapon) in crate::game_logic::host_fwwd_reaction_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                // Reaction preferred over continuous same frame.
+                obj.pending_fire_when_damaged_weapon = Some(weapon);
             }
         }
 

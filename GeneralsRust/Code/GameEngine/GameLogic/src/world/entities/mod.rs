@@ -622,6 +622,13 @@ pub struct Entity {
     pub fwwd_continuous_damaged: String,
     pub fwwd_continuous_really_damaged: String,
     pub fwwd_continuous_rubble: String,
+    /// Host FireWeaponWhenDamagedBehavior reaction residual.
+    pub fwwd_damage_amount: f32,
+    pub fwwd_last_reaction_frame: u32,
+    pub fwwd_reaction_pristine: String,
+    pub fwwd_reaction_damaged: String,
+    pub fwwd_reaction_really_damaged: String,
+    pub fwwd_reaction_rubble: String,
     /// C++ AnimationSteeringUpdate turn anim ordinal residual.
     pub anim_steer_turn: u8,
     /// Host Object::shock_yaw_rate residual.
@@ -1265,6 +1272,12 @@ impl EntityStore {
             fwwd_continuous_damaged: String::new(),
             fwwd_continuous_really_damaged: String::new(),
             fwwd_continuous_rubble: String::new(),
+            fwwd_damage_amount: 1.0,
+            fwwd_last_reaction_frame: 0,
+            fwwd_reaction_pristine: String::new(),
+            fwwd_reaction_damaged: String::new(),
+            fwwd_reaction_really_damaged: String::new(),
+            fwwd_reaction_rubble: String::new(),
             anim_steer_turn: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
