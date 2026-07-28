@@ -742,6 +742,18 @@ pub struct Entity {
     /// Host EMPPulseEffectSpheroid residual.
     pub emp_pulse_spheroid: bool,
     pub emp_pulse_spheroid_expires_frame: u32,
+    /// Host A10 Thunderbolt transport residual.
+    pub a10_strike_transport_active: bool,
+    pub a10_strike_transport_tier: u8,
+    pub a10_strike_transport_target_x: f32,
+    pub a10_strike_transport_target_y: f32,
+    pub a10_strike_transport_target_z: f32,
+    pub a10_strike_transport_launch_x: f32,
+    pub a10_strike_transport_launch_y: f32,
+    pub a10_strike_transport_launch_z: f32,
+    /// Host A10ThunderboltMissile residual.
+    pub a10_strike_missile: bool,
+    pub a10_strike_missile_vel_y: f32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1483,6 +1495,16 @@ impl EntityStore {
             emp_pulse_bomb_vel_y: 0.0,
             emp_pulse_spheroid: false,
             emp_pulse_spheroid_expires_frame: 0,
+            a10_strike_transport_active: false,
+            a10_strike_transport_tier: 0,
+            a10_strike_transport_target_x: 0.0,
+            a10_strike_transport_target_y: 0.0,
+            a10_strike_transport_target_z: 0.0,
+            a10_strike_transport_launch_x: 0.0,
+            a10_strike_transport_launch_y: 0.0,
+            a10_strike_transport_launch_z: 0.0,
+            a10_strike_missile: false,
+            a10_strike_missile_vel_y: 0.0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
