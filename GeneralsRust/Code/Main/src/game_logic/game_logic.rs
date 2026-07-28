@@ -37453,9 +37453,17 @@ impl GameLogic {
         let _ = source_pos;
 
         // Clear prior gunship residual.
+        // Wave 750: under damage authority, do not zero host HP mid-frame
+        // (dual with GW HP writeback). Project lethal via damage log + destroyed
+        // flag; non-authority path keeps host HP clear.
         if let Some(prior) = plan.replace_prior {
             if let Some(p) = self.objects.get_mut(&prior) {
-                p.health.current = 0.0;
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = p.health.current.max(1.0);
+                    crate::game_logic::host_damage_log::record(prior, hp, None, true);
+                } else {
+                    p.health.current = 0.0;
+                }
                 p.status.destroyed = true;
                 self.spectre_gunship_deployment_reg.record_prior_clear();
             }
