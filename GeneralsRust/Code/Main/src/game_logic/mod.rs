@@ -189,6 +189,7 @@ pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wa
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_eject_invuln_dual_peel_residual_wave762;
 pub mod host_live_host_force_reload_dual_peel_residual_wave763;
+pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3675,6 +3676,16 @@ pub use host_live_host_force_reload_dual_peel_residual_wave763::{
     residual_host_force_reload_dual_peel_ok,
     simulate_live_host_force_reload_dual_peel_honesty,
 };
+pub use host_live_host_shock_stun_dual_peel_residual_wave764::{
+    honesty_host_shock_stun_dual_peel_method_names_residual_wave764,
+    honesty_host_shock_stun_dual_peel_nav_commands_residual_wave764,
+    honesty_host_shock_stun_dual_peel_residual_pack_wave764,
+    honesty_host_shock_stun_dual_peel_source_markers_residual_wave764,
+    residual_host_shock_stun_dual_peel_last_action,
+    residual_host_shock_stun_dual_peel_ok,
+    simulate_live_host_shock_stun_dual_peel_honesty,
+};
+
 
 
 

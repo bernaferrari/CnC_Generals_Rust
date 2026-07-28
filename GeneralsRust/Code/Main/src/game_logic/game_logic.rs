@@ -12911,7 +12911,15 @@ impl GameLogic {
                 o.cell_is_cliff = cliff;
                 o.cell_is_underwater = water;
                 if o.shock_stun_frames > 0 {
-                    o.tick_shock_stun();
+                    // Wave 764: under coupled shadow, GW sole-decrements frames;
+                    // host keeps tumble/bounce physics only.
+                    if crate::gameworld_shadow::gameworld_shadow_enabled()
+                        && crate::gameworld_shadow::shadow_coupled_tick_active()
+                    {
+                        o.tick_shock_stun_physics_only();
+                    } else {
+                        o.tick_shock_stun();
+                    }
                 }
                 while let Some((name, vol)) = o.take_bounce_audio_pending() {
                     let p = o.get_position();
