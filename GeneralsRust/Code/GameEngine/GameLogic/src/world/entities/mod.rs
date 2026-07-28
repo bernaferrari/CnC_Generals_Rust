@@ -1121,6 +1121,11 @@ pub struct Entity {
     /// Host oil derrick AutoDeposit next frame residual.
     pub oil_derrick_building: bool,
     pub oil_derrick_next_deposit_frame: u32,
+    /// Host China Hacker HackInternet residual.
+    pub hacker_unit: bool,
+    pub hacker_hacking: bool,
+    pub hacker_in_internet_center: bool,
+    pub hacker_next_deposit_frame: u32,
     /// Host hijacker residual `next_detection_scan_frame`.
     pub next_detection_scan_frame: u32,
     /// Host Object::stealth_allowed_frame residual.
@@ -2037,6 +2042,10 @@ impl EntityStore {
             black_market_next_deposit_frame: 0,
             oil_derrick_building: false,
             oil_derrick_next_deposit_frame: 0,
+            hacker_unit: false,
+            hacker_hacking: false,
+            hacker_in_internet_center: false,
+            hacker_next_deposit_frame: 0,
             next_detection_scan_frame: 0,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,

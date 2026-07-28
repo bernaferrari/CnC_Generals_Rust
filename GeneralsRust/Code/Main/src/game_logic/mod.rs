@@ -203,6 +203,7 @@ pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
 pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
 pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
+pub mod host_live_host_hacker_income_dual_peel_residual_wave822;
 pub mod host_live_host_height_die_dual_peel_residual_wave771;
 pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
 pub mod host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748;
@@ -429,6 +430,7 @@ pub mod host_golden_map_host_victory_residual_wave175;
 pub mod host_gps_scrambler;
 pub mod host_hacker_disable;
 pub mod host_hacker_income;
+pub mod host_hacker_income_log;
 pub mod host_heal;
 pub mod host_height_die;
 pub mod host_height_die_kill_log;
@@ -2994,6 +2996,13 @@ pub use host_live_host_auto_deposit_dual_peel_residual_wave821::{
     honesty_host_auto_deposit_dual_peel_residual_pack_wave821,
     simulate_live_host_auto_deposit_dual_peel_honesty,
 };
+pub use host_live_host_hacker_income_dual_peel_residual_wave822::{
+    honesty_host_hacker_income_dual_peel_method_names_residual_wave822,
+    honesty_host_hacker_income_dual_peel_nav_commands_residual_wave822,
+    honesty_host_hacker_income_dual_peel_residual_pack_wave822,
+    simulate_live_host_hacker_income_dual_peel_honesty,
+};
+
 pub use host_live_host_auto_select_mobile_opt_in_residual_wave726::{
     honesty_host_auto_select_mobile_opt_in_method_names_residual_wave726,
     honesty_host_auto_select_mobile_opt_in_nav_commands_residual_wave726,

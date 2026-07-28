@@ -1396,7 +1396,7 @@ pub struct GameLogic {
 
     /// Host China Hacker / Internet Center residual cash (HackInternetAIUpdate).
     /// Fail-closed: not full unpack/pack state machine / variation / floating text.
-    hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry,
+    pub(crate) hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry,
 
     /// Host America Supply Drop Zone residual cash (OCLUpdate residual).
     /// Fail-closed: not full CreateAtEdge cargo plane / parachute crate fall path
@@ -6906,7 +6906,12 @@ impl GameLogic {
         }
         // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
         // Fail-closed: not full unpack/pack state machine / variation factor.
-        self.update_hacker_income();
+        // Wave 822: under coupled shadow, Hacker income owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_hacker_income();
+        }
         // America Supply Drop Zone residual: OCL schedules cargo DeliverPayload
         // residual; cash credits after approach delay + crate spawn.
         // Fail-closed: not full CreateAtEdge cargo plane / parachute fall path.
@@ -22983,6 +22988,80 @@ impl GameLogic {
     /// frames inside Internet Center; Regular/Vet/Elite/Heroic = 5/6/8/10.
     /// InternetHackContain residual: hackers contained in FSInternetCenter auto-hack.
     /// Fail-closed: not full unpack/pack animation / variation / floating text.
+    pub(crate) fn apply_hacker_income_event(
+        &mut self,
+        ev: crate::game_logic::host_hacker_income_log::HackerIncomeEvent,
+    ) {
+        use crate::game_logic::host_hacker_income::{
+            internet_center_floating_text_scatter, should_display_hacker_floating_cash,
+            HostHackerFloatingText, HACKER_CASH_PING_AUDIO, HACKER_XP_PER_CASH_UPDATE,
+        };
+
+        if ev.amount == 0 {
+            return;
+        }
+        let frame = self.frame;
+        self.hacker_income.mark_hacking(ev.id);
+        self.hacker_income
+            .set_next_deposit(ev.id, ev.next_deposit_frame);
+        let deposited =
+            self.hacker_income
+                .force_record_deposit(ev.id, ev.amount, ev.in_internet_center);
+        if deposited == 0 {
+            return;
+        }
+        if let Some(pid) = self.player_id_for_team(ev.team) {
+            if let Some(player) = self.get_player_mut(pid) {
+                player.credit_supplies(deposited);
+                // residual XP
+                let _ = HACKER_XP_PER_CASH_UPDATE;
+            }
+        }
+        let is_local = self
+            .player_id_for_team(ev.team)
+            .map(|pid| self.is_local_player(pid))
+            .unwrap_or(false);
+        let show = should_display_hacker_floating_cash(
+            ev.stealthed,
+            ev.detected,
+            is_local,
+            ev.in_internet_center,
+            false,
+            false,
+            is_local,
+        );
+        let mut float_pos = ev.pos;
+        float_pos.y += 10.0;
+        if show {
+            if ev.in_internet_center && ev.container_radius > 0.0 {
+                let (dx, dz) = internet_center_floating_text_scatter(
+                    ev.id.0.wrapping_add(frame),
+                    ev.container_radius,
+                    ev.container_radius,
+                );
+                float_pos.x += dx;
+                float_pos.z += dz;
+                self.hacker_income.record_ic_scatter();
+            }
+            self.hacker_income
+                .record_floating_text(HostHackerFloatingText::new(
+                    ev.id,
+                    float_pos,
+                    deposited,
+                    frame,
+                    ev.in_internet_center,
+                ));
+        } else {
+            self.hacker_income.record_floating_text_suppressed();
+        }
+        self.queue_audio_event(
+            AudioEventRequest::new(HACKER_CASH_PING_AUDIO)
+                .with_object(ev.id)
+                .with_position(ev.pos)
+                .with_priority(110),
+        );
+    }
+
     fn update_hacker_income(&mut self) {
         use crate::game_logic::host_hacker_income::{
             cash_amount_for_level, cash_interval_frames, is_hacker_template,
