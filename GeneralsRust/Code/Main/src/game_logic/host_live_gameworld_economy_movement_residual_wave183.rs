@@ -136,9 +136,23 @@ pub fn simulate_live_gameworld_economy_movement_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
+    // Wave 757: restore authority env if earlier tests forced off (process-global).
+    unsafe {
+        std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    }
+    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
     if !gameworld_economy_authority_enabled() || !gameworld_movement_authority_enabled() {
         return false;
     }
+    // Wave 757: clear leaked coupled-tick depth from earlier tests so movement
+    // writeback is not skipped due to stale pending-host-log gates.
+    while crate::gameworld_shadow::shadow_coupled_tick_active() {
+        crate::gameworld_shadow::end_shadow_coupled_tick();
+    }
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    host_movement_log::clear();
 
     // --- Economy writeback ---
     let mut logic = GameLogic::new();

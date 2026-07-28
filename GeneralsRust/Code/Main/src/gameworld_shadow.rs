@@ -5020,6 +5020,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_body_damage_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let want = HostBodyDamageType::from_ordinal(ent.body_damage_state);
             if obj.body_damage_state != want {
                 let prev_ord = obj.body_damage_state.ordinal();
@@ -5335,6 +5341,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_ai_mood_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_prio = obj.attack_priority_set.clone().unwrap_or_default();
             let changed = obj.idle_since_frame != ent.idle_since_frame
                 || obj.mood_attack_check_rate != ent.mood_attack_check_rate
@@ -6641,6 +6653,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_ai_state_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_ord = Self::host_ai_state_ordinal(&obj.ai_state);
             if host_ord == ent.ai_state_ordinal {
                 continue;
@@ -9028,6 +9046,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_model_condition_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             if obj.model_condition_bits == ent.model_condition_bits {
                 continue;
             }
@@ -9058,6 +9082,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_movement_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_v = [
                 obj.movement.velocity.x,
                 obj.movement.velocity.y,
@@ -9152,6 +9182,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_physics_motive_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_dest = obj.move_away_destination.map(|p| [p.x, p.y, p.z]);
             let changed = obj.motive_frames_remaining != ent.motive_frames_remaining
                 || (obj.physics_mass - ent.physics_mass).abs() > f32::EPSILON
@@ -9225,6 +9261,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_locomotor_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let changed = obj.is_approach_path != ent.is_approach_path
                 || obj.on_invalid_movement_terrain != ent.on_invalid_movement_terrain
                 || obj.was_airborne_last_frame != ent.was_airborne_last_frame
@@ -9327,6 +9369,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_weapon_stats_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let mut changed = false;
             if let Some(w) = obj.weapon.as_mut() {
                 if (w.damage - ent.weapon_damage).abs() > f32::EPSILON
@@ -9510,6 +9558,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_stealth_flags_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let changed = obj.innate_stealth != ent.innate_stealth
                 || obj.stealth_breaks_on_attack != ent.stealth_breaks_on_attack
                 || obj.stealth_breaks_on_move != ent.stealth_breaks_on_move
@@ -9724,6 +9778,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_weapon_set_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             if obj.weapon_set_player_upgrade == ent.weapon_set_player_upgrade
                 && obj.armed_riders_upgrade_weapon_set == ent.armed_riders_upgrade_weapon_set
             {
@@ -9854,6 +9914,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_combat_attack_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let changed = obj.pre_attack_target.map(|id| id.0).unwrap_or(0)
                 != ent.pre_attack_target_host
                 || (obj.pre_attack_ready_at - ent.pre_attack_ready_at).abs() > f32::EPSILON
@@ -10199,6 +10265,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 757: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_experience_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let pts = ent.experience_points.max(0.0);
             let want_level = match ent.veterancy_ordinal {
                 1 => V::Veteran,
@@ -17585,10 +17657,16 @@ mod tests {
         shadow.sync_from_host(&logic);
         let before = logic.get_objects().get(&oid).expect("o").experience.current;
         host_experience_log::clear();
+        // Wave 757: damage_authority_live requires coupled shadow tick depth
+        // (host-only tests fail-open to host mutate). Enter couple for defer.
+        let _couple = ShadowCoupleGuard::enter();
+        install_active_shadow_for_coupled_tick(&mut shadow);
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.gain_experience(50.0);
         }
+        clear_active_shadow_for_coupled_tick();
+        drop(_couple);
         let mid = logic.get_objects().get(&oid).expect("o").experience.current;
         assert!(
             (mid - before).abs() < 1e-5,
@@ -17604,8 +17682,13 @@ mod tests {
         );
         host_experience_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
-            o.gain_experience(50.0);
+            let _couple = ShadowCoupleGuard::enter();
+            install_active_shadow_for_coupled_tick(&mut shadow);
+            {
+                let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+                o.gain_experience(50.0);
+            }
+            clear_active_shadow_for_coupled_tick();
         }
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
         let after = logic.get_objects().get(&oid).expect("o").experience.current;

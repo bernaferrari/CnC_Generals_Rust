@@ -3255,6 +3255,11 @@ use crate::game_logic::host_live_host_writeback_skip_pending_shock_disable_repul
     honesty_host_writeback_skip_pending_shock_disable_repulsor_nav_commands_residual_wave756,
     simulate_live_host_writeback_skip_pending_shock_disable_repulsor_honesty,
 };
+use crate::game_logic::host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757::{
+    honesty_host_writeback_skip_pending_combat_movement_logs_method_names_residual_wave757,
+    honesty_host_writeback_skip_pending_combat_movement_logs_nav_commands_residual_wave757,
+    simulate_live_host_writeback_skip_pending_combat_movement_logs_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7162,6 +7167,9 @@ pub struct ShellSmokeResult {
     pub host_writeback_skip_pending_shock_disable_repulsor_method_names_wave756_ok: bool,
     pub host_writeback_skip_pending_shock_disable_repulsor_nav_commands_wave756_ok: bool,
     pub host_writeback_skip_pending_shock_disable_repulsor_live_wave756_ok: bool,
+    pub host_writeback_skip_pending_combat_movement_logs_method_names_wave757_ok: bool,
+    pub host_writeback_skip_pending_combat_movement_logs_nav_commands_wave757_ok: bool,
+    pub host_writeback_skip_pending_combat_movement_logs_live_wave757_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11437,6 +11445,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_writeback_skip_pending_shock_disable_repulsor_nav_commands_residual_wave756();
     let host_writeback_skip_pending_shock_disable_repulsor_live_wave756_ok =
         simulate_live_host_writeback_skip_pending_shock_disable_repulsor_honesty();
+    let host_writeback_skip_pending_combat_movement_logs_method_names_wave757_ok =
+        honesty_host_writeback_skip_pending_combat_movement_logs_method_names_residual_wave757();
+    let host_writeback_skip_pending_combat_movement_logs_nav_commands_wave757_ok =
+        honesty_host_writeback_skip_pending_combat_movement_logs_nav_commands_residual_wave757();
+    let host_writeback_skip_pending_combat_movement_logs_live_wave757_ok =
+        simulate_live_host_writeback_skip_pending_combat_movement_logs_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13694,6 +13708,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_writeback_skip_pending_shock_disable_repulsor_method_names_wave756_ok,
         host_writeback_skip_pending_shock_disable_repulsor_nav_commands_wave756_ok,
         host_writeback_skip_pending_shock_disable_repulsor_live_wave756_ok,
+        host_writeback_skip_pending_combat_movement_logs_method_names_wave757_ok,
+        host_writeback_skip_pending_combat_movement_logs_nav_commands_wave757_ok,
+        host_writeback_skip_pending_combat_movement_logs_live_wave757_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25304,6 +25321,21 @@ mod tests {
         assert!(
             r.host_writeback_skip_pending_shock_disable_repulsor_live_wave756_ok,
             "host writeback_skip_pending_shock_disable_repulsor live residual wave756: {}",
+            r.detail
+        );
+        assert!(
+            r.host_writeback_skip_pending_combat_movement_logs_method_names_wave757_ok,
+            "host writeback_skip_pending_combat_movement_logs method names residual pack wave757: {}",
+            r.detail
+        );
+        assert!(
+            r.host_writeback_skip_pending_combat_movement_logs_nav_commands_wave757_ok,
+            "host writeback_skip_pending_combat_movement_logs nav commands residual pack wave757: {}",
+            r.detail
+        );
+        assert!(
+            r.host_writeback_skip_pending_combat_movement_logs_live_wave757_ok,
+            "host writeback_skip_pending_combat_movement_logs live residual wave757: {}",
             r.detail
         );
         assert!(
