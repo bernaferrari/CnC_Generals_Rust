@@ -17970,6 +17970,11 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 685: post-logic heal into GameWorld before full session.
+                let _heal = crate::gameworld_shadow::eager_apply_host_heal_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

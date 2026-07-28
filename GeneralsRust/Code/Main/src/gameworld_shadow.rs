@@ -194,6 +194,7 @@ pub fn end_shadow_coupled_tick() {
         // Wave 684: drop unused post-logic damage handoff when outermost couple ends.
         if next == 0 {
             EARLY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_HEAL_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -378,6 +379,41 @@ pub fn eager_apply_host_damage_after_logic(
     let (queued, applied) = shadow.apply_host_damage_events(&events);
     EARLY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     queued.saturating_add(applied)
+}
+// Wave 685: post-logic heal batch handoff to shadow session (avoid double-apply).
+thread_local! {
+    static EARLY_HEAL_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_heal_log::HostHealEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_heal_batch() -> Option<(Vec<crate::game_logic::host_heal_log::HostHealEvent>, bool)> {
+    EARLY_HEAL_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 685: immediately after the host logic frame on a coupled tick, drain
+/// `host_heal_log` into GameWorld SetHealth mutations.
+///
+/// Stashes the batch for `shadow_session_after_host_tick` so `write_health` still
+/// sees non-empty heals and does not double-apply mutations.
+pub fn eager_apply_host_heal_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active()
+        || !gameworld_shadow_enabled()
+        || !gameworld_damage_authority_enabled()
+    {
+        return 0;
+    }
+    // Wave 685: post-logic heal materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_heal_log::drain();
+    if events.is_empty() {
+        EARLY_HEAL_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_heal_events(&events);
+    EARLY_HEAL_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
 }
 
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
@@ -8112,7 +8148,11 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_damage_log::drain(), false),
     };
-    let heal_events = crate::game_logic::host_heal_log::drain();
+    // Wave 685: prefer post-logic heal batch (already applied to GW when present).
+    let (heal_events, early_heal_applied) = match take_early_heal_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_heal_log::drain(), false),
+    };
     let max_health_events = crate::game_logic::host_max_health_log::drain();
     let experience_events = crate::game_logic::host_experience_log::drain();
     let weapon_bonus_events = crate::game_logic::host_weapon_bonus_log::drain();
@@ -8218,7 +8258,12 @@ pub fn shadow_session_after_host_tick(
     }
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
-    let _heals = shadow.apply_host_heal_events(&heal_events);
+    // Wave 685: skip GW re-apply when post-logic eager path already ran.
+    let _heals = if !early_heal_applied {
+        shadow.apply_host_heal_events(&heal_events)
+    } else {
+        heal_events.len()
+    };
     let _maxh_applied = shadow.apply_host_max_health_events(&max_health_events);
     let _xp_applied = shadow.apply_host_experience_events(&experience_events);
     let _wb_applied = shadow.apply_host_weapon_bonus_events(&weapon_bonus_events);
