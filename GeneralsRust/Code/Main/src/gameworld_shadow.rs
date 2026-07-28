@@ -4109,6 +4109,14 @@ impl GameWorldShadow {
                     }
                     e.nuke_shell_launch_frame = obj.nuke_shell_launch_frame.unwrap_or(0);
                     e.nuke_shell_flight_frames = obj.nuke_shell_flight_frames;
+                    e.angry_mob_member = obj.angry_mob_member;
+                    if let Some(n) = obj.angry_mob_nexus_id {
+                        e.angry_mob_has_nexus = true;
+                        e.angry_mob_nexus_id = n.0;
+                    } else {
+                        e.angry_mob_has_nexus = false;
+                        e.angry_mob_nexus_id = 0;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -9505,11 +9513,68 @@ impl GameWorldShadow {
                 changed = true;
             }
 
+            
             if changed {
                 n += 1;
             }
         }
 
+
+        // Wave 801: AngryMob member follow residual (post-loop; needs nexus positions).
+        {
+            use std::f32::consts::PI;
+            use gamelogic::world::entities::EntityId;
+            // Snapshot host_id -> position for nexus lookup without nested borrows.
+            let mut host_pos: std::collections::HashMap<u32, (f32, f32, f32, bool)> =
+                std::collections::HashMap::new();
+            for (&hid, &eid) in self.host_to_entity.iter() {
+                if let Some(ent) = self.world.entity(eid) {
+                    let p = ent.transform.position;
+                    host_pos.insert(hid, (p.x, p.y, p.z, ent.destroyed || ent.health <= 0.0));
+                }
+            }
+            let member_eids: Vec<EntityId> = self
+                .host_to_entity
+                .values()
+                .copied()
+                .collect();
+            for eid in member_eids {
+                let Some(e) = self.world.world_mut().entity_mut(eid) else {
+                    continue;
+                };
+                if !e.angry_mob_member {
+                    continue;
+                }
+                let mut destroy = false;
+                if !e.angry_mob_has_nexus {
+                    destroy = true;
+                } else if let Some(&(x, y, z, dead)) = host_pos.get(&e.angry_mob_nexus_id) {
+                    if dead {
+                        destroy = true;
+                    } else {
+                        let hid = self.entity_to_host.get(&eid.get()).copied().unwrap_or(0);
+                        let slot = hid % 8;
+                        let angle = (slot as f32) * (2.0 * PI / 8.0);
+                        let radius = 8.0 + (slot % 3) as f32 * 2.0;
+                        e.transform.position.x = x + angle.cos() * radius;
+                        e.transform.position.y = y;
+                        e.transform.position.z = z + angle.sin() * radius;
+                        n = n.saturating_add(1);
+                    }
+                } else {
+                    destroy = true;
+                }
+                if destroy {
+                    e.angry_mob_member = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_angry_mob_member_follow_log::record_destroy(
+                            crate::game_logic::ObjectId(hid),
+                        );
+                    }
+                    n = n.saturating_add(1);
+                }
+            }
+        }
         // Wave 792 pending A10 missile drops (registry sole-tick).
         {
             let mut due = Vec::new();
@@ -14479,6 +14544,14 @@ impl GameWorldShadow {
                 };
                 obj.nuke_shell_flight_frames = ent.nuke_shell_flight_frames;
             }
+            {
+                obj.angry_mob_member = ent.angry_mob_member;
+                obj.angry_mob_nexus_id = if ent.angry_mob_has_nexus {
+                    Some(crate::game_logic::ObjectId(ent.angry_mob_nexus_id))
+                } else {
+                    None
+                };
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -16533,6 +16606,23 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.id, Some(ev.team));
         }
+        // Wave 801: AngryMob member destroy when nexus lost (no dual follow).
+        for id in crate::game_logic::host_angry_mob_member_follow_log::drain_destroys() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.angry_mob_member = false;
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+
 
 
 
