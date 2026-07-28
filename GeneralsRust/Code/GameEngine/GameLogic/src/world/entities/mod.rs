@@ -653,6 +653,12 @@ pub struct Entity {
     pub base_regen_pending_damage: bool,
     /// C++ AnimationSteeringUpdate turn anim ordinal residual.
     pub anim_steer_turn: u8,
+    /// Host AnimationSteeringUpdate module active.
+    pub anim_steer_active: bool,
+    pub anim_steer_next_transition_frame: u32,
+    pub anim_steer_transition_frames: u32,
+    /// 0 empty, else short residual name key via length+hash not needed — store enum only.
+    pub anim_steer_has_condition: bool,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1319,6 +1325,10 @@ impl EntityStore {
             base_regen_done_sold: false,
             base_regen_pending_damage: false,
             anim_steer_turn: 0,
+            anim_steer_active: false,
+            anim_steer_next_transition_frame: 0,
+            anim_steer_transition_frames: 9,
+            anim_steer_has_condition: false,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
