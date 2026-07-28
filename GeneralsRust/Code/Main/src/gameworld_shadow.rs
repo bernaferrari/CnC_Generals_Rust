@@ -5688,6 +5688,7 @@ impl GameWorldShadow {
 
     pub fn writeback_selection_radius_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -5699,7 +5700,13 @@ impl GameWorldShadow {
                 continue;
             }
             obj.selection_radius = ent.selection_radius;
+            // Wave 655: GameWorld selection-radius last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_selection_radius_ready_log::record(oid);
         }
         updated
     }
@@ -6013,6 +6020,7 @@ impl GameWorldShadow {
 
     pub fn writeback_repulsor_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6027,7 +6035,13 @@ impl GameWorldShadow {
             obj.repulsor_until_frame = ent.repulsor_until_frame;
             // Avoid re-entrant host_repulsor_log from set_status_repulsor during writeback.
             obj.status.repulsor = ent.repulsor;
+            // Wave 661: GameWorld repulsor last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_repulsor_ready_log::record(oid);
         }
         updated
     }
@@ -6081,6 +6095,7 @@ impl GameWorldShadow {
 
     pub fn writeback_ground_height_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6095,13 +6110,20 @@ impl GameWorldShadow {
             }
             obj.ground_height = ent.ground_height;
             obj.ground_height_from_terrain = ent.ground_height_from_terrain;
+            // Wave 656: GameWorld ground-height last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_ground_height_ready_log::record(oid);
         }
         updated
     }
 
     pub fn writeback_identity_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6119,7 +6141,13 @@ impl GameWorldShadow {
             }
             obj.name = ent.display_name.clone();
             obj.team_color = ent.team_color;
+            // Wave 660: GameWorld identity last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_identity_ready_log::record(oid);
         }
         updated
     }
@@ -6939,6 +6967,7 @@ impl GameWorldShadow {
 
     pub fn writeback_ai_attitude_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6950,7 +6979,13 @@ impl GameWorldShadow {
                 continue;
             }
             obj.ai_attitude = ent.ai_attitude.clamp(-2, 2);
+            // Wave 659: GameWorld AI-attitude last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_ai_attitude_ready_log::record(oid);
         }
         updated
     }
@@ -7243,6 +7278,7 @@ impl GameWorldShadow {
 
     pub fn writeback_weapon_slot_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7254,7 +7290,13 @@ impl GameWorldShadow {
                 continue;
             }
             obj.active_weapon_slot = ent.active_weapon_slot;
+            // Wave 657: GameWorld weapon-slot last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_weapon_slot_ready_log::record(oid);
         }
         updated
     }
@@ -7262,6 +7304,7 @@ impl GameWorldShadow {
     /// Write shadow weapon-bonus pack back onto host Object residual flags.
     pub fn writeback_weapon_bonus_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7300,7 +7343,13 @@ impl GameWorldShadow {
                 ent.weapon_bonus_battle_plan_search_and_destroy;
             obj.weapon_bonus_frenzy_until_frame = ent.weapon_bonus_frenzy_until_frame;
             obj.battle_plan_sight_scalar_applied = ent.battle_plan_sight_scalar_applied;
+            // Wave 658: GameWorld weapon-bonus last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_weapon_bonus_ready_log::record(oid);
         }
         updated
     }
@@ -8145,10 +8194,16 @@ pub fn shadow_session_after_host_tick(
         // Wave 622: drain veterancy ready log after GW XP/level writeback.
         let _vet_ready = logic.host_apply_veterancy_ready_completions();
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
+        // Wave 658: drain weapon-bonus ready log after GW writeback.
+        let _w658_ready = logic.host_apply_weapon_bonus_ready_completions();
         let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
         let _rp_wb = shadow.writeback_repulsor_to_host(logic);
+        // Wave 661: drain repulsor ready log after GW writeback.
+        let _w661_ready = logic.host_apply_repulsor_ready_completions();
         let _dt_wb = shadow.writeback_disable_timers_to_host(logic);
         let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
+        // Wave 657: drain weapon-slot ready log after GW writeback.
+        let _w657_ready = logic.host_apply_weapon_slot_ready_completions();
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
@@ -8198,6 +8253,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 630: drain AI-state ready log after GW writeback.
         let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
+        // Wave 659: drain AI-attitude ready log after GW writeback.
+        let _w659_ready = logic.host_apply_ai_attitude_ready_completions();
         let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
         // Wave 642: drain weapon-set ready log after GW writeback.
         let _wset_ready = logic.host_apply_weapon_set_ready_completions();
@@ -8290,6 +8347,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 650: drain bounce-land ready log after GW writeback.
         let _bl_ready = logic.host_apply_bounce_land_ready_completions();
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
+        // Wave 655: drain selection-radius ready log after GW writeback.
+        let _w655_ready = logic.host_apply_selection_radius_ready_completions();
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
         // Wave 633: drain model-condition ready log after GW writeback.
         let _mc_ready = logic.host_apply_model_condition_ready_completions();
@@ -8297,7 +8356,11 @@ pub fn shadow_session_after_host_tick(
         let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
         let _bt_wb = shadow.writeback_building_type_to_host(logic);
         let _id_wb = shadow.writeback_identity_to_host(logic);
+        // Wave 660: drain identity ready log after GW writeback.
+        let _w660_ready = logic.host_apply_identity_ready_completions();
         let _gh_wb = shadow.writeback_ground_height_to_host(logic);
+        // Wave 656: drain ground-height ready log after GW writeback.
+        let _w656_ready = logic.host_apply_ground_height_ready_completions();
 
         let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         // Wave 634: drain combat-status ready log after GW writeback.
@@ -11690,6 +11753,7 @@ mod tests {
             e.selection_radius = 14.5;
         }
         assert!(shadow.writeback_selection_radius_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_selection_radius_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.selection_radius - 14.5).abs() < 1e-5);
     }
@@ -11749,6 +11813,7 @@ mod tests {
             e.ground_height_from_terrain = true;
         }
         assert!(shadow.writeback_ground_height_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_ground_height_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.ground_height - 12.5).abs() < 1e-5);
         assert!(o.ground_height_from_terrain);
@@ -11961,6 +12026,7 @@ mod tests {
             e.team_color = [0.1, 0.2, 0.3, 1.0];
         }
         assert!(shadow.writeback_identity_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_identity_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.name, "ScriptRanger");
         assert!((o.team_color[0] - 0.1).abs() < 1e-5);
@@ -13083,6 +13149,7 @@ mod tests {
             e.ai_attitude = 2;
         }
         assert!(shadow.writeback_ai_attitude_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_ai_attitude_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.ai_attitude, 2);
     }
@@ -13558,6 +13625,7 @@ mod tests {
             e.active_weapon_slot = 1;
         }
         assert!(shadow.writeback_weapon_slot_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_weapon_slot_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.active_weapon_slot, 1);
     }
@@ -13637,6 +13705,7 @@ mod tests {
             e.battle_plan_sight_scalar_applied = 1.5;
         }
         assert!(shadow.writeback_weapon_bonus_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_weapon_bonus_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.weapon_bonus_frenzy && o.weapon_bonus_frenzy_level == 2);
         assert!(o.weapon_bonus_horde && o.weapon_bonus_nationalism);
@@ -13764,6 +13833,7 @@ mod tests {
             e.repulsor_until_frame = 12;
         }
         assert!(shadow.writeback_repulsor_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_repulsor_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.status.repulsor);
         assert_eq!(o.repulsor_until_frame, 12);
