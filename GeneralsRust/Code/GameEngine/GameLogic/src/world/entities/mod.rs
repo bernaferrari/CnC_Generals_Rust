@@ -741,6 +741,8 @@ pub struct Entity {
     pub weapon_bonus_frenzy_until_frame: u32,
     /// Host continuous_fire_coast_until_frame residual.
     pub continuous_fire_coast_until_frame: u32,
+    /// Host Object::frame_to_force_reload residual (0 = none).
+    pub frame_to_force_reload: u32,
     /// Host combat attack residual `pre_attack_target_host`.
     pub pre_attack_target_host: u32,
     /// Host combat attack residual `pre_attack_ready_at`.
@@ -1172,6 +1174,7 @@ impl EntityStore {
             has_mine_data: false,
             weapon_bonus_frenzy_until_frame: 0,
             continuous_fire_coast_until_frame: 0,
+            frame_to_force_reload: 0,
             pre_attack_target_host: 0,
             pre_attack_ready_at: 0.0,
             consecutive_shots_at_target: 0,

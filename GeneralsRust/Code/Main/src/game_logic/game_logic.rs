@@ -8295,7 +8295,13 @@ impl GameLogic {
                     obj.tick_fire_sound_loop(self.frame);
                     obj.tick_subdual_damage();
                 }
-                obj.tick_force_reload_when_idle(self.frame);
+                // Wave 763: under coupled shadow, force-reload-when-idle is owned by
+                // GW tick_status_timer_expirations + weapon_stats/continuous-fire writeback.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    obj.tick_force_reload_when_idle(self.frame);
+                }
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {
                     self.bomb_truck_disguise.record_transition_halfpoint();

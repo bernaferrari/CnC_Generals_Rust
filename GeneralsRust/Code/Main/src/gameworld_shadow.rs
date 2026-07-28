@@ -6902,6 +6902,15 @@ impl GameWorldShadow {
                 e.eject_invulnerable_until_frame = 0;
                 changed = true;
             }
+            // Wave 763: force-reload-when-idle residual (C++ FiringTracker).
+            if e.frame_to_force_reload > 0 && frame >= e.frame_to_force_reload {
+                let needs = e.weapon_clip_size > 0 && e.weapon_ammo < e.weapon_clip_size;
+                if needs {
+                    e.weapon_ammo = e.weapon_clip_size;
+                }
+                e.frame_to_force_reload = 0;
+                changed = true;
+            }
             if changed {
                 n += 1;
             }
@@ -10220,13 +10229,15 @@ impl GameWorldShadow {
             let host_consec = obj.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
             let changed = obj.continuous_fire_level != ent.continuous_fire_level
                 || host_consec != ent.continuous_fire_consecutive
-                || obj.continuous_fire_coast_until_frame != ent.continuous_fire_coast_until_frame;
+                || obj.continuous_fire_coast_until_frame != ent.continuous_fire_coast_until_frame
+                || obj.frame_to_force_reload != ent.frame_to_force_reload;
             if !changed {
                 continue;
             }
             obj.continuous_fire_level = ent.continuous_fire_level;
             obj.continuous_fire_consecutive = ent.continuous_fire_consecutive as u32;
             obj.continuous_fire_coast_until_frame = ent.continuous_fire_coast_until_frame;
+            obj.frame_to_force_reload = ent.frame_to_force_reload;
             // Wave 670: GameWorld continuous-fire last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
