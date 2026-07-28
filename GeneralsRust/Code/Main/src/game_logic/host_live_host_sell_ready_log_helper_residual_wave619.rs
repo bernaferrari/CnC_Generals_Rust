@@ -163,10 +163,8 @@ pub fn honesty_host_sell_ready_log_helper_source_markers_residual_wave619() -> b
     let drain_ok = update.contains("Wave 619")
         && update.contains("ready_sells")
         && update.contains("construction_sole")
-        && (
-            update.contains("host_sell_ready_log::drain")
-                || gl.contains("host_apply_sell_completions_after_ready_writeback")
-        );
+        && (update.contains("host_sell_ready_log::drain")
+            || gl.contains("host_apply_sell_completions_after_ready_writeback"));
     let ok = log_ok && wb_ok && drain_ok && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostSellReadyLogHelperAction::SourceMarkers);
     ok

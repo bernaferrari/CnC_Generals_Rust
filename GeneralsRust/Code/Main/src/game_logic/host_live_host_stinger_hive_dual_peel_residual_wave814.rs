@@ -54,8 +54,7 @@ fn residual_action_store(a: ResidualHostStingerHiveDualPeelAction) {
 pub fn residual_host_stinger_hive_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_stinger_hive_dual_peel_last_action(
-) -> ResidualHostStingerHiveDualPeelAction {
+pub fn residual_host_stinger_hive_dual_peel_last_action() -> ResidualHostStingerHiveDualPeelAction {
     ResidualHostStingerHiveDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {

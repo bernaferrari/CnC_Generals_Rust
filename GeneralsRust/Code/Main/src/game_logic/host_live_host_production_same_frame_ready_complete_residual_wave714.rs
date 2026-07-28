@@ -5,7 +5,9 @@
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
 static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> { table.iter().position(|n| *n == name) }
+pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
+    table.iter().position(|n| *n == name)
+}
 pub const LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE714: &[&str] = &[
     "host_apply_production_completions_after_ready_writeback",
     "gameworld_production_sole_tick_enabled",
@@ -21,35 +23,73 @@ pub const LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_NAV_STEPS_WAVE714: &[&s
     "LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
-pub const RUNTIME_HOST_LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE714: &[&str] = &[
-    "host_production_same_frame_ready_complete",
-    "post_writeback_complete",
-    "sole_tick_skip_mid_update",
-    "session_handoff",
-];
+pub const RUNTIME_HOST_LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE714: &[&str] =
+    &[
+        "host_production_same_frame_ready_complete",
+        "post_writeback_complete",
+        "sole_tick_skip_mid_update",
+        "session_handoff",
+    ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidualHostProductionSameFrameReadyCompleteAction { None=0,MethodNames=1,SourceMarkers=2,NavCommands=3,CollectSource=4,DispatchSource=5,Composite=6 }
-impl ResidualHostProductionSameFrameReadyCompleteAction {
-    pub fn from_u8(v: u8) -> Self { match v { 1=>Self::MethodNames,2=>Self::SourceMarkers,3=>Self::NavCommands,4=>Self::CollectSource,5=>Self::DispatchSource,6=>Self::Composite,_=>Self::None } }
+pub enum ResidualHostProductionSameFrameReadyCompleteAction {
+    None = 0,
+    MethodNames = 1,
+    SourceMarkers = 2,
+    NavCommands = 3,
+    CollectSource = 4,
+    DispatchSource = 5,
+    Composite = 6,
 }
-fn residual_action_store(a: ResidualHostProductionSameFrameReadyCompleteAction) { RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst); }
-pub fn residual_host_production_same_frame_ready_complete_ok() -> bool { RESIDUAL_OK.load(Ordering::SeqCst) }
-pub fn residual_host_production_same_frame_ready_complete_last_action() -> ResidualHostProductionSameFrameReadyCompleteAction { ResidualHostProductionSameFrameReadyCompleteAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst)) }
-fn gl_source() -> &'static str { include_str!("game_logic.rs") }
-fn shadow_source() -> &'static str { include_str!("../gameworld_shadow.rs") }
+impl ResidualHostProductionSameFrameReadyCompleteAction {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::MethodNames,
+            2 => Self::SourceMarkers,
+            3 => Self::NavCommands,
+            4 => Self::CollectSource,
+            5 => Self::DispatchSource,
+            6 => Self::Composite,
+            _ => Self::None,
+        }
+    }
+}
+fn residual_action_store(a: ResidualHostProductionSameFrameReadyCompleteAction) {
+    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
+}
+pub fn residual_host_production_same_frame_ready_complete_ok() -> bool {
+    RESIDUAL_OK.load(Ordering::SeqCst)
+}
+pub fn residual_host_production_same_frame_ready_complete_last_action(
+) -> ResidualHostProductionSameFrameReadyCompleteAction {
+    ResidualHostProductionSameFrameReadyCompleteAction::from_u8(
+        RESIDUAL_ACTION.load(Ordering::SeqCst),
+    )
+}
+fn gl_source() -> &'static str {
+    include_str!("game_logic.rs")
+}
+fn shadow_source() -> &'static str {
+    include_str!("../gameworld_shadow.rs")
+}
 pub fn honesty_host_production_same_frame_ready_complete_method_names_residual_wave714() -> bool {
-    let names=LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE714;
-    let ok=residual_name_index(names,"host_apply_production_completions_after_ready_writeback").is_some()
-        && residual_name_index(names,"gameworld_production_sole_tick_enabled").is_some()
-        && residual_name_index(names,"writeback_production_to_host").is_some()
-        && residual_name_index(names,"host_collect_production_completions").is_some()
-        && residual_name_index(names,"Wave 714").is_some()
-        && residual_name_index(names,"playable_claim = false").is_some();
-    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::MethodNames); ok
+    let names = LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE714;
+    let ok = residual_name_index(
+        names,
+        "host_apply_production_completions_after_ready_writeback",
+    )
+    .is_some()
+        && residual_name_index(names, "gameworld_production_sole_tick_enabled").is_some()
+        && residual_name_index(names, "writeback_production_to_host").is_some()
+        && residual_name_index(names, "host_collect_production_completions").is_some()
+        && residual_name_index(names, "Wave 714").is_some()
+        && residual_name_index(names, "playable_claim = false").is_some();
+    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::MethodNames);
+    ok
 }
 pub fn honesty_host_production_same_frame_ready_complete_source_markers_residual_wave714() -> bool {
-    let gl=gl_source(); let sh=shadow_source();
+    let gl = gl_source();
+    let sh = shadow_source();
     let gl_ok=gl.contains("host_apply_production_completions_after_ready_writeback")
         && gl.contains("Wave 714")
         && gl.contains("gameworld_production_sole_tick_enabled()")
@@ -64,7 +104,7 @@ pub fn honesty_host_production_same_frame_ready_complete_source_markers_residual
             chunk.contains("gameworld_production_sole_tick_enabled()") && chunk.contains("return;")
         })
         .unwrap_or(false);
-    let sh_ok=sh.contains("host_apply_production_completions_after_ready_writeback")
+    let sh_ok = sh.contains("host_apply_production_completions_after_ready_writeback")
         && sh.contains("writeback_production_to_host")
         && sh.contains("Wave 714");
     // writeback then same-frame complete order
@@ -75,31 +115,35 @@ pub fn honesty_host_production_same_frame_ready_complete_source_markers_residual
         (Some(w), Some(c)) => c > w && c - w < 400,
         _ => false,
     };
-    let ok=gl_ok&&upd_ok&&sh_ok&&order_ok&&!gl.contains("playable_claim = true");
-    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::SourceMarkers); ok
+    let ok = gl_ok && upd_ok && sh_ok && order_ok && !gl.contains("playable_claim = true");
+    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::SourceMarkers);
+    ok
 }
 pub fn honesty_host_production_same_frame_ready_complete_nav_commands_residual_wave714() -> bool {
-    let steps=LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_NAV_STEPS_WAVE714;
-    let cmds=RUNTIME_HOST_LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE714;
-    let ok=residual_name_index(steps,"REQUIRE_POST_WRITEBACK_COMPLETE").is_some()
-        && residual_name_index(steps,"REQUIRE_SOLE_TICK_SKIP_MID_UPDATE").is_some()
-        && residual_name_index(steps,"REQUIRE_SESSION_HANDOFF").is_some()
-        && residual_name_index(steps,"LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE").is_some()
-        && residual_name_index(steps,"LIVE_PLAYABLE_CLAIM_FALSE").is_some()
-        && residual_name_index(cmds,"host_production_same_frame_ready_complete").is_some()
-        && residual_name_index(cmds,"post_writeback_complete").is_some()
-        && residual_name_index(cmds,"sole_tick_skip_mid_update").is_some()
-        && residual_name_index(cmds,"session_handoff").is_some();
-    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::NavCommands); ok
+    let steps = LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_NAV_STEPS_WAVE714;
+    let cmds = RUNTIME_HOST_LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE714;
+    let ok = residual_name_index(steps, "REQUIRE_POST_WRITEBACK_COMPLETE").is_some()
+        && residual_name_index(steps, "REQUIRE_SOLE_TICK_SKIP_MID_UPDATE").is_some()
+        && residual_name_index(steps, "REQUIRE_SESSION_HANDOFF").is_some()
+        && residual_name_index(steps, "LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE").is_some()
+        && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
+        && residual_name_index(cmds, "host_production_same_frame_ready_complete").is_some()
+        && residual_name_index(cmds, "post_writeback_complete").is_some()
+        && residual_name_index(cmds, "sole_tick_skip_mid_update").is_some()
+        && residual_name_index(cmds, "session_handoff").is_some();
+    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::NavCommands);
+    ok
 }
 pub fn simulate_host_production_same_frame_ready_complete_collect_source() -> bool {
-    let ok=gl_source().contains("host_apply_production_completions_after_ready_writeback")
+    let ok = gl_source().contains("host_apply_production_completions_after_ready_writeback")
         && shadow_source().contains("host_apply_production_completions_after_ready_writeback");
-    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::CollectSource); ok
+    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::CollectSource);
+    ok
 }
 pub fn simulate_host_production_same_frame_ready_complete_dispatch_source() -> bool {
-    let ok=gl_source().contains("Wave 714") && shadow_source().contains("Wave 714");
-    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::DispatchSource); ok
+    let ok = gl_source().contains("Wave 714") && shadow_source().contains("Wave 714");
+    residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::DispatchSource);
+    ok
 }
 pub fn honesty_host_production_same_frame_ready_complete_residual_pack_wave714() -> bool {
     honesty_host_production_same_frame_ready_complete_method_names_residual_wave714()
@@ -109,15 +153,20 @@ pub fn honesty_host_production_same_frame_ready_complete_residual_pack_wave714()
         && simulate_host_production_same_frame_ready_complete_dispatch_source()
 }
 pub fn simulate_live_host_production_same_frame_ready_complete_honesty() -> bool {
-    let ok=honesty_host_production_same_frame_ready_complete_residual_pack_wave714();
-    if ok { RESIDUAL_OK.store(true, Ordering::SeqCst); residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::Composite); }
+    let ok = honesty_host_production_same_frame_ready_complete_residual_pack_wave714();
+    if ok {
+        RESIDUAL_OK.store(true, Ordering::SeqCst);
+        residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::Composite);
+    }
     ok
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::buildings::{BuildingData, BuildingType, ProductionItem, ProductionKind};
+    use crate::game_logic::buildings::{
+        BuildingData, BuildingType, ProductionItem, ProductionKind,
+    };
     use crate::game_logic::host_production_ready_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Resources, Team, ThingTemplate};
     use crate::gameworld_shadow::{
@@ -134,12 +183,34 @@ mod tests {
         logic.templates.insert(name.into(), t);
     }
 
-    #[test] fn method_names_residual() { assert!(honesty_host_production_same_frame_ready_complete_method_names_residual_wave714()); }
-    #[test] fn source_markers_residual() { assert!(honesty_host_production_same_frame_ready_complete_source_markers_residual_wave714()); }
-    #[test] fn nav_commands_residual() { assert!(honesty_host_production_same_frame_ready_complete_nav_commands_residual_wave714()); }
-    #[test] fn sources() { assert!(simulate_host_production_same_frame_ready_complete_collect_source()); assert!(simulate_host_production_same_frame_ready_complete_dispatch_source()); }
-    #[test] fn pack() { assert!(honesty_host_production_same_frame_ready_complete_residual_pack_wave714()); }
-    #[test] fn live() { assert!(simulate_live_host_production_same_frame_ready_complete_honesty()); assert!(residual_host_production_same_frame_ready_complete_ok()); }
+    #[test]
+    fn method_names_residual() {
+        assert!(honesty_host_production_same_frame_ready_complete_method_names_residual_wave714());
+    }
+    #[test]
+    fn source_markers_residual() {
+        assert!(
+            honesty_host_production_same_frame_ready_complete_source_markers_residual_wave714()
+        );
+    }
+    #[test]
+    fn nav_commands_residual() {
+        assert!(honesty_host_production_same_frame_ready_complete_nav_commands_residual_wave714());
+    }
+    #[test]
+    fn sources() {
+        assert!(simulate_host_production_same_frame_ready_complete_collect_source());
+        assert!(simulate_host_production_same_frame_ready_complete_dispatch_source());
+    }
+    #[test]
+    fn pack() {
+        assert!(honesty_host_production_same_frame_ready_complete_residual_pack_wave714());
+    }
+    #[test]
+    fn live() {
+        assert!(simulate_live_host_production_same_frame_ready_complete_honesty());
+        assert!(residual_host_production_same_frame_ready_complete_ok());
+    }
 
     #[test]
     fn sole_tick_mid_update_skips_collect_post_writeback_completes() {
@@ -165,7 +236,10 @@ mod tests {
                 template_name: "SfUnit".into(),
                 progress: 10.0,
                 total_time: 10.0,
-                cost: Resources { supplies: 100, power: 0 },
+                cost: Resources {
+                    supplies: 100,
+                    power: 0,
+                },
                 kind: ProductionKind::Unit,
                 quantity_total: 1,
                 quantity_produced: 0,

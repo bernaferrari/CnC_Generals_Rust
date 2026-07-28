@@ -1057,7 +1057,8 @@ pub struct GameLogic {
     /// delayed multi-point line damage; ArtilleryBarrage applies delayed multi-shell
     /// scatter damage; CruiseMissile applies delayed loft + MOAB area damage.
     /// Fail-closed vs full retail.
-    pub(crate) special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
+    pub(crate) special_power_strikes:
+        crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
     /// Host America Paradrop / Airborne residual.
     /// Queues on DoSpecialPower and spawns infantry after approach delay — fail-closed vs full OCL plane.
@@ -1181,7 +1182,8 @@ pub struct GameLogic {
     pub(crate) artillery_barrage_flight_reg:
         crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry,
     /// C++ A10Thunderbolt DeliverPayload residual counters.
-    pub(crate) a10_strike_flight_reg: crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
+    pub(crate) a10_strike_flight_reg:
+        crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
     /// C++ DaisyCutter DeliverPayload residual counters.
     pub(crate) daisy_cutter_flight_reg:
         crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightRegistry,
@@ -1192,7 +1194,8 @@ pub struct GameLogic {
     pub(crate) cluster_mines_flight_reg:
         crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry,
     /// C++ EMPPulse DeliverPayload residual counters.
-    pub(crate) emp_pulse_flight_reg: crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
+    pub(crate) emp_pulse_flight_reg:
+        crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -1372,7 +1375,8 @@ pub struct GameLogic {
     spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
     /// Host America Countermeasures residual (aircraft flare diversion).
     /// CountermeasureFlare SpecialObject spawn residual closed.
-    pub(crate) countermeasures: crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+    pub(crate) countermeasures:
+        crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
 
     /// Host CIA Intelligence / SpyVision residual (setUnitsVisionSpied).
     /// Fail-closed: not full SpyVisionUpdate module / kindof filter / sabotage path.
@@ -1384,11 +1388,11 @@ pub struct GameLogic {
 
     /// Host GLA Black Market residual cash (AutoDepositUpdate residual).
     /// Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost matrix.
-    black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry,
+    pub(crate) black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry,
 
     /// Host Tech Oil Derrick residual cash (AutoDepositUpdate residual).
     /// AutoDeposit residual (SupplyLines boost + floating text host residual closed).
-    oil_derricks: crate::game_logic::host_oil_derrick::HostOilDerrickRegistry,
+    pub(crate) oil_derricks: crate::game_logic::host_oil_derrick::HostOilDerrickRegistry,
 
     /// Host China Hacker / Internet Center residual cash (HackInternetAIUpdate).
     /// Fail-closed: not full unpack/pack state machine / variation / floating text.
@@ -1895,7 +1899,8 @@ pub struct GameLogic {
     /// Honesty: Weapon.ini LaserName SpecialObject Things spawned.
     weapon_laser_beams_spawned: u32,
     /// C++ ProjectileStreamUpdate residual registry.
-    pub(crate) projectile_streams: crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
+    pub(crate) projectile_streams:
+        crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
     pending_patriot_assists: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
     /// StealthDetectorUpdate DetectionRate residual scans performed.
@@ -6885,10 +6890,20 @@ impl GameLogic {
         self.update_player_resources(dt);
         // GLA Black Market residual cash (AutoDepositUpdate discrete deposits + floating text).
         // Fail-closed: not full InGameUI GPU / InitialCaptureBonus (retail 0).
-        self.update_black_market_deposits();
+        // Wave 821: under coupled shadow, AutoDeposit owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_black_market_deposits();
+        }
         // Tech Oil Derrick residual cash (AutoDeposit + SupplyLines boost + floating text).
         // Fail-closed: not full InGameUI GPU / STEALTHED local display gate.
-        self.update_oil_derrick_deposits();
+        // Wave 821: under coupled shadow, AutoDeposit owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_oil_derrick_deposits();
+        }
         // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
         // Fail-closed: not full unpack/pack state machine / variation factor.
         self.update_hacker_income();
@@ -7025,7 +7040,8 @@ impl GameLogic {
         let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
         // Empty mid-update ready set: sole completes only via post-writeback helper (Wave 715).
         // Non-sole completes via projected percent (may_complete=true).
-        let ready_structures: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
+        let ready_structures: std::collections::HashSet<ObjectId> =
+            std::collections::HashSet::new();
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
@@ -7201,7 +7217,6 @@ impl GameLogic {
             self.update_actively_constructing_model_conditions();
         }
     }
-
 
     /// Wave 715: after GW construction writeback records ready structures, host
     /// applies completion side effects in the same coupled tick (not next frame).
@@ -7478,13 +7493,7 @@ impl GameLogic {
                                     }
                                 }
                             }
-                            unit_completions.push((
-                                obj.team,
-                                completed_name,
-                                spawn_pos,
-                                rally,
-                                id,
-                            ));
+                            unit_completions.push((obj.team, completed_name, spawn_pos, rally, id));
                         }
                     }
                 }
@@ -7603,16 +7612,15 @@ impl GameLogic {
                 // Bind present: allocate host id and map to pre-spawned entity.
                 return self.create_object(template, team, spawn_pos);
             }
-            let allow_without_bind = std::env::var_os(
-                "GENERALS_RUNTIME_HOST_REBUILD_SPAWN_WITHOUT_GW_BIND",
-            )
-            .is_some_and(|v| {
-                let s = v.to_string_lossy();
-                !(s.is_empty()
-                    || s == "0"
-                    || s.eq_ignore_ascii_case("false")
-                    || s.eq_ignore_ascii_case("no"))
-            });
+            let allow_without_bind =
+                std::env::var_os("GENERALS_RUNTIME_HOST_REBUILD_SPAWN_WITHOUT_GW_BIND")
+                    .is_some_and(|v| {
+                        let s = v.to_string_lossy();
+                        !(s.is_empty()
+                            || s == "0"
+                            || s.eq_ignore_ascii_case("false")
+                            || s.eq_ignore_ascii_case("no"))
+                    });
             if !allow_without_bind {
                 log::debug!(
                     "Wave 741: construction sole-tick rebuild spawn denied without GW entity bind (template={template})"
@@ -7664,16 +7672,15 @@ impl GameLogic {
                 // Bind present (preferred collision or create miss): host allocate + map.
                 return self.create_object(template, team, spawn_pos);
             }
-            let allow_without_bind = std::env::var_os(
-                "GENERALS_RUNTIME_HOST_PRODUCTION_SPAWN_WITHOUT_GW_BIND",
-            )
-            .is_some_and(|v| {
-                let s = v.to_string_lossy();
-                !(s.is_empty()
-                    || s == "0"
-                    || s.eq_ignore_ascii_case("false")
-                    || s.eq_ignore_ascii_case("no"))
-            });
+            let allow_without_bind =
+                std::env::var_os("GENERALS_RUNTIME_HOST_PRODUCTION_SPAWN_WITHOUT_GW_BIND")
+                    .is_some_and(|v| {
+                        let s = v.to_string_lossy();
+                        !(s.is_empty()
+                            || s == "0"
+                            || s.eq_ignore_ascii_case("false")
+                            || s.eq_ignore_ascii_case("no"))
+                    });
             if !allow_without_bind {
                 log::debug!(
                     "Wave 738: sole-tick production spawn denied without GW entity bind (template={template})"
@@ -8006,15 +8013,14 @@ impl GameLogic {
         // Wave 732: free fallback CC/dozer seeding is opt-in only (default fail-closed).
         // Retail maps must supply start objects. Vertical-slice/incomplete catalogs may set
         // GENERALS_RUNTIME_HOST_SEED_START_PRESENCE=1.
-        let allow_seed = std::env::var_os("GENERALS_RUNTIME_HOST_SEED_START_PRESENCE").is_some_and(
-            |v| {
+        let allow_seed =
+            std::env::var_os("GENERALS_RUNTIME_HOST_SEED_START_PRESENCE").is_some_and(|v| {
                 let s = v.to_string_lossy();
                 !(s.is_empty()
                     || s == "0"
                     || s.eq_ignore_ascii_case("false")
                     || s.eq_ignore_ascii_case("no"))
-            },
-        );
+            });
         if !allow_seed {
             return;
         }
@@ -19468,10 +19474,14 @@ impl GameLogic {
                             // destroys immediately. SlowDeath must not clear destroyed —
                             // hijacker consume is same-frame (begin_slow_death clears the
                             // destroyed flag for delayed peels).
-                            let hijacker_is_infantry = self.objects.get(&object_id).map(|h| {
-                                h.is_kind_of(KindOf::Infantry)
-                                    || h.object_type == ObjectType::Infantry
-                            }).unwrap_or(false);
+                            let hijacker_is_infantry = self
+                                .objects
+                                .get(&object_id)
+                                .map(|h| {
+                                    h.is_kind_of(KindOf::Infantry)
+                                        || h.object_type == ObjectType::Infantry
+                                })
+                                .unwrap_or(false);
                             if hijacker_is_infantry
                                 && self.vehicle_supports_hijacker_ride(special_target_id)
                             {
@@ -22582,6 +22592,108 @@ impl GameLogic {
     /// DepositAmount=20, DepositTiming=2000 ms → 60 logic frames @ 30 FPS.
     /// Floating cash text residual: GUI:AddCash @ pos+Z10, player color | A230.
     /// Fail-closed: not full InGameUI GPU draw / InitialCaptureBonus (retail 0).
+    pub(crate) fn apply_auto_deposit_event(
+        &mut self,
+        ev: crate::game_logic::host_auto_deposit_log::AutoDepositEvent,
+    ) {
+        use crate::game_logic::host_auto_deposit_log::AutoDepositKind;
+        use crate::game_logic::host_black_market::BLACK_MARKET_DEPOSIT_AUDIO;
+        use crate::game_logic::host_oil_derrick::{
+            oil_derrick_deposit_amount, should_display_stealthed_floating_cash,
+            HostAutoDepositFloatingText, OIL_DERRICK_DEPOSIT_AUDIO,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+
+        if ev.amount == 0 {
+            return;
+        }
+        let frame = self.frame;
+        let (deposited, audio) = match ev.kind {
+            AutoDepositKind::BlackMarket => {
+                // GW already advanced next_deposit_frame; keep registry schedule in lockstep.
+                self.black_markets
+                    .set_next_deposit(ev.id, ev.next_deposit_frame);
+                let d = self.black_markets.force_record_deposit(ev.id, ev.amount);
+                (d, BLACK_MARKET_DEPOSIT_AUDIO)
+            }
+            AutoDepositKind::OilDerrick => {
+                let has_supply_lines = self.players.values().any(|p| {
+                    p.team == ev.team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+                });
+                let (amount, boost) = oil_derrick_deposit_amount(has_supply_lines);
+                self.oil_derricks
+                    .set_next_deposit(ev.id, ev.next_deposit_frame);
+                let d = self.oil_derricks.force_record_deposit(ev.id, amount, boost);
+                if boost > 0 {
+                    self.oil_derricks.supply_lines_boost_cash_total = self
+                        .oil_derricks
+                        .supply_lines_boost_cash_total
+                        .saturating_add(boost);
+                }
+                (d, OIL_DERRICK_DEPOSIT_AUDIO)
+            }
+        };
+        if deposited == 0 {
+            return;
+        }
+        if let Some(pid) = self.player_id_for_team(ev.team) {
+            if let Some(player) = self.get_player_mut(pid) {
+                player.credit_supplies(deposited);
+            }
+        }
+        let player_color = self
+            .players
+            .values()
+            .find(|p| p.team == ev.team)
+            .map(|p| p.color_rgb)
+            .unwrap_or((200, 200, 200));
+        let is_local = self
+            .player_id_for_team(ev.team)
+            .map(|pid| self.is_local_player(pid))
+            .unwrap_or(false);
+        let show = should_display_stealthed_floating_cash(ev.stealthed, ev.detected, is_local);
+        let mut float_pos = ev.pos;
+        float_pos.y += 10.0;
+        match ev.kind {
+            AutoDepositKind::BlackMarket => {
+                if show {
+                    self.black_markets
+                        .record_floating_text(HostAutoDepositFloatingText::new(
+                            ev.id,
+                            float_pos,
+                            deposited,
+                            player_color,
+                            frame,
+                            false,
+                        ));
+                } else {
+                    self.black_markets.record_floating_text_suppressed();
+                }
+            }
+            AutoDepositKind::OilDerrick => {
+                if show {
+                    self.oil_derricks
+                        .record_floating_text(HostAutoDepositFloatingText::new(
+                            ev.id,
+                            float_pos,
+                            deposited,
+                            player_color,
+                            frame,
+                            false,
+                        ));
+                } else {
+                    self.oil_derricks.record_floating_text_suppressed();
+                }
+            }
+        }
+        self.queue_audio_event(
+            AudioEventRequest::new(audio)
+                .with_object(ev.id)
+                .with_position(ev.pos)
+                .with_priority(120),
+        );
+    }
+
     fn update_black_market_deposits(&mut self) {
         use crate::game_logic::host_black_market::{
             is_black_market_template, is_legal_black_market_income_source,
@@ -25291,7 +25403,6 @@ impl GameLogic {
         }
     }
 
-
     /// Wave 752: lethal finish that respects damage-authority HP last-write.
     /// Prefer this over direct host HP zeroing for production destroy residual.
     #[allow(dead_code)]
@@ -25314,16 +25425,15 @@ impl GameLogic {
         true
     }
 
-
     /// Wave 754: C++ EjectPilotDie::onDie residual at death start (mark_object),
     /// not only final process_destroy remove. SlowDeath defers remove and must
     /// not suppress pilot spawn / honesty residual.
     pub(crate) fn maybe_apply_eject_pilot_die(&mut self, id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
-            air_eject_spawn_height, can_eject_pilot_on_death,
-            is_eject_pilot_eligible_template, meets_eject_pilot_death_types_gate,
-            meets_eject_pilot_exempt_status_gate, meets_eject_pilot_veterancy_gate,
-            uses_air_eject_ocl, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
+            air_eject_spawn_height, can_eject_pilot_on_death, is_eject_pilot_eligible_template,
+            meets_eject_pilot_death_types_gate, meets_eject_pilot_exempt_status_gate,
+            meets_eject_pilot_veterancy_gate, uses_air_eject_ocl, EJECT_PILOT_TEMPLATE,
+            PILOT_EJECT_AUDIO,
         };
         let Some(obj) = self.objects.get(&id) else {
             return;
@@ -25331,8 +25441,7 @@ impl GameLogic {
         if obj.eject_pilot_die_applied {
             return;
         }
-        let is_vehicle =
-            obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
+        let is_vehicle = obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
         let is_aircraft =
             obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
         let under_construction =
@@ -25420,9 +25529,8 @@ impl GameLogic {
             if air_path {
                 self.usa_pilot.record_air_ejection();
             }
-            let until = crate::game_logic::host_usa_pilot::eject_pilot_invulnerable_until_frame(
-                self.frame,
-            );
+            let until =
+                crate::game_logic::host_usa_pilot::eject_pilot_invulnerable_until_frame(self.frame);
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                 pilot.apply_eject_invulnerable(until);
                 if air_path {
@@ -25737,12 +25845,7 @@ impl GameLogic {
                 if !obj.status.destroyed {
                     if crate::gameworld_shadow::gameworld_damage_authority_live() {
                         let hp = obj.health.current.max(1.0);
-                        crate::game_logic::host_damage_log::record(
-                            id,
-                            hp,
-                            Some(building_id),
-                            true,
-                        );
+                        crate::game_logic::host_damage_log::record(id, hp, Some(building_id), true);
                         obj.status.destroyed = true;
                         obj.status.effectively_dead = true;
                         obj.status.death_type =
@@ -30989,12 +31092,7 @@ impl GameLogic {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = c.health.current.max(1.0);
-                    crate::game_logic::host_damage_log::record(
-                        container_id,
-                        hp,
-                        None,
-                        true,
-                    );
+                    crate::game_logic::host_damage_log::record(container_id, hp, None, true);
                 } else {
                     c.health.current = 0.0;
                 }
@@ -39087,9 +39185,14 @@ impl GameLogic {
         &mut self,
         ev: crate::game_logic::host_fire_spread_log::FireSpreadTickEvent,
     ) {
-        use crate::game_logic::host_fire_spread::{HostFireSpreadData, HostFlammableState, TREE_OCL_EMBERS};
+        use crate::game_logic::host_fire_spread::{
+            HostFireSpreadData, HostFlammableState, TREE_OCL_EMBERS,
+        };
         if let Some(obj) = self.objects.get_mut(&ev.id) {
-            let mut fs = obj.fire_spread.clone().unwrap_or_else(HostFireSpreadData::tree_default);
+            let mut fs = obj
+                .fire_spread
+                .clone()
+                .unwrap_or_else(HostFireSpreadData::tree_default);
             fs.state = match ev.state {
                 1 => HostFlammableState::Aflame,
                 2 => HostFlammableState::Burned,
@@ -70990,7 +71093,6 @@ impl GameLogic {
         }
     }
 
-
     /// Wave 716: after GW construction writeback records sell-ready structures,
     /// host applies refund/destroy in the same coupled tick (not next frame).
     pub(crate) fn host_apply_sell_completions_after_ready_writeback(&mut self) {
@@ -71006,8 +71108,7 @@ impl GameLogic {
             return;
         }
         // Drop finished entries from sell_list residual.
-        self.sell_list
-            .retain(|entry| !ready.contains(&entry.id));
+        self.sell_list.retain(|entry| !ready.contains(&entry.id));
         for id in ready {
             let Some(obj) = self.objects.get(&id) else {
                 continue;
@@ -71023,8 +71124,8 @@ impl GameLogic {
             }
             let team = obj.team;
             let sell_percentage = game_engine::common::global_data::read().sell_percentage;
-            let refund = ((obj.thing.template.build_cost.supplies as f32) * sell_percentage)
-                .max(0.0) as u32;
+            let refund =
+                ((obj.thing.template.build_cost.supplies as f32) * sell_percentage).max(0.0) as u32;
             if refund > 0 {
                 if let Some(player) = self.get_player_mut_by_team(team) {
                     player.apply_supply_gain(refund);
@@ -71497,8 +71598,7 @@ impl GameLogic {
         // shadow and bind host ObjectId (entity-first). Non-sole / no-shadow falls
         // back to host create_object. Missing bind under sole is fail-closed via
         // host_spawn_rebuild_bound_object (Wave 741) unless opt-in.
-        let gw_raw = if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled()
-        {
+        let gw_raw = if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
             crate::gameworld_shadow::spawn_rebuild_hole_entity_if_coupled(
                 hole_name,
                 [pos.x, pos.y, pos.z],

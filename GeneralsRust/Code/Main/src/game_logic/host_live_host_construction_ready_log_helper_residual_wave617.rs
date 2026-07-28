@@ -158,8 +158,16 @@ pub fn honesty_host_construction_ready_log_helper_source_markers_residual_wave61
         residual_action_store(ResidualHostConstructionReadyLogHelperAction::SourceMarkers);
         return false;
     };
-    let post = fn_body(gl, "pub(crate) fn host_apply_construction_completions_after_ready_writeback(")
-        .or_else(|| fn_body(gl, "fn host_apply_construction_completions_after_ready_writeback("));
+    let post = fn_body(
+        gl,
+        "pub(crate) fn host_apply_construction_completions_after_ready_writeback(",
+    )
+    .or_else(|| {
+        fn_body(
+            gl,
+            "fn host_apply_construction_completions_after_ready_writeback(",
+        )
+    });
     let wb_ok = wb.contains("Wave 617")
         && wb.contains("host_construction_ready_log::record")
         && wb.contains("gameworld_construction_sole_tick_enabled");
@@ -167,13 +175,11 @@ pub fn honesty_host_construction_ready_log_helper_source_markers_residual_wave61
     let update_ok = update.contains("Wave 617")
         && update.contains("ready_structures")
         && update.contains("may_complete")
-        && (
-            update.contains("host_construction_ready_log::drain")
-                || post
-                    .as_ref()
-                    .map(|p| p.contains("host_construction_ready_log::drain"))
-                    .unwrap_or(false)
-        );
+        && (update.contains("host_construction_ready_log::drain")
+            || post
+                .as_ref()
+                .map(|p| p.contains("host_construction_ready_log::drain"))
+                .unwrap_or(false));
     let ok = log_ok && wb_ok && update_ok && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostConstructionReadyLogHelperAction::SourceMarkers);
     ok

@@ -5,7 +5,9 @@
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
 static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> { table.iter().position(|n| *n == name) }
+pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
+    table.iter().position(|n| *n == name)
+}
 pub const LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE715: &[&str] = &[
     "host_apply_construction_completions_after_ready_writeback",
     "gameworld_construction_sole_tick_enabled",
@@ -21,7 +23,8 @@ pub const LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_NAV_STEPS_WAVE715: &[
     "LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
-pub const RUNTIME_HOST_LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE715: &[&str] = &[
+pub const RUNTIME_HOST_LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE715:
+    &[&str] = &[
     "host_construction_same_frame_ready_complete",
     "post_writeback_complete",
     "sole_tick_no_mid_drain",
@@ -29,28 +32,66 @@ pub const RUNTIME_HOST_LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAME
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidualHostConstructionSameFrameReadyCompleteAction { None=0,MethodNames=1,SourceMarkers=2,NavCommands=3,CollectSource=4,DispatchSource=5,Composite=6 }
+pub enum ResidualHostConstructionSameFrameReadyCompleteAction {
+    None = 0,
+    MethodNames = 1,
+    SourceMarkers = 2,
+    NavCommands = 3,
+    CollectSource = 4,
+    DispatchSource = 5,
+    Composite = 6,
+}
 impl ResidualHostConstructionSameFrameReadyCompleteAction {
-    pub fn from_u8(v: u8) -> Self { match v { 1=>Self::MethodNames,2=>Self::SourceMarkers,3=>Self::NavCommands,4=>Self::CollectSource,5=>Self::DispatchSource,6=>Self::Composite,_=>Self::None } }
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::MethodNames,
+            2 => Self::SourceMarkers,
+            3 => Self::NavCommands,
+            4 => Self::CollectSource,
+            5 => Self::DispatchSource,
+            6 => Self::Composite,
+            _ => Self::None,
+        }
+    }
 }
-fn residual_action_store(a: ResidualHostConstructionSameFrameReadyCompleteAction) { RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst); }
-pub fn residual_host_construction_same_frame_ready_complete_ok() -> bool { RESIDUAL_OK.load(Ordering::SeqCst) }
-pub fn residual_host_construction_same_frame_ready_complete_last_action() -> ResidualHostConstructionSameFrameReadyCompleteAction { ResidualHostConstructionSameFrameReadyCompleteAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst)) }
-fn gl_source() -> &'static str { include_str!("game_logic.rs") }
-fn shadow_source() -> &'static str { include_str!("../gameworld_shadow.rs") }
+fn residual_action_store(a: ResidualHostConstructionSameFrameReadyCompleteAction) {
+    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
+}
+pub fn residual_host_construction_same_frame_ready_complete_ok() -> bool {
+    RESIDUAL_OK.load(Ordering::SeqCst)
+}
+pub fn residual_host_construction_same_frame_ready_complete_last_action(
+) -> ResidualHostConstructionSameFrameReadyCompleteAction {
+    ResidualHostConstructionSameFrameReadyCompleteAction::from_u8(
+        RESIDUAL_ACTION.load(Ordering::SeqCst),
+    )
+}
+fn gl_source() -> &'static str {
+    include_str!("game_logic.rs")
+}
+fn shadow_source() -> &'static str {
+    include_str!("../gameworld_shadow.rs")
+}
 pub fn honesty_host_construction_same_frame_ready_complete_method_names_residual_wave715() -> bool {
-    let names=LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE715;
-    let ok=residual_name_index(names,"host_apply_construction_completions_after_ready_writeback").is_some()
-        && residual_name_index(names,"gameworld_construction_sole_tick_enabled").is_some()
-        && residual_name_index(names,"writeback_construction_to_host").is_some()
-        && residual_name_index(names,"host_construction_ready_log").is_some()
-        && residual_name_index(names,"Wave 715").is_some()
-        && residual_name_index(names,"playable_claim = false").is_some();
-    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::MethodNames); ok
+    let names = LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE715;
+    let ok = residual_name_index(
+        names,
+        "host_apply_construction_completions_after_ready_writeback",
+    )
+    .is_some()
+        && residual_name_index(names, "gameworld_construction_sole_tick_enabled").is_some()
+        && residual_name_index(names, "writeback_construction_to_host").is_some()
+        && residual_name_index(names, "host_construction_ready_log").is_some()
+        && residual_name_index(names, "Wave 715").is_some()
+        && residual_name_index(names, "playable_claim = false").is_some();
+    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::MethodNames);
+    ok
 }
-pub fn honesty_host_construction_same_frame_ready_complete_source_markers_residual_wave715() -> bool {
-    let gl=gl_source(); let sh=shadow_source();
-    let gl_ok=gl.contains("host_apply_construction_completions_after_ready_writeback")
+pub fn honesty_host_construction_same_frame_ready_complete_source_markers_residual_wave715() -> bool
+{
+    let gl = gl_source();
+    let sh = shadow_source();
+    let gl_ok = gl.contains("host_apply_construction_completions_after_ready_writeback")
         && gl.contains("Wave 715")
         && gl.contains("Empty mid-update ready set: sole completes only via post-writeback helper");
     // mid-update must not drain ready log under sole
@@ -65,7 +106,7 @@ pub fn honesty_host_construction_same_frame_ready_complete_source_markers_residu
             None => false,
         }
     };
-    let sh_ok=sh.contains("host_apply_construction_completions_after_ready_writeback")
+    let sh_ok = sh.contains("host_apply_construction_completions_after_ready_writeback")
         && sh.contains("Wave 715");
     let order_ok = match (
         sh.find("let _construction_wb = shadow.writeback_construction_to_host"),
@@ -74,31 +115,35 @@ pub fn honesty_host_construction_same_frame_ready_complete_source_markers_residu
         (Some(w), Some(c)) => c > w && c - w < 400,
         _ => false,
     };
-    let ok=gl_ok&&no_mid_drain&&sh_ok&&order_ok&&!gl.contains("playable_claim = true");
-    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::SourceMarkers); ok
+    let ok = gl_ok && no_mid_drain && sh_ok && order_ok && !gl.contains("playable_claim = true");
+    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::SourceMarkers);
+    ok
 }
 pub fn honesty_host_construction_same_frame_ready_complete_nav_commands_residual_wave715() -> bool {
-    let steps=LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_NAV_STEPS_WAVE715;
-    let cmds=RUNTIME_HOST_LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE715;
-    let ok=residual_name_index(steps,"REQUIRE_POST_WRITEBACK_COMPLETE").is_some()
-        && residual_name_index(steps,"REQUIRE_SOLE_TICK_NO_MID_DRAIN").is_some()
-        && residual_name_index(steps,"REQUIRE_SESSION_HANDOFF").is_some()
-        && residual_name_index(steps,"LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE").is_some()
-        && residual_name_index(steps,"LIVE_PLAYABLE_CLAIM_FALSE").is_some()
-        && residual_name_index(cmds,"host_construction_same_frame_ready_complete").is_some()
-        && residual_name_index(cmds,"post_writeback_complete").is_some()
-        && residual_name_index(cmds,"sole_tick_no_mid_drain").is_some()
-        && residual_name_index(cmds,"session_handoff").is_some();
-    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::NavCommands); ok
+    let steps = LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_NAV_STEPS_WAVE715;
+    let cmds = RUNTIME_HOST_LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_CMD_NAMES_WAVE715;
+    let ok = residual_name_index(steps, "REQUIRE_POST_WRITEBACK_COMPLETE").is_some()
+        && residual_name_index(steps, "REQUIRE_SOLE_TICK_NO_MID_DRAIN").is_some()
+        && residual_name_index(steps, "REQUIRE_SESSION_HANDOFF").is_some()
+        && residual_name_index(steps, "LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE").is_some()
+        && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
+        && residual_name_index(cmds, "host_construction_same_frame_ready_complete").is_some()
+        && residual_name_index(cmds, "post_writeback_complete").is_some()
+        && residual_name_index(cmds, "sole_tick_no_mid_drain").is_some()
+        && residual_name_index(cmds, "session_handoff").is_some();
+    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::NavCommands);
+    ok
 }
 pub fn simulate_host_construction_same_frame_ready_complete_collect_source() -> bool {
-    let ok=gl_source().contains("host_apply_construction_completions_after_ready_writeback")
+    let ok = gl_source().contains("host_apply_construction_completions_after_ready_writeback")
         && shadow_source().contains("host_apply_construction_completions_after_ready_writeback");
-    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::CollectSource); ok
+    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::CollectSource);
+    ok
 }
 pub fn simulate_host_construction_same_frame_ready_complete_dispatch_source() -> bool {
-    let ok=gl_source().contains("Wave 715") && shadow_source().contains("Wave 715");
-    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::DispatchSource); ok
+    let ok = gl_source().contains("Wave 715") && shadow_source().contains("Wave 715");
+    residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::DispatchSource);
+    ok
 }
 pub fn honesty_host_construction_same_frame_ready_complete_residual_pack_wave715() -> bool {
     honesty_host_construction_same_frame_ready_complete_method_names_residual_wave715()
@@ -108,8 +153,11 @@ pub fn honesty_host_construction_same_frame_ready_complete_residual_pack_wave715
         && simulate_host_construction_same_frame_ready_complete_dispatch_source()
 }
 pub fn simulate_live_host_construction_same_frame_ready_complete_honesty() -> bool {
-    let ok=honesty_host_construction_same_frame_ready_complete_residual_pack_wave715();
-    if ok { RESIDUAL_OK.store(true, Ordering::SeqCst); residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::Composite); }
+    let ok = honesty_host_construction_same_frame_ready_complete_residual_pack_wave715();
+    if ok {
+        RESIDUAL_OK.store(true, Ordering::SeqCst);
+        residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::Composite);
+    }
     ok
 }
 
@@ -132,12 +180,38 @@ mod tests {
         logic.templates.insert(name.into(), t);
     }
 
-    #[test] fn method_names_residual() { assert!(honesty_host_construction_same_frame_ready_complete_method_names_residual_wave715()); }
-    #[test] fn source_markers_residual() { assert!(honesty_host_construction_same_frame_ready_complete_source_markers_residual_wave715()); }
-    #[test] fn nav_commands_residual() { assert!(honesty_host_construction_same_frame_ready_complete_nav_commands_residual_wave715()); }
-    #[test] fn sources() { assert!(simulate_host_construction_same_frame_ready_complete_collect_source()); assert!(simulate_host_construction_same_frame_ready_complete_dispatch_source()); }
-    #[test] fn pack() { assert!(honesty_host_construction_same_frame_ready_complete_residual_pack_wave715()); }
-    #[test] fn live() { assert!(simulate_live_host_construction_same_frame_ready_complete_honesty()); assert!(residual_host_construction_same_frame_ready_complete_ok()); }
+    #[test]
+    fn method_names_residual() {
+        assert!(
+            honesty_host_construction_same_frame_ready_complete_method_names_residual_wave715()
+        );
+    }
+    #[test]
+    fn source_markers_residual() {
+        assert!(
+            honesty_host_construction_same_frame_ready_complete_source_markers_residual_wave715()
+        );
+    }
+    #[test]
+    fn nav_commands_residual() {
+        assert!(
+            honesty_host_construction_same_frame_ready_complete_nav_commands_residual_wave715()
+        );
+    }
+    #[test]
+    fn sources() {
+        assert!(simulate_host_construction_same_frame_ready_complete_collect_source());
+        assert!(simulate_host_construction_same_frame_ready_complete_dispatch_source());
+    }
+    #[test]
+    fn pack() {
+        assert!(honesty_host_construction_same_frame_ready_complete_residual_pack_wave715());
+    }
+    #[test]
+    fn live() {
+        assert!(simulate_live_host_construction_same_frame_ready_complete_honesty());
+        assert!(residual_host_construction_same_frame_ready_complete_ok());
+    }
 
     #[test]
     fn sole_tick_post_writeback_completes_structure() {
@@ -175,7 +249,10 @@ mod tests {
         host_construction_ready_log::record(id, 1.0);
         logic.host_apply_construction_completions_after_ready_writeback();
         let obj = logic.get_objects().get(&id).expect("obj");
-        assert!(!obj.status.under_construction, "ready path must clear under_construction");
+        assert!(
+            !obj.status.under_construction,
+            "ready path must clear under_construction"
+        );
         assert!(obj.construction_percent + 1e-6 >= 1.0);
         end_shadow_coupled_tick();
         let _ = ObjectId;

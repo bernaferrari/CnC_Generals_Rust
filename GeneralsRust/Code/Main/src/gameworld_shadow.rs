@@ -372,8 +372,8 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
         };
         // SAFETY: engine installs live shadow for coupled tick and clears before drop.
         let shadow = unsafe { &mut *ptr.as_ptr() };
-        use gamelogic::world::WorldMutation;
         use gamelogic::world::entities::EntityId;
+        use gamelogic::world::WorldMutation;
         shadow.world.queue_mutation(WorldMutation::Spawn {
             template: template.to_string(),
             owner: None,
@@ -381,7 +381,10 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
             health: health.max(1.0),
         });
         let _ = shadow.world.apply_pending_mutations();
-        let raw = shadow.world.take_last_spawned_entity().map(|eid| eid.get())?;
+        let raw = shadow
+            .world
+            .take_last_spawned_entity()
+            .map(|eid| eid.get())?;
         if let Some(e) = shadow.world.world_mut().entity_mut(EntityId::from_raw(raw)) {
             e.transform.orientation = orientation;
             e.is_rebuild_hole = true;
@@ -390,8 +393,6 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
         Some(raw)
     })
 }
-
-
 
 pub fn eager_map_host_spawn_if_coupled(
     logic: &GameLogic,
@@ -2998,7 +2999,8 @@ pub struct GameWorldShadow {
     special_power_frozen_by_host: HashMap<u32, bool>,
     /// Pending A10 missile drops (mirrored from host registry under dual-tick).
     a10_pending_drops: Vec<crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop>,
-    artillery_pending_drops: Vec<crate::game_logic::host_artillery_barrage_flight::PendingArtilleryShellDrop>,
+    artillery_pending_drops:
+        Vec<crate::game_logic::host_artillery_barrage_flight::PendingArtilleryShellDrop>,
     carpet_pending_drops: Vec<crate::game_logic::host_carpet_bomb_flight::PendingCarpetBombDrop>,
 }
 
@@ -3504,18 +3506,14 @@ impl GameWorldShadow {
                             fw.continuous_damaged.clone().unwrap_or_default();
                         e.fwwd_continuous_really_damaged =
                             fw.continuous_really_damaged.clone().unwrap_or_default();
-                        e.fwwd_continuous_rubble =
-                            fw.continuous_rubble.clone().unwrap_or_default();
+                        e.fwwd_continuous_rubble = fw.continuous_rubble.clone().unwrap_or_default();
                         e.fwwd_damage_amount = fw.damage_amount;
                         e.fwwd_last_reaction_frame = fw.last_reaction_frame;
-                        e.fwwd_reaction_pristine =
-                            fw.reaction_pristine.clone().unwrap_or_default();
-                        e.fwwd_reaction_damaged =
-                            fw.reaction_damaged.clone().unwrap_or_default();
+                        e.fwwd_reaction_pristine = fw.reaction_pristine.clone().unwrap_or_default();
+                        e.fwwd_reaction_damaged = fw.reaction_damaged.clone().unwrap_or_default();
                         e.fwwd_reaction_really_damaged =
                             fw.reaction_really_damaged.clone().unwrap_or_default();
-                        e.fwwd_reaction_rubble =
-                            fw.reaction_rubble.clone().unwrap_or_default();
+                        e.fwwd_reaction_rubble = fw.reaction_rubble.clone().unwrap_or_default();
                     } else {
                         e.fwwd_active = false;
                         e.fwwd_last_continuous_frame = 0;
@@ -4227,8 +4225,7 @@ impl GameWorldShadow {
                             ) && md.attached_to.is_some()
                                 && md.is_active();
                             e.sticky_bomb_attached = sticky;
-                            e.sticky_bomb_attached_to =
-                                md.attached_to.map(|id| id.0).unwrap_or(0);
+                            e.sticky_bomb_attached_to = md.attached_to.map(|id| id.0).unwrap_or(0);
                             e.sticky_bomb_mine_kind = match md.kind {
                                 HostMineKind::TimedDemoCharge => 2,
                                 HostMineKind::RemoteDemoCharge => 3,
@@ -4278,8 +4275,7 @@ impl GameWorldShadow {
                         e.firewall_segment_dir_z = 0.0;
                     }
                     e.radar_van_ping = obj.radar_van_ping;
-                    e.radar_van_ping_expires_frame =
-                        obj.radar_van_ping_expires_frame.unwrap_or(0);
+                    e.radar_van_ping_expires_frame = obj.radar_van_ping_expires_frame.unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -4535,6 +4531,30 @@ impl GameWorldShadow {
                         e.fire_spread_active = false;
                         e.fire_spread_state = 0;
                     }
+                    {
+                        use crate::game_logic::host_oil_derrick::is_oil_derrick_template;
+                        use crate::game_logic::is_black_market_template;
+                        let name = obj.template_name.as_str();
+                        let is_bm = is_black_market_template(name)
+                            || name.to_ascii_lowercase().contains("blackmarket");
+                        let is_fake = name.to_ascii_lowercase().contains("fake");
+                        if is_bm && !is_fake {
+                            e.black_market_building = true;
+                            e.black_market_next_deposit_frame =
+                                logic.black_markets.peek_next_deposit(oid).unwrap_or(0);
+                        } else {
+                            e.black_market_building = false;
+                            e.black_market_next_deposit_frame = 0;
+                        }
+                        if is_oil_derrick_template(name) {
+                            e.oil_derrick_building = true;
+                            e.oil_derrick_next_deposit_frame =
+                                logic.oil_derricks.peek_next_deposit(oid).unwrap_or(0);
+                        } else {
+                            e.oil_derrick_building = false;
+                            e.oil_derrick_next_deposit_frame = 0;
+                        }
+                    }
                     e.turret_angle_deg = obj.turret_angle_deg;
                     e.turret_pitch_deg = obj.turret_pitch_deg;
                     e.turret_idle_scanning = obj.turret_idle_scanning;
@@ -4671,49 +4691,49 @@ impl GameWorldShadow {
                 e.masked = obj.status.masked;
                 e.disguised = obj.status.disguised;
                 e.disabled_subdued = obj.status.disabled_subdued;
-                    e.subdual_damage = obj.subdual_damage;
-                    e.subdual_heal_amount = obj.subdual_heal_amount;
-                    e.subdual_heal_rate_frames = obj.subdual_heal_rate_frames;
-                    e.subdual_heal_countdown = obj.subdual_heal_countdown;
-                    if let Some(d) = obj.defection_helper.as_ref() {
-                        e.defection_undetected = d.undetected_defector;
-                        e.defection_detection_end = d.detection_end;
-                        e.defection_detection_start = d.detection_start;
-                        e.defection_flash_phase = d.flash_phase;
-                        e.defection_do_fx = d.do_defector_fx;
-                        e.defection_flash_this_frame = d.flash_this_frame;
-                        e.defection_final_white_flash = d.final_white_flash;
-                    } else {
-                        e.defection_undetected = false;
-                        e.defection_detection_end = 0;
-                        e.defection_detection_start = 0;
-                        e.defection_flash_phase = 0.0;
-                        e.defection_do_fx = false;
-                        e.defection_flash_this_frame = false;
-                        e.defection_final_white_flash = false;
-                    }
-                    e.fire_sound_loop_until_frame = obj.fire_sound_loop_until_frame;
-                    e.fire_sound_loop_name = obj.fire_sound_loop_name.clone();
-                    if let Some(l) = obj.lifetime_update.as_ref() {
-                        e.lifetime_expire_at_frame = l.expire_at_frame;
-                        e.lifetime_active = l.active;
-                    } else {
-                        e.lifetime_expire_at_frame = 0;
-                        e.lifetime_active = false;
-                    }
-                    if let Some(p) = obj.poisoned_behavior.as_ref() {
-                        e.poison_damage_frame = p.poison_damage_frame;
-                        e.poison_overall_stop_frame = p.poison_overall_stop_frame;
-                        e.poison_damage_amount = p.poison_damage_amount;
-                        e.poison_death_type = 5 /* Poisoned */;
-                        e.poison_tint = p.tint_poisoned;
-                    } else {
-                        e.poison_damage_frame = 0;
-                        e.poison_overall_stop_frame = 0;
-                        e.poison_damage_amount = 0.0;
-                        e.poison_death_type = 0;
-                        e.poison_tint = false;
-                    }
+                e.subdual_damage = obj.subdual_damage;
+                e.subdual_heal_amount = obj.subdual_heal_amount;
+                e.subdual_heal_rate_frames = obj.subdual_heal_rate_frames;
+                e.subdual_heal_countdown = obj.subdual_heal_countdown;
+                if let Some(d) = obj.defection_helper.as_ref() {
+                    e.defection_undetected = d.undetected_defector;
+                    e.defection_detection_end = d.detection_end;
+                    e.defection_detection_start = d.detection_start;
+                    e.defection_flash_phase = d.flash_phase;
+                    e.defection_do_fx = d.do_defector_fx;
+                    e.defection_flash_this_frame = d.flash_this_frame;
+                    e.defection_final_white_flash = d.final_white_flash;
+                } else {
+                    e.defection_undetected = false;
+                    e.defection_detection_end = 0;
+                    e.defection_detection_start = 0;
+                    e.defection_flash_phase = 0.0;
+                    e.defection_do_fx = false;
+                    e.defection_flash_this_frame = false;
+                    e.defection_final_white_flash = false;
+                }
+                e.fire_sound_loop_until_frame = obj.fire_sound_loop_until_frame;
+                e.fire_sound_loop_name = obj.fire_sound_loop_name.clone();
+                if let Some(l) = obj.lifetime_update.as_ref() {
+                    e.lifetime_expire_at_frame = l.expire_at_frame;
+                    e.lifetime_active = l.active;
+                } else {
+                    e.lifetime_expire_at_frame = 0;
+                    e.lifetime_active = false;
+                }
+                if let Some(p) = obj.poisoned_behavior.as_ref() {
+                    e.poison_damage_frame = p.poison_damage_frame;
+                    e.poison_overall_stop_frame = p.poison_overall_stop_frame;
+                    e.poison_damage_amount = p.poison_damage_amount;
+                    e.poison_death_type = 5 /* Poisoned */;
+                    e.poison_tint = p.tint_poisoned;
+                } else {
+                    e.poison_damage_frame = 0;
+                    e.poison_overall_stop_frame = 0;
+                    e.poison_damage_amount = 0.0;
+                    e.poison_death_type = 0;
+                    e.poison_tint = false;
+                }
 
                 e.is_carbomb = obj.status.is_carbomb;
                 e.hijacked = obj.status.hijacked;
@@ -4728,7 +4748,7 @@ impl GameWorldShadow {
                 e.faerie_fire = obj.status.faerie_fire;
                 e.booby_trapped = obj.status.booby_trapped;
                 e.eject_invulnerable = obj.status.eject_invulnerable;
-                    e.eject_invulnerable_until_frame = obj.status.eject_invulnerable_until_frame;
+                e.eject_invulnerable_until_frame = obj.status.eject_invulnerable_until_frame;
                 e.pilot_did_move_to_base = obj.status.pilot_did_move_to_base;
                 e.parachuting = obj.status.parachuting;
                 e.parachute_open = obj.status.parachute_open;
@@ -4969,6 +4989,30 @@ impl GameWorldShadow {
                 } else {
                     e.fire_spread_active = false;
                     e.fire_spread_state = 0;
+                }
+                {
+                    use crate::game_logic::host_oil_derrick::is_oil_derrick_template;
+                    use crate::game_logic::is_black_market_template;
+                    let name = obj.template_name.as_str();
+                    let is_bm = is_black_market_template(name)
+                        || name.to_ascii_lowercase().contains("blackmarket");
+                    let is_fake = name.to_ascii_lowercase().contains("fake");
+                    if is_bm && !is_fake {
+                        e.black_market_building = true;
+                        e.black_market_next_deposit_frame =
+                            logic.black_markets.peek_next_deposit(oid).unwrap_or(0);
+                    } else {
+                        e.black_market_building = false;
+                        e.black_market_next_deposit_frame = 0;
+                    }
+                    if is_oil_derrick_template(name) {
+                        e.oil_derrick_building = true;
+                        e.oil_derrick_next_deposit_frame =
+                            logic.oil_derricks.peek_next_deposit(oid).unwrap_or(0);
+                    } else {
+                        e.oil_derrick_building = false;
+                        e.oil_derrick_next_deposit_frame = 0;
+                    }
                 }
                 e.turret_angle_deg = obj.turret_angle_deg;
                 e.turret_pitch_deg = obj.turret_pitch_deg;
@@ -5406,8 +5450,7 @@ impl GameWorldShadow {
                 continue;
             };
             // Wave 760: under coupled tick, host economy log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_economy_log::has_pending(hid)
+            if shadow_coupled_tick_active() && crate::game_logic::host_economy_log::has_pending(hid)
             {
                 continue;
             }
@@ -5950,11 +5993,7 @@ impl GameWorldShadow {
                         let p = ent.transform.position;
                         let yaw = ent.transform.orientation;
                         let radius = ent.selection_radius.max(10.0);
-                        let spawn_pos = [
-                            p.x + yaw.cos() * radius,
-                            p.y,
-                            p.z + yaw.sin() * radius,
-                        ];
+                        let spawn_pos = [p.x + yaw.cos() * radius, p.y, p.z + yaw.sin() * radius];
                         sole_ready_intents.push((
                             hid,
                             head.template_name.clone(),
@@ -5971,7 +6010,7 @@ impl GameWorldShadow {
                     }
                 }
             }
-                        if dirty {
+            if dirty {
                 updated += 1;
             }
         }
@@ -5987,9 +6026,7 @@ impl GameWorldShadow {
                     health,
                 });
                 let _ = self.world.apply_pending_mutations();
-                self.world
-                    .take_last_spawned_entity()
-                    .map(|eid| eid.get())
+                self.world.take_last_spawned_entity().map(|eid| eid.get())
             } else {
                 None
             };
@@ -6004,7 +6041,6 @@ impl GameWorldShadow {
         }
         updated
     }
-
 
     pub fn writeback_production_door_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -6217,15 +6253,8 @@ impl GameWorldShadow {
         let host_frame = logic.get_frame();
         use gamelogic::world::WorldMutation;
         // Wave 740: (hole_hid, ready_frame, template, pos, orient, owner, health)
-        let mut sole_ready_intents: Vec<(
-            u32,
-            u32,
-            String,
-            [f32; 3],
-            f32,
-            Option<PlayerId>,
-            f32,
-        )> = Vec::new();
+        let mut sole_ready_intents: Vec<(u32, u32, String, [f32; 3], f32, Option<PlayerId>, f32)> =
+            Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6308,7 +6337,8 @@ impl GameWorldShadow {
             }
         }
         // Wave 740: entity-first worker + reconstruct pre-spawn under construction sole-tick.
-        for (hid, ready_frame, template, spawn_pos, orientation, owner, health) in sole_ready_intents
+        for (hid, ready_frame, template, spawn_pos, orientation, owner, health) in
+            sole_ready_intents
         {
             // Worker entity.
             self.world.queue_mutation(WorldMutation::Spawn {
@@ -6318,10 +6348,7 @@ impl GameWorldShadow {
                 health: 200.0_f32.max(1.0),
             });
             let _ = self.world.apply_pending_mutations();
-            let worker_raw = self
-                .world
-                .take_last_spawned_entity()
-                .map(|eid| eid.get());
+            let worker_raw = self.world.take_last_spawned_entity().map(|eid| eid.get());
             // Reconstructing structure entity.
             self.world.queue_mutation(WorldMutation::Spawn {
                 template: template.clone(),
@@ -6330,10 +6357,7 @@ impl GameWorldShadow {
                 health,
             });
             let _ = self.world.apply_pending_mutations();
-            let rebuild_raw = self
-                .world
-                .take_last_spawned_entity()
-                .map(|eid| eid.get());
+            let rebuild_raw = self.world.take_last_spawned_entity().map(|eid| eid.get());
             // Stamp orientation on entities when present.
             if let Some(raw) = worker_raw {
                 use gamelogic::world::entities::EntityId;
@@ -7810,13 +7834,9 @@ impl GameWorldShadow {
         // (faerie/repulsor/disable/frenzy/continuous-fire coast). Host peels the
         // matching mid-frame ticks so writeback is last-writer without dual expire.
         use gamelogic::world::entities::EntityId;
-        let eids: Vec<EntityId> = self
-            .host_to_entity
-            .values()
-            .copied()
-            .collect();
+        let eids: Vec<EntityId> = self.host_to_entity.values().copied().collect();
         let mut n = 0usize;
-                // Wave 813: snapshot living infantry + China horde units (borrow-safe).
+        // Wave 813: snapshot living infantry + China horde units (borrow-safe).
         const INFANTRY_BIT: u32 = 1u32 << 1; // KindOf::Infantry in presentation ORDER
         let mut infantry_snapshot: Vec<(u32, u8, f32, f32, bool)> = Vec::new();
         for eid in &eids {
@@ -7899,10 +7919,8 @@ impl GameWorldShadow {
                     let tp = t.transform.position;
                     let alive = t.health > 0.0 && !t.destroyed;
                     let immobile = (t.kind_of_bits & 1) != 0; // Structure bit 0
-                    sticky_booby_targets.insert(
-                        tid,
-                        (glam::Vec3::new(tp.x, tp.y, tp.z), alive, immobile),
-                    );
+                    sticky_booby_targets
+                        .insert(tid, (glam::Vec3::new(tp.x, tp.y, tp.z), alive, immobile));
                 }
             }
         }
@@ -7920,10 +7938,7 @@ impl GameWorldShadow {
                     if let Some(t) = self.world.entity(teid) {
                         if t.health > 0.0 && !t.destroyed {
                             let tp = t.transform.position;
-                            scorpion_retarget.insert(
-                                eid.get(),
-                                glam::Vec3::new(tp.x, tp.y, tp.z),
-                            );
+                            scorpion_retarget.insert(eid.get(), glam::Vec3::new(tp.x, tp.y, tp.z));
                         }
                     }
                 }
@@ -7951,12 +7966,13 @@ impl GameWorldShadow {
             ));
         }
 
-for eid in eids {
+        for eid in eids {
             let Some(e) = self.world.world_mut().entity_mut(eid) else {
                 continue;
             };
             let mut changed = false;
-            if e.faerie_fire && e.faerie_fire_until_frame > 0 && frame >= e.faerie_fire_until_frame {
+            if e.faerie_fire && e.faerie_fire_until_frame > 0 && frame >= e.faerie_fire_until_frame
+            {
                 e.faerie_fire = false;
                 e.faerie_fire_until_frame = 0;
                 changed = true;
@@ -7968,7 +7984,10 @@ for eid in eids {
                 }
                 changed = true;
             }
-            if e.disabled_emp && e.disabled_emp_until_frame > 0 && frame >= e.disabled_emp_until_frame {
+            if e.disabled_emp
+                && e.disabled_emp_until_frame > 0
+                && frame >= e.disabled_emp_until_frame
+            {
                 e.disabled_emp = false;
                 e.disabled_emp_until_frame = 0;
                 changed = true;
@@ -8126,7 +8145,8 @@ for eid in eids {
                             );
                         }
                     }
-                    let interval = crate::game_logic::host_poisoned_behavior::poison_interval_frames();
+                    let interval =
+                        crate::game_logic::host_poisoned_behavior::poison_interval_frames();
                     e.poison_damage_frame = frame.saturating_add(interval);
                     changed = true;
                 }
@@ -8256,8 +8276,7 @@ for eid in eids {
                     done = true;
                 }
                 if dy.abs() > 0.0 || d_roll.abs() > 0.0 {
-                    e.transform.position.y =
-                        (e.transform.position.y + dy).max(e.ground_height);
+                    e.transform.position.y = (e.transform.position.y + dy).max(e.ground_height);
                     e.transform.orientation += d_roll;
                 }
                 if done {
@@ -8284,10 +8303,10 @@ for eid in eids {
                 {
                     e.heli_slow_death_blade_flew_off = true;
                 }
-                e.heli_slow_death_frames_since_spin_update = e
-                    .heli_slow_death_frames_since_spin_update
-                    .saturating_add(1);
-                if e.heli_slow_death_frames_since_spin_update >= HELI_SELF_SPIN_UPDATE_DELAY_FRAMES {
+                e.heli_slow_death_frames_since_spin_update =
+                    e.heli_slow_death_frames_since_spin_update.saturating_add(1);
+                if e.heli_slow_death_frames_since_spin_update >= HELI_SELF_SPIN_UPDATE_DELAY_FRAMES
+                {
                     e.heli_slow_death_frames_since_spin_update = 0;
                     e.heli_slow_death_self_spin +=
                         e.heli_slow_death_self_spin_dir * HELI_SELF_SPIN_UPDATE_AMOUNT;
@@ -8328,8 +8347,7 @@ for eid in eids {
                 }
                 if dx.abs() > 0.0 || dy.abs() > 0.0 || dz.abs() > 0.0 || d_orient.abs() > 0.0 {
                     e.transform.position.x += dx;
-                    e.transform.position.y =
-                        (e.transform.position.y + dy).max(e.ground_height);
+                    e.transform.position.y = (e.transform.position.y + dy).max(e.ground_height);
                     e.transform.position.z += dz;
                     e.transform.orientation += d_orient;
                 }
@@ -8414,8 +8432,8 @@ for eid in eids {
                     2 => {
                         // Collapsing
                         e.structure_collapse_current_height -= e.structure_collapse_velocity;
-                        e.structure_collapse_velocity -= STRUCTURE_COLLAPSE_GRAVITY
-                            * (1.0 - e.structure_collapse_damping);
+                        e.structure_collapse_velocity -=
+                            STRUCTURE_COLLAPSE_GRAVITY * (1.0 - e.structure_collapse_damping);
                         if e.structure_collapse_max_shudder > 0.0 {
                             let t = frame as f32 * 0.37;
                             e.structure_collapse_shudder_x =
@@ -8426,7 +8444,8 @@ for eid in eids {
                             e.structure_collapse_shudder_x = 0.0;
                             e.structure_collapse_shudder_z = 0.0;
                         }
-                        if e.structure_collapse_current_height + e.structure_collapse_building_height
+                        if e.structure_collapse_current_height
+                            + e.structure_collapse_building_height
                             <= 0.0
                         {
                             e.structure_collapse_current_height =
@@ -8529,10 +8548,8 @@ for eid in eids {
                         building_height: e.structure_topple_building_height,
                         facing_width: e.structure_topple_facing_width,
                     };
-                    let samples = st.take_crush_sweep_samples(
-                        e.transform.position.x,
-                        e.transform.position.z,
-                    );
+                    let samples =
+                        st.take_crush_sweep_samples(e.transform.position.x, e.transform.position.z);
                     e.structure_topple_last_crushed_location = st.last_crushed_location;
                     if !samples.is_empty() {
                         if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
@@ -8603,9 +8620,7 @@ for eid in eids {
                     changed = true;
                 } else if !e.under_construction {
                     let max_h = e.max_health.max(e.health).max(1.0);
-                    if e.health + f32::EPSILON < max_h
-                        && frame >= e.base_regen_wake_frame
-                    {
+                    if e.health + f32::EPSILON < max_h && frame >= e.base_regen_wake_frame {
                         let elapsed = frame.saturating_sub(e.base_regen_wake_frame);
                         if elapsed % BASE_REGEN_HEAL_RATE_FRAMES == 0 {
                             let amount = base_regen_heal_amount(max_h);
@@ -8634,8 +8649,7 @@ for eid in eids {
                     let my_team = e.team_ordinal;
                     // Drop entity borrow before scan (scan needs world()).
                     drop(e);
-                    let present =
-                        self.scan_enemy_near_present(eid, sx, sz, vision, my_team);
+                    let present = self.scan_enemy_near_present(eid, sx, sz, vision, my_team);
                     if let Some(e2) = self.world.world_mut().entity_mut(eid) {
                         e2.enemy_near_scan_delay = delay_time;
                         e2.enemy_near = present;
@@ -8785,12 +8799,11 @@ for eid in eids {
                     let vision = e.checkpoint_vision_range.max(e.vision_range);
                     let my_team = e.team_ordinal;
                     drop(e);
-                    let (enemy, ally) =
-                        self.scan_checkpoint_near(eid, sx, sz, vision, my_team);
+                    let (enemy, ally) = self.scan_checkpoint_near(eid, sx, sz, vision, my_team);
                     if let Some(e2) = self.world.world_mut().entity_mut(eid) {
                         e2.checkpoint_scan_delay = delay_time;
-                        let change = e2.checkpoint_enemy_near != enemy
-                            || e2.checkpoint_ally_near != ally;
+                        let change =
+                            e2.checkpoint_enemy_near != enemy || e2.checkpoint_ally_near != ally;
                         e2.checkpoint_enemy_near = enemy;
                         e2.checkpoint_ally_near = ally;
                         let open = ally && !enemy;
@@ -8833,10 +8846,10 @@ for eid in eids {
                 if hat >= SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN {
                     let status = e.smart_bomb_course_scalar.clamp(0.0, 1.0);
                     let target_c = 1.0 - status;
-                    e.transform.position.x = e.smart_bomb_target_x * target_c
-                        + e.transform.position.x * status;
-                    e.transform.position.z = e.smart_bomb_target_z * target_c
-                        + e.transform.position.z * status;
+                    e.transform.position.x =
+                        e.smart_bomb_target_x * target_c + e.transform.position.x * status;
+                    e.transform.position.z =
+                        e.smart_bomb_target_z * target_c + e.transform.position.z * status;
                     // Y altitude unchanged.
                     changed = true;
                 }
@@ -9482,7 +9495,11 @@ for eid in eids {
                     let min_speed = AURORA_BOMB_LOCO_MIN_SPEED / 30.0;
                     let pos = e.transform.position;
                     let (aim_x, aim_y, aim_z) = if e.aurora_bomb_has_aim {
-                        (e.aurora_bomb_aim_x, e.aurora_bomb_aim_y, e.aurora_bomb_aim_z)
+                        (
+                            e.aurora_bomb_aim_x,
+                            e.aurora_bomb_aim_y,
+                            e.aurora_bomb_aim_z,
+                        )
                     } else {
                         (pos.x, pos.y, pos.z)
                     };
@@ -9511,7 +9528,8 @@ for eid in eids {
                     if vx * vx + vz * vz > 1e-6 {
                         e.transform.orientation = vz.atan2(vx);
                     }
-                    let near = (aim_x - new_x) * (aim_x - new_x) + (aim_z - new_z) * (aim_z - new_z)
+                    let near = (aim_x - new_x) * (aim_x - new_x)
+                        + (aim_z - new_z) * (aim_z - new_z)
                         < 8.0 * 8.0
                         && new_y <= aim_y + 12.0;
                     if near {
@@ -9544,11 +9562,16 @@ for eid in eids {
                 };
                 let pos = e.transform.position;
                 let (aim_x, aim_y, aim_z) = if e.toxin_stream_has_aim {
-                    (e.toxin_stream_aim_x, e.toxin_stream_aim_y, e.toxin_stream_aim_z)
+                    (
+                        e.toxin_stream_aim_x,
+                        e.toxin_stream_aim_y,
+                        e.toxin_stream_aim_z,
+                    )
                 } else {
                     (pos.x, pos.y, pos.z)
                 };
-                let fuel_done = e.toxin_stream_has_fuel && e.toxin_stream_fuel_expires_frame <= frame;
+                let fuel_done =
+                    e.toxin_stream_has_fuel && e.toxin_stream_fuel_expires_frame <= frame;
                 let ignited = if e.toxin_stream_has_ignition {
                     e.toxin_stream_ignition_frame <= frame
                 } else {
@@ -9849,11 +9872,7 @@ for eid in eids {
                     glam::Vec3::new(pos.x, pos.y, pos.z)
                 };
                 let aim = if e.nuke_shell_has_aim {
-                    glam::Vec3::new(
-                        e.nuke_shell_aim_x,
-                        e.nuke_shell_aim_y,
-                        e.nuke_shell_aim_z,
-                    )
+                    glam::Vec3::new(e.nuke_shell_aim_x, e.nuke_shell_aim_y, e.nuke_shell_aim_z)
                 } else {
                     from
                 };
@@ -9889,7 +9908,6 @@ for eid in eids {
                 changed = true;
             }
 
-            
             // Wave 802: Nuke / Anthrax / Inferno field-object lifetime residual.
             if e.nuke_radiation_field
                 && e.nuke_radiation_field_expires_frame > 0
@@ -10298,8 +10316,7 @@ for eid in eids {
                 let tid = e.booby_trap_attached_to;
                 match sticky_booby_targets.get(&tid).copied() {
                     Some((tpos, true, _)) => {
-                        let new_pos =
-                            glam::Vec3::new(tpos.x, tpos.y + STICKY_OFFSET_Y, tpos.z);
+                        let new_pos = glam::Vec3::new(tpos.x, tpos.y + STICKY_OFFSET_Y, tpos.z);
                         e.transform.position.x = new_pos.x;
                         e.transform.position.y = new_pos.y;
                         e.transform.position.z = new_pos.z;
@@ -10397,8 +10414,7 @@ for eid in eids {
                 };
                 e.transform.position.x += dx;
                 e.transform.position.z += dz;
-                if e.firewall_segment_expires_frame > 0
-                    && frame >= e.firewall_segment_expires_frame
+                if e.firewall_segment_expires_frame > 0 && frame >= e.firewall_segment_expires_frame
                 {
                     e.firewall_segment = false;
                     e.firewall_segment_expires_frame = 0;
@@ -10466,9 +10482,8 @@ for eid in eids {
                     let constructed =
                         !e.under_construction && e.construction_percent + 0.001 >= 1.0;
                     let alive = e.health > 0.0 && !e.destroyed;
-                    let should = underpowered_team_ords.contains(&e.team_ordinal)
-                        && alive
-                        && constructed;
+                    let should =
+                        underpowered_team_ords.contains(&e.team_ordinal) && alive && constructed;
                     if e.disabled_underpowered != should {
                         e.disabled_underpowered = should;
                         changed = true;
@@ -10556,9 +10571,11 @@ for eid in eids {
                     if e.weapon_bonus_horde != now_horde || now_horde {
                         e.weapon_bonus_horde = now_horde;
                         let name = e.template_name();
-                        let kind = if crate::game_logic::host_red_guard::is_red_guard_template(name) {
+                        let kind = if crate::game_logic::host_red_guard::is_red_guard_template(name)
+                        {
                             crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::RedGuard
-                        } else if crate::game_logic::host_tank_hunter::is_tank_hunter_template(name) {
+                        } else if crate::game_logic::host_tank_hunter::is_tank_hunter_template(name)
+                        {
                             crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::TankHunter
                         } else {
                             crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::Minigunner
@@ -10639,8 +10656,7 @@ for eid in eids {
                             }
                         }
                         if e.hive_slave_count < STINGER_SPAWN_NUMBER as u8 {
-                            e.hive_slave_respawn_frame =
-                                next_stinger_slave_respawn_frame(frame, 0);
+                            e.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
                         } else {
                             e.hive_slave_respawn_frame = 0;
                         }
@@ -10660,8 +10676,7 @@ for eid in eids {
                     } else if e.hive_slave_count < STINGER_SPAWN_NUMBER as u8
                         && e.hive_slave_respawn_frame == 0
                     {
-                        e.hive_slave_respawn_frame =
-                            next_stinger_slave_respawn_frame(frame, 0);
+                        e.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
                         changed = true;
                     }
                 }
@@ -10682,10 +10697,9 @@ for eid in eids {
                     || name.contains("worker");
                 const STRUCTURE_BIT: u32 = 1u32 << 0;
                 let can_construct = is_worker && (e.kind_of_bits & STRUCTURE_BIT) == 0;
-                let is_dozer_building = can_construct
-                    && matches!(e.ai_state_ordinal, 7 | 8); // Constructing | Repairing
-                let is_producing = e.production_queue_len > 0
-                    || !e.production_queue_items.is_empty();
+                let is_dozer_building = can_construct && matches!(e.ai_state_ordinal, 7 | 8); // Constructing | Repairing
+                let is_producing =
+                    e.production_queue_len > 0 || !e.production_queue_items.is_empty();
                 let has_bit = (e.model_condition_bits & ac_mask) != 0;
                 if alive && (can_construct || is_producing || has_bit) {
                     let want = is_dozer_building || is_producing;
@@ -10846,16 +10860,91 @@ for eid in eids {
                 changed = true;
             }
 
+            // Wave 821: Black market / oil derrick AutoDeposit residual.
+            if e.black_market_building {
+                use crate::game_logic::{
+                    is_legal_black_market_income_source, BLACK_MARKET_DEPOSIT_AMOUNT,
+                    BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
+                };
+                let alive = e.health > 0.0 && !e.destroyed;
+                let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
+                let neutral = e.team_ordinal == 255;
+                if is_legal_black_market_income_source(alive, constructed, neutral) {
+                    if e.black_market_next_deposit_frame == 0 {
+                        e.black_market_next_deposit_frame =
+                            frame.saturating_add(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES.max(1));
+                        changed = true;
+                    } else if frame >= e.black_market_next_deposit_frame {
+                        e.black_market_next_deposit_frame =
+                            frame.saturating_add(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES.max(1));
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            let pos = e.transform.position;
+                            crate::game_logic::host_auto_deposit_log::record(
+                                crate::game_logic::host_auto_deposit_log::AutoDepositEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    kind: crate::game_logic::host_auto_deposit_log::AutoDepositKind::BlackMarket,
+                                    team: Self::entity_team_from_ordinal(e.team_ordinal),
+                                    pos: glam::Vec3::new(pos.x, pos.y, pos.z),
+                                    amount: BLACK_MARKET_DEPOSIT_AMOUNT,
+                                    next_deposit_frame: e.black_market_next_deposit_frame,
+                                    stealthed: e.stealthed,
+                                    detected: e.detected,
+                                    supply_lines_boost: 0,
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                }
+            }
+            if e.oil_derrick_building {
+                use crate::game_logic::{
+                    is_legal_oil_derrick_income_source, oil_derrick_deposit_amount,
+                    OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES,
+                };
+                let alive = e.health > 0.0 && !e.destroyed;
+                let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
+                let neutral = e.team_ordinal == 255;
+                if is_legal_oil_derrick_income_source(alive, constructed, neutral) {
+                    if e.oil_derrick_next_deposit_frame == 0 {
+                        e.oil_derrick_next_deposit_frame =
+                            frame.saturating_add(OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES.max(1));
+                        changed = true;
+                    } else if frame >= e.oil_derrick_next_deposit_frame {
+                        e.oil_derrick_next_deposit_frame =
+                            frame.saturating_add(OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES.max(1));
+                        // Supply lines boost resolved on host drain (player upgrades).
+                        let (amount, boost) = oil_derrick_deposit_amount(false);
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            let pos = e.transform.position;
+                            crate::game_logic::host_auto_deposit_log::record(
+                                crate::game_logic::host_auto_deposit_log::AutoDepositEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    kind: crate::game_logic::host_auto_deposit_log::AutoDepositKind::OilDerrick,
+                                    team: Self::entity_team_from_ordinal(e.team_ordinal),
+                                    pos: glam::Vec3::new(pos.x, pos.y, pos.z),
+                                    amount,
+                                    next_deposit_frame: e.oil_derrick_next_deposit_frame,
+                                    stealthed: e.stealthed,
+                                    detected: e.detected,
+                                    supply_lines_boost: boost,
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                }
+            }
+
             if changed {
                 n += 1;
             }
         }
 
-
         // Wave 801: AngryMob member follow residual (post-loop; needs nexus positions).
         {
-            use std::f32::consts::PI;
             use gamelogic::world::entities::EntityId;
+            use std::f32::consts::PI;
             // Snapshot host_id -> position for nexus lookup without nested borrows.
             let mut host_pos: std::collections::HashMap<u32, (f32, f32, f32, bool)> =
                 std::collections::HashMap::new();
@@ -10865,11 +10954,7 @@ for eid in eids {
                     host_pos.insert(hid, (p.x, p.y, p.z, ent.destroyed || ent.health <= 0.0));
                 }
             }
-            let member_eids: Vec<EntityId> = self
-                .host_to_entity
-                .values()
-                .copied()
-                .collect();
+            let member_eids: Vec<EntityId> = self.host_to_entity.values().copied().collect();
             for eid in member_eids {
                 let Some(e) = self.world.world_mut().entity_mut(eid) else {
                     continue;
@@ -11002,7 +11087,7 @@ for eid in eids {
                 n = n.saturating_add(1);
             }
         }
-        
+
         // Wave 818: player radar provider count residual.
         {
             use crate::game_logic::host_radar::is_legal_radar_provider;
@@ -11015,8 +11100,7 @@ for eid in eids {
                     continue;
                 };
                 let alive = e.health > 0.0 && !e.destroyed;
-                let constructed =
-                    !e.under_construction && e.construction_percent + 0.001 >= 1.0;
+                let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
                 let is_cc = (e.kind_of_bits & COMMAND_CENTER_BIT) != 0;
                 let name = e.template_name();
                 if !is_legal_radar_provider(alive, constructed, is_cc, name) {
@@ -11064,10 +11148,9 @@ for eid in eids {
                 }
             }
         }
-// Wave 816: player is_alive residual from living team entities.
+        // Wave 816: player is_alive residual from living team entities.
         {
-            let mut living_teams: std::collections::HashSet<u8> =
-                std::collections::HashSet::new();
+            let mut living_teams: std::collections::HashSet<u8> = std::collections::HashSet::new();
             let alive_eids: Vec<_> = self.host_to_entity.values().copied().collect();
             for eid in &alive_eids {
                 let Some(e) = self.world.entity(*eid) else {
@@ -11088,10 +11171,7 @@ for eid in eids {
                 let Some(pd) = self.world.player_mut(pid) else {
                     continue;
                 };
-                let alive = pd
-                    .team
-                    .map(|t| living_teams.contains(&t))
-                    .unwrap_or(false);
+                let alive = pd.team.map(|t| living_teams.contains(&t)).unwrap_or(false);
                 if pd.is_alive != alive {
                     pd.is_alive = alive;
                     n = n.saturating_add(1);
@@ -14962,8 +15042,16 @@ for eid in eids {
                 obj.fire_sound_loop_name = ent.fire_sound_loop_name.clone();
             }
             {
-                let host_active = obj.lifetime_update.as_ref().map(|l| l.active).unwrap_or(false);
-                let host_exp = obj.lifetime_update.as_ref().map(|l| l.expire_at_frame).unwrap_or(0);
+                let host_active = obj
+                    .lifetime_update
+                    .as_ref()
+                    .map(|l| l.active)
+                    .unwrap_or(false);
+                let host_exp = obj
+                    .lifetime_update
+                    .as_ref()
+                    .map(|l| l.expire_at_frame)
+                    .unwrap_or(0);
                 if host_active != ent.lifetime_active || host_exp != ent.lifetime_expire_at_frame {
                     if ent.lifetime_active || ent.lifetime_expire_at_frame != 0 {
                         let l = obj.lifetime_update.get_or_insert_with(Default::default);
@@ -14990,7 +15078,9 @@ for eid in eids {
                     || obj
                         .poisoned_behavior
                         .as_ref()
-                        .map(|p| (p.poison_damage_amount - ent.poison_damage_amount).abs() > f32::EPSILON)
+                        .map(|p| {
+                            (p.poison_damage_amount - ent.poison_damage_amount).abs() > f32::EPSILON
+                        })
                         .unwrap_or(ent.poison_damage_amount > 0.0)
                     || obj
                         .poisoned_behavior
@@ -15013,13 +15103,18 @@ for eid in eids {
             {
                 let host_active = obj.topple_data.is_some();
                 let changed = host_active != ent.topple_active
-                    || obj.topple_data.as_ref().map(|td| {
-                        td.state as u8 != ent.topple_state
-                            || (td.lean_radians - ent.topple_lean_radians).abs() > f32::EPSILON
-                            || (td.angular_velocity - ent.topple_angular_velocity).abs() > f32::EPSILON
-                            || (td.angular_accumulation - ent.topple_angular_accumulation).abs()
-                                > f32::EPSILON
-                    }).unwrap_or(ent.topple_active);
+                    || obj
+                        .topple_data
+                        .as_ref()
+                        .map(|td| {
+                            td.state as u8 != ent.topple_state
+                                || (td.lean_radians - ent.topple_lean_radians).abs() > f32::EPSILON
+                                || (td.angular_velocity - ent.topple_angular_velocity).abs()
+                                    > f32::EPSILON
+                                || (td.angular_accumulation - ent.topple_angular_accumulation).abs()
+                                    > f32::EPSILON
+                        })
+                        .unwrap_or(ent.topple_active);
                 if changed {
                     if ent.topple_active {
                         use crate::game_logic::host_topple::{HostToppleData, HostToppleState};
@@ -15059,7 +15154,9 @@ for eid in eids {
                 {
                     if ent.height_die_active || ent.height_die_has_died {
                         use crate::game_logic::host_height_die::HostHeightDieData;
-                        let hd = obj.height_die.get_or_insert_with(HostHeightDieData::default);
+                        let hd = obj
+                            .height_die
+                            .get_or_insert_with(HostHeightDieData::default);
                         hd.active = ent.height_die_active;
                         hd.target_height_above_terrain = ent.height_die_target_hat;
                         hd.only_when_descending = ent.height_die_only_when_descending;
@@ -15072,7 +15169,11 @@ for eid in eids {
                 }
             }
             {
-                let host_active = obj.jet_slow_death.as_ref().map(|j| j.active).unwrap_or(false);
+                let host_active = obj
+                    .jet_slow_death
+                    .as_ref()
+                    .map(|j| j.active)
+                    .unwrap_or(false);
                 let host_done = obj.jet_slow_death.as_ref().map(|j| j.done).unwrap_or(false);
                 if host_active != ent.jet_slow_death_active
                     || host_done != ent.jet_slow_death_done
@@ -15081,9 +15182,11 @@ for eid in eids {
                         .as_ref()
                         .map(|j| {
                             j.hit_ground != ent.jet_slow_death_hit_ground
-                                || (j.vertical_velocity - ent.jet_slow_death_vertical_velocity).abs()
+                                || (j.vertical_velocity - ent.jet_slow_death_vertical_velocity)
+                                    .abs()
                                     > f32::EPSILON
-                                || (j.roll_accum - ent.jet_slow_death_roll_accum).abs() > f32::EPSILON
+                                || (j.roll_accum - ent.jet_slow_death_roll_accum).abs()
+                                    > f32::EPSILON
                         })
                         .unwrap_or(ent.jet_slow_death_active)
                 {
@@ -15174,7 +15277,9 @@ for eid in eids {
                         use crate::game_logic::host_slow_death::{
                             HostSlowDeathData, HostSlowDeathPhase,
                         };
-                        let sd = obj.slow_death.get_or_insert_with(HostSlowDeathData::default);
+                        let sd = obj
+                            .slow_death
+                            .get_or_insert_with(HostSlowDeathData::default);
                         sd.phase = match ent.slow_death_phase {
                             1 => HostSlowDeathPhase::WaitingToSink,
                             2 => HostSlowDeathPhase::Sinking,
@@ -15299,9 +15404,7 @@ for eid in eids {
                     .as_ref()
                     .map(|f| f.last_continuous_frame)
                     .unwrap_or(0);
-                if host_active != ent.fwwd_active
-                    || host_last != ent.fwwd_last_continuous_frame
-                {
+                if host_active != ent.fwwd_active || host_last != ent.fwwd_last_continuous_frame {
                     if ent.fwwd_active
                         || !ent.fwwd_continuous_damaged.is_empty()
                         || !ent.fwwd_continuous_really_damaged.is_empty()
@@ -15327,7 +15430,8 @@ for eid in eids {
                         } else {
                             Some(ent.fwwd_reaction_damaged.clone())
                         };
-                        fw.reaction_really_damaged = if ent.fwwd_reaction_really_damaged.is_empty() {
+                        fw.reaction_really_damaged = if ent.fwwd_reaction_really_damaged.is_empty()
+                        {
                             None
                         } else {
                             Some(ent.fwwd_reaction_really_damaged.clone())
@@ -15385,7 +15489,10 @@ for eid in eids {
                         })
                         .unwrap_or(ent.base_regen_active)
                 {
-                    if ent.base_regen_active || ent.base_regen_done_sold || ent.base_regen_pending_damage {
+                    if ent.base_regen_active
+                        || ent.base_regen_done_sold
+                        || ent.base_regen_pending_damage
+                    {
                         use crate::game_logic::host_base_regenerate::HostBaseRegenerateData;
                         let br = obj
                             .base_regenerate
@@ -15402,7 +15509,9 @@ for eid in eids {
             {
                 if ent.enemy_near_active {
                     use crate::game_logic::host_enemy_near::HostEnemyNearData;
-                    let en = obj.enemy_near.get_or_insert_with(HostEnemyNearData::default);
+                    let en = obj
+                        .enemy_near
+                        .get_or_insert_with(HostEnemyNearData::default);
                     if en.enemy_near != ent.enemy_near
                         || en.scan_delay != ent.enemy_near_scan_delay
                         || en.model_enemy_near != ent.enemy_near_model
@@ -15421,7 +15530,9 @@ for eid in eids {
             {
                 if ent.prone_active || ent.prone_frames > 0 {
                     use crate::game_logic::host_prone_update::HostProneUpdateData;
-                    let pu = obj.prone_update.get_or_insert_with(HostProneUpdateData::default);
+                    let pu = obj
+                        .prone_update
+                        .get_or_insert_with(HostProneUpdateData::default);
                     pu.prone_frames = ent.prone_frames;
                     pu.damage_to_frames_ratio = ent.prone_damage_to_frames_ratio;
                     pu.model_prone = ent.prone_model;
@@ -15450,7 +15561,9 @@ for eid in eids {
             {
                 if ent.float_update_active {
                     use crate::game_logic::host_float_update::HostFloatUpdateData;
-                    let fu = obj.float_update.get_or_insert_with(HostFloatUpdateData::default);
+                    let fu = obj
+                        .float_update
+                        .get_or_insert_with(HostFloatUpdateData::default);
                     fu.enabled = ent.float_update_enabled;
                     fu.yaw = ent.float_yaw;
                     fu.pitch = ent.float_pitch;
@@ -15479,7 +15592,10 @@ for eid in eids {
                     if !ent.anim_steer_has_condition {
                         s.active_condition = None;
                     } else if s.active_condition.is_none() {
-                        s.active_condition = s.current_turn_anim.model_condition_name().map(|n| n.to_string());
+                        s.active_condition = s
+                            .current_turn_anim
+                            .model_condition_name()
+                            .map(|n| n.to_string());
                     }
                 } else if obj.animation_steering.is_some() {
                     obj.animation_steering = None;
@@ -15654,12 +15770,7 @@ for eid in eids {
                 if ent.emp_pulse_transport_active {
                     use crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightData;
                     let d = obj.emp_pulse_transport.get_or_insert_with(|| {
-                        HostEmpPulseFlightData::start(
-                            glam::Vec3::ZERO,
-                            glam::Vec3::ZERO,
-                            0,
-                            0,
-                        )
+                        HostEmpPulseFlightData::start(glam::Vec3::ZERO, glam::Vec3::ZERO, 0, 0)
                     });
                     d.player_id = ent.emp_pulse_transport_player_id;
                     d.caster_id = ent.emp_pulse_transport_caster_id;
@@ -15681,13 +15792,12 @@ for eid in eids {
                     obj.movement.velocity.y = ent.emp_pulse_bomb_vel_y;
                 }
                 obj.emp_pulse_spheroid = ent.emp_pulse_spheroid;
-                obj.emp_pulse_spheroid_expires_frame = if ent.emp_pulse_spheroid
-                    && ent.emp_pulse_spheroid_expires_frame > 0
-                {
-                    Some(ent.emp_pulse_spheroid_expires_frame)
-                } else {
-                    None
-                };
+                obj.emp_pulse_spheroid_expires_frame =
+                    if ent.emp_pulse_spheroid && ent.emp_pulse_spheroid_expires_frame > 0 {
+                        Some(ent.emp_pulse_spheroid_expires_frame)
+                    } else {
+                        None
+                    };
             }
             {
                 if ent.a10_strike_transport_active {
@@ -15699,11 +15809,7 @@ for eid in eids {
                         _ => A10StrikeScienceTier::Level1,
                     };
                     let d = obj.a10_strike_transport.get_or_insert_with(|| {
-                        HostA10StrikeFlightData::start(
-                            glam::Vec3::ZERO,
-                            glam::Vec3::ZERO,
-                            tier,
-                        )
+                        HostA10StrikeFlightData::start(glam::Vec3::ZERO, glam::Vec3::ZERO, tier)
                     });
                     d.tier = tier;
                     d.target = glam::Vec3::new(
@@ -15769,11 +15875,7 @@ for eid in eids {
                         _ => CarpetBombFactionTier::America,
                     };
                     let d = obj.carpet_bomb_transport.get_or_insert_with(|| {
-                        HostCarpetBombFlightData::start(
-                            glam::Vec3::ZERO,
-                            glam::Vec3::ZERO,
-                            tier,
-                        )
+                        HostCarpetBombFlightData::start(glam::Vec3::ZERO, glam::Vec3::ZERO, tier)
                     });
                     d.tier = tier;
                     d.target = glam::Vec3::new(
@@ -15921,7 +16023,8 @@ for eid in eids {
                     obj.scud_launcher_missile_aim = None;
                 }
                 obj.scud_launcher_missile_travelled = ent.scud_launcher_missile_travelled;
-                obj.scud_launcher_missile_fuel_expires_frame = if ent.scud_launcher_missile_has_fuel {
+                obj.scud_launcher_missile_fuel_expires_frame = if ent.scud_launcher_missile_has_fuel
+                {
                     Some(ent.scud_launcher_missile_fuel_expires_frame)
                 } else {
                     None
@@ -15945,13 +16048,12 @@ for eid in eids {
                 } else {
                     obj.neutron_shell_aim = None;
                 }
-                obj.neutron_shell_launch_frame = if ent.neutron_shell_launch_frame > 0
-                    || ent.neutron_cannon_shell_projectile
-                {
-                    Some(ent.neutron_shell_launch_frame)
-                } else {
-                    None
-                };
+                obj.neutron_shell_launch_frame =
+                    if ent.neutron_shell_launch_frame > 0 || ent.neutron_cannon_shell_projectile {
+                        Some(ent.neutron_shell_launch_frame)
+                    } else {
+                        None
+                    };
                 obj.neutron_shell_flight_frames = ent.neutron_shell_flight_frames;
                 obj.nuke_cannon_shell_projectile = ent.nuke_cannon_shell_projectile;
                 if ent.nuke_shell_has_from {
@@ -15972,13 +16074,12 @@ for eid in eids {
                 } else {
                     obj.nuke_shell_aim = None;
                 }
-                obj.nuke_shell_launch_frame = if ent.nuke_shell_launch_frame > 0
-                    || ent.nuke_cannon_shell_projectile
-                {
-                    Some(ent.nuke_shell_launch_frame)
-                } else {
-                    None
-                };
+                obj.nuke_shell_launch_frame =
+                    if ent.nuke_shell_launch_frame > 0 || ent.nuke_cannon_shell_projectile {
+                        Some(ent.nuke_shell_launch_frame)
+                    } else {
+                        None
+                    };
                 obj.nuke_shell_flight_frames = ent.nuke_shell_flight_frames;
             }
             {
@@ -15991,29 +16092,26 @@ for eid in eids {
             }
             {
                 obj.nuke_radiation_field = ent.nuke_radiation_field;
-                obj.nuke_radiation_field_expires_frame = if ent.nuke_radiation_field
-                    && ent.nuke_radiation_field_expires_frame > 0
-                {
-                    Some(ent.nuke_radiation_field_expires_frame)
-                } else {
-                    None
-                };
+                obj.nuke_radiation_field_expires_frame =
+                    if ent.nuke_radiation_field && ent.nuke_radiation_field_expires_frame > 0 {
+                        Some(ent.nuke_radiation_field_expires_frame)
+                    } else {
+                        None
+                    };
                 obj.anthrax_toxin_field = ent.anthrax_toxin_field;
-                obj.anthrax_toxin_field_expires_frame = if ent.anthrax_toxin_field
-                    && ent.anthrax_toxin_field_expires_frame > 0
-                {
-                    Some(ent.anthrax_toxin_field_expires_frame)
-                } else {
-                    None
-                };
+                obj.anthrax_toxin_field_expires_frame =
+                    if ent.anthrax_toxin_field && ent.anthrax_toxin_field_expires_frame > 0 {
+                        Some(ent.anthrax_toxin_field_expires_frame)
+                    } else {
+                        None
+                    };
                 obj.inferno_fire_field = ent.inferno_fire_field;
-                obj.inferno_fire_field_expires_frame = if ent.inferno_fire_field
-                    && ent.inferno_fire_field_expires_frame > 0
-                {
-                    Some(ent.inferno_fire_field_expires_frame)
-                } else {
-                    None
-                };
+                obj.inferno_fire_field_expires_frame =
+                    if ent.inferno_fire_field && ent.inferno_fire_field_expires_frame > 0 {
+                        Some(ent.inferno_fire_field_expires_frame)
+                    } else {
+                        None
+                    };
             }
             {
                 obj.inferno_shell_projectile = ent.inferno_shell_projectile;
@@ -16035,13 +16133,12 @@ for eid in eids {
                 } else {
                     obj.inferno_shell_aim = None;
                 }
-                obj.inferno_shell_launch_frame = if ent.inferno_shell_launch_frame > 0
-                    || ent.inferno_shell_projectile
-                {
-                    Some(ent.inferno_shell_launch_frame)
-                } else {
-                    None
-                };
+                obj.inferno_shell_launch_frame =
+                    if ent.inferno_shell_launch_frame > 0 || ent.inferno_shell_projectile {
+                        Some(ent.inferno_shell_launch_frame)
+                    } else {
+                        None
+                    };
                 obj.inferno_shell_flight_frames = ent.inferno_shell_flight_frames;
                 obj.inferno_shell_intended = if ent.inferno_shell_has_intended {
                     Some(ent.inferno_shell_intended)
@@ -16050,13 +16147,12 @@ for eid in eids {
                 };
                 obj.inferno_shell_upgraded = ent.inferno_shell_upgraded;
                 obj.spy_satellite_ping = ent.spy_satellite_ping;
-                obj.spy_satellite_ping_expires_frame = if ent.spy_satellite_ping
-                    && ent.spy_satellite_ping_expires_frame > 0
-                {
-                    Some(ent.spy_satellite_ping_expires_frame)
-                } else {
-                    None
-                };
+                obj.spy_satellite_ping_expires_frame =
+                    if ent.spy_satellite_ping && ent.spy_satellite_ping_expires_frame > 0 {
+                        Some(ent.spy_satellite_ping_expires_frame)
+                    } else {
+                        None
+                    };
             }
             {
                 obj.flashbang_grenade_projectile = ent.flashbang_grenade_projectile;
@@ -16078,13 +16174,12 @@ for eid in eids {
                 } else {
                     obj.flashbang_grenade_aim = None;
                 }
-                obj.flashbang_grenade_launch_frame = if ent.flashbang_grenade_launch_frame > 0
-                    || ent.flashbang_grenade_projectile
-                {
-                    Some(ent.flashbang_grenade_launch_frame)
-                } else {
-                    None
-                };
+                obj.flashbang_grenade_launch_frame =
+                    if ent.flashbang_grenade_launch_frame > 0 || ent.flashbang_grenade_projectile {
+                        Some(ent.flashbang_grenade_launch_frame)
+                    } else {
+                        None
+                    };
                 obj.flashbang_grenade_flight_frames = ent.flashbang_grenade_flight_frames;
                 obj.flashbang_grenade_intended = if ent.flashbang_grenade_has_intended {
                     Some(ent.flashbang_grenade_intended)
@@ -16092,14 +16187,14 @@ for eid in eids {
                     None
                 };
                 obj.comanche_rocket_pod_projectile = ent.comanche_rocket_pod_projectile;
-                obj.comanche_rocket_pod_projectile_expires_frame =
-                    if ent.comanche_rocket_pod_projectile
-                        && ent.comanche_rocket_pod_projectile_expires_frame > 0
-                    {
-                        Some(ent.comanche_rocket_pod_projectile_expires_frame)
-                    } else {
-                        None
-                    };
+                obj.comanche_rocket_pod_projectile_expires_frame = if ent
+                    .comanche_rocket_pod_projectile
+                    && ent.comanche_rocket_pod_projectile_expires_frame > 0
+                {
+                    Some(ent.comanche_rocket_pod_projectile_expires_frame)
+                } else {
+                    None
+                };
                 obj.helix_napalm_bomb_projectile = ent.helix_napalm_bomb_projectile;
                 obj.scorpion_missile_projectile = ent.scorpion_missile_projectile;
                 if ent.scorpion_missile_has_aim {
@@ -16117,14 +16212,13 @@ for eid in eids {
                     None
                 };
                 obj.scorpion_missile_travelled = ent.scorpion_missile_travelled;
-                obj.scorpion_missile_fuel_expires_frame =
-                    if ent.scorpion_missile_projectile
-                        && ent.scorpion_missile_fuel_expires_frame > 0
-                    {
-                        Some(ent.scorpion_missile_fuel_expires_frame)
-                    } else {
-                        None
-                    };
+                obj.scorpion_missile_fuel_expires_frame = if ent.scorpion_missile_projectile
+                    && ent.scorpion_missile_fuel_expires_frame > 0
+                {
+                    Some(ent.scorpion_missile_fuel_expires_frame)
+                } else {
+                    None
+                };
                 obj.scorpion_missile_slot = ent.scorpion_missile_slot;
                 obj.spectre_howitzer_shell = ent.spectre_howitzer_shell;
                 obj.spectre_howitzer_shell_expires_frame =
@@ -16141,22 +16235,20 @@ for eid in eids {
                         None
                     };
                 obj.point_defense_laser_beam = ent.point_defense_laser_beam;
-                obj.point_defense_laser_beam_expires_frame =
-                    if ent.point_defense_laser_beam
-                        && ent.point_defense_laser_beam_expires_frame > 0
-                    {
-                        Some(ent.point_defense_laser_beam_expires_frame)
-                    } else {
-                        None
-                    };
-                obj.weapon_laser_beam = ent.weapon_laser_beam;
-                obj.weapon_laser_beam_expires_frame = if ent.weapon_laser_beam
-                    && ent.weapon_laser_beam_expires_frame > 0
+                obj.point_defense_laser_beam_expires_frame = if ent.point_defense_laser_beam
+                    && ent.point_defense_laser_beam_expires_frame > 0
                 {
-                    Some(ent.weapon_laser_beam_expires_frame)
+                    Some(ent.point_defense_laser_beam_expires_frame)
                 } else {
                     None
                 };
+                obj.weapon_laser_beam = ent.weapon_laser_beam;
+                obj.weapon_laser_beam_expires_frame =
+                    if ent.weapon_laser_beam && ent.weapon_laser_beam_expires_frame > 0 {
+                        Some(ent.weapon_laser_beam_expires_frame)
+                    } else {
+                        None
+                    };
                 // Sticky attach follow is position-only via drain; keep host mine_data.
                 obj.booby_trap_special = ent.booby_trap_special;
                 obj.booby_trap_attached_to = if ent.booby_trap_has_attached {
@@ -16262,9 +16354,6 @@ for eid in eids {
         }
         updated
     }
-
-
-
 
     /// Wave 786: Checkpoint residual ally/enemy presence scan on GW entities.
     fn scan_checkpoint_near(
@@ -17736,8 +17825,7 @@ pub fn shadow_session_after_host_tick(
             if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
-                obj.status.death_type =
-                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+                obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
             logic.mark_object_for_destruction(id, None);
         }
@@ -17781,8 +17869,7 @@ pub fn shadow_session_after_host_tick(
             if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
-                obj.status.death_type =
-                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+                obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
             logic.mark_object_for_destruction(id, None);
         }
@@ -17791,8 +17878,7 @@ pub fn shadow_session_after_host_tick(
             if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
-                obj.status.death_type =
-                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+                obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
             logic.mark_object_for_destruction(id, None);
         }
@@ -17883,13 +17969,10 @@ pub fn shadow_session_after_host_tick(
                 DamageType::Explosive,
             );
             let src = ev.producer.unwrap_or(ev.bomb);
-            let _ = logic.special_power_strikes.spawn_toxin_field(
-                src,
-                ev.team,
-                ev.pos,
-                logic.frame,
-                0,
-            );
+            let _ =
+                logic
+                    .special_power_strikes
+                    .spawn_toxin_field(src, ev.team, ev.pos, logic.frame, 0);
             logic.anthrax_bomb_flight_reg.record_toxin_field();
             if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
                 o.health.current = 0.0;
@@ -18029,7 +18112,9 @@ pub fn shadow_session_after_host_tick(
                     .insert(ARTILLERY_BARRAGE_SHELL_OBJECT.to_string(), t);
             }
             let drop_pos = glam::Vec3::new(ev.target.x, 100.0, ev.target.z);
-            if let Some(sid) = logic.create_object(ARTILLERY_BARRAGE_SHELL_OBJECT, ev.team, drop_pos) {
+            if let Some(sid) =
+                logic.create_object(ARTILLERY_BARRAGE_SHELL_OBJECT, ev.team, drop_pos)
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&sid) {
                     o.producer_id = Some(ev.producer);
                     o.artillery_barrage_shell = true;
@@ -18085,7 +18170,9 @@ pub fn shadow_session_after_host_tick(
         }
         for ev in crate::game_logic::host_carpet_bomb_drop_log::drain_dets() {
             use crate::game_logic::combat::DamageType;
-            use crate::game_logic::special_power_strikes::{CARPET_BOMB_DAMAGE, CARPET_BOMB_RADIUS};
+            use crate::game_logic::special_power_strikes::{
+                CARPET_BOMB_DAMAGE, CARPET_BOMB_RADIUS,
+            };
             logic.apply_fuel_air_radius_damage(
                 ev.bomb,
                 ev.producer,
@@ -18130,7 +18217,8 @@ pub fn shadow_session_after_host_tick(
         for ev in crate::game_logic::host_paradrop_cargo_drop_log::drain_drops() {
             use crate::game_logic::host_paradrop::PARADROP_PARACHUTE_CONTAINER;
             let drop_pos = glam::Vec3::new(ev.target.x, 100.0, ev.target.z);
-            if let Some(pid) = logic.create_object(PARADROP_PARACHUTE_CONTAINER, ev.team, drop_pos) {
+            if let Some(pid) = logic.create_object(PARADROP_PARACHUTE_CONTAINER, ev.team, drop_pos)
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&pid) {
                     o.producer_id = Some(ev.producer);
                     o.paradrop_parachute = true;
@@ -18138,10 +18226,8 @@ pub fn shadow_session_after_host_tick(
                     let _ = o.set_smart_bomb_target(ev.target);
                     let _ = o.apply_eject_parachuting();
                 }
-                logic.host_paradrops.parachutes_dropped = logic
-                    .host_paradrops
-                    .parachutes_dropped
-                    .saturating_add(1);
+                logic.host_paradrops.parachutes_dropped =
+                    logic.host_paradrops.parachutes_dropped.saturating_add(1);
             }
         }
         for ev in crate::game_logic::host_paradrop_cargo_drop_log::drain_ground() {
@@ -18201,12 +18287,8 @@ pub fn shadow_session_after_host_tick(
                 .source
                 .and_then(|sid| logic.get_objects().get(&sid).map(|o| o.team))
                 .unwrap_or(ev.team);
-            let _ = logic.apply_toxin_tractor_stream_at(
-                ev.pos,
-                ev.source,
-                ev.intended,
-                source_team,
-            );
+            let _ =
+                logic.apply_toxin_tractor_stream_at(ev.pos, ev.source, ev.intended, source_team);
             logic.mark_object_for_destruction(ev.id, Some(ev.team));
         }
         // Wave 799: AngryMob projectile impact (no dual flight).
@@ -18300,15 +18382,11 @@ pub fn shadow_session_after_host_tick(
                     FieldObjectKind::InfernoFire => o.inferno_fire_field = false,
                     FieldObjectKind::SpectreHowitzerShell => o.spectre_howitzer_shell = false,
                     FieldObjectKind::CountermeasureFlare => o.countermeasure_flare = false,
-                    FieldObjectKind::PointDefenseLaserBeam => {
-                        o.point_defense_laser_beam = false
-                    }
+                    FieldObjectKind::PointDefenseLaserBeam => o.point_defense_laser_beam = false,
                     FieldObjectKind::WeaponLaserBeam => o.weapon_laser_beam = false,
                     FieldObjectKind::ParticleTrailRemnant => o.particle_trail_remnant = false,
                     FieldObjectKind::ParticleOrbitalLaser => o.particle_orbital_laser = false,
-                    FieldObjectKind::ParticleConnectorLaser => {
-                        o.particle_connector_laser = false
-                    }
+                    FieldObjectKind::ParticleConnectorLaser => o.particle_connector_laser = false,
                     FieldObjectKind::FirewallSegment => {
                         o.firewall_segment = false;
                         o.firewall_segment_wall_id = None;
@@ -18329,7 +18407,6 @@ pub fn shadow_session_after_host_tick(
             if matches!(ev.kind, FieldObjectKind::MoneyCrate) {
                 logic.host_money_crates.forget(ev.id);
             }
-
         }
         // Wave 803: Inferno shell impact + SpySatellite ping expire.
         for ev in crate::game_logic::host_inferno_shell_projectile_log::drain_impacts() {
@@ -18369,7 +18446,8 @@ pub fn shadow_session_after_host_tick(
             logic.mark_object_for_destruction(id, None);
         }
         // Wave 804: Flashbang impact + Comanche rocket expire.
-        for ev in crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_flashbang() {
+        for ev in crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_flashbang()
+        {
             let team = logic.get_objects().get(&ev.id).map(|o| o.team);
             if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
@@ -18387,7 +18465,10 @@ pub fn shadow_session_after_host_tick(
             let _ = logic.apply_ranger_residual_at(ev.pos, ev.source, ev.intended, true);
             logic.mark_object_for_destruction(ev.id, team);
         }
-        for id in crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_comanche_expires() {
+        for id in
+            crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_comanche_expires(
+            )
+        {
             if let Some(o) = logic.get_objects_mut().get_mut(&id) {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
@@ -18447,9 +18528,7 @@ pub fn shadow_session_after_host_tick(
                 o.power_plant_rods_done_frame = 0;
                 o.power_plant_rods_extended = true;
             }
-            logic
-                .special_power_completion_log
-                .record_rods_complete();
+            logic.special_power_completion_log.record_rods_complete();
         }
         // Wave 812: Battlemaster horde status residual.
         for ev in crate::game_logic::host_battlemaster_horde_log::drain() {
@@ -18458,9 +18537,8 @@ pub fn shadow_session_after_host_tick(
                 o.weapon_bonus_horde = ev.now_horde;
                 o.record_host_weapon_bonus();
                 if ev.now_horde && !was {
-                    logic.battlemaster_residual_horde_grants = logic
-                        .battlemaster_residual_horde_grants
-                        .saturating_add(1);
+                    logic.battlemaster_residual_horde_grants =
+                        logic.battlemaster_residual_horde_grants.saturating_add(1);
                 }
             }
             if ev.now_horde != ev.was_horde || ev.now_horde {
@@ -18477,19 +18555,16 @@ pub fn shadow_session_after_host_tick(
                 if ev.now_horde && !was {
                     match ev.kind {
                         ChinaInfantryHordeKind::RedGuard => {
-                            logic.red_guard_residual_horde_grants = logic
-                                .red_guard_residual_horde_grants
-                                .saturating_add(1);
+                            logic.red_guard_residual_horde_grants =
+                                logic.red_guard_residual_horde_grants.saturating_add(1);
                         }
                         ChinaInfantryHordeKind::TankHunter => {
-                            logic.tank_hunter_residual_horde_grants = logic
-                                .tank_hunter_residual_horde_grants
-                                .saturating_add(1);
+                            logic.tank_hunter_residual_horde_grants =
+                                logic.tank_hunter_residual_horde_grants.saturating_add(1);
                         }
                         ChinaInfantryHordeKind::Minigunner => {
-                            logic.minigunner_residual_horde_grants = logic
-                                .minigunner_residual_horde_grants
-                                .saturating_add(1);
+                            logic.minigunner_residual_horde_grants =
+                                logic.minigunner_residual_horde_grants.saturating_add(1);
                         }
                     }
                 }
@@ -18508,7 +18583,7 @@ pub fn shadow_session_after_host_tick(
                 }
             }
         }
-// Wave 814: Stinger hive respawn residual.
+        // Wave 814: Stinger hive respawn residual.
         for ev in crate::game_logic::host_stinger_hive_log::drain() {
             if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
                 o.hive_slave_count = ev.hive_slave_count;
@@ -18520,9 +18595,8 @@ pub fn shadow_session_after_host_tick(
                 }
                 o.record_host_hive();
             }
-            logic.stinger_hive_residual_respawns = logic
-                .stinger_hive_residual_respawns
-                .saturating_add(1);
+            logic.stinger_hive_residual_respawns =
+                logic.stinger_hive_residual_respawns.saturating_add(1);
         }
         // Wave 818: player radar transitions residual.
         for ev in crate::game_logic::host_player_radar_log::drain() {
@@ -18537,11 +18611,13 @@ pub fn shadow_session_after_host_tick(
             );
             if came_online {
                 logic.queue_audio_event(
-                    crate::game_logic::game_logic::AudioEventRequest::new(RADAR_ONLINE_AUDIO).with_priority(130),
+                    crate::game_logic::game_logic::AudioEventRequest::new(RADAR_ONLINE_AUDIO)
+                        .with_priority(130),
                 );
             } else if went_offline {
                 logic.queue_audio_event(
-                    crate::game_logic::game_logic::AudioEventRequest::new(RADAR_OFFLINE_AUDIO).with_priority(130),
+                    crate::game_logic::game_logic::AudioEventRequest::new(RADAR_OFFLINE_AUDIO)
+                        .with_priority(130),
                 );
             }
         }
@@ -18550,16 +18626,14 @@ pub fn shadow_session_after_host_tick(
             logic.apply_fire_spread_tick_event(ev);
         }
 
-
         // Wave 815: ACTIVELY_CONSTRUCTING model bit residual.
         for ev in crate::game_logic::host_actively_constructing_log::drain() {
             if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
                 let before = o.model_condition_bits;
                 o.model_condition_bits = ev.model_condition_bits;
                 if o.model_condition_bits != before {
-                    logic.actively_constructing_updates = logic
-                        .actively_constructing_updates
-                        .saturating_add(1);
+                    logic.actively_constructing_updates =
+                        logic.actively_constructing_updates.saturating_add(1);
                 }
             }
         }
@@ -18567,30 +18641,10 @@ pub fn shadow_session_after_host_tick(
         for ev in crate::game_logic::host_dozer_bored_log::drain() {
             logic.process_dozer_bored_event(ev.id);
         }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        // Wave 821: black market / oil derrick AutoDeposit residual.
+        for ev in crate::game_logic::host_auto_deposit_log::drain() {
+            logic.apply_auto_deposit_event(ev);
+        }
 
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready = logic.host_apply_combat_status_ready_completions();

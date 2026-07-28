@@ -24,10 +24,18 @@ thread_local! {
     static DETS: RefCell<Vec<ArtilleryDetonateEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record_drop(ev: ArtilleryDropEvent) { DROPS.with(|l| l.borrow_mut().push(ev)); }
-pub fn record_detonate(ev: ArtilleryDetonateEvent) { DETS.with(|l| l.borrow_mut().push(ev)); }
-pub fn drain_drops() -> Vec<ArtilleryDropEvent> { DROPS.with(|l| std::mem::take(&mut *l.borrow_mut())) }
-pub fn drain_dets() -> Vec<ArtilleryDetonateEvent> { DETS.with(|l| std::mem::take(&mut *l.borrow_mut())) }
+pub fn record_drop(ev: ArtilleryDropEvent) {
+    DROPS.with(|l| l.borrow_mut().push(ev));
+}
+pub fn record_detonate(ev: ArtilleryDetonateEvent) {
+    DETS.with(|l| l.borrow_mut().push(ev));
+}
+pub fn drain_drops() -> Vec<ArtilleryDropEvent> {
+    DROPS.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
+pub fn drain_dets() -> Vec<ArtilleryDetonateEvent> {
+    DETS.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
 pub fn clear() {
     DROPS.with(|l| l.borrow_mut().clear());
     DETS.with(|l| l.borrow_mut().clear());
