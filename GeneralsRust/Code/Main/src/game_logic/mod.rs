@@ -208,6 +208,7 @@ pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
 pub mod host_live_host_base_regen_dual_peel_residual_wave780;
 pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
 pub mod host_live_host_prone_update_dual_peel_residual_wave782;
+pub mod host_live_host_float_update_dual_peel_residual_wave783;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3877,6 +3878,16 @@ pub use host_live_host_prone_update_dual_peel_residual_wave782::{
     residual_host_prone_update_dual_peel_ok,
     simulate_live_host_prone_update_dual_peel_honesty,
 };
+pub use host_live_host_float_update_dual_peel_residual_wave783::{
+    honesty_host_float_update_dual_peel_method_names_residual_wave783,
+    honesty_host_float_update_dual_peel_nav_commands_residual_wave783,
+    honesty_host_float_update_dual_peel_residual_pack_wave783,
+    honesty_host_float_update_dual_peel_source_markers_residual_wave783,
+    residual_host_float_update_dual_peel_last_action,
+    residual_host_float_update_dual_peel_ok,
+    simulate_live_host_float_update_dual_peel_honesty,
+};
+
 
 
 
