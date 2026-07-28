@@ -614,6 +614,14 @@ pub struct Entity {
     pub structure_topple_last_crushed_location: f32,
     pub structure_topple_building_height: f32,
     pub structure_topple_facing_width: f32,
+    /// Host FireWeaponWhenDamagedBehavior continuous residual.
+    pub fwwd_active: bool,
+    pub fwwd_last_continuous_frame: u32,
+    pub fwwd_continuous_reload_frames: u32,
+    pub fwwd_continuous_pristine: String,
+    pub fwwd_continuous_damaged: String,
+    pub fwwd_continuous_really_damaged: String,
+    pub fwwd_continuous_rubble: String,
     /// C++ AnimationSteeringUpdate turn anim ordinal residual.
     pub anim_steer_turn: u8,
     /// Host Object::shock_yaw_rate residual.
@@ -1250,6 +1258,13 @@ impl EntityStore {
             structure_topple_last_crushed_location: 0.0,
             structure_topple_building_height: 40.0,
             structure_topple_facing_width: 20.0,
+            fwwd_active: false,
+            fwwd_last_continuous_frame: 0,
+            fwwd_continuous_reload_frames: 30,
+            fwwd_continuous_pristine: String::new(),
+            fwwd_continuous_damaged: String::new(),
+            fwwd_continuous_really_damaged: String::new(),
+            fwwd_continuous_rubble: String::new(),
             anim_steer_turn: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
