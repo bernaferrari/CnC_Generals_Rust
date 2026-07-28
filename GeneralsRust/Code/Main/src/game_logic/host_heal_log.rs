@@ -40,6 +40,10 @@ pub fn drain() -> Vec<HostHealEvent> {
     v
 }
 
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}
+
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
