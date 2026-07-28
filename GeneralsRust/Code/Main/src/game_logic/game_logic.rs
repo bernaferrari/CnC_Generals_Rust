@@ -30375,8 +30375,21 @@ impl GameLogic {
 
         if and_exit {
             // C++ evacuate-and-exit: transport returns/deletes itself.
+            // Wave 747: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags;
+            // non-authority path keeps host HP clear.
             if let Some(c) = self.objects.get_mut(&container_id) {
-                c.health.current = 0.0;
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = c.health.current.max(1.0);
+                    crate::game_logic::host_damage_log::record(
+                        container_id,
+                        hp,
+                        None,
+                        true,
+                    );
+                } else {
+                    c.health.current = 0.0;
+                }
                 c.status.destroyed = true;
                 c.set_ai_state(AIState::Idle);
             }
