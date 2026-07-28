@@ -31,3 +31,7 @@ pub fn drain() -> Vec<HostContainCapacityEvent> {
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
 }
+
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}

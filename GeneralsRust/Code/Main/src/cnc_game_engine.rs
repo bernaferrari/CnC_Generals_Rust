@@ -18068,6 +18068,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 695: post-logic contain-capacity / hive / overlord.
+                let _cap = crate::gameworld_shadow::eager_apply_host_contain_capacity_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _hive = crate::gameworld_shadow::eager_apply_host_hive_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _ol = crate::gameworld_shadow::eager_apply_host_overlord_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

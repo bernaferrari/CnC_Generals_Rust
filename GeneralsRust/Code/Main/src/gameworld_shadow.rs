@@ -216,6 +216,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_AI_ATTITUDE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_OVERCHARGE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_STEALTH_FLAGS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_CONTAIN_CAPACITY_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_HIVE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_OVERLORD_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1065,6 +1068,90 @@ pub fn eager_apply_host_stealth_flags_after_logic(
     }
     let n = shadow.apply_host_stealth_flags_events(&events);
     EARLY_STEALTH_FLAGS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 695: post-logic contain-capacity / hive / overlord batch handoff.
+thread_local! {
+    static EARLY_CONTAIN_CAPACITY_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_contain_capacity_log::HostContainCapacityEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_HIVE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_hive_log::HostHiveEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_OVERLORD_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_overlord_log::HostOverlordEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_contain_capacity_batch() -> Option<(
+    Vec<crate::game_logic::host_contain_capacity_log::HostContainCapacityEvent>,
+    bool,
+)> {
+    EARLY_CONTAIN_CAPACITY_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_hive_batch() -> Option<(Vec<crate::game_logic::host_hive_log::HostHiveEvent>, bool)> {
+    EARLY_HIVE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_overlord_batch() -> Option<(
+    Vec<crate::game_logic::host_overlord_log::HostOverlordEvent>,
+    bool,
+)> {
+    EARLY_OVERLORD_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 695: post-logic drain `host_contain_capacity_log` into GameWorld SetContainCapacity.
+pub fn eager_apply_host_contain_capacity_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 695: post-logic contain-capacity materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_contain_capacity_log::drain();
+    if events.is_empty() {
+        EARLY_CONTAIN_CAPACITY_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_contain_capacity_events(&events);
+    EARLY_CONTAIN_CAPACITY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 695: post-logic drain `host_hive_log` into GameWorld SetHiveSlaves.
+pub fn eager_apply_host_hive_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 695: post-logic hive materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_hive_log::drain();
+    if events.is_empty() {
+        EARLY_HIVE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_hive_events(&events);
+    EARLY_HIVE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 695: post-logic drain `host_overlord_log` into GameWorld SetOverlordAddon.
+pub fn eager_apply_host_overlord_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 695: post-logic overlord materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_overlord_log::drain();
+    if events.is_empty() {
+        EARLY_OVERLORD_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_overlord_events(&events);
+    EARLY_OVERLORD_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8875,15 +8962,28 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_overcharge_log::drain(), false),
     };
-    let contain_capacity_events = crate::game_logic::host_contain_capacity_log::drain();
-    let hive_events = crate::game_logic::host_hive_log::drain();
+    // Wave 695: prefer post-logic contain-capacity batch.
+    let (contain_capacity_events, early_contain_capacity_applied) =
+        match take_early_contain_capacity_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_contain_capacity_log::drain(), false),
+        };
+    // Wave 695: prefer post-logic hive batch.
+    let (hive_events, early_hive_applied) = match take_early_hive_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_hive_log::drain(), false),
+    };
     // Wave 694: prefer post-logic stealth-flags batch.
     let (stealth_flags_events, early_stealth_flags_applied) = match take_early_stealth_flags_batch()
     {
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_stealth_flags_log::drain(), false),
     };
-    let overlord_events = crate::game_logic::host_overlord_log::drain();
+    // Wave 695: prefer post-logic overlord batch.
+    let (overlord_events, early_overlord_applied) = match take_early_overlord_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_overlord_log::drain(), false),
+    };
     let command_set_events = crate::game_logic::host_command_set_log::drain();
     let disguise_events = crate::game_logic::host_disguise_log::drain();
     let vision_camo_events = crate::game_logic::host_vision_camo_log::drain();
@@ -9151,8 +9251,18 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_overcharge_events(&overcharge_events)
     };
-    let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
-    let _hive_applied = shadow.apply_host_hive_events(&hive_events);
+    // Wave 695: skip GW re-apply when post-logic eager path already ran.
+    let _cap_applied = if early_contain_capacity_applied {
+        0
+    } else {
+        shadow.apply_host_contain_capacity_events(&contain_capacity_events)
+    };
+    // Wave 695: skip GW re-apply when post-logic eager path already ran.
+    let _hive_applied = if early_hive_applied {
+        0
+    } else {
+        shadow.apply_host_hive_events(&hive_events)
+    };
     let hijack_events = crate::game_logic::host_hijacker_log::drain();
     let _hj_applied = shadow.apply_host_hijacker_events(&hijack_events);
     // Wave 694: skip GW re-apply when post-logic eager path already ran.
@@ -9163,7 +9273,12 @@ pub fn shadow_session_after_host_tick(
     };
     let stealth_delay_events = crate::game_logic::host_stealth_delay_log::drain();
     let _sd_applied = shadow.apply_host_stealth_delay_events(&stealth_delay_events);
-    let _ol_applied = shadow.apply_host_overlord_events(&overlord_events);
+    // Wave 695: skip GW re-apply when post-logic eager path already ran.
+    let _ol_applied = if early_overlord_applied {
+        0
+    } else {
+        shadow.apply_host_overlord_events(&overlord_events)
+    };
     let _cs_applied = shadow.apply_host_command_set_events(&command_set_events);
     let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
     let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
