@@ -6819,6 +6819,85 @@ impl GameWorldShadow {
         n
     }
 
+    /// Wave 761: expire faerie/repulsor/disable/frenzy/continuous-fire/selection flash.
+    pub fn tick_status_timer_expirations(&mut self, frame: u32) -> usize {
+        // Wave 761: under coupled dual-tick, GameWorld expires status timers
+        // (faerie/repulsor/disable/frenzy/continuous-fire coast). Host peels the
+        // matching mid-frame ticks so writeback is last-writer without dual expire.
+        use gamelogic::world::entities::EntityId;
+        let eids: Vec<EntityId> = self
+            .host_to_entity
+            .values()
+            .copied()
+            .collect();
+        let mut n = 0usize;
+        for eid in eids {
+            let Some(e) = self.world.world_mut().entity_mut(eid) else {
+                continue;
+            };
+            let mut changed = false;
+            if e.faerie_fire && e.faerie_fire_until_frame > 0 && frame >= e.faerie_fire_until_frame {
+                e.faerie_fire = false;
+                e.faerie_fire_until_frame = 0;
+                changed = true;
+            }
+            if e.repulsor && e.repulsor_until_frame > 0 {
+                e.repulsor_until_frame = e.repulsor_until_frame.saturating_sub(1);
+                if e.repulsor_until_frame == 0 {
+                    e.repulsor = false;
+                }
+                changed = true;
+            }
+            if e.disabled_emp && e.disabled_emp_until_frame > 0 && frame >= e.disabled_emp_until_frame {
+                e.disabled_emp = false;
+                e.disabled_emp_until_frame = 0;
+                changed = true;
+            }
+            if e.disabled_hacked
+                && e.disabled_hacked_until_frame > 0
+                && frame >= e.disabled_hacked_until_frame
+            {
+                e.disabled_hacked = false;
+                e.disabled_hacked_until_frame = 0;
+                changed = true;
+            }
+            if e.disabled_paralyzed
+                && e.disabled_paralyzed_until_frame > 0
+                && frame >= e.disabled_paralyzed_until_frame
+            {
+                e.disabled_paralyzed = false;
+                e.disabled_paralyzed_until_frame = 0;
+                changed = true;
+            }
+            if e.weapon_bonus_frenzy
+                && e.weapon_bonus_frenzy_until_frame > 0
+                && frame >= e.weapon_bonus_frenzy_until_frame
+            {
+                e.weapon_bonus_frenzy = false;
+                e.weapon_bonus_frenzy_until_frame = 0;
+                e.weapon_bonus_frenzy_level = 0;
+                changed = true;
+            }
+            if e.continuous_fire_level > 0 {
+                let until = e.continuous_fire_coast_until_frame;
+                if until > 0 && frame >= until {
+                    e.continuous_fire_level = 0;
+                    e.continuous_fire_consecutive = 0;
+                    e.continuous_fire_coast_until_frame = 0;
+                    changed = true;
+                }
+            }
+            if e.selection_flash_remaining > 0 {
+                e.selection_flash_remaining = e.selection_flash_remaining.saturating_sub(1);
+                changed = true;
+            }
+            if changed {
+                n += 1;
+            }
+        }
+        n
+    }
+
     /// Under SPECIAL_POWER_AUTHORITY: advance entity SP cooldown remaining by dt.
     /// Host completes ready flip after writeback when remaining hits 0.
     pub fn tick_special_power_cooldowns(&mut self, dt: f32) -> usize {
@@ -10990,6 +11069,8 @@ pub fn shadow_session_after_host_tick(
     logic: &mut GameLogic,
 ) -> GameWorldShadowProbe {
     let _couple_guard = ShadowCoupleGuard::enter();
+    // Wave 761: GW sole-expires status timers under coupled dual-tick; host peels.
+    let _status_timer_exp = shadow.tick_status_timer_expirations(logic.get_frame());
     // Wave 684: prefer post-logic damage batch (already applied to GW when present).
     let (events, early_damage_applied) = match take_early_damage_batch() {
         Some((ev, applied)) => (ev, applied),

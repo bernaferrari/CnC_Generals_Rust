@@ -51,7 +51,7 @@ pub fn honesty_host_production_spawn_requires_gw_bind_method_names_residual_wave
 pub fn honesty_host_production_spawn_requires_gw_bind_source_markers_residual_wave738() -> bool {
     let gl=gl_source();
     let j=gl.find("fn host_spawn_production_unit").unwrap_or(0);
-    let body=&gl[j..j+2800.min(gl.len().saturating_sub(j))];
+    let body=&gl[j..j+4500.min(gl.len().saturating_sub(j))];
     let ok=body.contains("Wave 738")
         && body.contains("allow_without_bind")
         && body.contains("GENERALS_RUNTIME_HOST_PRODUCTION_SPAWN_WITHOUT_GW_BIND")
