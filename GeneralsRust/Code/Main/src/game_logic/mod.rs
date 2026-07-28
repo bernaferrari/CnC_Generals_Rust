@@ -117,6 +117,7 @@ pub mod host_live_host_eager_attitude_overcharge_stealth_helper_residual_wave694
 pub mod host_live_host_eager_cmdset_disguise_camo_helper_residual_wave696;
 pub mod host_live_host_eager_contain_hive_overlord_helper_residual_wave695;
 pub mod host_live_host_eager_damage_helper_residual_wave684;
+pub mod host_live_host_eager_demo_form_crush_helper_residual_wave698;
 pub mod host_live_host_eager_destroy_unmap_helper_residual_wave681;
 pub mod host_live_host_eager_fire_spawn_helper_residual_wave682;
 pub mod host_live_host_eager_heal_helper_residual_wave685;
@@ -2965,6 +2966,15 @@ pub use host_live_host_eager_damage_helper_residual_wave684::{
     honesty_host_eager_damage_helper_source_markers_residual_wave684,
     residual_host_eager_damage_helper_last_action, residual_host_eager_damage_helper_ok,
     simulate_live_host_eager_damage_helper_honesty,
+};
+pub use host_live_host_eager_demo_form_crush_helper_residual_wave698::{
+    honesty_host_eager_demo_form_crush_helper_method_names_residual_wave698,
+    honesty_host_eager_demo_form_crush_helper_nav_commands_residual_wave698,
+    honesty_host_eager_demo_form_crush_helper_residual_pack_wave698,
+    honesty_host_eager_demo_form_crush_helper_source_markers_residual_wave698,
+    residual_host_eager_demo_form_crush_helper_last_action,
+    residual_host_eager_demo_form_crush_helper_ok,
+    simulate_live_host_eager_demo_form_crush_helper_honesty,
 };
 pub use host_live_host_eager_destroy_unmap_helper_residual_wave681::{
     honesty_host_eager_destroy_unmap_helper_method_names_residual_wave681,

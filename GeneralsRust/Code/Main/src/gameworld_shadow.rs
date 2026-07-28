@@ -225,6 +225,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_WEAPON_STATS_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_SELECTION_RADIUS_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_MODEL_CONDITION_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_DEMO_MINE_CHEER_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_FORMATION_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_CRUSH_VISION_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1332,6 +1335,93 @@ pub fn eager_apply_host_model_condition_after_logic(
     }
     let n = shadow.apply_host_model_condition_events(&events);
     EARLY_MODEL_CONDITION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 698: post-logic demo-mine-cheer / formation / crush-vision batch handoff.
+thread_local! {
+    static EARLY_DEMO_MINE_CHEER_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_demo_mine_cheer_log::HostDemoMineCheerEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_FORMATION_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_formation_log::HostFormationEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_CRUSH_VISION_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_crush_vision_log::HostCrushVisionEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_demo_mine_cheer_batch() -> Option<(
+    Vec<crate::game_logic::host_demo_mine_cheer_log::HostDemoMineCheerEvent>,
+    bool,
+)> {
+    EARLY_DEMO_MINE_CHEER_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_formation_batch() -> Option<(
+    Vec<crate::game_logic::host_formation_log::HostFormationEvent>,
+    bool,
+)> {
+    EARLY_FORMATION_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_crush_vision_batch() -> Option<(
+    Vec<crate::game_logic::host_crush_vision_log::HostCrushVisionEvent>,
+    bool,
+)> {
+    EARLY_CRUSH_VISION_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 698: post-logic drain `host_demo_mine_cheer_log` into GameWorld SetDemoMineCheer.
+pub fn eager_apply_host_demo_mine_cheer_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 698: post-logic demo-mine-cheer materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_demo_mine_cheer_log::drain();
+    if events.is_empty() {
+        EARLY_DEMO_MINE_CHEER_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_demo_mine_cheer_events(&events);
+    EARLY_DEMO_MINE_CHEER_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 698: post-logic drain `host_formation_log` into GameWorld SetFormation.
+pub fn eager_apply_host_formation_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 698: post-logic formation materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_formation_log::drain();
+    if events.is_empty() {
+        EARLY_FORMATION_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_formation_events(&events);
+    EARLY_FORMATION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 698: post-logic drain `host_crush_vision_log` into GameWorld SetCrushVision.
+pub fn eager_apply_host_crush_vision_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 698: post-logic crush-vision materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_crush_vision_log::drain();
+    if events.is_empty() {
+        EARLY_CRUSH_VISION_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_crush_vision_events(&events);
+    EARLY_CRUSH_VISION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9201,9 +9291,22 @@ pub fn shadow_session_after_host_tick(
             Some((ev, applied)) => (ev, applied),
             None => (crate::game_logic::host_model_condition_log::drain(), false),
         };
-    let demo_mine_cheer_events = crate::game_logic::host_demo_mine_cheer_log::drain();
-    let formation_events = crate::game_logic::host_formation_log::drain();
-    let crush_vision_events = crate::game_logic::host_crush_vision_log::drain();
+    // Wave 698: prefer post-logic demo-mine-cheer batch.
+    let (demo_mine_cheer_events, early_demo_mine_cheer_applied) =
+        match take_early_demo_mine_cheer_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_demo_mine_cheer_log::drain(), false),
+        };
+    // Wave 698: prefer post-logic formation batch.
+    let (formation_events, early_formation_applied) = match take_early_formation_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_formation_log::drain(), false),
+    };
+    // Wave 698: prefer post-logic crush-vision batch.
+    let (crush_vision_events, early_crush_vision_applied) = match take_early_crush_vision_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_crush_vision_log::drain(), false),
+    };
     let building_type_events = crate::game_logic::host_building_type_log::drain();
     let identity_events = crate::game_logic::host_identity_log::drain();
     let ground_height_events = crate::game_logic::host_ground_height_log::drain();
@@ -9546,9 +9649,24 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_model_condition_events(&model_condition_events)
     };
-    let _dmc_applied = shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events);
-    let _form_applied = shadow.apply_host_formation_events(&formation_events);
-    let _cv_applied = shadow.apply_host_crush_vision_events(&crush_vision_events);
+    // Wave 698: skip GW re-apply when post-logic eager path already ran.
+    let _dmc_applied = if early_demo_mine_cheer_applied {
+        0
+    } else {
+        shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events)
+    };
+    // Wave 698: skip GW re-apply when post-logic eager path already ran.
+    let _form_applied = if early_formation_applied {
+        0
+    } else {
+        shadow.apply_host_formation_events(&formation_events)
+    };
+    // Wave 698: skip GW re-apply when post-logic eager path already ran.
+    let _cv_applied = if early_crush_vision_applied {
+        0
+    } else {
+        shadow.apply_host_crush_vision_events(&crush_vision_events)
+    };
     let _bt_applied = shadow.apply_host_building_type_events(&building_type_events);
     let _id_applied = shadow.apply_host_identity_events(&identity_events);
     let _gh_applied = shadow.apply_host_ground_height_events(&ground_height_events);
