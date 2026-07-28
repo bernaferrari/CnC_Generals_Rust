@@ -204,6 +204,7 @@ Remaining engine residual after host update:
   - train enqueue try_names GoldenRanger fallback is opt-in only (Wave 724)
   - train/construct/upgrade soft template alias fallbacks are opt-in only (Wave 725)
   - auto-select first mobile on empty selection is opt-in only (Wave 726)
+  - train/construct/upgrade free default template names are opt-in only (Wave 727)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

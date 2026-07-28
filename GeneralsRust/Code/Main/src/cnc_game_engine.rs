@@ -9714,10 +9714,35 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "train_fail_not_ingame".into();
                 } else {
                     self.runtime_host_last_gameplay_cmd = "train_begin".into();
-                    let requested = args
-                        .get("template")
-                        .cloned()
-                        .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
+                    // Wave 727: missing template is fail-closed (no free default unit).
+                    // Smoke always passes template=...; harness may set default_template=1
+                    // / GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE=1 for legacy bare commands.
+                    let allow_default_template = args
+                        .get("default_template")
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    let requested = match args.get("template").cloned() {
+                        Some(t) if !t.trim().is_empty() => t,
+                        _ if allow_default_template => "AmericaInfantryRanger".to_string(),
+                        _ => {
+                            self.runtime_host_last_gameplay_cmd =
+                                "train_fail_no_template".into();
+                            return;
+                        }
+                    };
                     // Prefer presentation local team residual (no live player roster).
                     // Wave 220: team via presentation-first local_team_for_ui.
                     let team = Some(self.local_team_for_ui());
@@ -10279,11 +10304,41 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "upgrade_fail_not_ingame".into();
                 } else {
-                    let requested = args
+                    // Wave 727: missing upgrade name is fail-closed (no free default upgrade).
+                    // Smoke always passes name=...; harness may set default_template=1
+                    // / GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE=1 for legacy bare commands.
+                    let allow_default_template = args
+                        .get("default_template")
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    let requested = match args
                         .get("name")
                         .or_else(|| args.get("upgrade"))
                         .cloned()
-                        .unwrap_or_else(|| "UpgradeAmericaRangerCaptureBuilding".to_string());
+                    {
+                        Some(t) if !t.trim().is_empty() => t,
+                        _ if allow_default_template => {
+                            "UpgradeAmericaRangerCaptureBuilding".to_string()
+                        }
+                        _ => {
+                            self.runtime_host_last_gameplay_cmd =
+                                "upgrade_fail_no_name".into();
+                            return;
+                        }
+                    };
                     // Wave 220: team via presentation-first local_team_for_ui.
                     let team = Some(self.local_team_for_ui());
                     let Some(team) = team else {
@@ -11516,11 +11571,39 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "construct_fail_not_ingame".into();
                 } else {
                     self.runtime_host_last_gameplay_cmd = "construct_begin".into();
-                    let requested = args
+                    // Wave 727: missing template is fail-closed (no free default structure).
+                    // Smoke always passes template=...; harness may set default_template=1
+                    // / GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE=1 for legacy bare commands.
+                    let allow_default_template = args
+                        .get("default_template")
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    let requested = match args
                         .get("template")
                         .cloned()
                         .or_else(|| args.get("name").cloned())
-                        .unwrap_or_else(|| "USA_Barracks".to_string());
+                    {
+                        Some(t) if !t.trim().is_empty() => t,
+                        _ if allow_default_template => "USA_Barracks".to_string(),
+                        _ => {
+                            self.runtime_host_last_gameplay_cmd =
+                                "construct_fail_no_template".into();
+                            return;
+                        }
+                    };
                     // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
                     // Retail commands use the exact requested template name.
                     // Smoke/harness may set alias_fallback=1 / GENERALS_RUNTIME_HOST_ALIAS_FALLBACK=1.

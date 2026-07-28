@@ -152,6 +152,7 @@ pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_alias_fallback_opt_in_residual_wave725;
 pub mod host_live_host_auto_select_mobile_opt_in_residual_wave726;
+pub mod host_live_host_default_template_opt_in_residual_wave727;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3304,6 +3305,15 @@ pub use host_live_host_auto_select_mobile_opt_in_residual_wave726::{
     residual_host_auto_select_mobile_opt_in_last_action,
     residual_host_auto_select_mobile_opt_in_ok,
     simulate_live_host_auto_select_mobile_opt_in_honesty,
+};
+pub use host_live_host_default_template_opt_in_residual_wave727::{
+    honesty_host_default_template_opt_in_method_names_residual_wave727,
+    honesty_host_default_template_opt_in_nav_commands_residual_wave727,
+    honesty_host_default_template_opt_in_residual_pack_wave727,
+    honesty_host_default_template_opt_in_source_markers_residual_wave727,
+    residual_host_default_template_opt_in_last_action,
+    residual_host_default_template_opt_in_ok,
+    simulate_live_host_default_template_opt_in_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,
