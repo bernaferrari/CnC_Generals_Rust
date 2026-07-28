@@ -144,6 +144,7 @@ pub mod host_live_host_china_infantry_horde_dual_peel_residual_wave813;
 pub mod host_live_host_cluster_mines_flight_dual_peel_residual_wave790;
 pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
 pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
+pub mod host_live_host_combat_field_dual_peel_residual_wave826;
 pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
 pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
 pub mod host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746;
@@ -2998,6 +2999,12 @@ pub use host_live_host_auto_deposit_dual_peel_residual_wave821::{
     honesty_host_auto_deposit_dual_peel_nav_commands_residual_wave821,
     honesty_host_auto_deposit_dual_peel_residual_pack_wave821,
     simulate_live_host_auto_deposit_dual_peel_honesty,
+};
+pub use host_live_host_combat_field_dual_peel_residual_wave826::{
+    honesty_host_combat_field_dual_peel_method_names_residual_wave826,
+    honesty_host_combat_field_dual_peel_nav_commands_residual_wave826,
+    honesty_host_combat_field_dual_peel_residual_pack_wave826,
+    simulate_live_host_combat_field_dual_peel_honesty,
 };
 pub use host_live_host_hacker_income_dual_peel_residual_wave822::{
     honesty_host_hacker_income_dual_peel_method_names_residual_wave822,

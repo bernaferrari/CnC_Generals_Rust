@@ -6285,7 +6285,12 @@ impl GameLogic {
         self.update_deliver_payloads();
 
         // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
-        self.update_money_crate_collides();
+        // Wave 826: under coupled shadow, combat/field residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_money_crate_collides();
+        }
         // Wave 817: under coupled shadow, crate lifetime owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
@@ -6314,7 +6319,12 @@ impl GameLogic {
 
         // Host mine / demo-trap residual: proximity trigger + timed detonation.
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
-        self.update_mines_and_demo_traps();
+        // Wave 826: under coupled shadow, combat/field residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_mines_and_demo_traps();
+        }
 
         // Host USA Ambulance AutoHeal residual: heal ally infantry in radius.
         // Fail-closed vs full AutoHealBehavior sole-benefactor / vehicle matrix.
@@ -6372,7 +6382,12 @@ impl GameLogic {
 
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
-        self.update_point_defense_intercept();
+        // Wave 826: under coupled shadow, combat/field residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_point_defense_intercept();
+        }
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
@@ -6490,7 +6505,12 @@ impl GameLogic {
 
         // Host China FireWall residual: tick fire damage along wall segments.
         // FireWallSegment object DeletionUpdate residual + zone damage ticks.
-        self.update_firewall_segment_objects();
+        // Wave 826: under coupled shadow, combat/field residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_firewall_segment_objects();
+        }
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
@@ -6674,7 +6694,12 @@ impl GameLogic {
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
-        self.update_aurora_bombs();
+        // Wave 826: under coupled shadow, combat/field residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_aurora_bombs();
+        }
         // Wave 797: under coupled shadow, AuroraBomb projectile dive is owned by
         // GW tick_status_timer_expirations + destroy logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -6951,7 +6976,12 @@ impl GameLogic {
         // America Supply Drop Zone residual: OCL schedules cargo DeliverPayload
         // residual; cash credits after approach delay + crate spawn.
         // Fail-closed: not full CreateAtEdge cargo plane / parachute fall path.
-        self.update_supply_drop_zone_drops();
+        // Wave 826: under coupled shadow, combat/field residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_supply_drop_zone_drops();
+        }
         // USA Battle Drone residual master repair (RepairRatePerSecond when HP < 60%).
         // Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
         self.update_battle_drone_repair_residual(dt);
@@ -60449,7 +60479,19 @@ impl GameLogic {
         self.aurora_fuel_air_gas_spawned > 0
     }
 
-    pub fn update_aurora_bombs(&mut self) {
+    pub(crate) fn tick_combat_field_residuals_sole(&mut self) {
+        // Wave 826: post-writeback sole-tick for host combat/field residuals.
+        self.update_aurora_bombs();
+        self.update_supply_drop_zone_drops();
+        self.update_point_defense_intercept();
+        self.update_mines_and_demo_traps();
+        self.update_money_crate_collides();
+        self.update_firewall_segment_objects();
+        self.update_wave_guides();
+        self.update_tensile_formations();
+    }
+
+    fn update_aurora_bombs(&mut self) {
         self.aurora_bombs.clear_frame_events();
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
