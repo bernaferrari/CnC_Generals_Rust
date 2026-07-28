@@ -6602,6 +6602,7 @@ impl GameWorldShadow {
 
     pub fn writeback_vision_camo_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6618,13 +6619,20 @@ impl GameWorldShadow {
             obj.vision_spied_mask = ent.vision_spied_mask;
             obj.camo_friendly_opacity = ent.camo_friendly_opacity;
             obj.camo_stealth_look = ent.camo_stealth_look;
+            // Wave 654: GameWorld vision-camo last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_vision_camo_ready_log::record(oid);
         }
         updated
     }
 
     pub fn writeback_disguise_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6657,7 +6665,13 @@ impl GameWorldShadow {
                 3 => Some(Team::Neutral),
                 _ => None,
             };
+            // Wave 653: GameWorld disguise last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_disguise_ready_log::record(oid);
         }
         updated
     }
@@ -6697,6 +6711,7 @@ impl GameWorldShadow {
 
     pub fn writeback_stealth_flags_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6717,7 +6732,13 @@ impl GameWorldShadow {
             obj.stealth_breaks_on_move = ent.stealth_breaks_on_move;
             obj.is_tunnel_network = ent.is_tunnel_network;
             obj.passengers_allowed_to_fire = ent.passengers_allowed_to_fire;
+            // Wave 652: GameWorld stealth-flags last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_stealth_flags_ready_log::record(oid);
         }
         updated
     }
@@ -8187,6 +8208,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
+        // Wave 652: drain stealth-flags ready log after GW writeback.
+        let _st_ready = logic.host_apply_stealth_flags_ready_completions();
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         // Wave 651: drain stealth-delay ready log after GW writeback.
         let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
@@ -8210,7 +8233,11 @@ pub fn shadow_session_after_host_tick(
         // Wave 644: drain command-set ready log after GW writeback.
         let _cs_ready = logic.host_apply_command_set_ready_completions();
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
+        // Wave 653: drain disguise ready log after GW writeback.
+        let _di_ready = logic.host_apply_disguise_ready_completions();
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
+        // Wave 654: drain vision-camo ready log after GW writeback.
+        let _vi_ready = logic.host_apply_vision_camo_ready_completions();
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         // Wave 651: drain stealth-delay ready log after GW writeback.
         let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
@@ -12508,6 +12535,7 @@ mod tests {
             e.camo_stealth_look = 2;
         }
         assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_vision_camo_ready_log::drain();
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
@@ -12583,6 +12611,7 @@ mod tests {
             e.disguise_as_team_ordinal = 0;
         }
         assert!(shadow.writeback_disguise_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_disguise_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(
             o.disguise_as_template.as_deref(),
@@ -12741,6 +12770,7 @@ mod tests {
             e.passengers_allowed_to_fire = true;
         }
         assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_stealth_flags_ready_log::drain();
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
