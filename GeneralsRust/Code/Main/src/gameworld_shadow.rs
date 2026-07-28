@@ -3350,6 +3350,29 @@ impl GameWorldShadow {
                         e.height_die_last_height = f32::MAX;
                         e.height_die_has_died = false;
                     }
+                    if let Some(j) = obj.jet_slow_death.as_ref() {
+                        e.jet_slow_death_active = j.active;
+                        e.jet_slow_death_started_on_ground = j.started_on_ground;
+                        e.jet_slow_death_hit_ground = j.hit_ground;
+                        e.jet_slow_death_hit_ground_frame = j.hit_ground_frame;
+                        e.jet_slow_death_roll_rate = j.roll_rate;
+                        e.jet_slow_death_roll_rate_delta = j.roll_rate_delta;
+                        e.jet_slow_death_fall_how_fast = j.fall_how_fast;
+                        e.jet_slow_death_vertical_velocity = j.vertical_velocity;
+                        e.jet_slow_death_roll_accum = j.roll_accum;
+                        e.jet_slow_death_done = j.done;
+                    } else {
+                        e.jet_slow_death_active = false;
+                        e.jet_slow_death_started_on_ground = false;
+                        e.jet_slow_death_hit_ground = false;
+                        e.jet_slow_death_hit_ground_frame = 0;
+                        e.jet_slow_death_roll_rate = 0.2;
+                        e.jet_slow_death_roll_rate_delta = 1.0;
+                        e.jet_slow_death_fall_how_fast = 1.10;
+                        e.jet_slow_death_vertical_velocity = 0.0;
+                        e.jet_slow_death_roll_accum = 0.0;
+                        e.jet_slow_death_done = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7206,6 +7229,58 @@ impl GameWorldShadow {
                     }
                     changed = true;
                 }
+            }
+            // Wave 772: JetSlowDeathBehavior residual (fixed-wing crash death).
+            if e.jet_slow_death_active && !e.jet_slow_death_done {
+                use crate::game_logic::host_jet_slow_death::{
+                    JET_FINAL_BLOWUP_DELAY_FRAMES, JET_GRAVITY,
+                };
+                let hat = (e.transform.position.y - e.ground_height).max(0.0);
+                let mut dy = 0.0_f32;
+                let mut d_roll = 0.0_f32;
+                let mut done = false;
+                if e.jet_slow_death_started_on_ground {
+                    if e.jet_slow_death_hit_ground_frame == 0 {
+                        e.jet_slow_death_hit_ground_frame = frame;
+                    }
+                    if frame.saturating_sub(e.jet_slow_death_hit_ground_frame) >= 5 {
+                        e.jet_slow_death_done = true;
+                        e.jet_slow_death_active = false;
+                        done = true;
+                    }
+                } else if !e.jet_slow_death_hit_ground {
+                    d_roll = e.jet_slow_death_roll_rate;
+                    e.jet_slow_death_roll_accum += d_roll;
+                    e.jet_slow_death_roll_rate *= e.jet_slow_death_roll_rate_delta;
+                    e.jet_slow_death_vertical_velocity +=
+                        JET_GRAVITY * e.jet_slow_death_fall_how_fast;
+                    dy = e.jet_slow_death_vertical_velocity;
+                    if hat + dy <= 0.5 {
+                        e.jet_slow_death_hit_ground = true;
+                        e.jet_slow_death_hit_ground_frame = frame;
+                        e.jet_slow_death_vertical_velocity = 0.0;
+                        dy = -hat;
+                    }
+                } else if frame.saturating_sub(e.jet_slow_death_hit_ground_frame)
+                    >= JET_FINAL_BLOWUP_DELAY_FRAMES
+                {
+                    e.jet_slow_death_done = true;
+                    e.jet_slow_death_active = false;
+                    done = true;
+                }
+                if dy.abs() > 0.0 || d_roll.abs() > 0.0 {
+                    e.transform.position.y =
+                        (e.transform.position.y + dy).max(e.ground_height);
+                    e.transform.orientation += d_roll;
+                }
+                if done {
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_jet_slow_death_kill_log::record(
+                            crate::game_logic::ObjectId(hid),
+                        );
+                    }
+                }
+                changed = true;
             }
             if changed {
                 n += 1;
@@ -11175,6 +11250,42 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_active = obj.jet_slow_death.as_ref().map(|j| j.active).unwrap_or(false);
+                let host_done = obj.jet_slow_death.as_ref().map(|j| j.done).unwrap_or(false);
+                if host_active != ent.jet_slow_death_active
+                    || host_done != ent.jet_slow_death_done
+                    || obj
+                        .jet_slow_death
+                        .as_ref()
+                        .map(|j| {
+                            j.hit_ground != ent.jet_slow_death_hit_ground
+                                || (j.vertical_velocity - ent.jet_slow_death_vertical_velocity).abs()
+                                    > f32::EPSILON
+                                || (j.roll_accum - ent.jet_slow_death_roll_accum).abs() > f32::EPSILON
+                        })
+                        .unwrap_or(ent.jet_slow_death_active)
+                {
+                    if ent.jet_slow_death_active || ent.jet_slow_death_done {
+                        use crate::game_logic::host_jet_slow_death::HostJetSlowDeathData;
+                        let j = obj
+                            .jet_slow_death
+                            .get_or_insert_with(HostJetSlowDeathData::default);
+                        j.active = ent.jet_slow_death_active;
+                        j.started_on_ground = ent.jet_slow_death_started_on_ground;
+                        j.hit_ground = ent.jet_slow_death_hit_ground;
+                        j.hit_ground_frame = ent.jet_slow_death_hit_ground_frame;
+                        j.roll_rate = ent.jet_slow_death_roll_rate;
+                        j.roll_rate_delta = ent.jet_slow_death_roll_rate_delta;
+                        j.fall_how_fast = ent.jet_slow_death_fall_how_fast;
+                        j.vertical_velocity = ent.jet_slow_death_vertical_velocity;
+                        j.roll_accum = ent.jet_slow_death_roll_accum;
+                        j.done = ent.jet_slow_death_done;
+                    } else {
+                        obj.jet_slow_death = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12567,6 +12678,15 @@ pub fn shadow_session_after_host_tick(
         }
         // Wave 771: HeightDieUpdate kill → host destroy (no dual timer).
         for id in crate::game_logic::host_height_die_kill_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                obj.health.current = 0.0;
+                obj.status.destroyed = true;
+                obj.refresh_model_condition_bits();
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 772: JetSlowDeathBehavior done → host destroy (no dual timer).
+        for id in crate::game_logic::host_jet_slow_death_kill_log::drain() {
             if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;

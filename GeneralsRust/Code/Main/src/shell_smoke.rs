@@ -3330,6 +3330,12 @@ use crate::game_logic::host_live_host_height_die_dual_peel_residual_wave771::{
     honesty_host_height_die_dual_peel_nav_commands_residual_wave771,
     simulate_live_host_height_die_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_jet_slow_death_dual_peel_residual_wave772::{
+    honesty_host_jet_slow_death_dual_peel_method_names_residual_wave772,
+    honesty_host_jet_slow_death_dual_peel_nav_commands_residual_wave772,
+    simulate_live_host_jet_slow_death_dual_peel_honesty,
+};
+
 
 
 
@@ -7295,6 +7301,9 @@ pub struct ShellSmokeResult {
     pub host_height_die_dual_peel_method_names_wave771_ok: bool,
     pub host_height_die_dual_peel_nav_commands_wave771_ok: bool,
     pub host_height_die_dual_peel_live_wave771_ok: bool,
+    pub host_jet_slow_death_dual_peel_method_names_wave772_ok: bool,
+    pub host_jet_slow_death_dual_peel_nav_commands_wave772_ok: bool,
+    pub host_jet_slow_death_dual_peel_live_wave772_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11660,6 +11669,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_height_die_dual_peel_nav_commands_residual_wave771();
     let host_height_die_dual_peel_live_wave771_ok =
         simulate_live_host_height_die_dual_peel_honesty();
+    let host_jet_slow_death_dual_peel_method_names_wave772_ok =
+        honesty_host_jet_slow_death_dual_peel_method_names_residual_wave772();
+    let host_jet_slow_death_dual_peel_nav_commands_wave772_ok =
+        honesty_host_jet_slow_death_dual_peel_nav_commands_residual_wave772();
+    let host_jet_slow_death_dual_peel_live_wave772_ok =
+        simulate_live_host_jet_slow_death_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13962,6 +13977,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_height_die_dual_peel_method_names_wave771_ok,
         host_height_die_dual_peel_nav_commands_wave771_ok,
         host_height_die_dual_peel_live_wave771_ok,
+        host_jet_slow_death_dual_peel_method_names_wave772_ok,
+        host_jet_slow_death_dual_peel_nav_commands_wave772_ok,
+        host_jet_slow_death_dual_peel_live_wave772_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25797,6 +25815,21 @@ mod tests {
         assert!(
             r.host_height_die_dual_peel_live_wave771_ok,
             "host height_die_dual_peel live residual wave771: {}",
+            r.detail
+        );
+        assert!(
+            r.host_jet_slow_death_dual_peel_method_names_wave772_ok,
+            "host jet_slow_death_dual_peel method names residual pack wave772: {}",
+            r.detail
+        );
+        assert!(
+            r.host_jet_slow_death_dual_peel_nav_commands_wave772_ok,
+            "host jet_slow_death_dual_peel nav commands residual pack wave772: {}",
+            r.detail
+        );
+        assert!(
+            r.host_jet_slow_death_dual_peel_live_wave772_ok,
+            "host jet_slow_death_dual_peel live residual wave772: {}",
             r.detail
         );
         assert!(

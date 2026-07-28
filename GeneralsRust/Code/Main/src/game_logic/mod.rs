@@ -197,6 +197,7 @@ pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_poison_dot_dual_peel_residual_wave769;
 pub mod host_live_host_topple_fall_dual_peel_residual_wave770;
 pub mod host_live_host_height_die_dual_peel_residual_wave771;
+pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -371,7 +372,8 @@ pub mod host_ime_residual_wave144;
 pub mod host_in_game_chat_residual_wave136;
 pub mod host_inferno_cannon;
 pub mod host_jarmen_kell;
-mod host_jet_slow_death;
+pub mod host_jet_slow_death;
+pub mod host_jet_slow_death_kill_log;
 mod host_keep_object_die;
 pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
@@ -3759,6 +3761,16 @@ pub use host_live_host_height_die_dual_peel_residual_wave771::{
     residual_host_height_die_dual_peel_ok,
     simulate_live_host_height_die_dual_peel_honesty,
 };
+pub use host_live_host_jet_slow_death_dual_peel_residual_wave772::{
+    honesty_host_jet_slow_death_dual_peel_method_names_residual_wave772,
+    honesty_host_jet_slow_death_dual_peel_nav_commands_residual_wave772,
+    honesty_host_jet_slow_death_dual_peel_residual_pack_wave772,
+    honesty_host_jet_slow_death_dual_peel_source_markers_residual_wave772,
+    residual_host_jet_slow_death_dual_peel_last_action,
+    residual_host_jet_slow_death_dual_peel_ok,
+    simulate_live_host_jet_slow_death_dual_peel_honesty,
+};
+
 
 
 
