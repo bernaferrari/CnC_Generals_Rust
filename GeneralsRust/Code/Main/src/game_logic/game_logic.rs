@@ -70263,7 +70263,22 @@ impl GameLogic {
                 .set_health(REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
             self.templates.insert(hole_name.to_string(), ht);
         }
-        let hole_id = self.create_object(hole_name, team, pos)?;
+        // Wave 742: under construction sole-tick, pre-spawn hole entity on coupled
+        // shadow and bind host ObjectId (entity-first). Non-sole / no-shadow falls
+        // back to host create_object. Missing bind under sole is fail-closed via
+        // host_spawn_rebuild_bound_object (Wave 741) unless opt-in.
+        let gw_raw = if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled()
+        {
+            crate::gameworld_shadow::spawn_rebuild_hole_entity_if_coupled(
+                hole_name,
+                [pos.x, pos.y, pos.z],
+                orient,
+                REBUILD_HOLE_MAX_HEALTH_RESIDUAL,
+            )
+        } else {
+            None
+        };
+        let hole_id = self.host_spawn_rebuild_bound_object(hole_name, team, pos, gw_raw)?;
         if let Some(h) = self.objects.get_mut(&hole_id) {
             h.set_orientation(orient);
             h.set_status_under_construction(false);
