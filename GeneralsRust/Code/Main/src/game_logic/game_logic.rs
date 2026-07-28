@@ -6421,7 +6421,13 @@ impl GameLogic {
         {
             self.update_prone_update();
         }
-        self.update_radius_decal_update();
+        // Wave 785: under coupled shadow, RadiusDecalUpdate is owned by
+        // GW tick_status_timer_expirations + writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_radius_decal_update();
+        }
         self.update_checkpoint_update();
         self.update_smart_bomb_target_homing();
         self.update_fuel_air_gas_slow_death();

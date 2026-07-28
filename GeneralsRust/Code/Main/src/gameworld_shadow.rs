@@ -3728,6 +3728,28 @@ impl GameWorldShadow {
                         e.anim_steer_transition_frames = 9;
                         e.anim_steer_has_condition = false;
                     }
+                    if let Some(rd) = obj.radius_decal_update.as_ref() {
+                        e.radius_decal_awake = rd.awake;
+                        e.radius_decal_kill_when_idle = rd.kill_when_no_longer_attacking;
+                        e.radius_decal_empty = rd.delivery_decal.empty;
+                        e.radius_decal_pos_x = rd.delivery_decal.position.x;
+                        e.radius_decal_pos_y = rd.delivery_decal.position.y;
+                        e.radius_decal_pos_z = rd.delivery_decal.position.z;
+                        e.radius_decal_radius = rd.delivery_decal.radius;
+                        e.radius_decal_opacity = rd.delivery_decal.opacity;
+                        e.radius_decal_birth_frame = rd.delivery_decal.birth_frame;
+                        if let Some(tmpl) = rd.delivery_decal.template.as_ref() {
+                            e.radius_decal_opacity_min = tmpl.opacity_min;
+                            e.radius_decal_opacity_max = tmpl.opacity_max;
+                            e.radius_decal_throb_frames = tmpl.throb_frames;
+                        }
+                    } else {
+                        e.radius_decal_awake = false;
+                        e.radius_decal_kill_when_idle = false;
+                        e.radius_decal_empty = true;
+                        e.radius_decal_opacity = 0.0;
+                        e.radius_decal_birth_frame = 0;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -7963,6 +7985,27 @@ impl GameWorldShadow {
                     if let Some(_) = changed_anim {
                         e.anim_steer_has_condition = true;
                     }
+                    changed = true;
+                }
+            }
+            // Wave 785: RadiusDecalUpdate residual (SW delivery decal throb/kill).
+            if e.radius_decal_awake {
+                if e.radius_decal_kill_when_idle && !e.attacking {
+                    e.radius_decal_empty = true;
+                    e.radius_decal_awake = false;
+                    e.radius_decal_kill_when_idle = false;
+                    e.radius_decal_opacity = 0.0;
+                    changed = true;
+                } else if !e.radius_decal_empty {
+                    let period = e.radius_decal_throb_frames.max(1);
+                    let phase = frame.saturating_sub(e.radius_decal_birth_frame) % (period * 2);
+                    let t = if phase <= period {
+                        phase as f32 / period as f32
+                    } else {
+                        2.0 - (phase as f32 / period as f32)
+                    };
+                    e.radius_decal_opacity = e.radius_decal_opacity_min
+                        + (e.radius_decal_opacity_max - e.radius_decal_opacity_min) * t;
                     changed = true;
                 }
             }
@@ -12346,6 +12389,35 @@ impl GameWorldShadow {
                     }
                 } else if obj.animation_steering.is_some() {
                     obj.animation_steering = None;
+                }
+            }
+            {
+                if ent.radius_decal_awake || !ent.radius_decal_empty {
+                    use crate::game_logic::host_radius_decal_update::{
+                        HostRadiusDecal, HostRadiusDecalUpdateData,
+                    };
+                    let rd = obj
+                        .radius_decal_update
+                        .get_or_insert_with(HostRadiusDecalUpdateData::default);
+                    rd.awake = ent.radius_decal_awake;
+                    rd.kill_when_no_longer_attacking = ent.radius_decal_kill_when_idle;
+                    rd.delivery_decal.empty = ent.radius_decal_empty;
+                    rd.delivery_decal.position = glam::Vec3::new(
+                        ent.radius_decal_pos_x,
+                        ent.radius_decal_pos_y,
+                        ent.radius_decal_pos_z,
+                    );
+                    rd.delivery_decal.radius = ent.radius_decal_radius;
+                    rd.delivery_decal.opacity = ent.radius_decal_opacity;
+                    rd.delivery_decal.birth_frame = ent.radius_decal_birth_frame;
+                    if let Some(tmpl) = rd.delivery_decal.template.as_mut() {
+                        tmpl.opacity_min = ent.radius_decal_opacity_min;
+                        tmpl.opacity_max = ent.radius_decal_opacity_max;
+                        tmpl.throb_frames = ent.radius_decal_throb_frames;
+                    }
+                    let _ = HostRadiusDecal::default();
+                } else if obj.radius_decal_update.is_some() {
+                    obj.radius_decal_update = None;
                 }
             }
 
