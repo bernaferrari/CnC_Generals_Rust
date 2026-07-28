@@ -2876,6 +2876,11 @@ use crate::game_logic::host_live_host_eager_cmdset_disguise_camo_helper_residual
     honesty_host_eager_cmdset_disguise_camo_helper_nav_commands_residual_wave696,
     simulate_live_host_eager_cmdset_disguise_camo_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_wstats_sel_model_helper_residual_wave697::{
+    honesty_host_eager_wstats_sel_model_helper_method_names_residual_wave697,
+    honesty_host_eager_wstats_sel_model_helper_nav_commands_residual_wave697,
+    simulate_live_host_eager_wstats_sel_model_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6682,6 +6687,9 @@ pub struct ShellSmokeResult {
     pub host_eager_cmdset_disguise_camo_helper_method_names_wave696_ok: bool,
     pub host_eager_cmdset_disguise_camo_helper_nav_commands_wave696_ok: bool,
     pub host_eager_cmdset_disguise_camo_helper_live_wave696_ok: bool,
+    pub host_eager_wstats_sel_model_helper_method_names_wave697_ok: bool,
+    pub host_eager_wstats_sel_model_helper_nav_commands_wave697_ok: bool,
+    pub host_eager_wstats_sel_model_helper_live_wave697_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10597,6 +10605,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_cmdset_disguise_camo_helper_nav_commands_residual_wave696();
     let host_eager_cmdset_disguise_camo_helper_live_wave696_ok =
         simulate_live_host_eager_cmdset_disguise_camo_helper_honesty();
+    let host_eager_wstats_sel_model_helper_method_names_wave697_ok =
+        honesty_host_eager_wstats_sel_model_helper_method_names_residual_wave697();
+    let host_eager_wstats_sel_model_helper_nav_commands_wave697_ok =
+        honesty_host_eager_wstats_sel_model_helper_nav_commands_residual_wave697();
+    let host_eager_wstats_sel_model_helper_live_wave697_ok =
+        simulate_live_host_eager_wstats_sel_model_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12674,6 +12688,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_cmdset_disguise_camo_helper_method_names_wave696_ok,
         host_eager_cmdset_disguise_camo_helper_nav_commands_wave696_ok,
         host_eager_cmdset_disguise_camo_helper_live_wave696_ok,
+        host_eager_wstats_sel_model_helper_method_names_wave697_ok,
+        host_eager_wstats_sel_model_helper_nav_commands_wave697_ok,
+        host_eager_wstats_sel_model_helper_live_wave697_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23384,6 +23401,21 @@ mod tests {
         assert!(
             r.host_eager_cmdset_disguise_camo_helper_live_wave696_ok,
             "host eager_cmdset_disguise_camo helper live residual wave696: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_wstats_sel_model_helper_method_names_wave697_ok,
+            "host eager_wstats_sel_model helper method names residual pack wave697: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_wstats_sel_model_helper_nav_commands_wave697_ok,
+            "host eager_wstats_sel_model helper nav commands residual pack wave697: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_wstats_sel_model_helper_live_wave697_ok,
+            "host eager_wstats_sel_model helper live residual wave697: {}",
             r.detail
         );
         assert!(

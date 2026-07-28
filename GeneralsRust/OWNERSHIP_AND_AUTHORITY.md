@@ -174,6 +174,7 @@ Remaining engine residual after host update:
   - Eager AI-attitude/overcharge/stealth-flags: post-logic drain residual logs → GW (Wave 694; session handoff)
   - Eager contain-capacity/hive/overlord: post-logic drain residual logs → GW (Wave 695; session handoff)
   - Eager command-set/disguise/vision-camo: post-logic drain residual logs → GW (Wave 696; session handoff)
+  - Eager weapon-stats/selection-radius/model-condition: post-logic drain residual logs → GW (Wave 697; session handoff)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

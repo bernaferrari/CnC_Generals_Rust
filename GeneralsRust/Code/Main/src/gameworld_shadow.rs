@@ -222,6 +222,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_COMMAND_SET_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_DISGUISE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_VISION_CAMO_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_WEAPON_STATS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_SELECTION_RADIUS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_MODEL_CONDITION_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1242,6 +1245,93 @@ pub fn eager_apply_host_vision_camo_after_logic(
     }
     let n = shadow.apply_host_vision_camo_events(&events);
     EARLY_VISION_CAMO_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 697: post-logic weapon-stats / selection-radius / model-condition batch handoff.
+thread_local! {
+    static EARLY_WEAPON_STATS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_weapon_stats_log::HostWeaponStatsEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_SELECTION_RADIUS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_selection_radius_log::HostSelectionRadiusEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_MODEL_CONDITION_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_model_condition_log::HostModelConditionEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_weapon_stats_batch() -> Option<(
+    Vec<crate::game_logic::host_weapon_stats_log::HostWeaponStatsEvent>,
+    bool,
+)> {
+    EARLY_WEAPON_STATS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_selection_radius_batch() -> Option<(
+    Vec<crate::game_logic::host_selection_radius_log::HostSelectionRadiusEvent>,
+    bool,
+)> {
+    EARLY_SELECTION_RADIUS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_model_condition_batch() -> Option<(
+    Vec<crate::game_logic::host_model_condition_log::HostModelConditionEvent>,
+    bool,
+)> {
+    EARLY_MODEL_CONDITION_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 697: post-logic drain `host_weapon_stats_log` into GameWorld SetWeaponStats.
+pub fn eager_apply_host_weapon_stats_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 697: post-logic weapon-stats materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_weapon_stats_log::drain();
+    if events.is_empty() {
+        EARLY_WEAPON_STATS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_weapon_stats_events(&events);
+    EARLY_WEAPON_STATS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 697: post-logic drain `host_selection_radius_log` into GameWorld SetSelectionRadius.
+pub fn eager_apply_host_selection_radius_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 697: post-logic selection-radius materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_selection_radius_log::drain();
+    if events.is_empty() {
+        EARLY_SELECTION_RADIUS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_selection_radius_events(&events);
+    EARLY_SELECTION_RADIUS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 697: post-logic drain `host_model_condition_log` into GameWorld SetModelCondition.
+pub fn eager_apply_host_model_condition_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 697: post-logic model-condition materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_model_condition_log::drain();
+    if events.is_empty() {
+        EARLY_MODEL_CONDITION_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_model_condition_events(&events);
+    EARLY_MODEL_CONDITION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9089,14 +9179,28 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_vision_camo_log::drain(), false),
     };
-    let weapon_stats_events = crate::game_logic::host_weapon_stats_log::drain();
+    // Wave 697: prefer post-logic weapon-stats batch.
+    let (weapon_stats_events, early_weapon_stats_applied) = match take_early_weapon_stats_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_weapon_stats_log::drain(), false),
+    };
     // Wave 688: prefer post-logic movement batch.
     let (movement_events, early_movement_applied) = match take_early_movement_batch() {
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_movement_log::drain(), false),
     };
-    let selection_radius_events = crate::game_logic::host_selection_radius_log::drain();
-    let model_condition_events = crate::game_logic::host_model_condition_log::drain();
+    // Wave 697: prefer post-logic selection-radius batch.
+    let (selection_radius_events, early_selection_radius_applied) =
+        match take_early_selection_radius_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_selection_radius_log::drain(), false),
+        };
+    // Wave 697: prefer post-logic model-condition batch.
+    let (model_condition_events, early_model_condition_applied) =
+        match take_early_model_condition_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_model_condition_log::drain(), false),
+        };
     let demo_mine_cheer_events = crate::game_logic::host_demo_mine_cheer_log::drain();
     let formation_events = crate::game_logic::host_formation_log::drain();
     let crush_vision_events = crate::game_logic::host_crush_vision_log::drain();
@@ -9399,7 +9503,12 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_vision_camo_events(&vision_camo_events)
     };
-    let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
+    // Wave 697: skip GW re-apply when post-logic eager path already ran.
+    let _ws_applied = if early_weapon_stats_applied {
+        0
+    } else {
+        shadow.apply_host_weapon_stats_events(&weapon_stats_events)
+    };
     let body_damage_events = crate::game_logic::host_body_damage_log::drain();
     let _bd_applied = shadow.apply_host_body_damage_events(&body_damage_events);
     let death_type_events = crate::game_logic::host_death_type_log::drain();
@@ -9425,8 +9534,18 @@ pub fn shadow_session_after_host_tick(
     let bounce_land_events = crate::game_logic::host_bounce_land_log::drain();
     let _bl_applied = shadow.apply_host_bounce_land_events(&bounce_land_events);
 
-    let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
-    let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
+    // Wave 697: skip GW re-apply when post-logic eager path already ran.
+    let _sr_applied = if early_selection_radius_applied {
+        0
+    } else {
+        shadow.apply_host_selection_radius_events(&selection_radius_events)
+    };
+    // Wave 697: skip GW re-apply when post-logic eager path already ran.
+    let _mc_applied = if early_model_condition_applied {
+        0
+    } else {
+        shadow.apply_host_model_condition_events(&model_condition_events)
+    };
     let _dmc_applied = shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events);
     let _form_applied = shadow.apply_host_formation_events(&formation_events);
     let _cv_applied = shadow.apply_host_crush_vision_events(&crush_vision_events);
