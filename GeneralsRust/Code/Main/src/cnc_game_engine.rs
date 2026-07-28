@@ -18220,6 +18220,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 707: post-logic special-power / radar / player-progress.
+                let _sp = crate::gameworld_shadow::eager_apply_host_special_power_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _radar = crate::gameworld_shadow::eager_apply_host_radar_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _pprog = crate::gameworld_shadow::eager_apply_host_player_progress_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
