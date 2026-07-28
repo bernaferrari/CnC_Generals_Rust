@@ -1841,7 +1841,7 @@ pub struct GameLogic {
     /// HiveStructureBody residual: swallowed damage when no slaves.
     stinger_hive_residual_swallows: u32,
     /// SpawnBehavior residual: slave respawns completed.
-    stinger_hive_residual_respawns: u32,
+    pub(crate) stinger_hive_residual_respawns: u32,
     /// getClosestSlave residual: propagate hits that used shooter world position.
     stinger_hive_residual_closest_slave_hits: u32,
     /// CamoNetting StealthLook / heat-vision residual applications.
@@ -6644,7 +6644,12 @@ impl GameLogic {
         self.update_stealth_and_detection();
 
         // Stinger HiveStructureBody SpawnReplaceDelay residual slave respawns.
-        self.update_stinger_hive_respawns();
+        // Wave 814: under coupled shadow, hive respawn owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_stinger_hive_respawns();
+        }
 
         // -----------------------------------------------------------------------
         // Phase 7: Combat Resolution (within object updates)
