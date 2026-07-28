@@ -3553,6 +3553,17 @@ impl GameWorldShadow {
                         e.prone_model = false;
                         e.prone_no_attack = false;
                     }
+                    if let Some(fu) = obj.float_update.as_ref() {
+                        e.float_update_active = true;
+                        e.float_update_enabled = fu.enabled;
+                        e.float_yaw = fu.yaw;
+                        e.float_pitch = fu.pitch;
+                    } else {
+                        e.float_update_active = false;
+                        e.float_update_enabled = false;
+                        e.float_yaw = 0.0;
+                        e.float_pitch = 0.0;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7868,6 +7879,20 @@ impl GameWorldShadow {
                     {
                         e.model_condition_bits |= 1u128 << bit;
                     }
+                }
+                changed = true;
+            }
+            // Wave 783: FloatUpdate residual (boat sway / optional water snap).
+            if e.float_update_active {
+                use crate::game_logic::host_float_update::{
+                    FLOAT_PITCH_PHASE, FLOAT_SWAY_AMP, FLOAT_YAW_PHASE,
+                };
+                let angle = frame as f32;
+                e.float_yaw = (angle * FLOAT_YAW_PHASE).sin() * FLOAT_SWAY_AMP;
+                e.float_pitch = (angle * FLOAT_PITCH_PHASE).sin() * FLOAT_SWAY_AMP;
+                // Residual water snap: when enabled, stick Y to terrain ground height.
+                if e.float_update_enabled {
+                    e.transform.position.y = e.ground_height;
                 }
                 changed = true;
             }
@@ -12213,6 +12238,18 @@ impl GameWorldShadow {
                     }
                 } else if obj.prone_update.is_some() {
                     obj.prone_update = None;
+                }
+            }
+            {
+                if ent.float_update_active {
+                    use crate::game_logic::host_float_update::HostFloatUpdateData;
+                    let fu = obj.float_update.get_or_insert_with(HostFloatUpdateData::default);
+                    fu.enabled = ent.float_update_enabled;
+                    fu.yaw = ent.float_yaw;
+                    fu.pitch = ent.float_pitch;
+                    // Enabled snap residual already applied on entity transform writeback.
+                } else if obj.float_update.is_some() {
+                    obj.float_update = None;
                 }
             }
 

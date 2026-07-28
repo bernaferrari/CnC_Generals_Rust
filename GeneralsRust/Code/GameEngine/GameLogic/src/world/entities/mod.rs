@@ -555,6 +555,11 @@ pub struct Entity {
     pub prone_damage_to_frames_ratio: f32,
     pub prone_model: bool,
     pub prone_no_attack: bool,
+    /// Host FloatUpdate residual (boat sway / water snap).
+    pub float_update_active: bool,
+    pub float_update_enabled: bool,
+    pub float_yaw: f32,
+    pub float_pitch: f32,
     /// C++ ARMED model residual.
     pub armed: bool,
     /// Host AI request residual `selection_flash_remaining`.
@@ -1231,6 +1236,10 @@ impl EntityStore {
             prone_damage_to_frames_ratio: 1.0,
             prone_model: false,
             prone_no_attack: false,
+            float_update_active: false,
+            float_update_enabled: false,
+            float_yaw: 0.0,
+            float_pitch: 0.0,
             armed: false,
             selection_flash_remaining: 0,
             shock_stun_frames: 0,
