@@ -939,6 +939,14 @@ pub struct Entity {
     /// Host weapon laser beam residual.
     pub weapon_laser_beam: bool,
     pub weapon_laser_beam_expires_frame: u32,
+    /// Host sticky Timed/Remote demo charge attach residual.
+    pub sticky_bomb_attached: bool,
+    pub sticky_bomb_attached_to: u32,
+    pub sticky_bomb_mine_kind: u8, // 2=TimedDemoCharge, 3=RemoteDemoCharge
+    /// Host booby-trap special object attach residual.
+    pub booby_trap_special: bool,
+    pub booby_trap_attached_to: u32,
+    pub booby_trap_has_attached: bool,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1847,6 +1855,12 @@ impl EntityStore {
             point_defense_laser_beam_expires_frame: 0,
             weapon_laser_beam: false,
             weapon_laser_beam_expires_frame: 0,
+            sticky_bomb_attached: false,
+            sticky_bomb_attached_to: 0,
+            sticky_bomb_mine_kind: 0,
+            booby_trap_special: false,
+            booby_trap_attached_to: 0,
+            booby_trap_has_attached: false,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
