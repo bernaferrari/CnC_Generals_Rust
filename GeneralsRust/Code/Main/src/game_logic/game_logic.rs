@@ -1189,7 +1189,7 @@ pub struct GameLogic {
     pub(crate) anthrax_bomb_flight_reg:
         crate::game_logic::host_anthrax_bomb_flight::HostAnthraxBombFlightRegistry,
     /// C++ ClusterMines DeliverPayload residual counters.
-    cluster_mines_flight_reg:
+    pub(crate) cluster_mines_flight_reg:
         crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry,
     /// C++ EMPPulse DeliverPayload residual counters.
     emp_pulse_flight_reg: crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
@@ -6462,7 +6462,13 @@ impl GameLogic {
         {
             self.update_anthrax_bomb_flights();
         }
-        self.update_cluster_mines_flights();
+        // Wave 790: under coupled shadow, ClusterMines flight is owned by
+        // GW tick_status_timer_expirations + drop/detonate logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_cluster_mines_flights();
+        }
         self.update_emp_pulse_spheroids();
         self.update_emp_pulse_flights();
         self.update_frenzy_invisible_markers();

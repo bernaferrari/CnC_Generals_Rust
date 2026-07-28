@@ -18,6 +18,7 @@ pub mod host_bounce_land_log;
 pub mod host_carpet_bomb_flight;
 pub mod host_checkpoint_update;
 pub mod host_cluster_mines_flight;
+pub mod host_cluster_mines_drop_log;
 pub mod host_combat_attack_log;
 pub mod host_create_crate_die;
 pub mod host_daisy_cutter_flight;
@@ -217,6 +218,7 @@ pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_daisy_cutter_flight_dual_peel_residual_wave788;
 pub mod host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789;
+pub mod host_live_host_cluster_mines_flight_dual_peel_residual_wave790;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3941,7 +3943,6 @@ pub use host_live_host_daisy_cutter_flight_dual_peel_residual_wave788::{
     simulate_live_host_daisy_cutter_flight_dual_peel_honesty,
 };
 pub use host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789::{
-    residual_name_index,
     residual_host_anthrax_bomb_flight_dual_peel_ok,
     residual_host_anthrax_bomb_flight_dual_peel_last_action,
     honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789,
@@ -3951,6 +3952,17 @@ pub use host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789::{
     simulate_host_anthrax_bomb_flight_dual_peel_dispatch_source,
     honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789,
     simulate_live_host_anthrax_bomb_flight_dual_peel_honesty,
+};
+pub use host_live_host_cluster_mines_flight_dual_peel_residual_wave790::{
+    residual_host_cluster_mines_flight_dual_peel_ok,
+    residual_host_cluster_mines_flight_dual_peel_last_action,
+    honesty_host_cluster_mines_flight_dual_peel_method_names_residual_wave790,
+    honesty_host_cluster_mines_flight_dual_peel_source_markers_residual_wave790,
+    honesty_host_cluster_mines_flight_dual_peel_nav_commands_residual_wave790,
+    simulate_host_cluster_mines_flight_dual_peel_collect_source,
+    simulate_host_cluster_mines_flight_dual_peel_dispatch_source,
+    honesty_host_cluster_mines_flight_dual_peel_residual_pack_wave790,
+    simulate_live_host_cluster_mines_flight_dual_peel_honesty,
 };
 
 
