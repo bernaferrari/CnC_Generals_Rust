@@ -6873,8 +6873,15 @@ impl GameLogic {
                     // Defer EVA until after borrow ends.
                     ready_superweapons.push((id, team, name));
                 }
-                if obj.tick_radar_extend(self.frame) {
-                    radar_extend_done.push(id);
+                // Wave 744: under coupled GameWorld shadow, radar-extend complete
+                // is owned by writeback + host_apply_radar_extend_ready_completions.
+                // Host must not dual-complete via tick_radar_extend mid-frame.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    if obj.tick_radar_extend(self.frame) {
+                        radar_extend_done.push(id);
+                    }
                 }
                 // Wave 743: under production sole-tick, GameWorld owns door phase
                 // advance + writeback; host must not dual-tick door residual.
