@@ -3415,6 +3415,11 @@ use crate::game_logic::host_live_host_daisy_cutter_flight_dual_peel_residual_wav
     honesty_host_daisy_cutter_flight_dual_peel_nav_commands_residual_wave788,
     simulate_live_host_daisy_cutter_flight_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789::{
+    honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789,
+    honesty_host_anthrax_bomb_flight_dual_peel_nav_commands_residual_wave789,
+    simulate_live_host_anthrax_bomb_flight_dual_peel_honesty,
+};
 
 
 
@@ -7448,6 +7453,9 @@ pub struct ShellSmokeResult {
     pub host_daisy_cutter_flight_dual_peel_method_names_wave788_ok: bool,
     pub host_daisy_cutter_flight_dual_peel_nav_commands_wave788_ok: bool,
     pub host_daisy_cutter_flight_dual_peel_live_wave788_ok: bool,
+    pub host_anthrax_bomb_flight_dual_peel_method_names_wave789_ok: bool,
+    pub host_anthrax_bomb_flight_dual_peel_nav_commands_wave789_ok: bool,
+    pub host_anthrax_bomb_flight_dual_peel_live_wave789_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11915,6 +11923,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_daisy_cutter_flight_dual_peel_nav_commands_residual_wave788();
     let host_daisy_cutter_flight_dual_peel_live_wave788_ok =
         simulate_live_host_daisy_cutter_flight_dual_peel_honesty();
+    let host_anthrax_bomb_flight_dual_peel_method_names_wave789_ok =
+        honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789();
+    let host_anthrax_bomb_flight_dual_peel_nav_commands_wave789_ok =
+        honesty_host_anthrax_bomb_flight_dual_peel_nav_commands_residual_wave789();
+    let host_anthrax_bomb_flight_dual_peel_live_wave789_ok =
+        simulate_live_host_anthrax_bomb_flight_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14268,6 +14282,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_daisy_cutter_flight_dual_peel_method_names_wave788_ok,
         host_daisy_cutter_flight_dual_peel_nav_commands_wave788_ok,
         host_daisy_cutter_flight_dual_peel_live_wave788_ok,
+        host_anthrax_bomb_flight_dual_peel_method_names_wave789_ok,
+        host_anthrax_bomb_flight_dual_peel_nav_commands_wave789_ok,
+        host_anthrax_bomb_flight_dual_peel_live_wave789_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

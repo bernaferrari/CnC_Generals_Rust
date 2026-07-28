@@ -3797,6 +3797,48 @@ impl GameWorldShadow {
                         e.smart_bomb_target_y = 0.0;
                         e.smart_bomb_target_z = 0.0;
                     }
+                    if let Some(d) = obj.daisy_cutter_transport.as_ref() {
+                        e.daisy_transport_active = true;
+                        e.daisy_transport_tier = match d.tier {
+                            crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier::Moab => 1,
+                            _ => 0,
+                        };
+                        e.daisy_transport_target_x = d.target.x;
+                        e.daisy_transport_target_y = d.target.y;
+                        e.daisy_transport_target_z = d.target.z;
+                        e.daisy_transport_launch_x = d.launch.x;
+                        e.daisy_transport_launch_y = d.launch.y;
+                        e.daisy_transport_launch_z = d.launch.z;
+                    } else {
+                        e.daisy_transport_active = false;
+                    }
+                    e.daisy_cutter_bomb = obj.daisy_cutter_bomb;
+                    e.daisy_bomb_vel_y = if obj.daisy_cutter_bomb {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
+                    if let Some(d) = obj.anthrax_bomb_transport.as_ref() {
+                        e.anthrax_transport_active = true;
+                        e.anthrax_transport_tier = match d.tier {
+                            crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier::Gamma => 1,
+                            _ => 0,
+                        };
+                        e.anthrax_transport_target_x = d.target.x;
+                        e.anthrax_transport_target_y = d.target.y;
+                        e.anthrax_transport_target_z = d.target.z;
+                        e.anthrax_transport_launch_x = d.launch.x;
+                        e.anthrax_transport_launch_y = d.launch.y;
+                        e.anthrax_transport_launch_z = d.launch.z;
+                    } else {
+                        e.anthrax_transport_active = false;
+                    }
+                    e.anthrax_bomb_payload = obj.anthrax_bomb_payload;
+                    e.anthrax_bomb_vel_y = if obj.anthrax_bomb_payload {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -8206,6 +8248,90 @@ impl GameWorldShadow {
                                     e.transform.position.z,
                                 ),
                                 tier,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 789: AnthraxBomb DeliverPayload flight residual.
+            if e.anthrax_transport_active {
+                use crate::game_logic::host_anthrax_bomb_flight::{
+                    AnthraxBombPayloadTier, ANTHRAX_DELIVERY_DISTANCE,
+                };
+                let tier = if e.anthrax_transport_tier == 1 {
+                    AnthraxBombPayloadTier::Gamma
+                } else {
+                    AnthraxBombPayloadTier::Base
+                };
+                let dest_x = e.anthrax_transport_target_x;
+                let dest_z = e.anthrax_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 18.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = new_pos.y.max(150.0);
+                let mut over = false;
+                let mut vel = glam::Vec3::ZERO;
+                if dist < 5.0 {
+                    over = true;
+                } else {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
+                    over = dist <= ANTHRAX_DELIVERY_DISTANCE * 0.5;
+                }
+                e.transform.position = new_pos;
+                if vel.length_squared() > 1e-6 {
+                    e.transform.orientation = vel.z.atan2(vel.x);
+                }
+                if over {
+                    e.anthrax_transport_active = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e
+                            .producer_id
+                            .map(crate::game_logic::ObjectId)
+                            .unwrap_or(crate::game_logic::ObjectId(hid));
+                        crate::game_logic::host_anthrax_bomb_drop_log::record_drop(
+                            crate::game_logic::host_anthrax_bomb_drop_log::AnthraxDropEvent {
+                                team,
+                                target: glam::Vec3::new(
+                                    e.anthrax_transport_target_x,
+                                    e.anthrax_transport_target_y,
+                                    e.anthrax_transport_target_z,
+                                ),
+                                producer,
+                                tier,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            if e.anthrax_bomb_payload {
+                if e.anthrax_bomb_vel_y == 0.0 {
+                    e.anthrax_bomb_vel_y = -14.0;
+                }
+                e.transform.position.y += e.anthrax_bomb_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.anthrax_bomb_payload = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_anthrax_bomb_drop_log::record_detonate(
+                            crate::game_logic::host_anthrax_bomb_drop_log::AnthraxDetonateEvent {
+                                bomb: crate::game_logic::ObjectId(hid),
+                                producer,
+                                team,
+                                pos: glam::Vec3::new(
+                                    e.transform.position.x,
+                                    0.0,
+                                    e.transform.position.z,
+                                ),
                             },
                         );
                     }
@@ -12665,6 +12791,76 @@ impl GameWorldShadow {
                     obj.smart_bomb_target_homing = None;
                 }
             }
+            {
+                if ent.daisy_transport_active {
+                    use crate::game_logic::host_daisy_cutter_flight::{
+                        DaisyFlightPayloadTier, HostDaisyCutterFlightData,
+                    };
+                    let d = obj.daisy_cutter_transport.get_or_insert_with(|| {
+                        HostDaisyCutterFlightData::start(
+                            glam::Vec3::ZERO,
+                            glam::Vec3::ZERO,
+                            DaisyFlightPayloadTier::DaisyCutter,
+                        )
+                    });
+                    d.tier = if ent.daisy_transport_tier == 1 {
+                        DaisyFlightPayloadTier::Moab
+                    } else {
+                        DaisyFlightPayloadTier::DaisyCutter
+                    };
+                    d.target = glam::Vec3::new(
+                        ent.daisy_transport_target_x,
+                        ent.daisy_transport_target_y,
+                        ent.daisy_transport_target_z,
+                    );
+                    d.launch = glam::Vec3::new(
+                        ent.daisy_transport_launch_x,
+                        ent.daisy_transport_launch_y,
+                        ent.daisy_transport_launch_z,
+                    );
+                } else {
+                    obj.daisy_cutter_transport = None;
+                }
+                obj.daisy_cutter_bomb = ent.daisy_cutter_bomb;
+                if ent.daisy_cutter_bomb {
+                    obj.movement.velocity.y = ent.daisy_bomb_vel_y;
+                }
+            }
+            {
+                if ent.anthrax_transport_active {
+                    use crate::game_logic::host_anthrax_bomb_flight::{
+                        AnthraxBombPayloadTier, HostAnthraxBombFlightData,
+                    };
+                    let d = obj.anthrax_bomb_transport.get_or_insert_with(|| {
+                        HostAnthraxBombFlightData::start(
+                            glam::Vec3::ZERO,
+                            glam::Vec3::ZERO,
+                            AnthraxBombPayloadTier::Base,
+                        )
+                    });
+                    d.tier = if ent.anthrax_transport_tier == 1 {
+                        AnthraxBombPayloadTier::Gamma
+                    } else {
+                        AnthraxBombPayloadTier::Base
+                    };
+                    d.target = glam::Vec3::new(
+                        ent.anthrax_transport_target_x,
+                        ent.anthrax_transport_target_y,
+                        ent.anthrax_transport_target_z,
+                    );
+                    d.launch = glam::Vec3::new(
+                        ent.anthrax_transport_launch_x,
+                        ent.anthrax_transport_launch_y,
+                        ent.anthrax_transport_launch_z,
+                    );
+                } else {
+                    obj.anthrax_bomb_transport = None;
+                }
+                obj.anthrax_bomb_payload = ent.anthrax_bomb_payload;
+                if ent.anthrax_bomb_payload {
+                    obj.movement.velocity.y = ent.anthrax_bomb_vel_y;
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -14308,6 +14504,51 @@ pub fn shadow_session_after_host_tick(
             logic.mark_object_for_destruction(ev.bomb, None);
             logic.daisy_cutter_flight_reg.record_detonation();
         }
+        // Wave 789: AnthraxBomb drop + detonate (no dual flight).
+        for ev in crate::game_logic::host_anthrax_bomb_drop_log::drain_drops() {
+            let bomb = ev.tier.bomb();
+            let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
+            if let Some(bid) = logic.create_object(bomb, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
+                    o.producer_id = Some(ev.producer);
+                    o.anthrax_bomb_payload = true;
+                    o.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                }
+                logic.anthrax_bomb_flight_reg.record_drop();
+            }
+        }
+        for ev in crate::game_logic::host_anthrax_bomb_drop_log::drain_dets() {
+            use crate::game_logic::combat::DamageType;
+            use crate::game_logic::special_power_strikes::{
+                ANTHRAX_BOMB_IMPACT_DAMAGE, ANTHRAX_BOMB_IMPACT_RADIUS,
+            };
+            logic.apply_fuel_air_radius_damage(
+                ev.bomb,
+                ev.producer,
+                ev.team,
+                ev.pos,
+                ANTHRAX_BOMB_IMPACT_DAMAGE,
+                ANTHRAX_BOMB_IMPACT_RADIUS,
+                DamageType::Explosive,
+            );
+            let src = ev.producer.unwrap_or(ev.bomb);
+            let _ = logic.special_power_strikes.spawn_toxin_field(
+                src,
+                ev.team,
+                ev.pos,
+                logic.frame,
+                0,
+            );
+            logic.anthrax_bomb_flight_reg.record_toxin_field();
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.bomb, None);
+            logic.anthrax_bomb_flight_reg.record_detonation();
+        }
+
 
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready = logic.host_apply_combat_status_ready_completions();

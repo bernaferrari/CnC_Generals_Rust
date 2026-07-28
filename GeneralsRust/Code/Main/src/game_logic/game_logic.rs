@@ -1025,7 +1025,7 @@ pub struct GameLogic {
     next_formation_id: u32,
 
     /// Simulation frame counter
-    frame: u32,
+    pub(crate) frame: u32,
 
     /// Game mode
     game_mode: GameMode,
@@ -1057,7 +1057,7 @@ pub struct GameLogic {
     /// delayed multi-point line damage; ArtilleryBarrage applies delayed multi-shell
     /// scatter damage; CruiseMissile applies delayed loft + MOAB area damage.
     /// Fail-closed vs full retail.
-    special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
+    pub(crate) special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
     /// Host America Paradrop / Airborne residual.
     /// Queues on DoSpecialPower and spawns infantry after approach delay — fail-closed vs full OCL plane.
@@ -1186,7 +1186,7 @@ pub struct GameLogic {
     pub(crate) daisy_cutter_flight_reg:
         crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightRegistry,
     /// C++ AnthraxBomb DeliverPayload residual counters.
-    anthrax_bomb_flight_reg:
+    pub(crate) anthrax_bomb_flight_reg:
         crate::game_logic::host_anthrax_bomb_flight::HostAnthraxBombFlightRegistry,
     /// C++ ClusterMines DeliverPayload residual counters.
     cluster_mines_flight_reg:
@@ -6455,7 +6455,13 @@ impl GameLogic {
         {
             self.update_daisy_cutter_flights();
         }
-        self.update_anthrax_bomb_flights();
+        // Wave 789: under coupled shadow, AnthraxBomb flight is owned by
+        // GW tick_status_timer_expirations + drop/detonate logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_anthrax_bomb_flights();
+        }
         self.update_cluster_mines_flights();
         self.update_emp_pulse_spheroids();
         self.update_emp_pulse_flights();
