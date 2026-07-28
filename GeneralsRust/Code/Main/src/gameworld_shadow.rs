@@ -5111,6 +5111,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 756: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_shock_stun_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let changed = obj.shock_stun_frames != ent.shock_stun_frames
                 || (obj.shock_yaw_rate - ent.shock_yaw_rate).abs() > f32::EPSILON
                 || (obj.shock_pitch_rate - ent.shock_pitch_rate).abs() > f32::EPSILON
@@ -8735,6 +8741,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 756: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_repulsor_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_active = obj.status.repulsor;
             if host_active == ent.repulsor && obj.repulsor_until_frame == ent.repulsor_until_frame {
                 continue;
@@ -8787,6 +8799,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 756: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_disable_timers_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             if obj.status.disabled_emp_until_frame == ent.disabled_emp_until_frame
                 && obj.status.disabled_hacked_until_frame == ent.disabled_hacked_until_frame
                 && obj.status.disabled_paralyzed_until_frame == ent.disabled_paralyzed_until_frame
