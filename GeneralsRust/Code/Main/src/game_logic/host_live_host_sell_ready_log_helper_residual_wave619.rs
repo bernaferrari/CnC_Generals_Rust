@@ -155,7 +155,9 @@ pub fn honesty_host_sell_ready_log_helper_source_markers_residual_wave619() -> b
         && wb.contains("host_sell_ready_log::record")
         && wb.contains("obj.status.sold")
         && wb.contains("gameworld_construction_sole_tick_enabled");
-    let Some(update) = fn_body(gl, "pub fn update_sell_list(") else {
+    let Some(update) = fn_body(gl, "pub fn update_sell_list(")
+        .or_else(|| fn_body(gl, "pub(crate) fn update_sell_list("))
+    else {
         residual_action_store(ResidualHostSellReadyLogHelperAction::SourceMarkers);
         return false;
     };

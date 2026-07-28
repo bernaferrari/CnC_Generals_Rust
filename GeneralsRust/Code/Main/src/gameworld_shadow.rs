@@ -18741,6 +18741,9 @@ pub fn shadow_session_after_host_tick(
         // Wave 826: host combat/field residuals sole-tick after GW writeback.
         logic.tick_combat_field_residuals_sole();
 
+        // Wave 827: remaining host system residuals sole-tick after GW writeback.
+        logic.tick_host_systems_residuals_sole();
+
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready = logic.host_apply_combat_status_ready_completions();
     }

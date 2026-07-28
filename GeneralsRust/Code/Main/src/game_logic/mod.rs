@@ -258,6 +258,7 @@ pub mod host_live_host_structure_collapse_dual_peel_residual_wave775;
 pub mod host_live_host_structure_topple_crush_dual_peel_residual_wave777;
 pub mod host_live_host_structure_topple_dual_peel_residual_wave776;
 pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
+pub mod host_live_host_systems_dual_peel_residual_wave827;
 pub mod host_live_host_tensile_rubble_no_damage_auth_hp_stomp_residual_wave749;
 pub mod host_live_host_topple_fall_dual_peel_residual_wave770;
 pub mod host_live_host_toxin_stream_projectile_dual_peel_residual_wave798;
@@ -3006,6 +3007,13 @@ pub use host_live_host_combat_field_dual_peel_residual_wave826::{
     honesty_host_combat_field_dual_peel_residual_pack_wave826,
     simulate_live_host_combat_field_dual_peel_honesty,
 };
+pub use host_live_host_systems_dual_peel_residual_wave827::{
+    honesty_host_systems_dual_peel_method_names_residual_wave827,
+    honesty_host_systems_dual_peel_nav_commands_residual_wave827,
+    honesty_host_systems_dual_peel_residual_pack_wave827,
+    simulate_live_host_systems_dual_peel_honesty,
+};
+
 pub use host_live_host_hacker_income_dual_peel_residual_wave822::{
     honesty_host_hacker_income_dual_peel_method_names_residual_wave822,
     honesty_host_hacker_income_dual_peel_nav_commands_residual_wave822,

@@ -6061,7 +6061,12 @@ impl GameLogic {
         // C++ start-of-match residual: reveal FOW around loaded units/structures
         // immediately so build placement / presentation FOW are not stuck LBC_SHROUD
         // until the first logic tick. Same XZ→shroud mapping as update path.
-        self.update_main_crate_vision();
+        // Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_main_crate_vision();
+        }
         report_progress(0.96, "Map load complete");
         log::info!(
             "Map loaded successfully in {:.2}s",
@@ -6230,7 +6235,12 @@ impl GameLogic {
         // decision logic. Stealth modules also live in the sleepy update queue.
         self.update_construction(&object_ids, dt);
         // C++ BuildAssistant::update sell list residual (multi-frame sell).
-        self.update_sell_list();
+        // Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_sell_list();
+        }
         // C++ DozerPrimaryIdleState bored auto-repair residual.
         // Wave 819: under coupled shadow, idle timer owned by GW; host applies acquire via logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -6251,7 +6261,12 @@ impl GameLogic {
         // multi-shell / loft-MOAB damage + nuke radiation / anthrax toxin /
         // spectre orbit). Fail-closed vs full OCL aircraft / NeutronMissileUpdate
         // / PoisonField stack / B52 DeliverPayload / door loft path.
-        self.update_special_power_strikes();
+        // Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_special_power_strikes();
+        }
         self.spawn_nuke_radiation_field_objects_for_new_fields();
         // Wave 802: under coupled shadow, field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
@@ -6940,7 +6955,12 @@ impl GameLogic {
         // Drain prior-frame upgrade presentation events before research advances.
         self.host_upgrades.clear_frame_events();
         self.update_production(dt);
-        self.update_player_upgrades();
+        // Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_player_upgrades();
+        }
         if let Some(mut build_assistant) = get_build_assistant() {
             build_assistant.update(self.frame);
         }
@@ -7060,7 +7080,12 @@ impl GameLogic {
         // gamelogic OBJECT_REGISTRY.  Main-crate objects live in a separate
         // HashMap, so we feed their vision ranges directly into the shroud grid
         // here so fog-of-war actually works for the playable game.
-        self.update_main_crate_vision();
+        // Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_main_crate_vision();
+        }
 
         // -----------------------------------------------------------------------
         // Phase 18: Team Events Flush
@@ -71205,7 +71230,15 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::update sell list residual.
-    pub fn update_sell_list(&mut self) {
+    pub(crate) fn tick_host_systems_residuals_sole(&mut self) {
+        // Wave 827: post-writeback sole-tick for remaining host system residuals.
+        self.update_main_crate_vision();
+        self.update_sell_list();
+        self.update_special_power_strikes();
+        self.update_player_upgrades();
+    }
+
+    pub(crate) fn update_sell_list(&mut self) {
         if self.sell_list.is_empty() {
             return;
         }
