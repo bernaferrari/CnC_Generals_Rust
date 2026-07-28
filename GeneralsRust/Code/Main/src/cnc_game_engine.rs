@@ -18042,6 +18042,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 693: post-logic target-location / detector / continuous-fire.
+                let _tloc = crate::gameworld_shadow::eager_apply_host_target_location_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _det = crate::gameworld_shadow::eager_apply_host_detector_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _cf = crate::gameworld_shadow::eager_apply_host_continuous_fire_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
