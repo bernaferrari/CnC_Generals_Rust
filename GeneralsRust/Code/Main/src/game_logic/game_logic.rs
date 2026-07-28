@@ -7307,6 +7307,40 @@ impl GameLogic {
     /// sole-tick readiness (Waves 614/608). Wave 679: successful IDs enter
     /// `host_production_spawn_ready_log` before door/notify/exit residual.
     /// Not full GW spawn-ID authority.
+
+    /// Wave 740: rebuild-hole worker/structure spawn with optional GW entity bind.
+    /// Under construction sole-tick, prefers free GW entity raw as ObjectId and
+    /// binds without a second Spawn. Missing raw falls back to create_object
+    /// (host allocate) — hole may still start when writeback only recorded readiness.
+    fn host_spawn_rebuild_bound_object(
+        &mut self,
+        template: &str,
+        team: Team,
+        spawn_pos: Vec3,
+        gw_entity_raw: Option<u32>,
+    ) -> Option<ObjectId> {
+        if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
+            if let Some(raw) = gw_entity_raw {
+                crate::gameworld_shadow::set_next_host_spawn_bind_entity(raw);
+                let preferred = ObjectId(raw);
+                if raw != 0 && !self.objects.contains_key(&preferred) {
+                    let saved_next = self.next_object_id;
+                    self.next_object_id = preferred;
+                    let spawned = self.create_object(template, team, spawn_pos);
+                    let after = self.next_object_id.0;
+                    self.next_object_id = ObjectId(saved_next.0.max(after));
+                    if spawned.is_some() {
+                        return spawned;
+                    }
+                    self.next_object_id = saved_next;
+                }
+                // Bind present: allocate host id and map to pre-spawned entity.
+                return self.create_object(template, team, spawn_pos);
+            }
+        }
+        self.create_object(template, team, spawn_pos)
+    }
+
     fn host_spawn_production_unit(
         &mut self,
         template: &str,
@@ -70261,14 +70295,20 @@ impl GameLogic {
         // Wave 620: under construction sole-tick, GameWorld writeback records
         // rebuild-ready holes; host only starts worker/building for those IDs.
         let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-        let ready_holes: std::collections::HashSet<ObjectId> = if construction_sole {
+        // Wave 740: keep full ready events (GW entity-first worker/rebuild raws).
+        let ready_by_hole: std::collections::HashMap<
+            ObjectId,
+            crate::game_logic::host_rebuild_ready_log::HostRebuildReadyEvent,
+        > = if construction_sole {
             crate::game_logic::host_rebuild_ready_log::drain()
                 .into_iter()
-                .map(|ev| ev.hole)
+                .map(|ev| (ev.hole, ev))
                 .collect()
         } else {
-            std::collections::HashSet::new()
+            std::collections::HashMap::new()
         };
+        let ready_holes: std::collections::HashSet<ObjectId> =
+            ready_by_hole.keys().copied().collect();
         for hole_id in ids {
             // Hole health regen residual (always while hole alive).
             if let Some(h) = self.objects.get_mut(&hole_id) {
@@ -70410,19 +70450,41 @@ impl GameLogic {
                 self.templates
                     .insert(REBUILD_HOLE_WORKER_TEMPLATE.to_string(), wt);
             }
-            let worker_id = self.create_object(REBUILD_HOLE_WORKER_TEMPLATE, team, pos);
+            // Wave 740: under construction sole-tick, bind host ObjectIds to
+            // GameWorld pre-spawned worker + reconstruct entities when present.
+            let ready_ev = ready_by_hole.get(&hole_id);
+            // Wave 740: prefer GW spawn pose residual when writeback provided one.
+            let pos = ready_ev
+                .and_then(|e| e.spawn_pos)
+                .map(|p| Vec3::new(p[0], p[1], p[2]))
+                .unwrap_or(pos);
+            let worker_id = self.host_spawn_rebuild_bound_object(
+                REBUILD_HOLE_WORKER_TEMPLATE,
+                team,
+                pos,
+                ready_ev.and_then(|e| e.worker_entity_raw),
+            );
             let Some(worker_id) = worker_id else {
                 continue;
             };
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 w.set_status_unselectable(true);
                 w.set_status_masked(false);
+                if let Some(ev) = ready_ev {
+                    w.set_orientation(ev.orientation);
+                }
             }
             self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
             self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
 
             // Spawn reconstructing building (C++ ai->construct residual).
-            let Some(new_id) = self.create_object(&rebuild_name, team, pos) else {
+            // Wave 740: entity-first bind when GW pre-spawned the structure.
+            let Some(new_id) = self.host_spawn_rebuild_bound_object(
+                &rebuild_name,
+                team,
+                pos,
+                ready_ev.and_then(|e| e.rebuild_entity_raw),
+            ) else {
                 self.destroy_object(worker_id);
                 continue;
             };

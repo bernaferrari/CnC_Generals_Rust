@@ -5103,9 +5103,20 @@ impl GameWorldShadow {
         updated
     }
 
-    pub fn writeback_rebuild_producer_to_host(&self, logic: &mut GameLogic) -> usize {
+    pub fn writeback_rebuild_producer_to_host(&mut self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         let host_frame = logic.get_frame();
+        use gamelogic::world::WorldMutation;
+        // Wave 740: (hole_hid, ready_frame, template, pos, orient, owner, health)
+        let mut sole_ready_intents: Vec<(
+            u32,
+            u32,
+            String,
+            [f32; 3],
+            f32,
+            Option<PlayerId>,
+            f32,
+        )> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -5147,7 +5158,29 @@ impl GameWorldShadow {
                     && ready_frame > 0
                     && host_frame >= ready_frame
                 {
-                    crate::game_logic::host_rebuild_ready_log::record(ObjectId(hid), ready_frame);
+                    // Wave 740: collect intent; entity pre-spawn after loop.
+                    let p = ent.transform.position;
+                    let tpl = if !ent.rebuild_template_name.is_empty() {
+                        ent.rebuild_template_name.clone()
+                    } else {
+                        obj.rebuild_template_name.clone().unwrap_or_default()
+                    };
+                    if !tpl.is_empty() {
+                        sole_ready_intents.push((
+                            hid,
+                            ready_frame,
+                            tpl,
+                            [p.x, p.y, p.z],
+                            ent.transform.orientation,
+                            ent.owner,
+                            obj.health.maximum.max(1.0),
+                        ));
+                    } else {
+                        crate::game_logic::host_rebuild_ready_log::record(
+                            ObjectId(hid),
+                            ready_frame,
+                        );
+                    }
                 }
                 // Wave 626: construction-complete clear deadline elapsed residual.
                 let clear_at = obj.construction_complete_clear_frame;
@@ -5158,6 +5191,57 @@ impl GameWorldShadow {
                     );
                 }
             }
+        }
+        // Wave 740: entity-first worker + reconstruct pre-spawn under construction sole-tick.
+        for (hid, ready_frame, template, spawn_pos, orientation, owner, health) in sole_ready_intents
+        {
+            // Worker entity.
+            self.world.queue_mutation(WorldMutation::Spawn {
+                template: "GLAWorker".to_string(),
+                owner,
+                position: spawn_pos,
+                health: 200.0_f32.max(1.0),
+            });
+            let _ = self.world.apply_pending_mutations();
+            let worker_raw = self
+                .world
+                .take_last_spawned_entity()
+                .map(|eid| eid.get());
+            // Reconstructing structure entity.
+            self.world.queue_mutation(WorldMutation::Spawn {
+                template: template.clone(),
+                owner,
+                position: spawn_pos,
+                health,
+            });
+            let _ = self.world.apply_pending_mutations();
+            let rebuild_raw = self
+                .world
+                .take_last_spawned_entity()
+                .map(|eid| eid.get());
+            // Stamp orientation on entities when present.
+            if let Some(raw) = worker_raw {
+                use gamelogic::world::entities::EntityId;
+                if let Some(e) = self.world.world_mut().entity_mut(EntityId::from_raw(raw)) {
+                    e.transform.orientation = orientation;
+                }
+            }
+            if let Some(raw) = rebuild_raw {
+                use gamelogic::world::entities::EntityId;
+                if let Some(e) = self.world.world_mut().entity_mut(EntityId::from_raw(raw)) {
+                    e.transform.orientation = orientation;
+                    e.construction_percent = 0.0;
+                }
+            }
+            crate::game_logic::host_rebuild_ready_log::record_with_entities(
+                ObjectId(hid),
+                ready_frame,
+                worker_raw,
+                rebuild_raw,
+                Some(spawn_pos),
+                orientation,
+                template,
+            );
         }
         updated
     }
