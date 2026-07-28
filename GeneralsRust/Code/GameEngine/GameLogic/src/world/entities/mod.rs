@@ -794,6 +794,14 @@ pub struct Entity {
     /// Host AmericaParachute residual.
     pub paradrop_parachute: bool,
     pub paradrop_parachute_vel_y: f32,
+    /// Host AuroraBomb projectile residual.
+    pub aurora_bomb_projectile: bool,
+    pub aurora_bomb_aim_x: f32,
+    pub aurora_bomb_aim_y: f32,
+    pub aurora_bomb_aim_z: f32,
+    pub aurora_bomb_has_aim: bool,
+    pub aurora_bomb_mission_id: u32,
+    pub aurora_bomb_mission_live: bool,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1577,6 +1585,13 @@ impl EntityStore {
             paradrop_transport_target_z: 0.0,
             paradrop_parachute: false,
             paradrop_parachute_vel_y: 0.0,
+            aurora_bomb_projectile: false,
+            aurora_bomb_aim_x: 0.0,
+            aurora_bomb_aim_y: 0.0,
+            aurora_bomb_aim_z: 0.0,
+            aurora_bomb_has_aim: false,
+            aurora_bomb_mission_id: 0,
+            aurora_bomb_mission_live: false,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,

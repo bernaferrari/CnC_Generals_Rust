@@ -3455,6 +3455,11 @@ use crate::game_logic::host_live_host_paradrop_cargo_flight_dual_peel_residual_w
     honesty_host_paradrop_cargo_flight_dual_peel_nav_commands_residual_wave796,
     simulate_live_host_paradrop_cargo_flight_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797::{
+    honesty_host_aurora_bomb_projectile_dual_peel_method_names_residual_wave797,
+    honesty_host_aurora_bomb_projectile_dual_peel_nav_commands_residual_wave797,
+    simulate_live_host_aurora_bomb_projectile_dual_peel_honesty,
+};
 
 
 
@@ -7512,6 +7517,9 @@ pub struct ShellSmokeResult {
     pub host_paradrop_cargo_flight_dual_peel_method_names_wave796_ok: bool,
     pub host_paradrop_cargo_flight_dual_peel_nav_commands_wave796_ok: bool,
     pub host_paradrop_cargo_flight_dual_peel_live_wave796_ok: bool,
+    pub host_aurora_bomb_projectile_dual_peel_method_names_wave797_ok: bool,
+    pub host_aurora_bomb_projectile_dual_peel_nav_commands_wave797_ok: bool,
+    pub host_aurora_bomb_projectile_dual_peel_live_wave797_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12027,6 +12035,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_paradrop_cargo_flight_dual_peel_nav_commands_residual_wave796();
     let host_paradrop_cargo_flight_dual_peel_live_wave796_ok =
         simulate_live_host_paradrop_cargo_flight_dual_peel_honesty();
+    let host_aurora_bomb_projectile_dual_peel_method_names_wave797_ok =
+        honesty_host_aurora_bomb_projectile_dual_peel_method_names_residual_wave797();
+    let host_aurora_bomb_projectile_dual_peel_nav_commands_wave797_ok =
+        honesty_host_aurora_bomb_projectile_dual_peel_nav_commands_residual_wave797();
+    let host_aurora_bomb_projectile_dual_peel_live_wave797_ok =
+        simulate_live_host_aurora_bomb_projectile_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14404,6 +14418,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_paradrop_cargo_flight_dual_peel_method_names_wave796_ok,
         host_paradrop_cargo_flight_dual_peel_nav_commands_wave796_ok,
         host_paradrop_cargo_flight_dual_peel_live_wave796_ok,
+        host_aurora_bomb_projectile_dual_peel_method_names_wave797_ok,
+        host_aurora_bomb_projectile_dual_peel_nav_commands_wave797_ok,
+        host_aurora_bomb_projectile_dual_peel_live_wave797_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
