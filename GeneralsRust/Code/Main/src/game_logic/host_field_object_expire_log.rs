@@ -2,7 +2,7 @@
 //!
 //! Covers NukeRadiationField / AnthraxToxinField / InfernoFireField object
 //! residuals plus Wave 806 Spectre/flare/laser beams Wave 808 particle lasers, and Wave 809 firewall segment /
-//! radar-van ping object lifetimes.
+//! radar-van ping, and Wave 817 money-crate deletion lifetimes.
 
 use super::{ObjectId, Team};
 use std::cell::RefCell;
@@ -21,6 +21,7 @@ pub enum FieldObjectKind {
     ParticleConnectorLaser,
     FirewallSegment,
     RadarVanPing,
+    MoneyCrate,
 }
 
 #[derive(Debug, Clone)]
