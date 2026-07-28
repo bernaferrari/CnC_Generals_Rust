@@ -251,6 +251,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_HIJACKER_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_REBUILD_PRODUCER_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_STORED_SUPPLIES_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_SPECIAL_POWER_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_RADAR_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PLAYER_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -2107,6 +2110,91 @@ pub fn eager_apply_host_stored_supplies_after_logic(
     }
     let n = shadow.apply_host_stored_supplies_events(&events);
     EARLY_STORED_SUPPLIES_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 707: post-logic special-power / radar / player-progress batch handoff.
+thread_local! {
+    static EARLY_SPECIAL_POWER_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_special_power_log::HostSpecialPowerEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_RADAR_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_radar_log::HostRadarEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_PLAYER_PROGRESS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_player_progress_log::HostPlayerProgressEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_special_power_batch() -> Option<(
+    Vec<crate::game_logic::host_special_power_log::HostSpecialPowerEvent>,
+    bool,
+)> {
+    EARLY_SPECIAL_POWER_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_radar_batch() -> Option<(Vec<crate::game_logic::host_radar_log::HostRadarEvent>, bool)>
+{
+    EARLY_RADAR_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_player_progress_batch() -> Option<(
+    Vec<crate::game_logic::host_player_progress_log::HostPlayerProgressEvent>,
+    bool,
+)> {
+    EARLY_PLAYER_PROGRESS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 707: post-logic drain `host_special_power_log` into GameWorld SetSpecialPower.
+pub fn eager_apply_host_special_power_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 707: post-logic special-power materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_special_power_log::drain();
+    if events.is_empty() {
+        EARLY_SPECIAL_POWER_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_special_power_events(&events);
+    EARLY_SPECIAL_POWER_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 707: post-logic drain `host_radar_log` into GameWorld SetRadar.
+pub fn eager_apply_host_radar_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 707: post-logic radar materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_radar_log::drain();
+    if events.is_empty() {
+        EARLY_RADAR_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_radar_events(&events);
+    EARLY_RADAR_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 707: post-logic drain `host_player_progress_log` into GameWorld SetPlayerProgress.
+pub fn eager_apply_host_player_progress_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 707: post-logic player-progress materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_player_progress_log::drain();
+    if events.is_empty() {
+        EARLY_PLAYER_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_player_progress_events(&events);
+    EARLY_PLAYER_PROGRESS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -10063,7 +10151,12 @@ pub fn shadow_session_after_host_tick(
     let production_progress_events = crate::game_logic::host_production_progress_log::drain();
     let construction_events = crate::game_logic::host_construction_log::drain();
     let construction_progress_events = crate::game_logic::host_construction_progress_log::drain();
-    let special_power_events = crate::game_logic::host_special_power_log::drain();
+    // Wave 707: prefer post-logic special-power batch.
+    let (special_power_events, early_special_power_applied) = match take_early_special_power_batch()
+    {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_special_power_log::drain(), false),
+    };
     // Wave 706: prefer post-logic stored-supplies batch.
     let (stored_supplies_events, early_stored_supplies_applied) =
         match take_early_stored_supplies_batch() {
@@ -10076,8 +10169,17 @@ pub fn shadow_session_after_host_tick(
         None => (crate::game_logic::host_ai_state_log::drain(), false),
     };
     let contain_events = crate::game_logic::host_contain_log::drain();
-    let radar_events = crate::game_logic::host_radar_log::drain();
-    let player_progress_events = crate::game_logic::host_player_progress_log::drain();
+    // Wave 707: prefer post-logic radar batch.
+    let (radar_events, early_radar_applied) = match take_early_radar_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_radar_log::drain(), false),
+    };
+    // Wave 707: prefer post-logic player-progress batch.
+    let (player_progress_events, early_player_progress_applied) =
+        match take_early_player_progress_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_player_progress_log::drain(), false),
+        };
     let player_meta_events = crate::game_logic::host_player_meta_log::drain();
     let player_cooldown_events = crate::game_logic::host_player_cooldown_log::drain();
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
@@ -10099,7 +10201,12 @@ pub fn shadow_session_after_host_tick(
         shadow.apply_host_construction_progress_events(&construction_progress_events);
     let _construction_tick = shadow
         .tick_construction_progress(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
-    let _sp_applied = shadow.apply_host_special_power_events(&special_power_events);
+    // Wave 707: skip GW re-apply when post-logic eager path already ran.
+    let _sp_applied = if early_special_power_applied {
+        0
+    } else {
+        shadow.apply_host_special_power_events(&special_power_events)
+    };
     // Under SPECIAL_POWER_AUTHORITY, GameWorld sole-ticks SP countdown; host skips advance.
     let _sp_tick = shadow.tick_special_power_cooldowns(
         game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
@@ -10124,8 +10231,18 @@ pub fn shadow_session_after_host_tick(
     // Wave 628: contain membership last-write + ready-log residual.
     let _contain_wb = shadow.writeback_contain_to_host(logic);
     let _contain_ready = logic.host_apply_contain_ready_completions();
-    let _radar_applied = shadow.apply_host_radar_events(&radar_events);
-    let _progress_applied = shadow.apply_host_player_progress_events(&player_progress_events);
+    // Wave 707: skip GW re-apply when post-logic eager path already ran.
+    let _radar_applied = if early_radar_applied {
+        0
+    } else {
+        shadow.apply_host_radar_events(&radar_events)
+    };
+    // Wave 707: skip GW re-apply when post-logic eager path already ran.
+    let _progress_applied = if early_player_progress_applied {
+        0
+    } else {
+        shadow.apply_host_player_progress_events(&player_progress_events)
+    };
     let _meta_applied = shadow.apply_host_player_meta_events(&player_meta_events);
     let _cd_applied = shadow.apply_host_player_cooldown_events(&player_cooldown_events);
 
