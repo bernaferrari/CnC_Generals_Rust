@@ -3165,6 +3165,11 @@ use crate::game_logic::host_live_host_production_spawn_requires_gw_bind_residual
     honesty_host_production_spawn_requires_gw_bind_nav_commands_residual_wave738,
     simulate_live_host_production_spawn_requires_gw_bind_honesty,
 };
+use crate::game_logic::host_live_host_production_spawn_pose_no_rejitter_residual_wave739::{
+    honesty_host_production_spawn_pose_no_rejitter_method_names_residual_wave739,
+    honesty_host_production_spawn_pose_no_rejitter_nav_commands_residual_wave739,
+    simulate_live_host_production_spawn_pose_no_rejitter_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7018,6 +7023,9 @@ pub struct ShellSmokeResult {
     pub host_production_spawn_requires_gw_bind_method_names_wave738_ok: bool,
     pub host_production_spawn_requires_gw_bind_nav_commands_wave738_ok: bool,
     pub host_production_spawn_requires_gw_bind_live_wave738_ok: bool,
+    pub host_production_spawn_pose_no_rejitter_method_names_wave739_ok: bool,
+    pub host_production_spawn_pose_no_rejitter_nav_commands_wave739_ok: bool,
+    pub host_production_spawn_pose_no_rejitter_live_wave739_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11185,6 +11193,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_production_spawn_requires_gw_bind_nav_commands_residual_wave738();
     let host_production_spawn_requires_gw_bind_live_wave738_ok =
         simulate_live_host_production_spawn_requires_gw_bind_honesty();
+    let host_production_spawn_pose_no_rejitter_method_names_wave739_ok =
+        honesty_host_production_spawn_pose_no_rejitter_method_names_residual_wave739();
+    let host_production_spawn_pose_no_rejitter_nav_commands_wave739_ok =
+        honesty_host_production_spawn_pose_no_rejitter_nav_commands_residual_wave739();
+    let host_production_spawn_pose_no_rejitter_live_wave739_ok =
+        simulate_live_host_production_spawn_pose_no_rejitter_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13388,6 +13402,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_production_spawn_requires_gw_bind_method_names_wave738_ok,
         host_production_spawn_requires_gw_bind_nav_commands_wave738_ok,
         host_production_spawn_requires_gw_bind_live_wave738_ok,
+        host_production_spawn_pose_no_rejitter_method_names_wave739_ok,
+        host_production_spawn_pose_no_rejitter_nav_commands_wave739_ok,
+        host_production_spawn_pose_no_rejitter_live_wave739_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24728,6 +24745,21 @@ mod tests {
         assert!(
             r.host_production_spawn_requires_gw_bind_live_wave738_ok,
             "host production_spawn_requires_gw_bind live residual wave738: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_spawn_pose_no_rejitter_method_names_wave739_ok,
+            "host production_spawn_pose_no_rejitter method names residual pack wave739: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_spawn_pose_no_rejitter_nav_commands_wave739_ok,
+            "host production_spawn_pose_no_rejitter nav commands residual pack wave739: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_spawn_pose_no_rejitter_live_wave739_ok,
+            "host production_spawn_pose_no_rejitter live residual wave739: {}",
             r.detail
         );
         assert!(
