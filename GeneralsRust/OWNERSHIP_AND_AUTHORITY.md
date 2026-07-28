@@ -225,6 +225,7 @@ Remaining engine residual after host update:
   - damage authority: LifetimeUpdate kill does not stomp host HP mid-frame (Wave 745; mark-for-destroy owns lethal)
   - damage authority: crush fail-closed does not stomp host HP mid-frame (Wave 746; damage log + flags)
   - damage authority: evacuate-and-exit does not stomp host transport HP (Wave 747; damage log + flags)
+  - damage authority: hive structure damage does not mutate host HP mid-frame (Wave 748; damage log owns numeric)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
