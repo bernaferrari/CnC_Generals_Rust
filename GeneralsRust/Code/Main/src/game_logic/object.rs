@@ -9191,16 +9191,20 @@ fn tick_shock_stun_with_countdown(&mut self, countdown: bool) {
                     | crate::game_logic::combat::DamageType::KillGarrisoned
             )
         {
-            self.ensure_fire_weapon_when_damaged();
-            if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
-                // Frame 0: debounce via serial on data; GameLogic may also call with real frame.
-                if let Some(w) = fw.on_damage(
-                    actual_damage,
-                    self.health.current,
-                    self.health.maximum.max(self.max_health).max(1.0),
-                    fw.last_reaction_frame.saturating_add(2),
-                ) {
-                    self.pending_fire_when_damaged_weapon = Some(w);
+            // Wave 779: under damage authority, FWWDB onDamage reaction is owned by
+            // GW apply_host_damage_events + host_fwwd_reaction_log drain (post-HP).
+            if !(crate::gameworld_shadow::gameworld_damage_authority_live() && !force_host_hp) {
+                self.ensure_fire_weapon_when_damaged();
+                if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
+                    // Frame 0: debounce via serial on data; GameLogic may also call with real frame.
+                    if let Some(w) = fw.on_damage(
+                        actual_damage,
+                        self.health.current,
+                        self.health.maximum.max(self.max_health).max(1.0),
+                        fw.last_reaction_frame.saturating_add(2),
+                    ) {
+                        self.pending_fire_when_damaged_weapon = Some(w);
+                    }
                 }
             }
         }
