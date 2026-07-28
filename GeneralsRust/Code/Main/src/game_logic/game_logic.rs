@@ -8291,9 +8291,11 @@ impl GameLogic {
                     obj.tick_continuous_fire_coast(self.frame);
                     obj.tick_repulsor_status(self.frame);
                 } else {
-                    // fire-sound / subdual still host-owned (not in GW timer peel).
+                    // fire-sound still host-owned (presentation audio residual).
+                    // Wave 765: subdual heal owned by GW tick_status_timer_expirations
+                    // + writeback under coupled dual-tick (non-coupled still heals via
+                    // tick_continuous_fire_coast → tick_subdual_damage).
                     obj.tick_fire_sound_loop(self.frame);
-                    obj.tick_subdual_damage();
                 }
                 // Wave 763: under coupled shadow, force-reload-when-idle is owned by
                 // GW tick_status_timer_expirations + weapon_stats/continuous-fire writeback.
