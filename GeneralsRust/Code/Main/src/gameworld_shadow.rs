@@ -3525,6 +3525,21 @@ impl GameWorldShadow {
                         e.base_regen_done_sold = false;
                         e.base_regen_pending_damage = false;
                     }
+                    if let Some(en) = obj.enemy_near.as_ref() {
+                        e.enemy_near_active = true;
+                        e.enemy_near = en.enemy_near || en.model_enemy_near;
+                        e.enemy_near_scan_delay = en.scan_delay;
+                        e.enemy_near_scan_delay_time = en.scan_delay_time;
+                        e.enemy_near_model = en.model_enemy_near;
+                        e.enemy_near_vision_range = en.vision_range.max(obj.vision_range);
+                    } else {
+                        e.enemy_near_active = false;
+                        e.enemy_near = false;
+                        e.enemy_near_scan_delay = 0;
+                        e.enemy_near_scan_delay_time = 30;
+                        e.enemy_near_model = false;
+                        e.enemy_near_vision_range = 150.0;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7786,6 +7801,35 @@ impl GameWorldShadow {
                             }
                         }
                     }
+                }
+            }
+            // Wave 781: EnemyNearUpdate residual (MODELCONDITION_ENEMYNEAR).
+            if e.enemy_near_active {
+                let was = e.enemy_near;
+                if e.enemy_near_scan_delay == 0 {
+                    let delay_time = e.enemy_near_scan_delay_time.max(1);
+                    let sx = e.transform.position.x;
+                    let sz = e.transform.position.z;
+                    let vision = e.enemy_near_vision_range.max(e.vision_range);
+                    let my_team = e.team_ordinal;
+                    // Drop entity borrow before scan (scan needs world()).
+                    drop(e);
+                    let present =
+                        self.scan_enemy_near_present(eid, sx, sz, vision, my_team);
+                    if let Some(e2) = self.world.world_mut().entity_mut(eid) {
+                        e2.enemy_near_scan_delay = delay_time;
+                        e2.enemy_near = present;
+                        if present && !was {
+                            e2.enemy_near_model = true;
+                        } else if !present && was {
+                            e2.enemy_near_model = false;
+                        }
+                    }
+                    n += 1;
+                    continue;
+                } else {
+                    e.enemy_near_scan_delay = e.enemy_near_scan_delay.saturating_sub(1);
+                    changed = true;
                 }
             }
             if changed {
@@ -12084,6 +12128,25 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                if ent.enemy_near_active {
+                    use crate::game_logic::host_enemy_near::HostEnemyNearData;
+                    let en = obj.enemy_near.get_or_insert_with(HostEnemyNearData::default);
+                    if en.enemy_near != ent.enemy_near
+                        || en.scan_delay != ent.enemy_near_scan_delay
+                        || en.model_enemy_near != ent.enemy_near_model
+                        || (en.vision_range - ent.enemy_near_vision_range).abs() > f32::EPSILON
+                    {
+                        en.enemy_near = ent.enemy_near;
+                        en.scan_delay = ent.enemy_near_scan_delay;
+                        en.scan_delay_time = ent.enemy_near_scan_delay_time;
+                        en.model_enemy_near = ent.enemy_near_model;
+                        en.vision_range = ent.enemy_near_vision_range;
+                    }
+                } else if obj.enemy_near.is_some() {
+                    obj.enemy_near = None;
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12136,6 +12199,52 @@ impl GameWorldShadow {
         updated
     }
 
+
+
+    /// Wave 781: residual EnemyNear enemy-present scan on GW entities.
+    fn scan_enemy_near_present(
+        &self,
+        scanner: EntityId,
+        sx: f32,
+        sz: f32,
+        vision: f32,
+        my_team: u8,
+    ) -> bool {
+        if vision <= 0.0 {
+            return false;
+        }
+        let v2 = vision * vision;
+        // Iterate host mapping → entity positions (stable residual order by host id).
+        let mut hosts: Vec<u32> = self.host_to_entity.keys().copied().collect();
+        hosts.sort_unstable();
+        for hid in hosts {
+            let Some(eid) = self.host_to_entity.get(&hid).copied() else {
+                continue;
+            };
+            if eid == scanner {
+                continue;
+            }
+            let Some(o) = self.world.world().entity(eid) else {
+                continue;
+            };
+            if o.health <= 0.0 {
+                continue;
+            }
+            // Neutral (255) is not an auto-target residual.
+            if o.team_ordinal == 255 || my_team == 255 {
+                continue;
+            }
+            if o.team_ordinal == my_team {
+                continue;
+            }
+            let dx = o.transform.position.x - sx;
+            let dz = o.transform.position.z - sz;
+            if dx * dx + dz * dz <= v2 {
+                return true;
+            }
+        }
+        false
+    }
 
     /// Wave 779: FWWDB onDamage reaction sole-emit after GW applied damage.
     fn try_fwwd_reaction_for_host(&mut self, host: ObjectId, actual_damage: f32, frame: u32) {
