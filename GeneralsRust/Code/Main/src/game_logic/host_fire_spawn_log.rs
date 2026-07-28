@@ -25,6 +25,10 @@ pub fn drain() -> Vec<PendingProjectile> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}
+
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
     RESIDUAL_HITSCAN.with(|h| h.borrow_mut().clear());

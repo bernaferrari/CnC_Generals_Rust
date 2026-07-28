@@ -159,6 +159,7 @@ Remaining engine residual after host update:
   - Production spawn ready log: host ObjectId → `host_production_spawn_ready_log` → door/notify/exit residual (Wave 679; still host ID authority)
   - Eager spawn map: coupled shadow tick installs live shadow; `create_object` maps host ObjectId→entity mid-frame (Wave 680; still host ID alloc)
   - Eager destroy unmap: coupled shadow tick; `process_destroy_list` unmaps host ObjectId mid-frame (Wave 681; host still owns destroy timing)
+  - Eager fire-spawn: coupled tick installs logic+shadow; `queue_projectile` materializes CombatSystem mid-frame (Wave 682)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

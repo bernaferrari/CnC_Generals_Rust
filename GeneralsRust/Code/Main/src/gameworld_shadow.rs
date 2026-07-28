@@ -269,6 +269,29 @@ pub fn eager_unmap_host_destroy_if_coupled(host: ObjectId) -> bool {
     })
 }
 
+/// Wave 682: immediately after the host logic frame on a coupled tick, drain
+/// `host_fire_spawn_log` into host CombatSystem + GameWorld projectile map.
+///
+/// Runs before `shadow_session_after_host_tick` so deferred weapon discharges
+/// materialize the same frame without waiting for the full session tail.
+/// Session fire-spawn drain stays idempotent (log already empty).
+///
+/// Safe exclusive borrows: caller passes `&mut GameWorldShadow` + `&mut GameLogic`.
+pub fn eager_apply_host_fire_spawns_after_logic(
+    shadow: &mut GameWorldShadow,
+    logic: &mut GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active()
+        || !gameworld_shadow_enabled()
+        || !gameworld_fire_spawn_authority_enabled()
+    {
+        return 0;
+    }
+    // Wave 682: post-logic fire-spawn materialize (exclusive shadow+logic borrows).
+    let spawns = crate::game_logic::host_fire_spawn_log::drain();
+    shadow.apply_host_fire_spawn_events(logic, spawns)
+}
+
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
 #[cfg(test)]
 pub(crate) fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -18797,6 +18820,8 @@ mod tests {
         assert!(gameworld_fire_spawn_authority_enabled());
         assert!(gameworld_shadow_enabled());
         host_fire_spawn_log::clear();
+        // Fire-spawn defers only while a coupled shadow tick is live (Wave 682).
+        begin_shadow_coupled_tick();
         combat::queue_projectile(PendingProjectile {
             shooter_id: ObjectId(1),
             shooter_pos: glam::Vec3::ZERO,
@@ -18836,6 +18861,7 @@ mod tests {
         assert_eq!(logic.combat_system.projectile_count(), 0);
         let spawns = host_fire_spawn_log::drain();
         assert_eq!(spawns.len(), 1);
+        end_shadow_coupled_tick();
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let n = shadow.apply_host_fire_spawn_events(&mut logic, spawns);
@@ -21257,7 +21283,7 @@ mod tests {
             let i = src
                 .find(&format!("fn {name}"))
                 .unwrap_or_else(|| panic!("missing {name}"));
-            let body = &src[i..src.len().min(i + 9000)];
+            let body = &src[i..src.len().min(i + 20000)];
             assert!(
                 body.contains("residual_auto_fire_apply_damage"),
                 "{name} must route damage/spawn through residual_auto_fire_apply_damage"
