@@ -56356,9 +56356,17 @@ impl GameLogic {
             if !o.booby_trap_special {
                 return;
             }
+            // Wave 751: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags;
+            // non-authority path keeps host HP clear.
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = o.health.current.max(1.0);
+                crate::game_logic::host_damage_log::record(charge_id, hp, None, true);
+            } else {
+                o.health.current = 0.0;
+            }
             o.status.destroyed = true;
             o.status.effectively_dead = true;
-            o.health.current = 0.0;
             o.booby_trap_special = false;
             o.booby_trap_attached_to = None;
         }
