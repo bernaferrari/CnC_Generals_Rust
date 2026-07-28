@@ -6324,16 +6324,34 @@ impl GameLogic {
         self.update_weapon_laser_beam_objects();
         self.update_comanche_rocket_pod_projectiles();
         self.update_stealth_jet_missile_projectiles();
-        self.update_scud_launcher_missile_projectiles();
+        // Wave 800: under coupled shadow, cannon shell flight is owned by
+        // GW tick_status_timer_expirations + impact logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_scud_launcher_missile_projectiles();
+        }
         self.update_tomahawk_missile_projectiles();
         self.update_rocket_buggy_missile_projectiles();
-        self.update_neutron_cannon_shell_projectiles();
+        // Wave 800: under coupled shadow, cannon shell flight is owned by
+        // GW tick_status_timer_expirations + impact logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_neutron_cannon_shell_projectiles();
+        }
         self.update_rpg_trooper_missile_projectiles();
         self.update_tank_hunter_missile_projectiles();
         self.update_missile_defender_missile_projectiles();
         self.update_scorpion_shell_projectiles();
         self.update_scorpion_missile_projectiles();
-        self.update_nuke_cannon_shell_projectiles();
+        // Wave 800: under coupled shadow, cannon shell flight is owned by
+        // GW tick_status_timer_expirations + impact logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_nuke_cannon_shell_projectiles();
+        }
         self.update_usa_tank_shell_projectiles();
         self.update_battlemaster_shell_projectiles();
         self.update_overlord_shell_projectiles();
