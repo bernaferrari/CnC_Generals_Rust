@@ -9943,6 +9943,27 @@ impl CnCGameEngine {
                                 .and_then(|f| f.first_constructed_producer_id(team))
                         })
                     };
+                    // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
+                    // Retail commands use the exact requested template name.
+                    // Smoke/harness may set alias_fallback=1 / GENERALS_RUNTIME_HOST_ALIAS_FALLBACK=1.
+                    let allow_alias_fallback = args
+                        .get("alias_fallback")
+                        .or_else(|| args.get("soft_alias"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
                     // Wave 722: synthetic GoldenRanger template insert is opt-in only.
                     // Default fail-closed: train only against real retail/map templates.
                     // Smoke/harness may set golden_template=1 /
@@ -9965,12 +9986,14 @@ impl CnCGameEngine {
                                     || s.eq_ignore_ascii_case("false")
                                     || s.eq_ignore_ascii_case("no"))
                             });
-                    let mut unit_candidates = vec![
-                        requested.as_str(),
-                        "AmericaInfantryRanger",
-                        "USA_Ranger",
-                        "USARanger",
-                    ];
+                    let mut unit_candidates = vec![requested.as_str()];
+                    if allow_alias_fallback {
+                        unit_candidates.extend([
+                            "AmericaInfantryRanger",
+                            "USA_Ranger",
+                            "USARanger",
+                        ]);
+                    }
                     if allow_golden_template {
                         unit_candidates.push("GoldenRanger");
                     }
@@ -10023,13 +10046,15 @@ impl CnCGameEngine {
                             self.game_logic
                                 .ensure_player_min_supplies(self.current_player_id, floor);
                         }
-                        // Wave 724: GoldenRanger enqueue fallback is opt-in only (same gate as Wave 722).
-                        let mut try_names = vec![
-                            template.as_str(),
-                            "AmericaInfantryRanger",
-                            "USA_Ranger",
-                            "USARanger",
-                        ];
+                        // Wave 724/725: alias + GoldenRanger enqueue fallbacks are opt-in only.
+                        let mut try_names = vec![template.as_str()];
+                        if allow_alias_fallback {
+                            try_names.extend([
+                                "AmericaInfantryRanger",
+                                "USA_Ranger",
+                                "USARanger",
+                            ]);
+                        }
                         if allow_golden_template {
                             try_names.push("GoldenRanger");
                         }
@@ -10337,17 +10362,40 @@ impl CnCGameEngine {
                         self.game_logic
                             .ensure_player_min_supplies(self.current_player_id, floor);
                     }
-                    let candidates = [
-                        requested.as_str(),
-                        "UpgradeAmericaRangerCaptureBuilding",
-                        "UpgradeInfantryCaptureBuilding",
-                        "UpgradeAmericaSupplyLines",
-                        "UpgradeAmericaAdvancedTraining",
-                    ];
+                    // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
+                    // Retail commands use the exact requested template name.
+                    // Smoke/harness may set alias_fallback=1 / GENERALS_RUNTIME_HOST_ALIAS_FALLBACK=1.
+                    let allow_alias_fallback = args
+                        .get("alias_fallback")
+                        .or_else(|| args.get("soft_alias"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    let mut candidates = vec![requested.as_str()];
+                    if allow_alias_fallback {
+                        candidates.extend([
+                            "UpgradeAmericaRangerCaptureBuilding",
+                            "UpgradeInfantryCaptureBuilding",
+                            "UpgradeAmericaSupplyLines",
+                            "UpgradeAmericaAdvancedTraining",
+                        ]);
+                    }
                     let mut ok = None;
                     let mut last = requested.clone();
                     'outer: for pid in producers {
-                        for name in candidates {
+                        for name in candidates.iter().copied() {
                             // Wave 583: selection residual via host_set_selection.
                             self.host_set_selection(self.current_player_id, vec![pid]);
                             let cmd = crate::command_system::GameCommand {
@@ -11473,13 +11521,36 @@ impl CnCGameEngine {
                         .cloned()
                         .or_else(|| args.get("name").cloned())
                         .unwrap_or_else(|| "USA_Barracks".to_string());
-                    // Prefer requested, then common USA/host barracks residual names.
-                    let candidates = [
-                        requested.as_str(),
-                        "USA_Barracks",
-                        "AmericaBarracks",
-                        "Barracks",
-                    ];
+                    // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
+                    // Retail commands use the exact requested template name.
+                    // Smoke/harness may set alias_fallback=1 / GENERALS_RUNTIME_HOST_ALIAS_FALLBACK=1.
+                    let allow_alias_fallback = args
+                        .get("alias_fallback")
+                        .or_else(|| args.get("soft_alias"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    // Prefer exact requested; common barracks aliases only when opted in.
+                    let mut candidates = vec![requested.as_str()];
+                    if allow_alias_fallback {
+                        candidates.extend([
+                            "USA_Barracks",
+                            "AmericaBarracks",
+                            "Barracks",
+                        ]);
+                    }
                     // Wave 565: template residual prefers presentation freeze names.
                     let template = candidates
                         .iter()
