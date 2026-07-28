@@ -2861,6 +2861,11 @@ use crate::game_logic::host_live_host_eager_tloc_detector_cf_helper_residual_wav
     honesty_host_eager_tloc_detector_cf_helper_nav_commands_residual_wave693,
     simulate_live_host_eager_tloc_detector_cf_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_attitude_overcharge_stealth_helper_residual_wave694::{
+    honesty_host_eager_attitude_overcharge_stealth_helper_method_names_residual_wave694,
+    honesty_host_eager_attitude_overcharge_stealth_helper_nav_commands_residual_wave694,
+    simulate_live_host_eager_attitude_overcharge_stealth_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6658,6 +6663,9 @@ pub struct ShellSmokeResult {
     pub host_eager_tloc_detector_cf_helper_method_names_wave693_ok: bool,
     pub host_eager_tloc_detector_cf_helper_nav_commands_wave693_ok: bool,
     pub host_eager_tloc_detector_cf_helper_live_wave693_ok: bool,
+    pub host_eager_attitude_overcharge_stealth_helper_method_names_wave694_ok: bool,
+    pub host_eager_attitude_overcharge_stealth_helper_nav_commands_wave694_ok: bool,
+    pub host_eager_attitude_overcharge_stealth_helper_live_wave694_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10555,6 +10563,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_tloc_detector_cf_helper_nav_commands_residual_wave693();
     let host_eager_tloc_detector_cf_helper_live_wave693_ok =
         simulate_live_host_eager_tloc_detector_cf_helper_honesty();
+    let host_eager_attitude_overcharge_stealth_helper_method_names_wave694_ok =
+        honesty_host_eager_attitude_overcharge_stealth_helper_method_names_residual_wave694();
+    let host_eager_attitude_overcharge_stealth_helper_nav_commands_wave694_ok =
+        honesty_host_eager_attitude_overcharge_stealth_helper_nav_commands_residual_wave694();
+    let host_eager_attitude_overcharge_stealth_helper_live_wave694_ok =
+        simulate_live_host_eager_attitude_overcharge_stealth_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12623,6 +12637,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_tloc_detector_cf_helper_method_names_wave693_ok,
         host_eager_tloc_detector_cf_helper_nav_commands_wave693_ok,
         host_eager_tloc_detector_cf_helper_live_wave693_ok,
+        host_eager_attitude_overcharge_stealth_helper_method_names_wave694_ok,
+        host_eager_attitude_overcharge_stealth_helper_nav_commands_wave694_ok,
+        host_eager_attitude_overcharge_stealth_helper_live_wave694_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23288,6 +23305,21 @@ mod tests {
         assert!(
             r.host_eager_tloc_detector_cf_helper_live_wave693_ok,
             "host eager_tloc_detector_cf helper live residual wave693: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_attitude_overcharge_stealth_helper_method_names_wave694_ok,
+            "host eager_attitude_overcharge_stealth helper method names residual pack wave694: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_attitude_overcharge_stealth_helper_nav_commands_wave694_ok,
+            "host eager_attitude_overcharge_stealth helper nav commands residual pack wave694: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_attitude_overcharge_stealth_helper_live_wave694_ok,
+            "host eager_attitude_overcharge_stealth helper live residual wave694: {}",
             r.detail
         );
         assert!(

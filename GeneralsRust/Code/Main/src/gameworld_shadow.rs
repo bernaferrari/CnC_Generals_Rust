@@ -213,6 +213,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_TARGET_LOCATION_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_DETECTOR_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_CONTINUOUS_FIRE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_AI_ATTITUDE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_OVERCHARGE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_STEALTH_FLAGS_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -975,6 +978,93 @@ pub fn eager_apply_host_continuous_fire_after_logic(
     }
     let n = shadow.apply_host_continuous_fire_events(&events);
     EARLY_CONTINUOUS_FIRE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 694: post-logic ai-attitude / overcharge / stealth-flags batch handoff.
+thread_local! {
+    static EARLY_AI_ATTITUDE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ai_attitude_log::HostAiAttitudeEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_OVERCHARGE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_overcharge_log::HostOverchargeEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_STEALTH_FLAGS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_ai_attitude_batch() -> Option<(
+    Vec<crate::game_logic::host_ai_attitude_log::HostAiAttitudeEvent>,
+    bool,
+)> {
+    EARLY_AI_ATTITUDE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_overcharge_batch() -> Option<(
+    Vec<crate::game_logic::host_overcharge_log::HostOverchargeEvent>,
+    bool,
+)> {
+    EARLY_OVERCHARGE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_stealth_flags_batch() -> Option<(
+    Vec<crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent>,
+    bool,
+)> {
+    EARLY_STEALTH_FLAGS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 694: post-logic drain `host_ai_attitude_log` into GameWorld SetAiAttitude.
+pub fn eager_apply_host_ai_attitude_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 694: post-logic AI-attitude materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_ai_attitude_log::drain();
+    if events.is_empty() {
+        EARLY_AI_ATTITUDE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_ai_attitude_events(&events);
+    EARLY_AI_ATTITUDE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 694: post-logic drain `host_overcharge_log` into GameWorld SetOvercharge.
+pub fn eager_apply_host_overcharge_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 694: post-logic overcharge materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_overcharge_log::drain();
+    if events.is_empty() {
+        EARLY_OVERCHARGE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_overcharge_events(&events);
+    EARLY_OVERCHARGE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 694: post-logic drain `host_stealth_flags_log` into GameWorld SetStealthFlags.
+pub fn eager_apply_host_stealth_flags_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 694: post-logic stealth-flags materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_stealth_flags_log::drain();
+    if events.is_empty() {
+        EARLY_STEALTH_FLAGS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_stealth_flags_events(&events);
+    EARLY_STEALTH_FLAGS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8770,16 +8860,29 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_rally_log::drain(), false),
     };
-    let ai_attitude_events = crate::game_logic::host_ai_attitude_log::drain();
+    // Wave 694: prefer post-logic AI-attitude batch.
+    let (ai_attitude_events, early_ai_attitude_applied) = match take_early_ai_attitude_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_ai_attitude_log::drain(), false),
+    };
     // Wave 691: prefer post-logic weapon-set batch.
     let (weapon_set_events, early_weapon_set_applied) = match take_early_weapon_set_batch() {
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_weapon_set_log::drain(), false),
     };
-    let overcharge_events = crate::game_logic::host_overcharge_log::drain();
+    // Wave 694: prefer post-logic overcharge batch.
+    let (overcharge_events, early_overcharge_applied) = match take_early_overcharge_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_overcharge_log::drain(), false),
+    };
     let contain_capacity_events = crate::game_logic::host_contain_capacity_log::drain();
     let hive_events = crate::game_logic::host_hive_log::drain();
-    let stealth_flags_events = crate::game_logic::host_stealth_flags_log::drain();
+    // Wave 694: prefer post-logic stealth-flags batch.
+    let (stealth_flags_events, early_stealth_flags_applied) = match take_early_stealth_flags_batch()
+    {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_stealth_flags_log::drain(), false),
+    };
     let overlord_events = crate::game_logic::host_overlord_log::drain();
     let command_set_events = crate::game_logic::host_command_set_log::drain();
     let disguise_events = crate::game_logic::host_disguise_log::drain();
@@ -9009,7 +9112,12 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_rally_events(&rally_events)
     };
-    let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
+    // Wave 694: skip GW re-apply when post-logic eager path already ran.
+    let _att_applied = if early_ai_attitude_applied {
+        0
+    } else {
+        shadow.apply_host_ai_attitude_events(&ai_attitude_events)
+    };
     let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
     let _mood_applied = shadow.apply_host_ai_mood_events(&ai_mood_events);
     let ai_req_events = crate::game_logic::host_ai_request_log::drain();
@@ -9037,12 +9145,22 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_weapon_set_events(&weapon_set_events)
     };
-    let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
+    // Wave 694: skip GW re-apply when post-logic eager path already ran.
+    let _oc_applied = if early_overcharge_applied {
+        0
+    } else {
+        shadow.apply_host_overcharge_events(&overcharge_events)
+    };
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
     let _hive_applied = shadow.apply_host_hive_events(&hive_events);
     let hijack_events = crate::game_logic::host_hijacker_log::drain();
     let _hj_applied = shadow.apply_host_hijacker_events(&hijack_events);
-    let _stf_applied = shadow.apply_host_stealth_flags_events(&stealth_flags_events);
+    // Wave 694: skip GW re-apply when post-logic eager path already ran.
+    let _stf_applied = if early_stealth_flags_applied {
+        0
+    } else {
+        shadow.apply_host_stealth_flags_events(&stealth_flags_events)
+    };
     let stealth_delay_events = crate::game_logic::host_stealth_delay_log::drain();
     let _sd_applied = shadow.apply_host_stealth_delay_events(&stealth_delay_events);
     let _ol_applied = shadow.apply_host_overlord_events(&overlord_events);
