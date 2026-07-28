@@ -24368,6 +24368,17 @@ impl GameLogic {
                 team_ord,
                 [position.x, position.y, position.z],
             );
+            // Wave 680: mid-frame GameWorld map while coupled shadow tick is live.
+            // End-of-tick host_spawn_log drain remains idempotent for unmapped IDs.
+            let _ = crate::gameworld_shadow::eager_map_host_spawn_if_coupled(
+                self,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id,
+                    template: template_name.to_string(),
+                    team_ordinal: team_ord,
+                    position: [position.x, position.y, position.z],
+                },
+            );
             if let Some(obj) = self.get_objects_mut().get_mut(&id) {
                 obj.record_model_mesh_from_template();
                 obj.record_kind_of_bits_from_template();
@@ -24439,6 +24450,17 @@ impl GameLogic {
                 template_name.to_string(),
                 team_ord,
                 [position.x, position.y, position.z],
+            );
+            // Wave 680: mid-frame GameWorld map while coupled shadow tick is live.
+            // End-of-tick host_spawn_log drain remains idempotent for unmapped IDs.
+            let _ = crate::gameworld_shadow::eager_map_host_spawn_if_coupled(
+                self,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id,
+                    template: template_name.to_string(),
+                    team_ordinal: team_ord,
+                    position: [position.x, position.y, position.z],
+                },
             );
             // Wave 199: GameWorld SetConstruction sole-tick / progress last-writer.
             crate::game_logic::host_construction_progress_log::record(id, 0.0, true, 0.0);
