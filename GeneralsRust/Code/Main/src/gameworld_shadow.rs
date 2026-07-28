@@ -6911,6 +6911,11 @@ impl GameWorldShadow {
                 e.frame_to_force_reload = 0;
                 changed = true;
             }
+            // Wave 764: shock-stun frame countdown residual (physics/rates stay host).
+            if e.shock_stun_frames > 0 {
+                e.shock_stun_frames = e.shock_stun_frames.saturating_sub(1);
+                changed = true;
+            }
             if changed {
                 n += 1;
             }

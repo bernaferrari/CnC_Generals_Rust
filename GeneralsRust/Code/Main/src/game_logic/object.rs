@@ -8754,6 +8754,16 @@ impl Object {
 
     /// Tick shock stun residual (once per logic frame).
     pub fn tick_shock_stun(&mut self) {
+    self.tick_shock_stun_with_countdown(true);
+}
+
+/// Wave 764: under coupled dual-tick, GW sole-decrements `shock_stun_frames`;
+/// host still integrates tumble/bounce physics without dual-countdown.
+pub fn tick_shock_stun_physics_only(&mut self) {
+    self.tick_shock_stun_with_countdown(false);
+}
+
+fn tick_shock_stun_with_countdown(&mut self, countdown: bool) {
         if self.shock_stun_frames == 0 {
             // Damp residual rates when fully settled.
             self.shock_yaw_rate *= 0.85;
@@ -8772,8 +8782,10 @@ impl Object {
             }
             return;
         }
-        self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
-        self.record_host_shock_stun();
+        if countdown {
+            self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
+            self.record_host_shock_stun();
+        }
         // Integrate yaw rate residual while stunned (tumble settle).
         if self.shock_yaw_rate.abs() > 1e-5 {
             let ori = self.get_orientation() + self.shock_yaw_rate;
@@ -8852,6 +8864,7 @@ impl Object {
         }
         self.refresh_model_condition_bits();
     }
+
 
     /// C++ PhysicsBehavior::getIsStunned residual.
     pub fn is_shock_stunned(&self) -> bool {
