@@ -2701,6 +2701,76 @@ use crate::game_logic::host_live_host_repulsor_ready_log_helper_residual_wave661
     honesty_host_repulsor_ready_log_helper_nav_commands_residual_wave661,
     simulate_live_host_repulsor_ready_log_helper_honesty,
 };
+use crate::game_logic::host_live_host_shock_stun_ready_log_helper_residual_wave662::{
+    honesty_host_shock_stun_ready_log_helper_method_names_residual_wave662,
+    honesty_host_shock_stun_ready_log_helper_nav_commands_residual_wave662,
+    simulate_live_host_shock_stun_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_sole_healing_ready_log_helper_residual_wave663::{
+    honesty_host_sole_healing_ready_log_helper_method_names_residual_wave663,
+    honesty_host_sole_healing_ready_log_helper_nav_commands_residual_wave663,
+    simulate_live_host_sole_healing_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_crush_vision_ready_log_helper_residual_wave664::{
+    honesty_host_crush_vision_ready_log_helper_method_names_residual_wave664,
+    honesty_host_crush_vision_ready_log_helper_nav_commands_residual_wave664,
+    simulate_live_host_crush_vision_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_demo_mine_cheer_ready_log_helper_residual_wave665::{
+    honesty_host_demo_mine_cheer_ready_log_helper_method_names_residual_wave665,
+    honesty_host_demo_mine_cheer_ready_log_helper_nav_commands_residual_wave665,
+    simulate_live_host_demo_mine_cheer_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_overlord_ready_log_helper_residual_wave666::{
+    honesty_host_overlord_ready_log_helper_method_names_residual_wave666,
+    honesty_host_overlord_ready_log_helper_nav_commands_residual_wave666,
+    simulate_live_host_overlord_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_hive_ready_log_helper_residual_wave667::{
+    honesty_host_hive_ready_log_helper_method_names_residual_wave667,
+    honesty_host_hive_ready_log_helper_nav_commands_residual_wave667,
+    simulate_live_host_hive_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_overcharge_ready_log_helper_residual_wave668::{
+    honesty_host_overcharge_ready_log_helper_method_names_residual_wave668,
+    honesty_host_overcharge_ready_log_helper_nav_commands_residual_wave668,
+    simulate_live_host_overcharge_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_guard_ready_log_helper_residual_wave669::{
+    honesty_host_guard_ready_log_helper_method_names_residual_wave669,
+    honesty_host_guard_ready_log_helper_nav_commands_residual_wave669,
+    simulate_live_host_guard_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_continuous_fire_ready_log_helper_residual_wave670::{
+    honesty_host_continuous_fire_ready_log_helper_method_names_residual_wave670,
+    honesty_host_continuous_fire_ready_log_helper_nav_commands_residual_wave670,
+    simulate_live_host_continuous_fire_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_detector_ready_log_helper_residual_wave671::{
+    honesty_host_detector_ready_log_helper_method_names_residual_wave671,
+    honesty_host_detector_ready_log_helper_nav_commands_residual_wave671,
+    simulate_live_host_detector_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_target_location_ready_log_helper_residual_wave672::{
+    honesty_host_target_location_ready_log_helper_method_names_residual_wave672,
+    honesty_host_target_location_ready_log_helper_nav_commands_residual_wave672,
+    simulate_live_host_target_location_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_turret_ready_log_helper_residual_wave673::{
+    honesty_host_turret_ready_log_helper_method_names_residual_wave673,
+    honesty_host_turret_ready_log_helper_nav_commands_residual_wave673,
+    simulate_live_host_turret_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_entity_power_ready_log_helper_residual_wave674::{
+    honesty_host_entity_power_ready_log_helper_method_names_residual_wave674,
+    honesty_host_entity_power_ready_log_helper_nav_commands_residual_wave674,
+    simulate_live_host_entity_power_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_building_type_ready_log_helper_residual_wave675::{
+    honesty_host_building_type_ready_log_helper_method_names_residual_wave675,
+    honesty_host_building_type_ready_log_helper_nav_commands_residual_wave675,
+    simulate_live_host_building_type_ready_log_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6402,6 +6472,48 @@ pub struct ShellSmokeResult {
     pub host_repulsor_ready_log_helper_method_names_wave661_ok: bool,
     pub host_repulsor_ready_log_helper_nav_commands_wave661_ok: bool,
     pub host_repulsor_ready_log_helper_live_wave661_ok: bool,
+    pub host_shock_stun_ready_log_helper_method_names_wave662_ok: bool,
+    pub host_shock_stun_ready_log_helper_nav_commands_wave662_ok: bool,
+    pub host_shock_stun_ready_log_helper_live_wave662_ok: bool,
+    pub host_sole_healing_ready_log_helper_method_names_wave663_ok: bool,
+    pub host_sole_healing_ready_log_helper_nav_commands_wave663_ok: bool,
+    pub host_sole_healing_ready_log_helper_live_wave663_ok: bool,
+    pub host_crush_vision_ready_log_helper_method_names_wave664_ok: bool,
+    pub host_crush_vision_ready_log_helper_nav_commands_wave664_ok: bool,
+    pub host_crush_vision_ready_log_helper_live_wave664_ok: bool,
+    pub host_demo_mine_cheer_ready_log_helper_method_names_wave665_ok: bool,
+    pub host_demo_mine_cheer_ready_log_helper_nav_commands_wave665_ok: bool,
+    pub host_demo_mine_cheer_ready_log_helper_live_wave665_ok: bool,
+    pub host_overlord_ready_log_helper_method_names_wave666_ok: bool,
+    pub host_overlord_ready_log_helper_nav_commands_wave666_ok: bool,
+    pub host_overlord_ready_log_helper_live_wave666_ok: bool,
+    pub host_hive_ready_log_helper_method_names_wave667_ok: bool,
+    pub host_hive_ready_log_helper_nav_commands_wave667_ok: bool,
+    pub host_hive_ready_log_helper_live_wave667_ok: bool,
+    pub host_overcharge_ready_log_helper_method_names_wave668_ok: bool,
+    pub host_overcharge_ready_log_helper_nav_commands_wave668_ok: bool,
+    pub host_overcharge_ready_log_helper_live_wave668_ok: bool,
+    pub host_guard_ready_log_helper_method_names_wave669_ok: bool,
+    pub host_guard_ready_log_helper_nav_commands_wave669_ok: bool,
+    pub host_guard_ready_log_helper_live_wave669_ok: bool,
+    pub host_continuous_fire_ready_log_helper_method_names_wave670_ok: bool,
+    pub host_continuous_fire_ready_log_helper_nav_commands_wave670_ok: bool,
+    pub host_continuous_fire_ready_log_helper_live_wave670_ok: bool,
+    pub host_detector_ready_log_helper_method_names_wave671_ok: bool,
+    pub host_detector_ready_log_helper_nav_commands_wave671_ok: bool,
+    pub host_detector_ready_log_helper_live_wave671_ok: bool,
+    pub host_target_location_ready_log_helper_method_names_wave672_ok: bool,
+    pub host_target_location_ready_log_helper_nav_commands_wave672_ok: bool,
+    pub host_target_location_ready_log_helper_live_wave672_ok: bool,
+    pub host_turret_ready_log_helper_method_names_wave673_ok: bool,
+    pub host_turret_ready_log_helper_nav_commands_wave673_ok: bool,
+    pub host_turret_ready_log_helper_live_wave673_ok: bool,
+    pub host_entity_power_ready_log_helper_method_names_wave674_ok: bool,
+    pub host_entity_power_ready_log_helper_nav_commands_wave674_ok: bool,
+    pub host_entity_power_ready_log_helper_live_wave674_ok: bool,
+    pub host_building_type_ready_log_helper_method_names_wave675_ok: bool,
+    pub host_building_type_ready_log_helper_nav_commands_wave675_ok: bool,
+    pub host_building_type_ready_log_helper_live_wave675_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10109,6 +10221,90 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_repulsor_ready_log_helper_nav_commands_residual_wave661();
     let host_repulsor_ready_log_helper_live_wave661_ok =
         simulate_live_host_repulsor_ready_log_helper_honesty();
+    let host_shock_stun_ready_log_helper_method_names_wave662_ok =
+        honesty_host_shock_stun_ready_log_helper_method_names_residual_wave662();
+    let host_shock_stun_ready_log_helper_nav_commands_wave662_ok =
+        honesty_host_shock_stun_ready_log_helper_nav_commands_residual_wave662();
+    let host_shock_stun_ready_log_helper_live_wave662_ok =
+        simulate_live_host_shock_stun_ready_log_helper_honesty();
+    let host_sole_healing_ready_log_helper_method_names_wave663_ok =
+        honesty_host_sole_healing_ready_log_helper_method_names_residual_wave663();
+    let host_sole_healing_ready_log_helper_nav_commands_wave663_ok =
+        honesty_host_sole_healing_ready_log_helper_nav_commands_residual_wave663();
+    let host_sole_healing_ready_log_helper_live_wave663_ok =
+        simulate_live_host_sole_healing_ready_log_helper_honesty();
+    let host_crush_vision_ready_log_helper_method_names_wave664_ok =
+        honesty_host_crush_vision_ready_log_helper_method_names_residual_wave664();
+    let host_crush_vision_ready_log_helper_nav_commands_wave664_ok =
+        honesty_host_crush_vision_ready_log_helper_nav_commands_residual_wave664();
+    let host_crush_vision_ready_log_helper_live_wave664_ok =
+        simulate_live_host_crush_vision_ready_log_helper_honesty();
+    let host_demo_mine_cheer_ready_log_helper_method_names_wave665_ok =
+        honesty_host_demo_mine_cheer_ready_log_helper_method_names_residual_wave665();
+    let host_demo_mine_cheer_ready_log_helper_nav_commands_wave665_ok =
+        honesty_host_demo_mine_cheer_ready_log_helper_nav_commands_residual_wave665();
+    let host_demo_mine_cheer_ready_log_helper_live_wave665_ok =
+        simulate_live_host_demo_mine_cheer_ready_log_helper_honesty();
+    let host_overlord_ready_log_helper_method_names_wave666_ok =
+        honesty_host_overlord_ready_log_helper_method_names_residual_wave666();
+    let host_overlord_ready_log_helper_nav_commands_wave666_ok =
+        honesty_host_overlord_ready_log_helper_nav_commands_residual_wave666();
+    let host_overlord_ready_log_helper_live_wave666_ok =
+        simulate_live_host_overlord_ready_log_helper_honesty();
+    let host_hive_ready_log_helper_method_names_wave667_ok =
+        honesty_host_hive_ready_log_helper_method_names_residual_wave667();
+    let host_hive_ready_log_helper_nav_commands_wave667_ok =
+        honesty_host_hive_ready_log_helper_nav_commands_residual_wave667();
+    let host_hive_ready_log_helper_live_wave667_ok =
+        simulate_live_host_hive_ready_log_helper_honesty();
+    let host_overcharge_ready_log_helper_method_names_wave668_ok =
+        honesty_host_overcharge_ready_log_helper_method_names_residual_wave668();
+    let host_overcharge_ready_log_helper_nav_commands_wave668_ok =
+        honesty_host_overcharge_ready_log_helper_nav_commands_residual_wave668();
+    let host_overcharge_ready_log_helper_live_wave668_ok =
+        simulate_live_host_overcharge_ready_log_helper_honesty();
+    let host_guard_ready_log_helper_method_names_wave669_ok =
+        honesty_host_guard_ready_log_helper_method_names_residual_wave669();
+    let host_guard_ready_log_helper_nav_commands_wave669_ok =
+        honesty_host_guard_ready_log_helper_nav_commands_residual_wave669();
+    let host_guard_ready_log_helper_live_wave669_ok =
+        simulate_live_host_guard_ready_log_helper_honesty();
+    let host_continuous_fire_ready_log_helper_method_names_wave670_ok =
+        honesty_host_continuous_fire_ready_log_helper_method_names_residual_wave670();
+    let host_continuous_fire_ready_log_helper_nav_commands_wave670_ok =
+        honesty_host_continuous_fire_ready_log_helper_nav_commands_residual_wave670();
+    let host_continuous_fire_ready_log_helper_live_wave670_ok =
+        simulate_live_host_continuous_fire_ready_log_helper_honesty();
+    let host_detector_ready_log_helper_method_names_wave671_ok =
+        honesty_host_detector_ready_log_helper_method_names_residual_wave671();
+    let host_detector_ready_log_helper_nav_commands_wave671_ok =
+        honesty_host_detector_ready_log_helper_nav_commands_residual_wave671();
+    let host_detector_ready_log_helper_live_wave671_ok =
+        simulate_live_host_detector_ready_log_helper_honesty();
+    let host_target_location_ready_log_helper_method_names_wave672_ok =
+        honesty_host_target_location_ready_log_helper_method_names_residual_wave672();
+    let host_target_location_ready_log_helper_nav_commands_wave672_ok =
+        honesty_host_target_location_ready_log_helper_nav_commands_residual_wave672();
+    let host_target_location_ready_log_helper_live_wave672_ok =
+        simulate_live_host_target_location_ready_log_helper_honesty();
+    let host_turret_ready_log_helper_method_names_wave673_ok =
+        honesty_host_turret_ready_log_helper_method_names_residual_wave673();
+    let host_turret_ready_log_helper_nav_commands_wave673_ok =
+        honesty_host_turret_ready_log_helper_nav_commands_residual_wave673();
+    let host_turret_ready_log_helper_live_wave673_ok =
+        simulate_live_host_turret_ready_log_helper_honesty();
+    let host_entity_power_ready_log_helper_method_names_wave674_ok =
+        honesty_host_entity_power_ready_log_helper_method_names_residual_wave674();
+    let host_entity_power_ready_log_helper_nav_commands_wave674_ok =
+        honesty_host_entity_power_ready_log_helper_nav_commands_residual_wave674();
+    let host_entity_power_ready_log_helper_live_wave674_ok =
+        simulate_live_host_entity_power_ready_log_helper_honesty();
+    let host_building_type_ready_log_helper_method_names_wave675_ok =
+        honesty_host_building_type_ready_log_helper_method_names_residual_wave675();
+    let host_building_type_ready_log_helper_nav_commands_wave675_ok =
+        honesty_host_building_type_ready_log_helper_nav_commands_residual_wave675();
+    let host_building_type_ready_log_helper_live_wave675_ok =
+        simulate_live_host_building_type_ready_log_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12081,6 +12277,48 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_repulsor_ready_log_helper_method_names_wave661_ok,
         host_repulsor_ready_log_helper_nav_commands_wave661_ok,
         host_repulsor_ready_log_helper_live_wave661_ok,
+        host_shock_stun_ready_log_helper_method_names_wave662_ok,
+        host_shock_stun_ready_log_helper_nav_commands_wave662_ok,
+        host_shock_stun_ready_log_helper_live_wave662_ok,
+        host_sole_healing_ready_log_helper_method_names_wave663_ok,
+        host_sole_healing_ready_log_helper_nav_commands_wave663_ok,
+        host_sole_healing_ready_log_helper_live_wave663_ok,
+        host_crush_vision_ready_log_helper_method_names_wave664_ok,
+        host_crush_vision_ready_log_helper_nav_commands_wave664_ok,
+        host_crush_vision_ready_log_helper_live_wave664_ok,
+        host_demo_mine_cheer_ready_log_helper_method_names_wave665_ok,
+        host_demo_mine_cheer_ready_log_helper_nav_commands_wave665_ok,
+        host_demo_mine_cheer_ready_log_helper_live_wave665_ok,
+        host_overlord_ready_log_helper_method_names_wave666_ok,
+        host_overlord_ready_log_helper_nav_commands_wave666_ok,
+        host_overlord_ready_log_helper_live_wave666_ok,
+        host_hive_ready_log_helper_method_names_wave667_ok,
+        host_hive_ready_log_helper_nav_commands_wave667_ok,
+        host_hive_ready_log_helper_live_wave667_ok,
+        host_overcharge_ready_log_helper_method_names_wave668_ok,
+        host_overcharge_ready_log_helper_nav_commands_wave668_ok,
+        host_overcharge_ready_log_helper_live_wave668_ok,
+        host_guard_ready_log_helper_method_names_wave669_ok,
+        host_guard_ready_log_helper_nav_commands_wave669_ok,
+        host_guard_ready_log_helper_live_wave669_ok,
+        host_continuous_fire_ready_log_helper_method_names_wave670_ok,
+        host_continuous_fire_ready_log_helper_nav_commands_wave670_ok,
+        host_continuous_fire_ready_log_helper_live_wave670_ok,
+        host_detector_ready_log_helper_method_names_wave671_ok,
+        host_detector_ready_log_helper_nav_commands_wave671_ok,
+        host_detector_ready_log_helper_live_wave671_ok,
+        host_target_location_ready_log_helper_method_names_wave672_ok,
+        host_target_location_ready_log_helper_nav_commands_wave672_ok,
+        host_target_location_ready_log_helper_live_wave672_ok,
+        host_turret_ready_log_helper_method_names_wave673_ok,
+        host_turret_ready_log_helper_nav_commands_wave673_ok,
+        host_turret_ready_log_helper_live_wave673_ok,
+        host_entity_power_ready_log_helper_method_names_wave674_ok,
+        host_entity_power_ready_log_helper_nav_commands_wave674_ok,
+        host_entity_power_ready_log_helper_live_wave674_ok,
+        host_building_type_ready_log_helper_method_names_wave675_ok,
+        host_building_type_ready_log_helper_nav_commands_wave675_ok,
+        host_building_type_ready_log_helper_live_wave675_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -22266,6 +22504,216 @@ mod tests {
         assert!(
             r.host_repulsor_ready_log_helper_live_wave661_ok,
             "host repulsor ready log helper live residual wave661: {}",
+            r.detail
+        );
+        assert!(
+            r.host_shock_stun_ready_log_helper_method_names_wave662_ok,
+            "host shock_stun ready log helper method names residual pack wave662: {}",
+            r.detail
+        );
+        assert!(
+            r.host_shock_stun_ready_log_helper_nav_commands_wave662_ok,
+            "host shock_stun ready log helper nav commands residual pack wave662: {}",
+            r.detail
+        );
+        assert!(
+            r.host_shock_stun_ready_log_helper_live_wave662_ok,
+            "host shock_stun ready log helper live residual wave662: {}",
+            r.detail
+        );
+        assert!(
+            r.host_sole_healing_ready_log_helper_method_names_wave663_ok,
+            "host sole_healing ready log helper method names residual pack wave663: {}",
+            r.detail
+        );
+        assert!(
+            r.host_sole_healing_ready_log_helper_nav_commands_wave663_ok,
+            "host sole_healing ready log helper nav commands residual pack wave663: {}",
+            r.detail
+        );
+        assert!(
+            r.host_sole_healing_ready_log_helper_live_wave663_ok,
+            "host sole_healing ready log helper live residual wave663: {}",
+            r.detail
+        );
+        assert!(
+            r.host_crush_vision_ready_log_helper_method_names_wave664_ok,
+            "host crush_vision ready log helper method names residual pack wave664: {}",
+            r.detail
+        );
+        assert!(
+            r.host_crush_vision_ready_log_helper_nav_commands_wave664_ok,
+            "host crush_vision ready log helper nav commands residual pack wave664: {}",
+            r.detail
+        );
+        assert!(
+            r.host_crush_vision_ready_log_helper_live_wave664_ok,
+            "host crush_vision ready log helper live residual wave664: {}",
+            r.detail
+        );
+        assert!(
+            r.host_demo_mine_cheer_ready_log_helper_method_names_wave665_ok,
+            "host demo_mine_cheer ready log helper method names residual pack wave665: {}",
+            r.detail
+        );
+        assert!(
+            r.host_demo_mine_cheer_ready_log_helper_nav_commands_wave665_ok,
+            "host demo_mine_cheer ready log helper nav commands residual pack wave665: {}",
+            r.detail
+        );
+        assert!(
+            r.host_demo_mine_cheer_ready_log_helper_live_wave665_ok,
+            "host demo_mine_cheer ready log helper live residual wave665: {}",
+            r.detail
+        );
+        assert!(
+            r.host_overlord_ready_log_helper_method_names_wave666_ok,
+            "host overlord ready log helper method names residual pack wave666: {}",
+            r.detail
+        );
+        assert!(
+            r.host_overlord_ready_log_helper_nav_commands_wave666_ok,
+            "host overlord ready log helper nav commands residual pack wave666: {}",
+            r.detail
+        );
+        assert!(
+            r.host_overlord_ready_log_helper_live_wave666_ok,
+            "host overlord ready log helper live residual wave666: {}",
+            r.detail
+        );
+        assert!(
+            r.host_hive_ready_log_helper_method_names_wave667_ok,
+            "host hive ready log helper method names residual pack wave667: {}",
+            r.detail
+        );
+        assert!(
+            r.host_hive_ready_log_helper_nav_commands_wave667_ok,
+            "host hive ready log helper nav commands residual pack wave667: {}",
+            r.detail
+        );
+        assert!(
+            r.host_hive_ready_log_helper_live_wave667_ok,
+            "host hive ready log helper live residual wave667: {}",
+            r.detail
+        );
+        assert!(
+            r.host_overcharge_ready_log_helper_method_names_wave668_ok,
+            "host overcharge ready log helper method names residual pack wave668: {}",
+            r.detail
+        );
+        assert!(
+            r.host_overcharge_ready_log_helper_nav_commands_wave668_ok,
+            "host overcharge ready log helper nav commands residual pack wave668: {}",
+            r.detail
+        );
+        assert!(
+            r.host_overcharge_ready_log_helper_live_wave668_ok,
+            "host overcharge ready log helper live residual wave668: {}",
+            r.detail
+        );
+        assert!(
+            r.host_guard_ready_log_helper_method_names_wave669_ok,
+            "host guard ready log helper method names residual pack wave669: {}",
+            r.detail
+        );
+        assert!(
+            r.host_guard_ready_log_helper_nav_commands_wave669_ok,
+            "host guard ready log helper nav commands residual pack wave669: {}",
+            r.detail
+        );
+        assert!(
+            r.host_guard_ready_log_helper_live_wave669_ok,
+            "host guard ready log helper live residual wave669: {}",
+            r.detail
+        );
+        assert!(
+            r.host_continuous_fire_ready_log_helper_method_names_wave670_ok,
+            "host continuous_fire ready log helper method names residual pack wave670: {}",
+            r.detail
+        );
+        assert!(
+            r.host_continuous_fire_ready_log_helper_nav_commands_wave670_ok,
+            "host continuous_fire ready log helper nav commands residual pack wave670: {}",
+            r.detail
+        );
+        assert!(
+            r.host_continuous_fire_ready_log_helper_live_wave670_ok,
+            "host continuous_fire ready log helper live residual wave670: {}",
+            r.detail
+        );
+        assert!(
+            r.host_detector_ready_log_helper_method_names_wave671_ok,
+            "host detector ready log helper method names residual pack wave671: {}",
+            r.detail
+        );
+        assert!(
+            r.host_detector_ready_log_helper_nav_commands_wave671_ok,
+            "host detector ready log helper nav commands residual pack wave671: {}",
+            r.detail
+        );
+        assert!(
+            r.host_detector_ready_log_helper_live_wave671_ok,
+            "host detector ready log helper live residual wave671: {}",
+            r.detail
+        );
+        assert!(
+            r.host_target_location_ready_log_helper_method_names_wave672_ok,
+            "host target_location ready log helper method names residual pack wave672: {}",
+            r.detail
+        );
+        assert!(
+            r.host_target_location_ready_log_helper_nav_commands_wave672_ok,
+            "host target_location ready log helper nav commands residual pack wave672: {}",
+            r.detail
+        );
+        assert!(
+            r.host_target_location_ready_log_helper_live_wave672_ok,
+            "host target_location ready log helper live residual wave672: {}",
+            r.detail
+        );
+        assert!(
+            r.host_turret_ready_log_helper_method_names_wave673_ok,
+            "host turret ready log helper method names residual pack wave673: {}",
+            r.detail
+        );
+        assert!(
+            r.host_turret_ready_log_helper_nav_commands_wave673_ok,
+            "host turret ready log helper nav commands residual pack wave673: {}",
+            r.detail
+        );
+        assert!(
+            r.host_turret_ready_log_helper_live_wave673_ok,
+            "host turret ready log helper live residual wave673: {}",
+            r.detail
+        );
+        assert!(
+            r.host_entity_power_ready_log_helper_method_names_wave674_ok,
+            "host entity_power ready log helper method names residual pack wave674: {}",
+            r.detail
+        );
+        assert!(
+            r.host_entity_power_ready_log_helper_nav_commands_wave674_ok,
+            "host entity_power ready log helper nav commands residual pack wave674: {}",
+            r.detail
+        );
+        assert!(
+            r.host_entity_power_ready_log_helper_live_wave674_ok,
+            "host entity_power ready log helper live residual wave674: {}",
+            r.detail
+        );
+        assert!(
+            r.host_building_type_ready_log_helper_method_names_wave675_ok,
+            "host building_type ready log helper method names residual pack wave675: {}",
+            r.detail
+        );
+        assert!(
+            r.host_building_type_ready_log_helper_nav_commands_wave675_ok,
+            "host building_type ready log helper nav commands residual pack wave675: {}",
+            r.detail
+        );
+        assert!(
+            r.host_building_type_ready_log_helper_live_wave675_ok,
+            "host building_type ready log helper live residual wave675: {}",
             r.detail
         );
         assert!(

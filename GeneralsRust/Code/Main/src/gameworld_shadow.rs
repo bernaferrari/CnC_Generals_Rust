@@ -2525,6 +2525,7 @@ impl GameWorldShadow {
 
     pub fn writeback_shock_stun_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2555,7 +2556,13 @@ impl GameWorldShadow {
             obj.shock_was_airborne = ent.shock_was_airborne;
             obj.cell_is_cliff = ent.cell_is_cliff;
             obj.cell_is_underwater = ent.cell_is_underwater;
+            // Wave 662: GameWorld shock-stun last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_shock_stun_ready_log::record(oid);
         }
         updated
     }
@@ -2621,6 +2628,7 @@ impl GameWorldShadow {
 
     pub fn writeback_sole_healing_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2638,7 +2646,13 @@ impl GameWorldShadow {
             obj.sole_healing_benefactor = ent.sole_healing_benefactor_id.map(ObjectId);
             obj.sole_healing_benefactor_expiration_frame =
                 ent.sole_healing_benefactor_expiration_frame;
+            // Wave 663: GameWorld sole-healing last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_sole_healing_ready_log::record(oid);
         }
         updated
     }
@@ -6155,6 +6169,7 @@ impl GameWorldShadow {
     pub fn writeback_building_type_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::{BuildingData, BuildingType as B};
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6195,19 +6210,29 @@ impl GameWorldShadow {
                 if let Some(bd) = obj.building_data.as_mut() {
                     if bd.building_type != bt {
                         bd.building_type = bt;
+                        // Wave 675: GameWorld building-type last-write residual —
+                        // host applies presentation bookkeeping from ready log.
+                        ready.push(ObjectId(hid));
                         updated += 1;
                     }
                 } else {
                     obj.building_data = Some(BuildingData::new(bt));
+                    // Wave 675: GameWorld building-type last-write residual —
+                    // host applies presentation bookkeeping from ready log.
+                    ready.push(ObjectId(hid));
                     updated += 1;
                 }
             }
+        }
+        for oid in ready {
+            crate::game_logic::host_building_type_ready_log::record(oid);
         }
         updated
     }
 
     pub fn writeback_crush_vision_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6230,13 +6255,20 @@ impl GameWorldShadow {
             obj.shroud_clearing_range = ent.shroud_clearing_range;
             obj.front_crushed = ent.front_crushed;
             obj.back_crushed = ent.back_crushed;
+            // Wave 664: GameWorld crush-vision last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_crush_vision_ready_log::record(oid);
         }
         updated
     }
 
     pub fn writeback_demo_mine_cheer_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6257,7 +6289,13 @@ impl GameWorldShadow {
             // Flag-only writeback: if entity says no mine and host has mine_data left to status, leave payload.
             // Cheer/demo flags are authoritative from GameWorld last-writer residual.
             let _ = host_has_mine; // presence is logged host→entity; entity→host keeps payload ownership on Main.
+                                   // Wave 665: GameWorld demo-mine-cheer last-write residual —
+                                   // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_demo_mine_cheer_ready_log::record(oid);
         }
         updated
     }
@@ -6706,6 +6744,7 @@ impl GameWorldShadow {
 
     pub fn writeback_overlord_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6732,7 +6771,13 @@ impl GameWorldShadow {
             } else {
                 Some(ent.overlord_bunker_capacity as usize)
             };
+            // Wave 666: GameWorld overlord last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_overlord_ready_log::record(oid);
         }
         updated
     }
@@ -6818,6 +6863,7 @@ impl GameWorldShadow {
 
     pub fn writeback_hive_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6832,7 +6878,13 @@ impl GameWorldShadow {
             }
             obj.hive_slave_count = ent.hive_slave_count;
             obj.hive_slave_hp = ent.hive_slave_hp.max(0.0);
+            // Wave 667: GameWorld hive last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_hive_ready_log::record(oid);
         }
         updated
     }
@@ -6921,6 +6973,7 @@ impl GameWorldShadow {
 
     pub fn writeback_overcharge_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6932,7 +6985,13 @@ impl GameWorldShadow {
                 continue;
             }
             obj.overcharge_enabled = ent.overcharge_enabled;
+            // Wave 668: GameWorld overcharge last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_overcharge_ready_log::record(oid);
         }
         updated
     }
@@ -6992,6 +7051,7 @@ impl GameWorldShadow {
 
     pub fn writeback_guard_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7016,13 +7076,20 @@ impl GameWorldShadow {
                 Some(ObjectId(ent.guard_target_host))
             };
             obj.guard_radius = ent.guard_radius;
+            // Wave 669: GameWorld guard last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_guard_ready_log::record(oid);
         }
         updated
     }
 
     pub fn writeback_continuous_fire_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7040,7 +7107,13 @@ impl GameWorldShadow {
             obj.continuous_fire_level = ent.continuous_fire_level;
             obj.continuous_fire_consecutive = ent.continuous_fire_consecutive as u32;
             obj.continuous_fire_coast_until_frame = ent.continuous_fire_coast_until_frame;
+            // Wave 670: GameWorld continuous-fire last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_continuous_fire_ready_log::record(oid);
         }
         updated
     }
@@ -7140,6 +7213,7 @@ impl GameWorldShadow {
 
     pub fn writeback_detector_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7156,13 +7230,20 @@ impl GameWorldShadow {
             obj.is_detector = ent.is_detector;
             obj.detection_range = ent.detection_range.max(0.0);
             obj.detection_rate_frames = ent.detection_rate_frames;
+            // Wave 671: GameWorld detector last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_detector_ready_log::record(oid);
         }
         updated
     }
 
     pub fn writeback_target_location_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7185,7 +7266,13 @@ impl GameWorldShadow {
                 continue;
             }
             obj.target_location = ent_loc.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            // Wave 672: GameWorld target-location last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_target_location_ready_log::record(oid);
         }
         updated
     }
@@ -7193,6 +7280,7 @@ impl GameWorldShadow {
     pub fn writeback_turret_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::object::TurretSubState;
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7251,13 +7339,20 @@ impl GameWorldShadow {
             obj.turret_idle_scan_desired_angle_deg = ent.turret_idle_scan_desired_angle_deg;
             obj.turret_idle_scan_index = ent.turret_idle_scan_index;
             obj.turret_substate = TurretSubState::from_ordinal(ent.turret_substate);
+            // Wave 673: GameWorld turret last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_turret_ready_log::record(oid);
         }
         updated
     }
 
     pub fn writeback_entity_power_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7271,7 +7366,13 @@ impl GameWorldShadow {
             }
             obj.power_provided = ent.power_provided;
             obj.power_consumed = ent.power_consumed;
+            // Wave 674: GameWorld entity-power last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_entity_power_ready_log::record(oid);
         }
         updated
     }
@@ -8129,10 +8230,14 @@ pub fn shadow_session_after_host_tick(
     // Wave 625: drain radar-extend ready log after GW writeback.
     let _radar_ready = logic.host_apply_radar_extend_ready_completions();
     let _ = shadow.writeback_shock_stun_to_host(logic);
+    // Wave 662: drain shock-stun ready log after GW writeback.
+    let _w662_ready = logic.host_apply_shock_stun_ready_completions();
     let _ = shadow.writeback_rebuild_producer_to_host(logic);
     // Wave 626: drain construction-complete-clear ready log after GW writeback.
     let _ccc_ready = logic.host_apply_construction_complete_clear_ready_completions();
     let _ = shadow.writeback_sole_healing_to_host(logic);
+    // Wave 663: drain sole-healing ready log after GW writeback.
+    let _w663_ready = logic.host_apply_sole_healing_ready_completions();
     let _ = shadow.writeback_hijacker_to_host(logic);
     // Wave 647: drain hijacker ready log after GW writeback.
     let _hj_ready = logic.host_apply_hijacker_ready_completions();
@@ -8205,7 +8310,11 @@ pub fn shadow_session_after_host_tick(
         // Wave 657: drain weapon-slot ready log after GW writeback.
         let _w657_ready = logic.host_apply_weapon_slot_ready_completions();
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
+        // Wave 674: drain entity-power ready log after GW writeback.
+        let _w674_ready = logic.host_apply_entity_power_ready_completions();
         let _tur_wb = shadow.writeback_turret_to_host(logic);
+        // Wave 673: drain turret ready log after GW writeback.
+        let _w673_ready = logic.host_apply_turret_ready_completions();
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         // Wave 651: drain stealth-delay ready log after GW writeback.
         let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
@@ -8225,8 +8334,14 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _tloc_wb = shadow.writeback_target_location_to_host(logic);
+        // Wave 672: drain target-location ready log after GW writeback.
+        let _w672_ready = logic.host_apply_target_location_ready_completions();
         let _det_wb = shadow.writeback_detector_to_host(logic);
+        // Wave 671: drain detector ready log after GW writeback.
+        let _w671_ready = logic.host_apply_detector_ready_completions();
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
+        // Wave 670: drain continuous-fire ready log after GW writeback.
+        let _w670_ready = logic.host_apply_continuous_fire_ready_completions();
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
         let _ca_ready = logic.host_apply_combat_attack_ready_completions();
@@ -8243,6 +8358,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _guard_wb = shadow.writeback_guard_to_host(logic);
+        // Wave 669: drain guard ready log after GW writeback.
+        let _w669_ready = logic.host_apply_guard_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
         let _air_ready = logic.host_apply_ai_request_ready_completions();
@@ -8259,8 +8376,12 @@ pub fn shadow_session_after_host_tick(
         // Wave 642: drain weapon-set ready log after GW writeback.
         let _wset_ready = logic.host_apply_weapon_set_ready_completions();
         let _oc_wb = shadow.writeback_overcharge_to_host(logic);
+        // Wave 668: drain overcharge ready log after GW writeback.
+        let _w668_ready = logic.host_apply_overcharge_ready_completions();
         let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
         let _hive_wb = shadow.writeback_hive_to_host(logic);
+        // Wave 667: drain hive ready log after GW writeback.
+        let _w667_ready = logic.host_apply_hive_ready_completions();
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
@@ -8286,6 +8407,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
+        // Wave 666: drain overlord ready log after GW writeback.
+        let _w666_ready = logic.host_apply_overlord_ready_completions();
         let _cs_wb = shadow.writeback_command_set_to_host(logic);
         // Wave 644: drain command-set ready log after GW writeback.
         let _cs_ready = logic.host_apply_command_set_ready_completions();
@@ -8353,8 +8476,14 @@ pub fn shadow_session_after_host_tick(
         // Wave 633: drain model-condition ready log after GW writeback.
         let _mc_ready = logic.host_apply_model_condition_ready_completions();
         let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
+        // Wave 665: drain demo-mine-cheer ready log after GW writeback.
+        let _w665_ready = logic.host_apply_demo_mine_cheer_ready_completions();
         let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
+        // Wave 664: drain crush-vision ready log after GW writeback.
+        let _w664_ready = logic.host_apply_crush_vision_ready_completions();
         let _bt_wb = shadow.writeback_building_type_to_host(logic);
+        // Wave 675: drain building-type ready log after GW writeback.
+        let _w675_ready = logic.host_apply_building_type_ready_completions();
         let _id_wb = shadow.writeback_identity_to_host(logic);
         // Wave 660: drain identity ready log after GW writeback.
         let _w660_ready = logic.host_apply_identity_ready_completions();
@@ -9442,8 +9571,10 @@ mod tests {
         let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
+        let _ = crate::game_logic::host_shock_stun_ready_log::drain();
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -10862,8 +10993,10 @@ mod tests {
         let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
+        let _ = crate::game_logic::host_shock_stun_ready_log::drain();
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -12089,6 +12222,7 @@ mod tests {
             e.building_type_ordinal = 1;
         }
         assert!(shadow.writeback_building_type_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_building_type_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(
             o.building_data.as_ref().map(|b| b.building_type),
@@ -12167,6 +12301,7 @@ mod tests {
             e.shroud_clearing_range = 200.0;
         }
         assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_crush_vision_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.crusher_level, 2);
         assert_eq!(o.crushable_level, 1);
@@ -12240,6 +12375,7 @@ mod tests {
             e.cheer_timer = 2.5;
         }
         assert!(shadow.writeback_demo_mine_cheer_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_demo_mine_cheer_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.demo_suicided_detonating);
         assert!((o.cheer_timer - 2.5).abs() < 1e-5);
@@ -12756,6 +12892,7 @@ mod tests {
             e.is_helix_transport = true;
         }
         assert!(shadow.writeback_overlord_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_overlord_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.has_overlord_gattling_addon && !o.has_overlord_propaganda_addon);
         assert_eq!(o.overlord_bunker_capacity, Some(4));
@@ -12912,6 +13049,7 @@ mod tests {
             e.hive_slave_hp = 55.0;
         }
         assert!(shadow.writeback_hive_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_hive_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
@@ -13034,6 +13172,7 @@ mod tests {
             e.overcharge_enabled = true;
         }
         assert!(shadow.writeback_overcharge_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_overcharge_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.overcharge_enabled);
     }
@@ -13217,6 +13356,7 @@ mod tests {
             e.guard_target_host = tid.0;
         }
         assert!(shadow.writeback_guard_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_guard_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -13292,6 +13432,7 @@ mod tests {
             e.continuous_fire_coast_until_frame = 44;
         }
         assert!(shadow.writeback_continuous_fire_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_continuous_fire_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
@@ -13369,6 +13510,7 @@ mod tests {
             e.detection_rate_frames = 12;
         }
         assert!(shadow.writeback_detector_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_detector_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.is_detector);
         assert!((o.detection_range - 175.0).abs() < 1e-3);
@@ -13429,6 +13571,7 @@ mod tests {
             e.target_location = Some([11.0, 0.0, 13.0]);
         }
         assert!(shadow.writeback_target_location_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_target_location_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         let p = o.target_location.expect("host tl");
         assert!((p.x - 11.0).abs() < 1e-3 && (p.z - 13.0).abs() < 1e-3);
@@ -13499,6 +13642,7 @@ mod tests {
             e.turret_holding = true;
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_turret_ready_log::drain();
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
@@ -13572,6 +13716,7 @@ mod tests {
             e.power_consumed = 5;
         }
         assert!(shadow.writeback_entity_power_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_entity_power_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.power_provided, 50);
         assert_eq!(o.power_consumed, 5);
@@ -15639,8 +15784,10 @@ mod tests {
         let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
+        let _ = crate::game_logic::host_shock_stun_ready_log::drain();
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -15700,8 +15847,10 @@ mod tests {
         let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
+        let _ = crate::game_logic::host_shock_stun_ready_log::drain();
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -15871,6 +16020,7 @@ mod tests {
             o.front_crushed = false;
         }
         assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_crush_vision_ready_log::drain();
         assert!(
             logic.get_objects().get(&oid).unwrap().front_crushed,
             "front crushed writeback"
@@ -16092,8 +16242,10 @@ mod tests {
             o.cell_is_cliff = false;
         }
         assert!(shadow.writeback_shock_stun_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_shock_stun_ready_log::drain();
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -16275,6 +16427,7 @@ mod tests {
         }
         assert!(shadow.writeback_rebuild_producer_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -16334,6 +16487,7 @@ mod tests {
             o.sole_healing_benefactor_expiration_frame = 0;
         }
         assert!(shadow.writeback_sole_healing_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -16437,6 +16591,7 @@ mod tests {
             o.guard_position = None;
         }
         assert!(shadow.writeback_guard_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_guard_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -16751,6 +16906,7 @@ mod tests {
             o.turret_substate = TurretSubState::Idle;
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_turret_ready_log::drain();
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
@@ -19279,8 +19435,10 @@ mod tests {
         let _ = crate::game_logic::host_death_type_ready_log::drain();
         let _ = shadow.writeback_radar_extend_to_host(&mut logic);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
+        let _ = crate::game_logic::host_shock_stun_ready_log::drain();
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
@@ -19333,8 +19491,10 @@ mod tests {
         }
         assert!(shadow.writeback_radar_extend_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
+        let _ = crate::game_logic::host_shock_stun_ready_log::drain();
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = crate::game_logic::host_sole_healing_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);

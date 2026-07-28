@@ -26313,6 +26313,244 @@ impl GameLogic {
 
     /// Wave 661: GameWorld repulsor writeback records dirty objects; host
     /// applies presentation bookkeeping residual.
+    /// Wave 662: GameWorld shock stun writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_shock_stun.
+    pub fn host_apply_shock_stun_ready_completions(&mut self) -> usize {
+        // Wave 662: GameWorld shock stun writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_shock_stun.
+        let events = crate::game_logic::host_shock_stun_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_shock_stun();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 663: GameWorld sole healing writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_sole_healing.
+    pub fn host_apply_sole_healing_ready_completions(&mut self) -> usize {
+        // Wave 663: GameWorld sole healing writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_sole_healing.
+        let events = crate::game_logic::host_sole_healing_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_sole_healing();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 664: GameWorld crush vision writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_crush_vision.
+    pub fn host_apply_crush_vision_ready_completions(&mut self) -> usize {
+        // Wave 664: GameWorld crush vision writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_crush_vision.
+        let events = crate::game_logic::host_crush_vision_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_crush_vision();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 665: GameWorld demo mine cheer writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_demo_mine_cheer.
+    pub fn host_apply_demo_mine_cheer_ready_completions(&mut self) -> usize {
+        // Wave 665: GameWorld demo mine cheer writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_demo_mine_cheer.
+        let events = crate::game_logic::host_demo_mine_cheer_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_demo_mine_cheer();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 666: GameWorld overlord writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_overlord.
+    pub fn host_apply_overlord_ready_completions(&mut self) -> usize {
+        // Wave 666: GameWorld overlord writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_overlord.
+        let events = crate::game_logic::host_overlord_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_overlord();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 667: GameWorld hive writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_hive.
+    pub fn host_apply_hive_ready_completions(&mut self) -> usize {
+        // Wave 667: GameWorld hive writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_hive.
+        let events = crate::game_logic::host_hive_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_hive();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 668: GameWorld overcharge writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_overcharge.
+    pub fn host_apply_overcharge_ready_completions(&mut self) -> usize {
+        // Wave 668: GameWorld overcharge writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_overcharge.
+        let events = crate::game_logic::host_overcharge_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_overcharge();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 669: GameWorld guard writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_guard.
+    pub fn host_apply_guard_ready_completions(&mut self) -> usize {
+        // Wave 669: GameWorld guard writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_guard.
+        let events = crate::game_logic::host_guard_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_guard();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 670: GameWorld continuous fire writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_continuous_fire.
+    pub fn host_apply_continuous_fire_ready_completions(&mut self) -> usize {
+        // Wave 670: GameWorld continuous fire writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_continuous_fire.
+        let events = crate::game_logic::host_continuous_fire_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_continuous_fire();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 671: GameWorld detector writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_detector.
+    pub fn host_apply_detector_ready_completions(&mut self) -> usize {
+        // Wave 671: GameWorld detector writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_detector.
+        let events = crate::game_logic::host_detector_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_detector();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 672: GameWorld target location writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_target_location.
+    pub fn host_apply_target_location_ready_completions(&mut self) -> usize {
+        // Wave 672: GameWorld target location writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_target_location.
+        let events = crate::game_logic::host_target_location_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_target_location();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 673: GameWorld turret writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_turret.
+    pub fn host_apply_turret_ready_completions(&mut self) -> usize {
+        // Wave 673: GameWorld turret writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_turret.
+        let events = crate::game_logic::host_turret_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_turret();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 674: GameWorld entity power writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_entity_power.
+    pub fn host_apply_entity_power_ready_completions(&mut self) -> usize {
+        // Wave 674: GameWorld entity power writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_entity_power.
+        let events = crate::game_logic::host_entity_power_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_entity_power();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 675: GameWorld building type writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_building_type.
+    pub fn host_apply_building_type_ready_completions(&mut self) -> usize {
+        // Wave 675: GameWorld building type writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_building_type.
+        let events = crate::game_logic::host_building_type_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_building_type();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_repulsor_ready_completions(&mut self) -> usize {
         // Wave 661: GameWorld repulsor writeback records dirty objects; host
         // applies presentation bookkeeping residual.
