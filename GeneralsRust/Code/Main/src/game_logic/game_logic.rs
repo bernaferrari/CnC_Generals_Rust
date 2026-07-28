@@ -7387,7 +7387,11 @@ impl GameLogic {
         // GENERALS_RUNTIME_HOST_PRODUCTION_SPAWN_WITHOUT_GW_BIND=1.
         // Collision on preferred id still falls back to allocate_object_id *with* bind.
         // playable_claim stays false.
-        if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+        // Wave 761: entity-first ObjectId bind under production sole-tick OR
+        // coupled shadow (dual path still prefers GW pre-spawned entity raw id).
+        if crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+            || crate::gameworld_shadow::shadow_coupled_tick_active()
+        {
             if let Some(raw) = crate::game_logic::host_production_ready_log::pop_pending_bind() {
                 crate::gameworld_shadow::set_next_host_spawn_bind_entity(raw);
                 let preferred = ObjectId(raw);
@@ -8198,13 +8202,22 @@ impl GameLogic {
             let mut poison_kill = false;
             let mut defector_audio: Vec<String> = Vec::new();
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.tick_disabled_hacked(self.frame);
-                obj.tick_selection_flash();
-                obj.tick_disabled_emp(self.frame);
-                obj.tick_disabled_paralyzed(self.frame);
+                // Wave 761: under coupled GameWorld shadow, status timer expire
+                // (faerie/repulsor/disable/frenzy/continuous-fire/selection flash)
+                // is owned by `tick_status_timer_expirations` + writeback. Host must
+                // not dual-expire mid-frame. Eject-invulnerable stays host-only
+                // (no GW until_frame field yet).
+                let peel_status_timers = crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active();
+                if !peel_status_timers {
+                    obj.tick_disabled_hacked(self.frame);
+                    obj.tick_selection_flash();
+                    obj.tick_disabled_emp(self.frame);
+                    obj.tick_disabled_paralyzed(self.frame);
+                    obj.tick_weapon_bonus_frenzy(self.frame);
+                    obj.tick_faerie_fire(self.frame);
+                }
                 obj.tick_eject_invulnerable(self.frame);
-                obj.tick_weapon_bonus_frenzy(self.frame);
-                obj.tick_faerie_fire(self.frame);
                 // C++ ObjectDefectionHelper::update residual.
                 obj.tick_defection_helper(self.frame);
                 // Snapshot FireWeaponPower residual before further mut uses.
@@ -8265,9 +8278,18 @@ impl GameLogic {
                         obj.refresh_model_condition_bits();
                     }
                 }
-                obj.tick_continuous_fire_coast(self.frame);
+                // Wave 761: continuous-fire coast + repulsor expire peel under coupled.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    obj.tick_continuous_fire_coast(self.frame);
+                    obj.tick_repulsor_status(self.frame);
+                } else {
+                    // fire-sound / subdual still host-owned (not in GW timer peel).
+                    obj.tick_fire_sound_loop(self.frame);
+                    obj.tick_subdual_damage();
+                }
                 obj.tick_force_reload_when_idle(self.frame);
-                obj.tick_repulsor_status(self.frame);
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {
                     self.bomb_truck_disguise.record_transition_halfpoint();
