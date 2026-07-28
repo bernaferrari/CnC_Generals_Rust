@@ -6360,6 +6360,7 @@ impl GameWorldShadow {
 
     pub fn writeback_physics_motive_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6419,7 +6420,13 @@ impl GameWorldShadow {
             obj.immune_to_falling_damage = ent.immune_to_falling_damage;
             obj.physics_current_overlap = ent.physics_current_overlap_id.map(ObjectId);
             obj.physics_previous_overlap = ent.physics_previous_overlap_id.map(ObjectId);
+            // Wave 649: GameWorld physics-motive last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_physics_motive_ready_log::record(oid);
         }
         updated
     }
@@ -6486,6 +6493,7 @@ impl GameWorldShadow {
 
     pub fn writeback_bounce_land_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6514,7 +6522,13 @@ impl GameWorldShadow {
             obj.allow_collide_force = ent.allow_collide_force;
             obj.last_collidee = ent.last_collidee_id.map(ObjectId);
             obj.ignore_collisions_with = ent.ignore_collisions_with_id.map(ObjectId);
+            // Wave 650: GameWorld bounce-land last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_bounce_land_ready_log::record(oid);
         }
         updated
     }
@@ -6710,6 +6724,7 @@ impl GameWorldShadow {
 
     pub fn writeback_stealth_delay_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6741,7 +6756,13 @@ impl GameWorldShadow {
             obj.camo_heat_vision_opacity = ent.camo_heat_vision_opacity;
             obj.camo_net_sub_object_shown = ent.camo_net_sub_object_shown;
             obj.camo_net_sub_object_observer_visible = ent.camo_net_sub_object_observer_visible;
+            // Wave 651: GameWorld stealth-delay last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_stealth_delay_ready_log::record(oid);
         }
         updated
     }
@@ -8003,6 +8024,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _ = shadow.writeback_physics_motive_to_host(logic);
+        // Wave 649: drain physics-motive ready log after GW writeback.
+        let _pm_ready = logic.host_apply_physics_motive_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
         let _loco_ready = logic.host_apply_locomotor_ready_completions();
@@ -8013,6 +8036,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _ = shadow.writeback_bounce_land_to_host(logic);
+        // Wave 650: drain bounce-land ready log after GW writeback.
+        let _bl_ready = logic.host_apply_bounce_land_ready_completions();
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
         // Wave 639: drain move-target ready log after GW writeback.
         let _mt_ready = logic.host_apply_move_target_ready_completions();
@@ -8106,6 +8131,8 @@ pub fn shadow_session_after_host_tick(
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
+        // Wave 651: drain stealth-delay ready log after GW writeback.
+        let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
         let _ca_ready = logic.host_apply_combat_attack_ready_completions();
@@ -8161,6 +8188,8 @@ pub fn shadow_session_after_host_tick(
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
+        // Wave 651: drain stealth-delay ready log after GW writeback.
+        let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
         let _ca_ready = logic.host_apply_combat_attack_ready_completions();
@@ -8183,6 +8212,8 @@ pub fn shadow_session_after_host_tick(
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
+        // Wave 651: drain stealth-delay ready log after GW writeback.
+        let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
         let _ca_ready = logic.host_apply_combat_attack_ready_completions();
@@ -8217,6 +8248,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _ = shadow.writeback_physics_motive_to_host(logic);
+        // Wave 649: drain physics-motive ready log after GW writeback.
+        let _pm_ready = logic.host_apply_physics_motive_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
         let _loco_ready = logic.host_apply_locomotor_ready_completions();
@@ -8227,6 +8260,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready = logic.host_apply_hijacker_ready_completions();
         let _ = shadow.writeback_bounce_land_to_host(logic);
+        // Wave 650: drain bounce-land ready log after GW writeback.
+        let _bl_ready = logic.host_apply_bounce_land_ready_completions();
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
         // Wave 633: drain model-condition ready log after GW writeback.
@@ -12263,6 +12298,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = crate::game_logic::host_physics_motive_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
@@ -12270,6 +12306,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
+        let _ = crate::game_logic::host_bounce_land_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
         assert!((o.movement.max_speed - 12.5).abs() < 1e-5);
@@ -12472,6 +12509,7 @@ mod tests {
         }
         assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
@@ -12704,6 +12742,7 @@ mod tests {
         }
         assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
@@ -13364,6 +13403,7 @@ mod tests {
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
@@ -15796,6 +15836,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = crate::game_logic::host_physics_motive_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
@@ -15803,6 +15844,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
+        let _ = crate::game_logic::host_bounce_land_ready_log::drain();
         assert!(
             logic.get_objects().get(&oid).unwrap().waiting_for_path,
             "waiting_for_path writeback"
@@ -15886,6 +15928,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = crate::game_logic::host_physics_motive_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
@@ -15893,6 +15936,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
+        let _ = crate::game_logic::host_bounce_land_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.locomotor_surfaces, 0b101);
         assert!(o.is_attack_path);
@@ -16040,6 +16084,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
+        let _ = crate::game_logic::host_physics_motive_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
@@ -16047,6 +16092,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
+        let _ = crate::game_logic::host_bounce_land_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
         assert_eq!(o.num_frames_blocked, 7);
@@ -16427,6 +16473,7 @@ mod tests {
             o.ignore_collisions_until_frame = 0;
         }
         assert!(shadow.writeback_physics_motive_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_physics_motive_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
@@ -16434,6 +16481,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
+        let _ = crate::game_logic::host_bounce_land_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.motive_frames_remaining, 12);
         assert!((o.physics_mass - 2.5).abs() < 1e-5);
@@ -16510,6 +16558,7 @@ mod tests {
             o.last_collidee = None;
         }
         assert!(shadow.writeback_bounce_land_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_bounce_land_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.kill_when_resting_on_ground);
         assert_eq!(o.bounce_land_events, 3);
@@ -16603,6 +16652,7 @@ mod tests {
         }
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
+        let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
@@ -16670,6 +16720,7 @@ mod tests {
             o.camo_net_sub_object_shown = false;
         }
         assert!(shadow.writeback_stealth_delay_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_stealth_delay_ready_log::drain();
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_attack_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);

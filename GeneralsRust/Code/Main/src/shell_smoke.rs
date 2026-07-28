@@ -2636,6 +2636,21 @@ use crate::game_logic::host_live_host_ai_request_ready_log_helper_residual_wave6
     honesty_host_ai_request_ready_log_helper_nav_commands_residual_wave648,
     simulate_live_host_ai_request_ready_log_helper_honesty,
 };
+use crate::game_logic::host_live_host_physics_motive_ready_log_helper_residual_wave649::{
+    honesty_host_physics_motive_ready_log_helper_method_names_residual_wave649,
+    honesty_host_physics_motive_ready_log_helper_nav_commands_residual_wave649,
+    simulate_live_host_physics_motive_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_bounce_land_ready_log_helper_residual_wave650::{
+    honesty_host_bounce_land_ready_log_helper_method_names_residual_wave650,
+    honesty_host_bounce_land_ready_log_helper_nav_commands_residual_wave650,
+    simulate_live_host_bounce_land_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_stealth_delay_ready_log_helper_residual_wave651::{
+    honesty_host_stealth_delay_ready_log_helper_method_names_residual_wave651,
+    honesty_host_stealth_delay_ready_log_helper_nav_commands_residual_wave651,
+    simulate_live_host_stealth_delay_ready_log_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6298,6 +6313,15 @@ pub struct ShellSmokeResult {
     pub host_ai_request_ready_log_helper_method_names_wave648_ok: bool,
     pub host_ai_request_ready_log_helper_nav_commands_wave648_ok: bool,
     pub host_ai_request_ready_log_helper_live_wave648_ok: bool,
+    pub host_physics_motive_ready_log_helper_method_names_wave649_ok: bool,
+    pub host_physics_motive_ready_log_helper_nav_commands_wave649_ok: bool,
+    pub host_physics_motive_ready_log_helper_live_wave649_ok: bool,
+    pub host_bounce_land_ready_log_helper_method_names_wave650_ok: bool,
+    pub host_bounce_land_ready_log_helper_nav_commands_wave650_ok: bool,
+    pub host_bounce_land_ready_log_helper_live_wave650_ok: bool,
+    pub host_stealth_delay_ready_log_helper_method_names_wave651_ok: bool,
+    pub host_stealth_delay_ready_log_helper_nav_commands_wave651_ok: bool,
+    pub host_stealth_delay_ready_log_helper_live_wave651_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9927,6 +9951,24 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_ai_request_ready_log_helper_nav_commands_residual_wave648();
     let host_ai_request_ready_log_helper_live_wave648_ok =
         simulate_live_host_ai_request_ready_log_helper_honesty();
+    let host_physics_motive_ready_log_helper_method_names_wave649_ok =
+        honesty_host_physics_motive_ready_log_helper_method_names_residual_wave649();
+    let host_physics_motive_ready_log_helper_nav_commands_wave649_ok =
+        honesty_host_physics_motive_ready_log_helper_nav_commands_residual_wave649();
+    let host_physics_motive_ready_log_helper_live_wave649_ok =
+        simulate_live_host_physics_motive_ready_log_helper_honesty();
+    let host_bounce_land_ready_log_helper_method_names_wave650_ok =
+        honesty_host_bounce_land_ready_log_helper_method_names_residual_wave650();
+    let host_bounce_land_ready_log_helper_nav_commands_wave650_ok =
+        honesty_host_bounce_land_ready_log_helper_nav_commands_residual_wave650();
+    let host_bounce_land_ready_log_helper_live_wave650_ok =
+        simulate_live_host_bounce_land_ready_log_helper_honesty();
+    let host_stealth_delay_ready_log_helper_method_names_wave651_ok =
+        honesty_host_stealth_delay_ready_log_helper_method_names_residual_wave651();
+    let host_stealth_delay_ready_log_helper_nav_commands_wave651_ok =
+        honesty_host_stealth_delay_ready_log_helper_nav_commands_residual_wave651();
+    let host_stealth_delay_ready_log_helper_live_wave651_ok =
+        simulate_live_host_stealth_delay_ready_log_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11860,6 +11902,15 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_ai_request_ready_log_helper_method_names_wave648_ok,
         host_ai_request_ready_log_helper_nav_commands_wave648_ok,
         host_ai_request_ready_log_helper_live_wave648_ok,
+        host_physics_motive_ready_log_helper_method_names_wave649_ok,
+        host_physics_motive_ready_log_helper_nav_commands_wave649_ok,
+        host_physics_motive_ready_log_helper_live_wave649_ok,
+        host_bounce_land_ready_log_helper_method_names_wave650_ok,
+        host_bounce_land_ready_log_helper_nav_commands_wave650_ok,
+        host_bounce_land_ready_log_helper_live_wave650_ok,
+        host_stealth_delay_ready_log_helper_method_names_wave651_ok,
+        host_stealth_delay_ready_log_helper_nav_commands_wave651_ok,
+        host_stealth_delay_ready_log_helper_live_wave651_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -21850,6 +21901,51 @@ mod tests {
         assert!(
             r.host_ai_request_ready_log_helper_live_wave648_ok,
             "host ai request ready log helper live residual wave648: {}",
+            r.detail
+        );
+        assert!(
+            r.host_physics_motive_ready_log_helper_method_names_wave649_ok,
+            "host physics_motive ready log helper method names residual pack wave649: {}",
+            r.detail
+        );
+        assert!(
+            r.host_physics_motive_ready_log_helper_nav_commands_wave649_ok,
+            "host physics_motive ready log helper nav commands residual pack wave649: {}",
+            r.detail
+        );
+        assert!(
+            r.host_physics_motive_ready_log_helper_live_wave649_ok,
+            "host physics_motive ready log helper live residual wave649: {}",
+            r.detail
+        );
+        assert!(
+            r.host_bounce_land_ready_log_helper_method_names_wave650_ok,
+            "host bounce_land ready log helper method names residual pack wave650: {}",
+            r.detail
+        );
+        assert!(
+            r.host_bounce_land_ready_log_helper_nav_commands_wave650_ok,
+            "host bounce_land ready log helper nav commands residual pack wave650: {}",
+            r.detail
+        );
+        assert!(
+            r.host_bounce_land_ready_log_helper_live_wave650_ok,
+            "host bounce_land ready log helper live residual wave650: {}",
+            r.detail
+        );
+        assert!(
+            r.host_stealth_delay_ready_log_helper_method_names_wave651_ok,
+            "host stealth_delay ready log helper method names residual pack wave651: {}",
+            r.detail
+        );
+        assert!(
+            r.host_stealth_delay_ready_log_helper_nav_commands_wave651_ok,
+            "host stealth_delay ready log helper nav commands residual pack wave651: {}",
+            r.detail
+        );
+        assert!(
+            r.host_stealth_delay_ready_log_helper_live_wave651_ok,
+            "host stealth_delay ready log helper live residual wave651: {}",
             r.detail
         );
         assert!(
