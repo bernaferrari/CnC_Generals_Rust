@@ -3146,6 +3146,15 @@ impl GameWorldShadow {
         }
     }
 
+    fn entity_team_from_ordinal(ord: u8) -> Team {
+        match ord {
+            0 => Team::USA,
+            1 => Team::China,
+            2 => Team::GLA,
+            _ => Team::Neutral,
+        }
+    }
+
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
         self.sync_from_host_with(logic, true);
     }
@@ -8112,6 +8121,96 @@ impl GameWorldShadow {
                     // Y altitude unchanged.
                     changed = true;
                 }
+            }
+            // Wave 788: DaisyCutter/MOAB DeliverPayload flight residual.
+            if e.daisy_transport_active {
+                use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
+                let tier = if e.daisy_transport_tier == 1 {
+                    DaisyFlightPayloadTier::Moab
+                } else {
+                    DaisyFlightPayloadTier::DaisyCutter
+                };
+                let dest_x = e.daisy_transport_target_x;
+                let dest_z = e.daisy_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 20.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = new_pos.y.max(150.0);
+                let mut over = false;
+                let mut vel = glam::Vec3::ZERO;
+                if dist < 5.0 {
+                    over = true;
+                } else {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
+                    over = dist <= tier.delivery_distance() * 0.5;
+                }
+                e.transform.position = new_pos;
+                if vel.length_squared() > 1e-6 {
+                    e.transform.orientation = vel.z.atan2(vel.x);
+                }
+                // stash velocity residual on bomb vel field unused for transport
+                if over {
+                    e.daisy_transport_active = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e
+                            .producer_id
+                            .map(crate::game_logic::ObjectId)
+                            .unwrap_or(crate::game_logic::ObjectId(hid));
+                        crate::game_logic::host_daisy_cutter_drop_log::record_drop(
+                            crate::game_logic::host_daisy_cutter_drop_log::DaisyDropEvent {
+                                team,
+                                target: glam::Vec3::new(
+                                    e.daisy_transport_target_x,
+                                    e.daisy_transport_target_y,
+                                    e.daisy_transport_target_z,
+                                ),
+                                producer,
+                                tier,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            if e.daisy_cutter_bomb {
+                use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
+                if e.daisy_bomb_vel_y == 0.0 {
+                    e.daisy_bomb_vel_y = -16.0;
+                }
+                e.transform.position.y += e.daisy_bomb_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.daisy_cutter_bomb = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                        let tier = if e.daisy_bomb_is_moab {
+                            DaisyFlightPayloadTier::Moab
+                        } else {
+                            DaisyFlightPayloadTier::DaisyCutter
+                        };
+                        crate::game_logic::host_daisy_cutter_drop_log::record_detonate(
+                            crate::game_logic::host_daisy_cutter_drop_log::DaisyDetonateEvent {
+                                bomb: crate::game_logic::ObjectId(hid),
+                                producer,
+                                team,
+                                pos: glam::Vec3::new(
+                                    e.transform.position.x,
+                                    0.0,
+                                    e.transform.position.z,
+                                ),
+                                tier,
+                            },
+                        );
+                    }
+                }
+                changed = true;
             }
             if changed {
                 n += 1;
@@ -14169,6 +14268,45 @@ pub fn shadow_session_after_host_tick(
                 // Reaction preferred over continuous same frame.
                 obj.pending_fire_when_damaged_weapon = Some(weapon);
             }
+        }
+
+        // Wave 788: DaisyCutter/MOAB drop + detonate (no dual flight).
+        for ev in crate::game_logic::host_daisy_cutter_drop_log::drain_drops() {
+            let bomb = ev.tier.bomb();
+            let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
+            if let Some(bid) = logic.create_object(bomb, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
+                    o.producer_id = Some(ev.producer);
+                    o.daisy_cutter_bomb = true;
+                    if matches!(
+                        ev.tier,
+                        crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier::Moab
+                    ) {
+                        o.template_name = bomb.to_string();
+                    }
+                    o.movement.velocity = glam::Vec3::new(0.0, -16.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                }
+                logic.daisy_cutter_flight_reg.record_drop();
+            }
+        }
+        for ev in crate::game_logic::host_daisy_cutter_drop_log::drain_dets() {
+            use crate::game_logic::combat::DamageType;
+            logic.apply_fuel_air_radius_damage(
+                ev.bomb,
+                ev.producer,
+                ev.team,
+                ev.pos,
+                ev.tier.primary_damage(),
+                ev.tier.primary_radius(),
+                DamageType::Explosive,
+            );
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.bomb, None);
+            logic.daisy_cutter_flight_reg.record_detonation();
         }
 
         // Wave 634: drain combat-status ready log after GW writeback.
