@@ -17942,6 +17942,10 @@ impl CnCGameEngine {
         let couple_shadow = self.gameworld_shadow.is_some();
         if couple_shadow {
             crate::gameworld_shadow::begin_shadow_coupled_tick();
+            // Wave 680: install live shadow for mid-frame host spawn → GW map.
+            if let Some(ref mut shadow) = self.gameworld_shadow {
+                crate::gameworld_shadow::install_active_shadow_for_coupled_tick(shadow);
+            }
         }
         // Update game logic first
         for _ in 0..ff_steps {
@@ -18842,6 +18846,8 @@ impl CnCGameEngine {
         // host_damage_log / host_move_log / attack logs from this frame are not
         // drained a frame late. Defaults on (GENERALS_GAMEWORLD_SHADOW=0 to opt out).
         // Host remains temporary mid-frame owner; shadow is last-writer for HP/cash/pose.
+        // Wave 680: drop mid-frame eager pointer before exclusive session borrow.
+        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
         if let Some(ref mut shadow) = self.gameworld_shadow {
             let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
                 shadow,

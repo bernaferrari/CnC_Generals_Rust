@@ -197,6 +197,56 @@ pub fn shadow_coupled_tick_active() -> bool {
     SHADOW_COUPLED_TICK_DEPTH.with(|d| d.get() > 0)
 }
 
+// Wave 680: mid-frame host spawn → GameWorld map while a coupled shadow tick is live.
+// Engine installs the live shadow pointer around host logic; cleared before session.
+thread_local! {
+    static ACTIVE_SHADOW_PTR: std::cell::Cell<Option<std::ptr::NonNull<GameWorldShadow>>> =
+        std::cell::Cell::new(None);
+}
+
+/// Install the live `GameWorldShadow` for Wave 680 eager spawn mapping.
+///
+/// Caller must `clear_active_shadow_for_coupled_tick` before dropping/moving the
+/// shadow or re-entering `shadow_session_after_host_tick`.
+#[inline]
+pub fn install_active_shadow_for_coupled_tick(shadow: &mut GameWorldShadow) {
+    ACTIVE_SHADOW_PTR.with(|c| {
+        // SAFETY: pointer is only used while `shadow` is exclusively borrowed by the
+        // engine for the coupled host tick; cleared before other mut uses.
+        c.set(Some(unsafe {
+            std::ptr::NonNull::new_unchecked(shadow as *mut GameWorldShadow)
+        }));
+    });
+}
+
+/// Clear Wave 680 active shadow pointer (nested-safe single slot).
+#[inline]
+pub fn clear_active_shadow_for_coupled_tick() {
+    ACTIVE_SHADOW_PTR.with(|c| c.set(None));
+}
+
+/// Wave 680: if a coupled shadow tick is live, map this host spawn into GameWorld now.
+///
+/// Idempotent with end-of-tick `host_spawn_log` drain (`apply_host_spawn_events`
+/// skips already-mapped host IDs). Fail-closed when no active shadow pointer.
+pub fn eager_map_host_spawn_if_coupled(
+    logic: &GameLogic,
+    event: &crate::game_logic::host_spawn_log::HostSpawnEvent,
+) -> bool {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return false;
+    }
+    ACTIVE_SHADOW_PTR.with(|c| {
+        let Some(ptr) = c.get() else {
+            return false;
+        };
+        // SAFETY: engine installs live shadow for coupled tick and clears before
+        // drop/session. `create_object` does not re-enter the engine shadow field.
+        let shadow = unsafe { &mut *ptr.as_ptr() };
+        shadow.apply_host_spawn_events(std::slice::from_ref(event), logic) > 0
+    })
+}
+
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
 #[cfg(test)]
 pub(crate) fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
