@@ -5,7 +5,9 @@
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
 static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> { table.iter().position(|n| *n == name) }
+pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
+    table.iter().position(|n| *n == name)
+}
 pub const LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_METHOD_NAMES_WAVE712: &[&str] = &[
     "eager_apply_host_spawn_after_logic",
     "eager_apply_host_move_attack_after_logic",
@@ -33,30 +35,61 @@ pub const RUNTIME_HOST_LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_CMD_NAMES_WAVE71
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidualHostEagerSpawnMoveAttackHelperAction { None=0,MethodNames=1,SourceMarkers=2,NavCommands=3,CollectSource=4,DispatchSource=5,Composite=6 }
-impl ResidualHostEagerSpawnMoveAttackHelperAction {
-    pub fn from_u8(v: u8) -> Self { match v { 1=>Self::MethodNames,2=>Self::SourceMarkers,3=>Self::NavCommands,4=>Self::CollectSource,5=>Self::DispatchSource,6=>Self::Composite,_=>Self::None } }
+pub enum ResidualHostEagerSpawnMoveAttackHelperAction {
+    None = 0,
+    MethodNames = 1,
+    SourceMarkers = 2,
+    NavCommands = 3,
+    CollectSource = 4,
+    DispatchSource = 5,
+    Composite = 6,
 }
-fn residual_action_store(a: ResidualHostEagerSpawnMoveAttackHelperAction) { RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst); }
-pub fn residual_host_eager_spawn_move_attack_helper_ok() -> bool { RESIDUAL_OK.load(Ordering::SeqCst) }
-pub fn residual_host_eager_spawn_move_attack_helper_last_action() -> ResidualHostEagerSpawnMoveAttackHelperAction { ResidualHostEagerSpawnMoveAttackHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst)) }
-fn eng_source() -> &'static str { include_str!("../cnc_game_engine.rs") }
-fn shadow_source() -> &'static str { include_str!("../gameworld_shadow.rs") }
+impl ResidualHostEagerSpawnMoveAttackHelperAction {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::MethodNames,
+            2 => Self::SourceMarkers,
+            3 => Self::NavCommands,
+            4 => Self::CollectSource,
+            5 => Self::DispatchSource,
+            6 => Self::Composite,
+            _ => Self::None,
+        }
+    }
+}
+fn residual_action_store(a: ResidualHostEagerSpawnMoveAttackHelperAction) {
+    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
+}
+pub fn residual_host_eager_spawn_move_attack_helper_ok() -> bool {
+    RESIDUAL_OK.load(Ordering::SeqCst)
+}
+pub fn residual_host_eager_spawn_move_attack_helper_last_action(
+) -> ResidualHostEagerSpawnMoveAttackHelperAction {
+    ResidualHostEagerSpawnMoveAttackHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
+}
+fn eng_source() -> &'static str {
+    include_str!("../cnc_game_engine.rs")
+}
+fn shadow_source() -> &'static str {
+    include_str!("../gameworld_shadow.rs")
+}
 pub fn honesty_host_eager_spawn_move_attack_helper_method_names_residual_wave712() -> bool {
-    let names=LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_METHOD_NAMES_WAVE712;
-    let ok=residual_name_index(names,"eager_apply_host_spawn_after_logic").is_some()
-        && residual_name_index(names,"eager_apply_host_move_attack_after_logic").is_some()
-        && residual_name_index(names,"eager_apply_host_fire_spawns_after_logic").is_some()
-        && residual_name_index(names,"host_spawn_log").is_some()
-        && residual_name_index(names,"host_attack_log").is_some()
-        && residual_name_index(names,"host_move_log").is_some()
-        && residual_name_index(names,"Wave 712").is_some()
-        && residual_name_index(names,"playable_claim = false").is_some();
-    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::MethodNames); ok
+    let names = LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_METHOD_NAMES_WAVE712;
+    let ok = residual_name_index(names, "eager_apply_host_spawn_after_logic").is_some()
+        && residual_name_index(names, "eager_apply_host_move_attack_after_logic").is_some()
+        && residual_name_index(names, "eager_apply_host_fire_spawns_after_logic").is_some()
+        && residual_name_index(names, "host_spawn_log").is_some()
+        && residual_name_index(names, "host_attack_log").is_some()
+        && residual_name_index(names, "host_move_log").is_some()
+        && residual_name_index(names, "Wave 712").is_some()
+        && residual_name_index(names, "playable_claim = false").is_some();
+    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::MethodNames);
+    ok
 }
 pub fn honesty_host_eager_spawn_move_attack_helper_source_markers_residual_wave712() -> bool {
-    let eng=eng_source(); let sh=shadow_source();
-    let api_ok=sh.contains("pub fn eager_apply_host_spawn_after_logic")
+    let eng = eng_source();
+    let sh = shadow_source();
+    let api_ok = sh.contains("pub fn eager_apply_host_spawn_after_logic")
         && sh.contains("EARLY_ATTACK_BATCH")
         && sh.contains("EARLY_MOVE_BATCH")
         && sh.contains("EARLY_FIRE_SPAWN_BATCH")
@@ -66,38 +99,42 @@ pub fn honesty_host_eager_spawn_move_attack_helper_source_markers_residual_wave7
         && sh.contains("early_attack_applied")
         && sh.contains("early_move_applied")
         && sh.contains("early_fire_spawn_applied");
-    let eng_ok=eng.contains("eager_apply_host_spawn_after_logic")
+    let eng_ok = eng.contains("eager_apply_host_spawn_after_logic")
         && eng.contains("eager_apply_host_move_attack_after_logic")
         && eng.contains("eager_apply_host_fire_spawns_after_logic")
         && eng.contains("Wave 712: post-logic remaining spawn");
-    let ok=api_ok&&eng_ok&&!eng.contains("playable_claim = true");
-    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::SourceMarkers); ok
+    let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
+    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::SourceMarkers);
+    ok
 }
 pub fn honesty_host_eager_spawn_move_attack_helper_nav_commands_residual_wave712() -> bool {
-    let steps=LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_NAV_STEPS_WAVE712;
-    let cmds=RUNTIME_HOST_LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_CMD_NAMES_WAVE712;
-    let ok=residual_name_index(steps,"REQUIRE_EAGER_SPAWN_MOVE_ATTACK_API").is_some()
-        && residual_name_index(steps,"REQUIRE_ENGINE_POST_LOGIC_DRAIN").is_some()
-        && residual_name_index(steps,"REQUIRE_SESSION_HANDOFF").is_some()
-        && residual_name_index(steps,"REQUIRE_NO_DOUBLE_APPLY").is_some()
-        && residual_name_index(steps,"LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER").is_some()
-        && residual_name_index(steps,"LIVE_PLAYABLE_CLAIM_FALSE").is_some()
-        && residual_name_index(cmds,"host_eager_spawn_move_attack_helper").is_some()
-        && residual_name_index(cmds,"engine_post_logic_drain").is_some()
-        && residual_name_index(cmds,"session_handoff").is_some()
-        && residual_name_index(cmds,"no_double_apply").is_some()
-        && residual_name_index(cmds,"eager_spawn_move_attack_residual").is_some();
-    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::NavCommands); ok
+    let steps = LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_NAV_STEPS_WAVE712;
+    let cmds = RUNTIME_HOST_LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_CMD_NAMES_WAVE712;
+    let ok = residual_name_index(steps, "REQUIRE_EAGER_SPAWN_MOVE_ATTACK_API").is_some()
+        && residual_name_index(steps, "REQUIRE_ENGINE_POST_LOGIC_DRAIN").is_some()
+        && residual_name_index(steps, "REQUIRE_SESSION_HANDOFF").is_some()
+        && residual_name_index(steps, "REQUIRE_NO_DOUBLE_APPLY").is_some()
+        && residual_name_index(steps, "LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER").is_some()
+        && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
+        && residual_name_index(cmds, "host_eager_spawn_move_attack_helper").is_some()
+        && residual_name_index(cmds, "engine_post_logic_drain").is_some()
+        && residual_name_index(cmds, "session_handoff").is_some()
+        && residual_name_index(cmds, "no_double_apply").is_some()
+        && residual_name_index(cmds, "eager_spawn_move_attack_residual").is_some();
+    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::NavCommands);
+    ok
 }
 pub fn simulate_host_eager_spawn_move_attack_helper_collect_source() -> bool {
-    let ok=shadow_source().contains("eager_apply_host_spawn_after_logic")
+    let ok = shadow_source().contains("eager_apply_host_spawn_after_logic")
         && shadow_source().contains("EARLY_FIRE_SPAWN_BATCH")
         && eng_source().contains("eager_apply_host_spawn_after_logic");
-    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::CollectSource); ok
+    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::CollectSource);
+    ok
 }
 pub fn simulate_host_eager_spawn_move_attack_helper_dispatch_source() -> bool {
-    let ok=eng_source().contains("Wave 712") && shadow_source().contains("Wave 712");
-    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::DispatchSource); ok
+    let ok = eng_source().contains("Wave 712") && shadow_source().contains("Wave 712");
+    residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::DispatchSource);
+    ok
 }
 pub fn honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712() -> bool {
     honesty_host_eager_spawn_move_attack_helper_method_names_residual_wave712()
@@ -107,8 +144,11 @@ pub fn honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712() -> bo
         && simulate_host_eager_spawn_move_attack_helper_dispatch_source()
 }
 pub fn simulate_live_host_eager_spawn_move_attack_helper_honesty() -> bool {
-    let ok=honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712();
-    if ok { RESIDUAL_OK.store(true, Ordering::SeqCst); residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::Composite); }
+    let ok = honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712();
+    if ok {
+        RESIDUAL_OK.store(true, Ordering::SeqCst);
+        residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::Composite);
+    }
     ok
 }
 
@@ -134,12 +174,32 @@ mod tests {
         logic.templates.insert(name.into(), t);
     }
 
-    #[test] fn method_names_residual() { assert!(honesty_host_eager_spawn_move_attack_helper_method_names_residual_wave712()); }
-    #[test] fn source_markers_residual() { assert!(honesty_host_eager_spawn_move_attack_helper_source_markers_residual_wave712()); }
-    #[test] fn nav_commands_residual() { assert!(honesty_host_eager_spawn_move_attack_helper_nav_commands_residual_wave712()); }
-    #[test] fn sources() { assert!(simulate_host_eager_spawn_move_attack_helper_collect_source()); assert!(simulate_host_eager_spawn_move_attack_helper_dispatch_source()); }
-    #[test] fn pack() { assert!(honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712()); }
-    #[test] fn live() { assert!(simulate_live_host_eager_spawn_move_attack_helper_honesty()); assert!(residual_host_eager_spawn_move_attack_helper_ok()); }
+    #[test]
+    fn method_names_residual() {
+        assert!(honesty_host_eager_spawn_move_attack_helper_method_names_residual_wave712());
+    }
+    #[test]
+    fn source_markers_residual() {
+        assert!(honesty_host_eager_spawn_move_attack_helper_source_markers_residual_wave712());
+    }
+    #[test]
+    fn nav_commands_residual() {
+        assert!(honesty_host_eager_spawn_move_attack_helper_nav_commands_residual_wave712());
+    }
+    #[test]
+    fn sources() {
+        assert!(simulate_host_eager_spawn_move_attack_helper_collect_source());
+        assert!(simulate_host_eager_spawn_move_attack_helper_dispatch_source());
+    }
+    #[test]
+    fn pack() {
+        assert!(honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712());
+    }
+    #[test]
+    fn live() {
+        assert!(simulate_live_host_eager_spawn_move_attack_helper_honesty());
+        assert!(residual_host_eager_spawn_move_attack_helper_ok());
+    }
 
     #[test]
     fn post_logic_spawn_move_attack_apply_once_through_session() {

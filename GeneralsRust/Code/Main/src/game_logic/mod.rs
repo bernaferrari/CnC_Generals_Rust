@@ -118,9 +118,11 @@ pub mod host_live_host_eager_attitude_overcharge_stealth_helper_residual_wave694
 pub mod host_live_host_eager_body_death_physics_helper_residual_wave702;
 pub mod host_live_host_eager_btype_identity_ground_helper_residual_wave699;
 pub mod host_live_host_eager_cmdset_disguise_camo_helper_residual_wave696;
+pub mod host_live_host_eager_combat_projectile_helper_residual_wave710;
 pub mod host_live_host_eager_contain_hive_overlord_helper_residual_wave695;
 pub mod host_live_host_eager_damage_helper_residual_wave684;
 pub mod host_live_host_eager_demo_form_crush_helper_residual_wave698;
+pub mod host_live_host_eager_destroy_contain_ai_helper_residual_wave711;
 pub mod host_live_host_eager_destroy_unmap_helper_residual_wave681;
 pub mod host_live_host_eager_faerie_repulsor_disable_helper_residual_wave701;
 pub mod host_live_host_eager_fire_spawn_helper_residual_wave682;
@@ -130,14 +132,13 @@ pub mod host_live_host_eager_loco_bounce_helper_residual_wave703;
 pub mod host_live_host_eager_max_health_xp_helper_residual_wave686;
 pub mod host_live_host_eager_mesh_fow_kindof_helper_residual_wave700;
 pub mod host_live_host_eager_meta_cooldown_door_helper_residual_wave708;
-pub mod host_live_host_eager_prod_construction_helper_residual_wave709;
-pub mod host_live_host_eager_combat_projectile_helper_residual_wave710;
-pub mod host_live_host_eager_destroy_contain_ai_helper_residual_wave711;
-pub mod host_live_host_eager_spawn_move_attack_helper_residual_wave712;
 pub mod host_live_host_eager_move_attack_helper_residual_wave683;
 pub mod host_live_host_eager_owner_movement_helper_residual_wave688;
+pub mod host_live_host_eager_prod_construction_helper_residual_wave709;
 pub mod host_live_host_eager_sp_radar_progress_helper_residual_wave707;
 pub mod host_live_host_eager_spawn_map_helper_residual_wave680;
+pub mod host_live_host_eager_spawn_move_attack_helper_residual_wave712;
+pub mod host_live_host_production_ready_no_empty_scan_residual_wave713;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -2991,6 +2992,15 @@ pub use host_live_host_eager_cmdset_disguise_camo_helper_residual_wave696::{
     residual_host_eager_cmdset_disguise_camo_helper_ok,
     simulate_live_host_eager_cmdset_disguise_camo_helper_honesty,
 };
+pub use host_live_host_eager_combat_projectile_helper_residual_wave710::{
+    honesty_host_eager_combat_projectile_helper_method_names_residual_wave710,
+    honesty_host_eager_combat_projectile_helper_nav_commands_residual_wave710,
+    honesty_host_eager_combat_projectile_helper_residual_pack_wave710,
+    honesty_host_eager_combat_projectile_helper_source_markers_residual_wave710,
+    residual_host_eager_combat_projectile_helper_last_action,
+    residual_host_eager_combat_projectile_helper_ok,
+    simulate_live_host_eager_combat_projectile_helper_honesty,
+};
 pub use host_live_host_eager_contain_hive_overlord_helper_residual_wave695::{
     honesty_host_eager_contain_hive_overlord_helper_method_names_residual_wave695,
     honesty_host_eager_contain_hive_overlord_helper_nav_commands_residual_wave695,
@@ -3016,6 +3026,15 @@ pub use host_live_host_eager_demo_form_crush_helper_residual_wave698::{
     residual_host_eager_demo_form_crush_helper_last_action,
     residual_host_eager_demo_form_crush_helper_ok,
     simulate_live_host_eager_demo_form_crush_helper_honesty,
+};
+pub use host_live_host_eager_destroy_contain_ai_helper_residual_wave711::{
+    honesty_host_eager_destroy_contain_ai_helper_method_names_residual_wave711,
+    honesty_host_eager_destroy_contain_ai_helper_nav_commands_residual_wave711,
+    honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711,
+    honesty_host_eager_destroy_contain_ai_helper_source_markers_residual_wave711,
+    residual_host_eager_destroy_contain_ai_helper_last_action,
+    residual_host_eager_destroy_contain_ai_helper_ok,
+    simulate_live_host_eager_destroy_contain_ai_helper_honesty,
 };
 pub use host_live_host_eager_destroy_unmap_helper_residual_wave681::{
     honesty_host_eager_destroy_unmap_helper_method_names_residual_wave681,
@@ -3095,42 +3114,6 @@ pub use host_live_host_eager_meta_cooldown_door_helper_residual_wave708::{
     residual_host_eager_meta_cooldown_door_helper_ok,
     simulate_live_host_eager_meta_cooldown_door_helper_honesty,
 };
-pub use host_live_host_eager_prod_construction_helper_residual_wave709::{
-    honesty_host_eager_prod_construction_helper_method_names_residual_wave709,
-    honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709,
-    honesty_host_eager_prod_construction_helper_residual_pack_wave709,
-    honesty_host_eager_prod_construction_helper_source_markers_residual_wave709,
-    residual_host_eager_prod_construction_helper_last_action,
-    residual_host_eager_prod_construction_helper_ok,
-    simulate_live_host_eager_prod_construction_helper_honesty,
-};
-pub use host_live_host_eager_combat_projectile_helper_residual_wave710::{
-    honesty_host_eager_combat_projectile_helper_method_names_residual_wave710,
-    honesty_host_eager_combat_projectile_helper_nav_commands_residual_wave710,
-    honesty_host_eager_combat_projectile_helper_residual_pack_wave710,
-    honesty_host_eager_combat_projectile_helper_source_markers_residual_wave710,
-    residual_host_eager_combat_projectile_helper_last_action,
-    residual_host_eager_combat_projectile_helper_ok,
-    simulate_live_host_eager_combat_projectile_helper_honesty,
-};
-pub use host_live_host_eager_destroy_contain_ai_helper_residual_wave711::{
-    honesty_host_eager_destroy_contain_ai_helper_method_names_residual_wave711,
-    honesty_host_eager_destroy_contain_ai_helper_nav_commands_residual_wave711,
-    honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711,
-    honesty_host_eager_destroy_contain_ai_helper_source_markers_residual_wave711,
-    residual_host_eager_destroy_contain_ai_helper_last_action,
-    residual_host_eager_destroy_contain_ai_helper_ok,
-    simulate_live_host_eager_destroy_contain_ai_helper_honesty,
-};
-pub use host_live_host_eager_spawn_move_attack_helper_residual_wave712::{
-    honesty_host_eager_spawn_move_attack_helper_method_names_residual_wave712,
-    honesty_host_eager_spawn_move_attack_helper_nav_commands_residual_wave712,
-    honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712,
-    honesty_host_eager_spawn_move_attack_helper_source_markers_residual_wave712,
-    residual_host_eager_spawn_move_attack_helper_last_action,
-    residual_host_eager_spawn_move_attack_helper_ok,
-    simulate_live_host_eager_spawn_move_attack_helper_honesty,
-};
 pub use host_live_host_eager_move_attack_helper_residual_wave683::{
     honesty_host_eager_move_attack_helper_method_names_residual_wave683,
     honesty_host_eager_move_attack_helper_nav_commands_residual_wave683,
@@ -3148,6 +3131,15 @@ pub use host_live_host_eager_owner_movement_helper_residual_wave688::{
     residual_host_eager_owner_movement_helper_ok,
     simulate_live_host_eager_owner_movement_helper_honesty,
 };
+pub use host_live_host_eager_prod_construction_helper_residual_wave709::{
+    honesty_host_eager_prod_construction_helper_method_names_residual_wave709,
+    honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709,
+    honesty_host_eager_prod_construction_helper_residual_pack_wave709,
+    honesty_host_eager_prod_construction_helper_source_markers_residual_wave709,
+    residual_host_eager_prod_construction_helper_last_action,
+    residual_host_eager_prod_construction_helper_ok,
+    simulate_live_host_eager_prod_construction_helper_honesty,
+};
 pub use host_live_host_eager_sp_radar_progress_helper_residual_wave707::{
     honesty_host_eager_sp_radar_progress_helper_method_names_residual_wave707,
     honesty_host_eager_sp_radar_progress_helper_nav_commands_residual_wave707,
@@ -3164,6 +3156,24 @@ pub use host_live_host_eager_spawn_map_helper_residual_wave680::{
     honesty_host_eager_spawn_map_helper_source_markers_residual_wave680,
     residual_host_eager_spawn_map_helper_last_action, residual_host_eager_spawn_map_helper_ok,
     simulate_live_host_eager_spawn_map_helper_honesty,
+};
+pub use host_live_host_eager_spawn_move_attack_helper_residual_wave712::{
+    honesty_host_eager_spawn_move_attack_helper_method_names_residual_wave712,
+    honesty_host_eager_spawn_move_attack_helper_nav_commands_residual_wave712,
+    honesty_host_eager_spawn_move_attack_helper_residual_pack_wave712,
+    honesty_host_eager_spawn_move_attack_helper_source_markers_residual_wave712,
+    residual_host_eager_spawn_move_attack_helper_last_action,
+    residual_host_eager_spawn_move_attack_helper_ok,
+    simulate_live_host_eager_spawn_move_attack_helper_honesty,
+};
+pub use host_live_host_production_ready_no_empty_scan_residual_wave713::{
+    honesty_host_production_ready_no_empty_scan_method_names_residual_wave713,
+    honesty_host_production_ready_no_empty_scan_nav_commands_residual_wave713,
+    honesty_host_production_ready_no_empty_scan_residual_pack_wave713,
+    honesty_host_production_ready_no_empty_scan_source_markers_residual_wave713,
+    residual_host_production_ready_no_empty_scan_last_action,
+    residual_host_production_ready_no_empty_scan_ok,
+    simulate_live_host_production_ready_no_empty_scan_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,

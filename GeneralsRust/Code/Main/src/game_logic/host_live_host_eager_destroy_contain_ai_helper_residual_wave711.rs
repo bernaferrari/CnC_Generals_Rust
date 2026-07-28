@@ -5,7 +5,9 @@
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
 static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> { table.iter().position(|n| *n == name) }
+pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
+    table.iter().position(|n| *n == name)
+}
 pub const LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_METHOD_NAMES_WAVE711: &[&str] = &[
     "eager_apply_host_destroy_after_logic",
     "eager_apply_host_contain_after_logic",
@@ -33,30 +35,61 @@ pub const RUNTIME_HOST_LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_CMD_NAMES_WAVE7
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidualHostEagerDestroyContainAiHelperAction { None=0,MethodNames=1,SourceMarkers=2,NavCommands=3,CollectSource=4,DispatchSource=5,Composite=6 }
-impl ResidualHostEagerDestroyContainAiHelperAction {
-    pub fn from_u8(v: u8) -> Self { match v { 1=>Self::MethodNames,2=>Self::SourceMarkers,3=>Self::NavCommands,4=>Self::CollectSource,5=>Self::DispatchSource,6=>Self::Composite,_=>Self::None } }
+pub enum ResidualHostEagerDestroyContainAiHelperAction {
+    None = 0,
+    MethodNames = 1,
+    SourceMarkers = 2,
+    NavCommands = 3,
+    CollectSource = 4,
+    DispatchSource = 5,
+    Composite = 6,
 }
-fn residual_action_store(a: ResidualHostEagerDestroyContainAiHelperAction) { RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst); }
-pub fn residual_host_eager_destroy_contain_ai_helper_ok() -> bool { RESIDUAL_OK.load(Ordering::SeqCst) }
-pub fn residual_host_eager_destroy_contain_ai_helper_last_action() -> ResidualHostEagerDestroyContainAiHelperAction { ResidualHostEagerDestroyContainAiHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst)) }
-fn eng_source() -> &'static str { include_str!("../cnc_game_engine.rs") }
-fn shadow_source() -> &'static str { include_str!("../gameworld_shadow.rs") }
+impl ResidualHostEagerDestroyContainAiHelperAction {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::MethodNames,
+            2 => Self::SourceMarkers,
+            3 => Self::NavCommands,
+            4 => Self::CollectSource,
+            5 => Self::DispatchSource,
+            6 => Self::Composite,
+            _ => Self::None,
+        }
+    }
+}
+fn residual_action_store(a: ResidualHostEagerDestroyContainAiHelperAction) {
+    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
+}
+pub fn residual_host_eager_destroy_contain_ai_helper_ok() -> bool {
+    RESIDUAL_OK.load(Ordering::SeqCst)
+}
+pub fn residual_host_eager_destroy_contain_ai_helper_last_action(
+) -> ResidualHostEagerDestroyContainAiHelperAction {
+    ResidualHostEagerDestroyContainAiHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
+}
+fn eng_source() -> &'static str {
+    include_str!("../cnc_game_engine.rs")
+}
+fn shadow_source() -> &'static str {
+    include_str!("../gameworld_shadow.rs")
+}
 pub fn honesty_host_eager_destroy_contain_ai_helper_method_names_residual_wave711() -> bool {
-    let names=LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_METHOD_NAMES_WAVE711;
-    let ok=residual_name_index(names,"eager_apply_host_destroy_after_logic").is_some()
-        && residual_name_index(names,"eager_apply_host_contain_after_logic").is_some()
-        && residual_name_index(names,"eager_apply_host_ai_decision_after_logic").is_some()
-        && residual_name_index(names,"host_destroy_log").is_some()
-        && residual_name_index(names,"host_contain_log").is_some()
-        && residual_name_index(names,"host_ai_decision_log").is_some()
-        && residual_name_index(names,"Wave 711").is_some()
-        && residual_name_index(names,"playable_claim = false").is_some();
-    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::MethodNames); ok
+    let names = LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_METHOD_NAMES_WAVE711;
+    let ok = residual_name_index(names, "eager_apply_host_destroy_after_logic").is_some()
+        && residual_name_index(names, "eager_apply_host_contain_after_logic").is_some()
+        && residual_name_index(names, "eager_apply_host_ai_decision_after_logic").is_some()
+        && residual_name_index(names, "host_destroy_log").is_some()
+        && residual_name_index(names, "host_contain_log").is_some()
+        && residual_name_index(names, "host_ai_decision_log").is_some()
+        && residual_name_index(names, "Wave 711").is_some()
+        && residual_name_index(names, "playable_claim = false").is_some();
+    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::MethodNames);
+    ok
 }
 pub fn honesty_host_eager_destroy_contain_ai_helper_source_markers_residual_wave711() -> bool {
-    let eng=eng_source(); let sh=shadow_source();
-    let api_ok=sh.contains("pub fn eager_apply_host_destroy_after_logic")
+    let eng = eng_source();
+    let sh = shadow_source();
+    let api_ok = sh.contains("pub fn eager_apply_host_destroy_after_logic")
         && sh.contains("pub fn eager_apply_host_contain_after_logic")
         && sh.contains("pub fn eager_apply_host_ai_decision_after_logic")
         && sh.contains("Wave 711")
@@ -66,38 +99,42 @@ pub fn honesty_host_eager_destroy_contain_ai_helper_source_markers_residual_wave
         && sh.contains("early_destroy_applied")
         && sh.contains("early_contain_applied")
         && sh.contains("early_ai_decision_applied");
-    let eng_ok=eng.contains("eager_apply_host_destroy_after_logic")
+    let eng_ok = eng.contains("eager_apply_host_destroy_after_logic")
         && eng.contains("eager_apply_host_contain_after_logic")
         && eng.contains("eager_apply_host_ai_decision_after_logic")
         && eng.contains("Wave 711: post-logic destroy");
-    let ok=api_ok&&eng_ok&&!eng.contains("playable_claim = true");
-    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::SourceMarkers); ok
+    let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
+    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::SourceMarkers);
+    ok
 }
 pub fn honesty_host_eager_destroy_contain_ai_helper_nav_commands_residual_wave711() -> bool {
-    let steps=LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_NAV_STEPS_WAVE711;
-    let cmds=RUNTIME_HOST_LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_CMD_NAMES_WAVE711;
-    let ok=residual_name_index(steps,"REQUIRE_EAGER_DESTROY_CONTAIN_AI_API").is_some()
-        && residual_name_index(steps,"REQUIRE_ENGINE_POST_LOGIC_DRAIN").is_some()
-        && residual_name_index(steps,"REQUIRE_SESSION_HANDOFF").is_some()
-        && residual_name_index(steps,"REQUIRE_NO_DOUBLE_APPLY").is_some()
-        && residual_name_index(steps,"LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER").is_some()
-        && residual_name_index(steps,"LIVE_PLAYABLE_CLAIM_FALSE").is_some()
-        && residual_name_index(cmds,"host_eager_destroy_contain_ai_helper").is_some()
-        && residual_name_index(cmds,"engine_post_logic_drain").is_some()
-        && residual_name_index(cmds,"session_handoff").is_some()
-        && residual_name_index(cmds,"no_double_apply").is_some()
-        && residual_name_index(cmds,"eager_destroy_contain_ai_residual").is_some();
-    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::NavCommands); ok
+    let steps = LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_NAV_STEPS_WAVE711;
+    let cmds = RUNTIME_HOST_LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER_CMD_NAMES_WAVE711;
+    let ok = residual_name_index(steps, "REQUIRE_EAGER_DESTROY_CONTAIN_AI_API").is_some()
+        && residual_name_index(steps, "REQUIRE_ENGINE_POST_LOGIC_DRAIN").is_some()
+        && residual_name_index(steps, "REQUIRE_SESSION_HANDOFF").is_some()
+        && residual_name_index(steps, "REQUIRE_NO_DOUBLE_APPLY").is_some()
+        && residual_name_index(steps, "LIVE_HOST_EAGER_DESTROY_CONTAIN_AI_HELPER").is_some()
+        && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
+        && residual_name_index(cmds, "host_eager_destroy_contain_ai_helper").is_some()
+        && residual_name_index(cmds, "engine_post_logic_drain").is_some()
+        && residual_name_index(cmds, "session_handoff").is_some()
+        && residual_name_index(cmds, "no_double_apply").is_some()
+        && residual_name_index(cmds, "eager_destroy_contain_ai_residual").is_some();
+    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::NavCommands);
+    ok
 }
 pub fn simulate_host_eager_destroy_contain_ai_helper_collect_source() -> bool {
-    let ok=shadow_source().contains("eager_apply_host_destroy_after_logic")
+    let ok = shadow_source().contains("eager_apply_host_destroy_after_logic")
         && shadow_source().contains("eager_apply_host_contain_after_logic")
         && eng_source().contains("eager_apply_host_ai_decision_after_logic");
-    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::CollectSource); ok
+    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::CollectSource);
+    ok
 }
 pub fn simulate_host_eager_destroy_contain_ai_helper_dispatch_source() -> bool {
-    let ok=eng_source().contains("Wave 711") && shadow_source().contains("Wave 711");
-    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::DispatchSource); ok
+    let ok = eng_source().contains("Wave 711") && shadow_source().contains("Wave 711");
+    residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::DispatchSource);
+    ok
 }
 pub fn honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711() -> bool {
     honesty_host_eager_destroy_contain_ai_helper_method_names_residual_wave711()
@@ -107,8 +144,11 @@ pub fn honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711() -> b
         && simulate_host_eager_destroy_contain_ai_helper_dispatch_source()
 }
 pub fn simulate_live_host_eager_destroy_contain_ai_helper_honesty() -> bool {
-    let ok=honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711();
-    if ok { RESIDUAL_OK.store(true, Ordering::SeqCst); residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::Composite); }
+    let ok = honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711();
+    if ok {
+        RESIDUAL_OK.store(true, Ordering::SeqCst);
+        residual_action_store(ResidualHostEagerDestroyContainAiHelperAction::Composite);
+    }
     ok
 }
 
@@ -135,12 +175,32 @@ mod tests {
         logic.templates.insert(name.into(), t);
     }
 
-    #[test] fn method_names_residual() { assert!(honesty_host_eager_destroy_contain_ai_helper_method_names_residual_wave711()); }
-    #[test] fn source_markers_residual() { assert!(honesty_host_eager_destroy_contain_ai_helper_source_markers_residual_wave711()); }
-    #[test] fn nav_commands_residual() { assert!(honesty_host_eager_destroy_contain_ai_helper_nav_commands_residual_wave711()); }
-    #[test] fn sources() { assert!(simulate_host_eager_destroy_contain_ai_helper_collect_source()); assert!(simulate_host_eager_destroy_contain_ai_helper_dispatch_source()); }
-    #[test] fn pack() { assert!(honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711()); }
-    #[test] fn live() { assert!(simulate_live_host_eager_destroy_contain_ai_helper_honesty()); assert!(residual_host_eager_destroy_contain_ai_helper_ok()); }
+    #[test]
+    fn method_names_residual() {
+        assert!(honesty_host_eager_destroy_contain_ai_helper_method_names_residual_wave711());
+    }
+    #[test]
+    fn source_markers_residual() {
+        assert!(honesty_host_eager_destroy_contain_ai_helper_source_markers_residual_wave711());
+    }
+    #[test]
+    fn nav_commands_residual() {
+        assert!(honesty_host_eager_destroy_contain_ai_helper_nav_commands_residual_wave711());
+    }
+    #[test]
+    fn sources() {
+        assert!(simulate_host_eager_destroy_contain_ai_helper_collect_source());
+        assert!(simulate_host_eager_destroy_contain_ai_helper_dispatch_source());
+    }
+    #[test]
+    fn pack() {
+        assert!(honesty_host_eager_destroy_contain_ai_helper_residual_pack_wave711());
+    }
+    #[test]
+    fn live() {
+        assert!(simulate_live_host_eager_destroy_contain_ai_helper_honesty());
+        assert!(residual_host_eager_destroy_contain_ai_helper_ok());
+    }
 
     #[test]
     fn post_logic_destroy_contain_ai_apply_once_through_session() {

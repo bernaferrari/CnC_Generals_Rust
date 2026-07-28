@@ -6833,10 +6833,10 @@ impl GameLogic {
                         );
                     }
 
-                    // Wave 617: under sole-tick, only complete ready-log IDs
-                    // (fallback: empty ready set still scans writeback percent).
+                    // Wave 617/713: under sole-tick, only complete ready-log IDs.
+                    // Empty ready log ⇒ no host percent-complete scan (GW readiness authority).
                     let may_complete = if construction_sole {
-                        ready_structures.is_empty() || ready_structures.contains(&id)
+                        ready_structures.contains(&id)
                     } else {
                         true
                     };
@@ -6970,7 +6970,7 @@ impl GameLogic {
     /// Sole-tick path: GameWorld sole-ticks progress/exit delay; host
     /// `try_complete_production` only when writeback finished the head.
     /// Non-sole path: host still advances production via building.update_production.
-    fn host_collect_production_completions(
+    pub(crate) fn host_collect_production_completions(
         &mut self,
         dt: f32,
     ) -> (
@@ -7022,8 +7022,8 @@ impl GameLogic {
                 let completed_prod = if sole {
                     // Wave 464/614: GameWorld sole-ticks progress + exit delay and
                     // records ready producers on writeback; host try_completes only
-                    // ready IDs (fallback scan if ready log empty this frame).
-                    if ready_producers.is_empty() || ready_producers.contains(&id) {
+                    // ready IDs (Wave 713: empty ready log ⇒ no host scan).
+                    if ready_producers.contains(&id) {
                         building.try_complete_production()
                     } else {
                         None

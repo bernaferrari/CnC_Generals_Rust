@@ -13749,6 +13749,12 @@ mod tests {
             eng.find("move_unit_along_path").is_none(),
             "engine must not mid-frame move_unit_along_path (dual path step)"
         );
+        // Wave 713: prefer host helper call-order (update helper before finalize).
+        // Method bodies may define build_for_engine before update_with_dt textually.
+        let host_update_call = eng
+            .find("self.host_update_logic_frame(")
+            .or_else(|| eng.find("host_update_logic_frame("));
+        let host_finalize_call = eng.find("host_finalize_presentation_after_logic(");
         let pres = eng
             .find("PresentationFrame::build_from_logic")
             .or_else(|| eng.find("PresentationFrame::build_for_engine"))
@@ -13758,9 +13764,13 @@ mod tests {
             .find("game_logic.update_with_dt(")
             .or_else(|| eng.find("game_logic.update_with_timing("))
             .or_else(|| eng.find("game_logic.update("));
+        let order_ok = match (host_update_call, host_finalize_call) {
+            (Some(u), Some(f)) => u < f,
+            _ => host_update.is_some() && host_update.unwrap() < pres,
+        };
         assert!(
-            host_update.is_some() && host_update.unwrap() < pres,
-            "PresentationFrame must be built after GameLogic update; update={host_update:?} pres={pres}"
+            order_ok,
+            "PresentationFrame must be built after GameLogic update; update_call={host_update_call:?} finalize_call={host_finalize_call:?} update={host_update:?} pres={pres}"
         );
         assert!(
             proj > 0 && path > 0,

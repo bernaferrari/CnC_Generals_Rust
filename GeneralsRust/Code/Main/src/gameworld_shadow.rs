@@ -2329,19 +2329,31 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-fn take_early_production_batch() -> Option<(Vec<crate::game_logic::host_production_log::HostProductionEvent>, bool)> {
+fn take_early_production_batch() -> Option<(
+    Vec<crate::game_logic::host_production_log::HostProductionEvent>,
+    bool,
+)> {
     EARLY_PRODUCTION_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_production_progress_batch() -> Option<(Vec<crate::game_logic::host_production_progress_log::HostProductionProgressEvent>, bool)> {
+fn take_early_production_progress_batch() -> Option<(
+    Vec<crate::game_logic::host_production_progress_log::HostProductionProgressEvent>,
+    bool,
+)> {
     EARLY_PRODUCTION_PROGRESS_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_construction_batch() -> Option<(Vec<crate::game_logic::host_construction_log::HostConstructionEvent>, bool)> {
+fn take_early_construction_batch() -> Option<(
+    Vec<crate::game_logic::host_construction_log::HostConstructionEvent>,
+    bool,
+)> {
     EARLY_CONSTRUCTION_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_construction_progress_batch() -> Option<(Vec<crate::game_logic::host_construction_progress_log::HostConstructionProgressEvent>, bool)> {
+fn take_early_construction_progress_batch() -> Option<(
+    Vec<crate::game_logic::host_construction_progress_log::HostConstructionProgressEvent>,
+    bool,
+)> {
     EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -2428,11 +2440,17 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-fn take_early_combat_attack_batch() -> Option<(Vec<crate::game_logic::host_combat_attack_log::HostCombatAttackEvent>, bool)> {
+fn take_early_combat_attack_batch() -> Option<(
+    Vec<crate::game_logic::host_combat_attack_log::HostCombatAttackEvent>,
+    bool,
+)> {
     EARLY_COMBAT_ATTACK_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_projectile_batch() -> Option<(Vec<crate::game_logic::host_projectile_log::HostProjectileEvent>, bool)> {
+fn take_early_projectile_batch() -> Option<(
+    Vec<crate::game_logic::host_projectile_log::HostProjectileEvent>,
+    bool,
+)> {
     EARLY_PROJECTILE_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -2483,15 +2501,24 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-fn take_early_destroy_batch() -> Option<(Vec<crate::game_logic::host_destroy_log::HostDestroyEvent>, bool)> {
+fn take_early_destroy_batch() -> Option<(
+    Vec<crate::game_logic::host_destroy_log::HostDestroyEvent>,
+    bool,
+)> {
     EARLY_DESTROY_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_contain_batch() -> Option<(Vec<crate::game_logic::host_contain_log::HostContainEvent>, bool)> {
+fn take_early_contain_batch() -> Option<(
+    Vec<crate::game_logic::host_contain_log::HostContainEvent>,
+    bool,
+)> {
     EARLY_CONTAIN_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_ai_decision_batch() -> Option<(Vec<crate::game_logic::host_ai_decision_log::HostAiDecisionEvent>, bool)> {
+fn take_early_ai_decision_batch() -> Option<(
+    Vec<crate::game_logic::host_ai_decision_log::HostAiDecisionEvent>,
+    bool,
+)> {
     EARLY_AI_DECISION_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -2566,11 +2593,15 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-fn take_early_spawn_batch() -> Option<(Vec<crate::game_logic::host_spawn_log::HostSpawnEvent>, bool)> {
+fn take_early_spawn_batch() -> Option<(Vec<crate::game_logic::host_spawn_log::HostSpawnEvent>, bool)>
+{
     EARLY_SPAWN_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_attack_batch() -> Option<(Vec<crate::game_logic::host_attack_log::HostAttackEvent>, bool)> {
+fn take_early_attack_batch() -> Option<(
+    Vec<crate::game_logic::host_attack_log::HostAttackEvent>,
+    bool,
+)> {
     EARLY_ATTACK_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -2578,7 +2609,8 @@ fn take_early_move_batch() -> Option<(Vec<crate::game_logic::host_move_log::Host
     EARLY_MOVE_BATCH.with(|c| c.borrow_mut().take())
 }
 
-fn take_early_fire_spawn_batch() -> Option<(Vec<crate::game_logic::combat::PendingProjectile>, bool)> {
+fn take_early_fire_spawn_batch() -> Option<(Vec<crate::game_logic::combat::PendingProjectile>, bool)>
+{
     EARLY_FIRE_SPAWN_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -2600,10 +2632,6 @@ pub fn eager_apply_host_spawn_after_logic(
     EARLY_SPAWN_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
-
-
-
-
 
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
 #[cfg(test)]
@@ -10575,18 +10603,26 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_production_log::drain(), false),
     };
-    let (production_progress_events, early_production_progress_applied) = match take_early_production_progress_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_production_progress_log::drain(), false),
-    };
+    let (production_progress_events, early_production_progress_applied) =
+        match take_early_production_progress_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (
+                crate::game_logic::host_production_progress_log::drain(),
+                false,
+            ),
+        };
     let (construction_events, early_construction_applied) = match take_early_construction_batch() {
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_construction_log::drain(), false),
     };
-    let (construction_progress_events, early_construction_progress_applied) = match take_early_construction_progress_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_construction_progress_log::drain(), false),
-    };
+    let (construction_progress_events, early_construction_progress_applied) =
+        match take_early_construction_progress_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (
+                crate::game_logic::host_construction_progress_log::drain(),
+                false,
+            ),
+        };
     // Wave 707: prefer post-logic special-power batch.
     let (special_power_events, early_special_power_applied) = match take_early_special_power_batch()
     {
@@ -10814,7 +10850,8 @@ pub fn shadow_session_after_host_tick(
         shadow.apply_host_continuous_fire_events(&continuous_fire_events)
     };
     // Wave 710: prefer post-logic combat-attack batch.
-    let (combat_attack_events, early_combat_attack_applied) = match take_early_combat_attack_batch() {
+    let (combat_attack_events, early_combat_attack_applied) = match take_early_combat_attack_batch()
+    {
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_combat_attack_log::drain(), false),
     };
