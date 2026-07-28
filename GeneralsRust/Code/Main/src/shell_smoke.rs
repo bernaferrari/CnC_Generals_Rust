@@ -3615,6 +3615,11 @@ use crate::game_logic::host_live_host_actively_constructing_complete_peel_residu
     honesty_host_actively_constructing_complete_peel_nav_commands_residual_wave828,
     simulate_live_host_actively_constructing_complete_peel_honesty,
 };
+use crate::game_logic::host_live_host_build_edge_margin_residual_wave829::{
+    honesty_host_build_edge_margin_method_names_residual_wave829,
+    honesty_host_build_edge_margin_nav_commands_residual_wave829,
+    simulate_live_host_build_edge_margin_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7739,6 +7744,9 @@ pub struct ShellSmokeResult {
     pub host_actively_constructing_complete_peel_method_names_wave828_ok: bool,
     pub host_actively_constructing_complete_peel_nav_commands_wave828_ok: bool,
     pub host_actively_constructing_complete_peel_live_wave828_ok: bool,
+    pub host_build_edge_margin_method_names_wave829_ok: bool,
+    pub host_build_edge_margin_nav_commands_wave829_ok: bool,
+    pub host_build_edge_margin_live_wave829_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12444,6 +12452,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_actively_constructing_complete_peel_nav_commands_residual_wave828();
     let host_actively_constructing_complete_peel_live_wave828_ok =
         simulate_live_host_actively_constructing_complete_peel_honesty();
+    let host_build_edge_margin_method_names_wave829_ok =
+        honesty_host_build_edge_margin_method_names_residual_wave829();
+    let host_build_edge_margin_nav_commands_wave829_ok =
+        honesty_host_build_edge_margin_nav_commands_residual_wave829();
+    let host_build_edge_margin_live_wave829_ok = simulate_live_host_build_edge_margin_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14917,6 +14930,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_actively_constructing_complete_peel_method_names_wave828_ok,
         host_actively_constructing_complete_peel_nav_commands_wave828_ok,
         host_actively_constructing_complete_peel_live_wave828_ok,
+        host_build_edge_margin_method_names_wave829_ok,
+        host_build_edge_margin_nav_commands_wave829_ok,
+        host_build_edge_margin_live_wave829_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

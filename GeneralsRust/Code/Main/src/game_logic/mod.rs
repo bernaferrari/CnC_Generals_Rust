@@ -138,6 +138,7 @@ pub mod host_live_host_base_regen_dual_peel_residual_wave780;
 pub mod host_live_host_battlemaster_horde_dual_peel_residual_wave812;
 pub mod host_live_host_beam_flare_shell_dual_peel_residual_wave806;
 pub mod host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751;
+pub mod host_live_host_build_edge_margin_residual_wave829;
 pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
 pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
 pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
@@ -1626,7 +1627,7 @@ pub use host_structure_economy_residual::{
     honesty_capture_building_residual_pack_wave83, honesty_command_center_residual_pack_wave83,
     honesty_dozer_build_residual_pack_wave83, honesty_power_plant_residual_pack_wave83,
     honesty_production_queue_residual_pack_wave83, honesty_structure_economy_residual_pack_wave83,
-    honesty_supply_warehouse_residual_pack_wave83,
+    honesty_supply_warehouse_residual_pack_wave83, MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_supply_drop_zone::{
@@ -2876,6 +2877,13 @@ pub use host_live_host_actively_constructing_complete_peel_residual_wave828::{
     honesty_host_actively_constructing_complete_peel_residual_pack_wave828,
     simulate_live_host_actively_constructing_complete_peel_honesty,
 };
+pub use host_live_host_build_edge_margin_residual_wave829::{
+    honesty_host_build_edge_margin_method_names_residual_wave829,
+    honesty_host_build_edge_margin_nav_commands_residual_wave829,
+    honesty_host_build_edge_margin_residual_pack_wave829,
+    simulate_live_host_build_edge_margin_honesty,
+};
+
 pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
     honesty_host_actively_constructing_dual_peel_method_names_residual_wave815,
     honesty_host_actively_constructing_dual_peel_nav_commands_residual_wave815,
