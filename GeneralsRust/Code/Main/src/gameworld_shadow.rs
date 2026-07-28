@@ -7620,6 +7620,46 @@ impl GameWorldShadow {
                     }
                     _ => {}
                 }
+                // Wave 777: StructureTopple applyCrushingDamage residual samples.
+                if matches!(e.structure_topple_state, 2 | 3 | 4) {
+                    use crate::game_logic::host_structure_topple::{
+                        HostStructureToppleData, HostStructureToppleState,
+                    };
+                    let mut st = HostStructureToppleData {
+                        state: match e.structure_topple_state {
+                            1 => HostStructureToppleState::WaitingForStart,
+                            2 => HostStructureToppleState::Toppling,
+                            3 => HostStructureToppleState::WaitingForDone,
+                            4 => HostStructureToppleState::Done,
+                            _ => HostStructureToppleState::Standing,
+                        },
+                        topple_start_frame: e.structure_topple_start_frame,
+                        dir_x: e.structure_topple_dir_x,
+                        dir_y: e.structure_topple_dir_y,
+                        topple_velocity: e.structure_topple_velocity,
+                        accumulated_angle: e.structure_topple_accumulated_angle,
+                        structural_integrity: e.structure_topple_structural_integrity,
+                        structural_decay: e.structure_topple_structural_decay,
+                        done_frame: e.structure_topple_done_frame,
+                        lean_radians: e.structure_topple_lean_radians,
+                        last_crushed_location: e.structure_topple_last_crushed_location,
+                        building_height: e.structure_topple_building_height,
+                        facing_width: e.structure_topple_facing_width,
+                    };
+                    let samples = st.take_crush_sweep_samples(
+                        e.transform.position.x,
+                        e.transform.position.z,
+                    );
+                    e.structure_topple_last_crushed_location = st.last_crushed_location;
+                    if !samples.is_empty() {
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_structure_topple_crush_log::record(
+                                crate::game_logic::ObjectId(hid),
+                                samples,
+                            );
+                        }
+                    }
+                }
                 if done {
                     if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                         crate::game_logic::host_structure_topple_kill_log::record(
@@ -13258,6 +13298,10 @@ pub fn shadow_session_after_host_tick(
                     crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
             logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 777: StructureTopple crush sweep → host apply (no dual last_crushed).
+        for (id, samples) in crate::game_logic::host_structure_topple_crush_log::drain() {
+            logic.apply_structure_topple_crush_samples(id, samples);
         }
 
         // Wave 634: drain combat-status ready log after GW writeback.

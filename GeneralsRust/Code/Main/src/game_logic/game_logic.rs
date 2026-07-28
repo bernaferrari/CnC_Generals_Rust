@@ -8409,21 +8409,27 @@ impl GameLogic {
                     }
                 }
             }
-            // C++ StructureToppleUpdate::applyCrushingDamage residual.
-            if self
-                .objects
-                .get(&object_id)
-                .and_then(|o| o.structure_topple_data.as_ref())
-                .map(|d| d.is_active() || topple_kill)
-                .unwrap_or(false)
+            // Wave 777: under coupled shadow, StructureTopple crush sweep is owned by
+            // GW tick_status_timer_expirations + host_structure_topple_crush_log drain.
+            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                && crate::gameworld_shadow::shadow_coupled_tick_active())
             {
-                let samples = self
+                // C++ StructureToppleUpdate::applyCrushingDamage residual.
+                if self
                     .objects
-                    .get_mut(&object_id)
-                    .map(|o| o.take_structure_topple_crush_samples())
-                    .unwrap_or_default();
-                if !samples.is_empty() {
-                    self.apply_structure_topple_crush_samples(object_id, samples);
+                    .get(&object_id)
+                    .and_then(|o| o.structure_topple_data.as_ref())
+                    .map(|d| d.is_active() || topple_kill)
+                    .unwrap_or(false)
+                {
+                    let samples = self
+                        .objects
+                        .get_mut(&object_id)
+                        .map(|o| o.take_structure_topple_crush_samples())
+                        .unwrap_or_default();
+                    if !samples.is_empty() {
+                        self.apply_structure_topple_crush_samples(object_id, samples);
+                    }
                 }
             }
             // C++ FireWeaponWhenDamagedBehavior forceFire residual (reaction + continuous).
@@ -25407,7 +25413,7 @@ impl GameLogic {
         false
     }
 
-    fn apply_structure_topple_crush_samples(
+    pub(crate) fn apply_structure_topple_crush_samples(
         &mut self,
         building_id: ObjectId,
         samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
