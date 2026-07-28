@@ -22,6 +22,10 @@ pub fn record(id: ObjectId, template_name: impl Into<String>) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.id == object))
+}
+
 pub fn drain() -> Vec<HostConstructionEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

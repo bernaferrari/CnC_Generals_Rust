@@ -20,6 +20,10 @@ pub fn record(object: ObjectId, enabled: bool) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostOverchargeEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

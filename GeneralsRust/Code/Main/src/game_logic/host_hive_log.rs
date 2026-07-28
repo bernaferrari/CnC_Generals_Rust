@@ -24,6 +24,10 @@ pub fn record(object: ObjectId, slave_count: u8, slave_hp: f32) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostHiveEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

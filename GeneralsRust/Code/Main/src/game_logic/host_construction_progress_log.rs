@@ -45,6 +45,10 @@ pub fn record_rate_only(object: ObjectId, under_construction: bool, effective_ra
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostConstructionProgressEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

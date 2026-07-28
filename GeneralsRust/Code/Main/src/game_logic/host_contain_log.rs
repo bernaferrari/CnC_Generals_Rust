@@ -43,6 +43,10 @@ pub fn record_garrison(object: ObjectId, unit_ids: &[ObjectId], max_garrison: u1
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostContainEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
