@@ -4186,6 +4186,25 @@ impl GameWorldShadow {
                         .comanche_rocket_pod_projectile_expires_frame
                         .unwrap_or(0);
                     e.helix_napalm_bomb_projectile = obj.helix_napalm_bomb_projectile;
+                    e.scorpion_missile_projectile = obj.scorpion_missile_projectile;
+                    if let Some(a) = obj.scorpion_missile_aim {
+                        e.scorpion_missile_has_aim = true;
+                        e.scorpion_missile_aim_x = a[0];
+                        e.scorpion_missile_aim_y = a[1];
+                        e.scorpion_missile_aim_z = a[2];
+                    } else {
+                        e.scorpion_missile_has_aim = false;
+                    }
+                    if let Some(i) = obj.scorpion_missile_intended {
+                        e.scorpion_missile_has_intended = true;
+                        e.scorpion_missile_intended = i;
+                    } else {
+                        e.scorpion_missile_has_intended = false;
+                    }
+                    e.scorpion_missile_travelled = obj.scorpion_missile_travelled;
+                    e.scorpion_missile_fuel_expires_frame =
+                        obj.scorpion_missile_fuel_expires_frame.unwrap_or(0);
+                    e.scorpion_missile_slot = obj.scorpion_missile_slot;
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -7644,7 +7663,30 @@ impl GameWorldShadow {
             .copied()
             .collect();
         let mut n = 0usize;
-        for eid in eids {
+                // Wave 805: snapshot live scorpion missile intended positions (borrow-safe).
+        let mut scorpion_retarget: std::collections::HashMap<u32, glam::Vec3> =
+            std::collections::HashMap::new();
+        for eid in &eids {
+            let Some(e) = self.world.entity(*eid) else {
+                continue;
+            };
+            if e.scorpion_missile_projectile && e.scorpion_missile_has_intended {
+                let tid = e.scorpion_missile_intended;
+                if let Some(teid) = self.host_to_entity.get(&tid).copied() {
+                    if let Some(t) = self.world.entity(teid) {
+                        if t.health > 0.0 && !t.destroyed {
+                            let tp = t.transform.position;
+                            scorpion_retarget.insert(
+                                eid.get(),
+                                glam::Vec3::new(tp.x, tp.y, tp.z),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+for eid in eids {
             let Some(e) = self.world.world_mut().entity_mut(eid) else {
                 continue;
             };
@@ -9792,6 +9834,84 @@ impl GameWorldShadow {
                 e.transform.position.x += e.velocity[0];
                 e.transform.position.y += e.velocity[1];
                 e.transform.position.z += e.velocity[2];
+                changed = true;
+            }
+
+            // Wave 805: Scorpion tank missile residual.
+            if e.scorpion_missile_projectile {
+                use crate::game_logic::host_scorpion::{
+                    SCORPION_MISSILE_INITIAL_VELOCITY, SCORPION_MISSILE_PROJECTILE_SPEED,
+                    SCORPION_MISSILE_TURN_DISTANCE,
+                };
+                let launch = SCORPION_MISSILE_INITIAL_VELOCITY / 30.0;
+                let cruise = SCORPION_MISSILE_PROJECTILE_SPEED / 30.0;
+                let pos = glam::Vec3::new(
+                    e.transform.position.x,
+                    e.transform.position.y,
+                    e.transform.position.z,
+                );
+                let mut aim = if e.scorpion_missile_has_aim {
+                    glam::Vec3::new(
+                        e.scorpion_missile_aim_x,
+                        e.scorpion_missile_aim_y,
+                        e.scorpion_missile_aim_z,
+                    )
+                } else {
+                    pos
+                };
+                if let Some(rt) = scorpion_retarget.get(&eid.get()).copied() {
+                    aim = rt;
+                    e.scorpion_missile_has_aim = true;
+                    e.scorpion_missile_aim_x = aim.x;
+                    e.scorpion_missile_aim_y = aim.y;
+                    e.scorpion_missile_aim_z = aim.z;
+                }
+                let speed = if e.scorpion_missile_travelled < SCORPION_MISSILE_TURN_DISTANCE {
+                    launch
+                } else {
+                    cruise
+                };
+                let to_aim = aim - pos;
+                let vel = if to_aim.length() > 0.001 {
+                    to_aim.normalize() * speed
+                } else {
+                    glam::Vec3::new(0.0, -speed, 0.0)
+                };
+                let step = vel.length().max(speed);
+                e.velocity = [vel.x, vel.y, vel.z];
+                e.transform.position.x = pos.x + vel.x;
+                e.transform.position.y = pos.y + vel.y;
+                e.transform.position.z = pos.z + vel.z;
+                e.scorpion_missile_travelled += step;
+                e.transform.orientation = vel.z.atan2(vel.x);
+                let new_pos = glam::Vec3::new(
+                    e.transform.position.x,
+                    e.transform.position.y,
+                    e.transform.position.z,
+                );
+                let fuel_done = e.scorpion_missile_fuel_expires_frame > 0
+                    && frame >= e.scorpion_missile_fuel_expires_frame;
+                let near = (aim - new_pos).length() < 6.0;
+                if fuel_done || near {
+                    e.scorpion_missile_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        let intended = if e.scorpion_missile_has_intended {
+                            Some(crate::game_logic::ObjectId(e.scorpion_missile_intended))
+                        } else {
+                            None
+                        };
+                        crate::game_logic::host_scorpion_missile_projectile_log::record_impact(
+                            crate::game_logic::host_scorpion_missile_projectile_log::ScorpionMissileImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                intended,
+                                pos: aim,
+                                slot: e.scorpion_missile_slot,
+                            },
+                        );
+                    }
+                }
                 changed = true;
             }
 
@@ -14945,6 +15065,31 @@ impl GameWorldShadow {
                         None
                     };
                 obj.helix_napalm_bomb_projectile = ent.helix_napalm_bomb_projectile;
+                obj.scorpion_missile_projectile = ent.scorpion_missile_projectile;
+                if ent.scorpion_missile_has_aim {
+                    obj.scorpion_missile_aim = Some([
+                        ent.scorpion_missile_aim_x,
+                        ent.scorpion_missile_aim_y,
+                        ent.scorpion_missile_aim_z,
+                    ]);
+                } else {
+                    obj.scorpion_missile_aim = None;
+                }
+                obj.scorpion_missile_intended = if ent.scorpion_missile_has_intended {
+                    Some(ent.scorpion_missile_intended)
+                } else {
+                    None
+                };
+                obj.scorpion_missile_travelled = ent.scorpion_missile_travelled;
+                obj.scorpion_missile_fuel_expires_frame =
+                    if ent.scorpion_missile_projectile
+                        && ent.scorpion_missile_fuel_expires_frame > 0
+                    {
+                        Some(ent.scorpion_missile_fuel_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.scorpion_missile_slot = ent.scorpion_missile_slot;
             }
 
             set_flag!(obj.status.masked, ent.masked);
@@ -17108,6 +17253,26 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(id, None);
         }
+        // Wave 805: Scorpion missile impact residual.
+        for ev in crate::game_logic::host_scorpion_missile_projectile_log::drain_impacts() {
+            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.scorpion_missile_projectile = false;
+                o.set_position(ev.pos);
+            }
+            let _ = logic.apply_scorpion_residual_at(ev.pos, ev.source, ev.intended, ev.slot);
+            logic.mark_object_for_destruction(ev.id, team);
+        }
+
 
 
 

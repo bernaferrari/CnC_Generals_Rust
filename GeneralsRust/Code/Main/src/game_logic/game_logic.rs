@@ -6361,7 +6361,12 @@ impl GameLogic {
         self.update_tank_hunter_missile_projectiles();
         self.update_missile_defender_missile_projectiles();
         self.update_scorpion_shell_projectiles();
-        self.update_scorpion_missile_projectiles();
+        // Wave 805: under coupled shadow, residual owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_scorpion_missile_projectiles();
+        }
         // Wave 800: under coupled shadow, cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
