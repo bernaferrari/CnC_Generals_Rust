@@ -3312,6 +3312,29 @@ impl GameWorldShadow {
                         e.poison_death_type = 0;
                         e.poison_tint = false;
                     }
+                    if let Some(td) = obj.topple_data.as_ref() {
+                        e.topple_active = true;
+                        e.topple_state = td.state as u8;
+                        e.topple_dir_x = td.dir_x;
+                        e.topple_dir_y = td.dir_y;
+                        e.topple_angular_velocity = td.angular_velocity;
+                        e.topple_angular_acceleration = td.angular_acceleration;
+                        e.topple_angular_accumulation = td.angular_accumulation;
+                        e.topple_options = td.options;
+                        e.topple_kill_when_toppled = td.kill_when_toppled;
+                        e.topple_lean_radians = td.lean_radians;
+                    } else {
+                        e.topple_active = false;
+                        e.topple_state = 0;
+                        e.topple_dir_x = 0.0;
+                        e.topple_dir_y = 0.0;
+                        e.topple_angular_velocity = 0.0;
+                        e.topple_angular_acceleration = 0.0;
+                        e.topple_angular_accumulation = 0.0;
+                        e.topple_options = 0;
+                        e.topple_kill_when_toppled = false;
+                        e.topple_lean_radians = 0.0;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7107,6 +7130,39 @@ impl GameWorldShadow {
                     e.poison_tint = false;
                     changed = true;
                 }
+            }
+            // Wave 770: ToppleUpdate fall residual (trees / crushable props).
+            if e.topple_active && e.topple_state == 1 {
+                use crate::game_logic::host_topple::{
+                    TOPPLE_ANGULAR_LIMIT, TOPPLE_BOUNCE_VELOCITY_PERCENT, TOPPLE_OPTIONS_NO_BOUNCE,
+                    TOPPLE_VELOCITY_BOUNCE_LIMIT,
+                };
+                let mut cur_vel = e.topple_angular_velocity;
+                if e.topple_angular_accumulation + cur_vel > TOPPLE_ANGULAR_LIMIT {
+                    cur_vel = TOPPLE_ANGULAR_LIMIT - e.topple_angular_accumulation;
+                }
+                e.topple_lean_radians += cur_vel;
+                e.topple_angular_accumulation += cur_vel;
+                if e.topple_angular_accumulation >= TOPPLE_ANGULAR_LIMIT - 1e-6
+                    && e.topple_angular_velocity > 0.0
+                {
+                    e.topple_angular_velocity *= -TOPPLE_BOUNCE_VELOCITY_PERCENT;
+                    let no_bounce = (e.topple_options & TOPPLE_OPTIONS_NO_BOUNCE) != 0;
+                    if no_bounce || e.topple_angular_velocity.abs() < TOPPLE_VELOCITY_BOUNCE_LIMIT {
+                        e.topple_angular_velocity = 0.0;
+                        e.topple_state = 2; // Down
+                        if e.topple_kill_when_toppled {
+                            if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                                crate::game_logic::host_topple_kill_log::record(
+                                    crate::game_logic::ObjectId(hid),
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    e.topple_angular_velocity += e.topple_angular_acceleration;
+                }
+                changed = true;
             }
             if changed {
                 n += 1;
@@ -11015,6 +11071,38 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_active = obj.topple_data.is_some();
+                let changed = host_active != ent.topple_active
+                    || obj.topple_data.as_ref().map(|td| {
+                        td.state as u8 != ent.topple_state
+                            || (td.lean_radians - ent.topple_lean_radians).abs() > f32::EPSILON
+                            || (td.angular_velocity - ent.topple_angular_velocity).abs() > f32::EPSILON
+                            || (td.angular_accumulation - ent.topple_angular_accumulation).abs()
+                                > f32::EPSILON
+                    }).unwrap_or(ent.topple_active);
+                if changed {
+                    if ent.topple_active {
+                        use crate::game_logic::host_topple::{HostToppleData, HostToppleState};
+                        let td = obj.topple_data.get_or_insert_with(HostToppleData::default);
+                        td.state = match ent.topple_state {
+                            1 => HostToppleState::Falling,
+                            2 => HostToppleState::Down,
+                            _ => HostToppleState::Upright,
+                        };
+                        td.dir_x = ent.topple_dir_x;
+                        td.dir_y = ent.topple_dir_y;
+                        td.angular_velocity = ent.topple_angular_velocity;
+                        td.angular_acceleration = ent.topple_angular_acceleration;
+                        td.angular_accumulation = ent.topple_angular_accumulation;
+                        td.options = ent.topple_options;
+                        td.kill_when_toppled = ent.topple_kill_when_toppled;
+                        td.lean_radians = ent.topple_lean_radians;
+                    } else {
+                        obj.topple_data = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12394,6 +12482,16 @@ pub fn shadow_session_after_host_tick(
                     ev.death_type,
                 );
             }
+        }
+        // Wave 770: ToppleUpdate kill-when-down → host destroy (no dual timer).
+        for id in crate::game_logic::host_topple_kill_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                obj.health.current = 0.0;
+                obj.status.destroyed = true;
+                obj.status.death_type =
+                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+            }
+            logic.mark_object_for_destruction(id, None);
         }
 
         // Wave 634: drain combat-status ready log after GW writeback.
