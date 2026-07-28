@@ -18272,6 +18272,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 711: post-logic destroy / contain / AI-decision residual apply.
+                let _des = crate::gameworld_shadow::eager_apply_host_destroy_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _con = crate::gameworld_shadow::eager_apply_host_contain_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _aid = crate::gameworld_shadow::eager_apply_host_ai_decision_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
