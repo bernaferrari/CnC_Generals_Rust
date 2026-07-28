@@ -1147,8 +1147,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         let _ = write_control(
                             &control_path,
                             &[
-                                "train_unit|template=AmericaInfantryRanger",
-                                "train_unit|template=USA_Ranger",
+                                "train_unit|template=AmericaInfantryRanger|force_complete=1",
+                                "train_unit|template=USA_Ranger|force_complete=1",
                             ],
                         );
                         train_sent = true;
@@ -2358,7 +2358,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         {
                             let _ = write_control(
                                 &control_path,
-                                &["train_unit|template=AmericaInfantryRanger"],
+                                &["train_unit|template=AmericaInfantryRanger|force_complete=1"],
                             );
                         }
                         // Primary: select+move+attack. Residual: production+attack proves
