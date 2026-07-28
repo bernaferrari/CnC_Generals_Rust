@@ -3993,6 +3993,40 @@ impl GameWorldShadow {
                         .aurora_bomb_mission_id
                         .map(|mid| logic.aurora_bombs.has_mission(mid))
                         .unwrap_or(false);
+                    e.toxin_stream_projectile = obj.toxin_stream_projectile;
+                    if let Some(a) = obj.toxin_stream_aim {
+                        e.toxin_stream_has_aim = true;
+                        e.toxin_stream_aim_x = a[0];
+                        e.toxin_stream_aim_y = a[1];
+                        e.toxin_stream_aim_z = a[2];
+                    } else {
+                        e.toxin_stream_has_aim = false;
+                    }
+                    if let Some(i) = obj.toxin_stream_intended {
+                        e.toxin_stream_has_intended = true;
+                        e.toxin_stream_intended = i;
+                    } else {
+                        e.toxin_stream_has_intended = false;
+                    }
+                    e.toxin_stream_travelled = obj.toxin_stream_travelled;
+                    if let Some(f) = obj.toxin_stream_fuel_expires_frame {
+                        e.toxin_stream_has_fuel = true;
+                        e.toxin_stream_fuel_expires_frame = f;
+                    } else {
+                        e.toxin_stream_has_fuel = false;
+                    }
+                    if let Some(f) = obj.toxin_stream_ignition_frame {
+                        e.toxin_stream_has_ignition = true;
+                        e.toxin_stream_ignition_frame = f;
+                    } else {
+                        e.toxin_stream_has_ignition = false;
+                    }
+                    if let Some(s) = obj.toxin_stream_shooter {
+                        e.toxin_stream_has_shooter = true;
+                        e.toxin_stream_shooter = s;
+                    } else {
+                        e.toxin_stream_has_shooter = false;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -9019,6 +9053,106 @@ impl GameWorldShadow {
                 }
             }
 
+            // Wave 798: ToxinStream projectile residual.
+            if e.toxin_stream_projectile {
+                use crate::game_logic::host_toxin_tractor::{
+                    toxin_stream_missile_step_speed, TOXIN_STREAM_MISSILE_TURN_DISTANCE,
+                };
+                let pos = e.transform.position;
+                let (aim_x, aim_y, aim_z) = if e.toxin_stream_has_aim {
+                    (e.toxin_stream_aim_x, e.toxin_stream_aim_y, e.toxin_stream_aim_z)
+                } else {
+                    (pos.x, pos.y, pos.z)
+                };
+                let fuel_done = e.toxin_stream_has_fuel && e.toxin_stream_fuel_expires_frame <= frame;
+                let ignited = if e.toxin_stream_has_ignition {
+                    e.toxin_stream_ignition_frame <= frame
+                } else {
+                    true
+                };
+                let can_steer = e.toxin_stream_travelled >= TOXIN_STREAM_MISSILE_TURN_DISTANCE;
+                let speed = toxin_stream_missile_step_speed(ignited && can_steer);
+                let dx = aim_x - pos.x;
+                let dy = aim_y - pos.y;
+                let dz = aim_z - pos.z;
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
+                let (vx, vy, vz) = if dist > 0.001 {
+                    (
+                        dx / dist * step_speed,
+                        dy / dist * step_speed,
+                        dz / dist * step_speed,
+                    )
+                } else {
+                    (0.0, -step_speed, 0.0)
+                };
+                let step = (vx * vx + vy * vy + vz * vz).sqrt().max(step_speed);
+                let new_x = pos.x + vx;
+                let new_y = pos.y + vy;
+                let new_z = pos.z + vz;
+                e.transform.position.x = new_x;
+                e.transform.position.y = new_y;
+                e.transform.position.z = new_z;
+                e.toxin_stream_travelled += step;
+                e.toxin_stream_has_aim = true;
+                e.toxin_stream_aim_x = aim_x;
+                e.toxin_stream_aim_y = aim_y;
+                e.toxin_stream_aim_z = aim_z;
+                if vx * vx + vz * vz > 1e-6 {
+                    e.transform.orientation = vz.atan2(vx);
+                }
+                if e.toxin_stream_has_shooter {
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let intended = if e.toxin_stream_has_intended {
+                            Some(crate::game_logic::ObjectId(e.toxin_stream_intended))
+                        } else {
+                            None
+                        };
+                        crate::game_logic::host_toxin_stream_projectile_log::record_stream(
+                            crate::game_logic::host_toxin_stream_projectile_log::ToxinStreamPointEvent {
+                                shooter: crate::game_logic::ObjectId(e.toxin_stream_shooter),
+                                pos: glam::Vec3::new(new_x, new_y, new_z),
+                                intended,
+                                aim: glam::Vec3::new(aim_x, aim_y, aim_z),
+                            },
+                        );
+                        let _ = hid;
+                    }
+                }
+                let near = dist <= speed + 0.001
+                    || (aim_x - new_x) * (aim_x - new_x)
+                        + (aim_y - new_y) * (aim_y - new_y)
+                        + (aim_z - new_z) * (aim_z - new_z)
+                        < 6.0 * 6.0;
+                if fuel_done || near {
+                    e.toxin_stream_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        let intended = if e.toxin_stream_has_intended {
+                            Some(crate::game_logic::ObjectId(e.toxin_stream_intended))
+                        } else {
+                            None
+                        };
+                        let impact_pos = if near {
+                            glam::Vec3::new(aim_x, aim_y, aim_z)
+                        } else {
+                            glam::Vec3::new(new_x, new_y, new_z)
+                        };
+                        crate::game_logic::host_toxin_stream_projectile_log::record_impact(
+                            crate::game_logic::host_toxin_stream_projectile_log::ToxinStreamImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                intended,
+                                pos: impact_pos,
+                                team,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -13853,6 +13987,39 @@ impl GameWorldShadow {
                     None
                 };
             }
+            {
+                obj.toxin_stream_projectile = ent.toxin_stream_projectile;
+                if ent.toxin_stream_has_aim {
+                    obj.toxin_stream_aim = Some([
+                        ent.toxin_stream_aim_x,
+                        ent.toxin_stream_aim_y,
+                        ent.toxin_stream_aim_z,
+                    ]);
+                } else {
+                    obj.toxin_stream_aim = None;
+                }
+                obj.toxin_stream_intended = if ent.toxin_stream_has_intended {
+                    Some(ent.toxin_stream_intended)
+                } else {
+                    None
+                };
+                obj.toxin_stream_travelled = ent.toxin_stream_travelled;
+                obj.toxin_stream_fuel_expires_frame = if ent.toxin_stream_has_fuel {
+                    Some(ent.toxin_stream_fuel_expires_frame)
+                } else {
+                    None
+                };
+                obj.toxin_stream_ignition_frame = if ent.toxin_stream_has_ignition {
+                    Some(ent.toxin_stream_ignition_frame)
+                } else {
+                    None
+                };
+                obj.toxin_stream_shooter = if ent.toxin_stream_has_shooter {
+                    Some(ent.toxin_stream_shooter)
+                } else {
+                    None
+                };
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -15813,6 +15980,45 @@ pub fn shadow_session_after_host_tick(
             let team = logic.get_objects().get(&ev.id).map(|o| o.team);
             logic.mark_object_for_destruction(ev.id, team);
         }
+        // Wave 798: ToxinStream projectile stream + impact (no dual flight).
+        for ev in crate::game_logic::host_toxin_stream_projectile_log::drain_streams() {
+            use crate::game_logic::host_toxin_tractor::TOXIN_STREAM_NAME;
+            logic.projectile_streams.add_projectile(
+                ev.shooter,
+                TOXIN_STREAM_NAME,
+                ev.pos,
+                ev.intended,
+                Some(ev.aim),
+                logic.frame,
+            );
+        }
+        for ev in crate::game_logic::host_toxin_stream_projectile_log::drain_impacts() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.toxin_stream_projectile = false;
+                o.set_position(ev.pos);
+            }
+            let source_team = ev
+                .source
+                .and_then(|sid| logic.get_objects().get(&sid).map(|o| o.team))
+                .unwrap_or(ev.team);
+            let _ = logic.apply_toxin_tractor_stream_at(
+                ev.pos,
+                ev.source,
+                ev.intended,
+                source_team,
+            );
+            logic.mark_object_for_destruction(ev.id, Some(ev.team));
+        }
+
 
 
 
