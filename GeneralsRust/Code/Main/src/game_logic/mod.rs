@@ -20,6 +20,7 @@ pub mod host_cluster_mines_flight;
 pub mod host_combat_attack_log;
 pub mod host_create_crate_die;
 pub mod host_daisy_cutter_flight;
+pub mod host_daisy_cutter_drop_log;
 pub mod host_damage_log;
 pub mod host_death_type_log;
 pub mod host_emp_pulse_flight;
@@ -213,6 +214,7 @@ pub mod host_live_host_anim_steer_dual_peel_residual_wave784;
 pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
 pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
+pub mod host_live_host_daisy_cutter_flight_dual_peel_residual_wave788;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3927,6 +3929,16 @@ pub use host_live_host_smart_bomb_homing_dual_peel_residual_wave787::{
     residual_host_smart_bomb_homing_dual_peel_ok,
     simulate_live_host_smart_bomb_homing_dual_peel_honesty,
 };
+pub use host_live_host_daisy_cutter_flight_dual_peel_residual_wave788::{
+    honesty_host_daisy_cutter_flight_dual_peel_method_names_residual_wave788,
+    honesty_host_daisy_cutter_flight_dual_peel_nav_commands_residual_wave788,
+    honesty_host_daisy_cutter_flight_dual_peel_residual_pack_wave788,
+    honesty_host_daisy_cutter_flight_dual_peel_source_markers_residual_wave788,
+    residual_host_daisy_cutter_flight_dual_peel_last_action,
+    residual_host_daisy_cutter_flight_dual_peel_ok,
+    simulate_live_host_daisy_cutter_flight_dual_peel_honesty,
+};
+
 
 
 
