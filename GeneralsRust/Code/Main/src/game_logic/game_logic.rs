@@ -1996,7 +1996,7 @@ pub struct GameLogic {
     /// Under-construction model condition residual updates.
     construction_model_condition_updates: u32,
     /// ACTIVELY_CONSTRUCTING residual bit updates.
-    actively_constructing_updates: u32,
+    pub(crate) actively_constructing_updates: u32,
     /// C++ BuildAssistant m_sellList residual.
     sell_list: Vec<ObjectSellInfo>,
     /// Sell residual process starts / finishes.
@@ -7174,7 +7174,12 @@ impl GameLogic {
             self.block_structure_object_path(completed_id);
         }
         // C++ ACTIVELY_CONSTRUCTING residual for dozers/factories.
-        self.update_actively_constructing_model_conditions();
+        // Wave 815: under coupled shadow, model bit owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_actively_constructing_model_conditions();
+        }
     }
 
 

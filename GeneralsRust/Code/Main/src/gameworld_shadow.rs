@@ -9,6 +9,7 @@
 //! Policy: borrow host for sync phases only; never store long-lived host references.
 
 use crate::game_logic::{GameLogic, ObjectId, Team};
+
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
@@ -10587,6 +10588,49 @@ for eid in eids {
                 }
             }
 
+            // Wave 815: ACTIVELY_CONSTRUCTING model condition residual.
+            {
+                use crate::game_logic::host_enum_table_residual::actively_constructing_model_bit;
+                let ac_bit = actively_constructing_model_bit();
+                let ac_mask = 1u128 << ac_bit;
+                const WORKER_BIT: u32 = 1u32 << 9; // KindOf::Worker
+                let alive = e.health > 0.0 && !e.destroyed;
+                let name = e.template_name();
+                let is_worker = (e.kind_of_bits & WORKER_BIT) != 0
+                    || name.contains("Dozer")
+                    || name.contains("Worker")
+                    || name.contains("dozer")
+                    || name.contains("worker");
+                const STRUCTURE_BIT: u32 = 1u32 << 0;
+                let can_construct = is_worker && (e.kind_of_bits & STRUCTURE_BIT) == 0;
+                let is_dozer_building = can_construct
+                    && matches!(e.ai_state_ordinal, 7 | 8); // Constructing | Repairing
+                let is_producing = e.production_queue_len > 0
+                    || !e.production_queue_items.is_empty();
+                let has_bit = (e.model_condition_bits & ac_mask) != 0;
+                if alive && (can_construct || is_producing || has_bit) {
+                    let want = is_dozer_building || is_producing;
+                    let before = e.model_condition_bits;
+                    if want {
+                        e.model_condition_bits |= ac_mask;
+                    } else {
+                        e.model_condition_bits &= !ac_mask;
+                    }
+                    if e.model_condition_bits != before {
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_actively_constructing_log::record(
+                                crate::game_logic::host_actively_constructing_log::ActivelyConstructingEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    model_condition_bits: e.model_condition_bits,
+                                    want,
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                }
+            }
+
             if changed {
                 n += 1;
             }
@@ -18160,6 +18204,19 @@ pub fn shadow_session_after_host_tick(
                 .stinger_hive_residual_respawns
                 .saturating_add(1);
         }
+        // Wave 815: ACTIVELY_CONSTRUCTING model bit residual.
+        for ev in crate::game_logic::host_actively_constructing_log::drain() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                let before = o.model_condition_bits;
+                o.model_condition_bits = ev.model_condition_bits;
+                if o.model_condition_bits != before {
+                    logic.actively_constructing_updates = logic
+                        .actively_constructing_updates
+                        .saturating_add(1);
+                }
+            }
+        }
+
 
 
 
