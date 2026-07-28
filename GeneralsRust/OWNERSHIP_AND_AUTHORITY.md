@@ -198,6 +198,7 @@ Remaining engine residual after host update:
   - train_unit force-complete barracks is opt-in only (Wave 718; smoke sets force_complete=1)
   - construct free-dozer spawn is opt-in only (Wave 719; smoke sets spawn_dozer=1)
   - formation free buddy-infantry spawn is opt-in only (Wave 720; smoke sets spawn_buddy=1)
+  - train/upgrade free min-supplies floor is opt-in only (Wave 721; smoke sets grant_supplies=1)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

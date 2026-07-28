@@ -9934,9 +9934,44 @@ impl CnCGameEngine {
                     if let Some(pid) = producer {
                         // Wave 581: GoldenRanger host template residual via helper.
                         self.host_ensure_golden_ranger_template();
-                        // Wave 240: supplies floor via probe (no &mut Player dual-read).
-                        self.game_logic
-                            .ensure_player_min_supplies(self.current_player_id, 25_000);
+                        // Wave 721: free supplies floor is opt-in only (default fail-closed).
+                        // Retail cash comes from skirmish/map starting resources.
+                        // Smoke may set grant_supplies=1 / GENERALS_RUNTIME_HOST_GRANT_MIN_SUPPLIES=1.
+                        let allow_grant_supplies = args
+                            .get("grant_supplies")
+                            .or_else(|| args.get("min_supplies"))
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                                    || s.parse::<u32>().map(|n| n > 0).unwrap_or(false)
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_GRANT_MIN_SUPPLIES")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
+                        if allow_grant_supplies {
+                            let floor = args
+                                .get("grant_supplies")
+                                .or_else(|| args.get("min_supplies"))
+                                .and_then(|v| v.trim().parse::<u32>().ok())
+                                .filter(|n| *n > 1)
+                                .or_else(|| {
+                                    std::env::var("GENERALS_RUNTIME_HOST_GRANT_MIN_SUPPLIES")
+                                        .ok()
+                                        .and_then(|v| v.trim().parse::<u32>().ok())
+                                        .filter(|n| *n > 1)
+                                })
+                                .unwrap_or(25_000);
+                            self.game_logic
+                                .ensure_player_min_supplies(self.current_player_id, floor);
+                        }
                         let try_names = [
                             template.as_str(),
                             "AmericaInfantryRanger",
@@ -10176,9 +10211,6 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = "upgrade_fail_no_player".into();
                         return;
                     };
-                    // Wave 240: supplies floor via probe (no &mut Player dual-read).
-                    self.game_logic
-                        .ensure_player_min_supplies(self.current_player_id, 25_000);
                     // Prefer selected structure; else any constructed friendly structure.
                     let mut producers: Vec<crate::game_logic::ObjectId> = self
                         .selected_objects
@@ -10212,6 +10244,44 @@ impl CnCGameEngine {
                             // Presentation required (no live get_objects dual-read).
                             Vec::new()
                         };
+                    }
+                    // Wave 721: free supplies floor is opt-in only (default fail-closed).
+                    // Retail cash comes from skirmish/map starting resources.
+                    // Smoke may set grant_supplies=1 / GENERALS_RUNTIME_HOST_GRANT_MIN_SUPPLIES=1.
+                    let allow_grant_supplies = args
+                        .get("grant_supplies")
+                        .or_else(|| args.get("min_supplies"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                                || s.parse::<u32>().map(|n| n > 0).unwrap_or(false)
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_GRANT_MIN_SUPPLIES")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if allow_grant_supplies {
+                        let floor = args
+                            .get("grant_supplies")
+                            .or_else(|| args.get("min_supplies"))
+                            .and_then(|v| v.trim().parse::<u32>().ok())
+                            .filter(|n| *n > 1)
+                            .or_else(|| {
+                                std::env::var("GENERALS_RUNTIME_HOST_GRANT_MIN_SUPPLIES")
+                                    .ok()
+                                    .and_then(|v| v.trim().parse::<u32>().ok())
+                                    .filter(|n| *n > 1)
+                            })
+                            .unwrap_or(25_000);
+                        self.game_logic
+                            .ensure_player_min_supplies(self.current_player_id, floor);
                     }
                     let candidates = [
                         requested.as_str(),
