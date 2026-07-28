@@ -4812,10 +4812,27 @@ impl GameWorldShadow {
                     if head.progress + 1e-6 >= head.total_time.max(0.0)
                         && bd.exit_delay_remaining <= 1e-6
                     {
-                        crate::game_logic::host_production_ready_log::record(
+                        // Wave 735: GW spawn pose + rally ride the ready event so
+                        // host sole-tick complete/spawn does not re-derive exit pose
+                        // solely from host building scan.
+                        let p = ent.transform.position;
+                        let yaw = ent.transform.orientation;
+                        let radius = ent.selection_radius.max(10.0);
+                        let spawn_pos = [
+                            p.x + yaw.cos() * radius,
+                            p.y,
+                            p.z + yaw.sin() * radius,
+                        ];
+                        crate::game_logic::host_production_ready_log::record_with_pose(
                             ObjectId(hid),
                             head.template_name.clone(),
                             head.is_upgrade(),
+                            if head.is_upgrade() {
+                                None
+                            } else {
+                                Some(spawn_pos)
+                            },
+                            ent.rally_point,
                         );
                     }
                 }
