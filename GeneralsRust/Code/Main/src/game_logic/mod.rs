@@ -217,6 +217,7 @@ pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
 pub mod host_live_host_patriot_laser_dual_peel_residual_wave823;
+pub mod host_live_host_pending_patriot_dual_peel_residual_wave824;
 pub mod host_live_host_player_alive_dual_peel_residual_wave816;
 pub mod host_live_host_player_radar_dual_peel_residual_wave818;
 pub mod host_live_host_poison_dot_dual_peel_residual_wave769;
@@ -3008,6 +3009,12 @@ pub use host_live_host_patriot_laser_dual_peel_residual_wave823::{
     honesty_host_patriot_laser_dual_peel_nav_commands_residual_wave823,
     honesty_host_patriot_laser_dual_peel_residual_pack_wave823,
     simulate_live_host_patriot_laser_dual_peel_honesty,
+};
+pub use host_live_host_pending_patriot_dual_peel_residual_wave824::{
+    honesty_host_pending_patriot_dual_peel_method_names_residual_wave824,
+    honesty_host_pending_patriot_dual_peel_nav_commands_residual_wave824,
+    honesty_host_pending_patriot_dual_peel_residual_pack_wave824,
+    simulate_live_host_pending_patriot_dual_peel_honesty,
 };
 
 pub use host_live_host_auto_select_mobile_opt_in_residual_wave726::{

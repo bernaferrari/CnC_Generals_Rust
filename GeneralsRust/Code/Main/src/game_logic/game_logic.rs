@@ -17457,7 +17457,12 @@ impl GameLogic {
 
         // AssistedTargeting residual: advance pending Patriot assist clips after
         // primary fire this combat pass (AssistingClipSize / DelayBetweenShots).
-        self.update_pending_patriot_assists();
+        // Wave 824: under coupled shadow, pending patriot assists sole-tick after GW writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_pending_patriot_assists();
+        }
         // BinaryDataStream laser residual: expire DeletionUpdate lifetime beams.
         // Wave 823: under coupled shadow, patriot assist lasers sole-tick after GW writeback.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -35294,7 +35299,11 @@ impl GameLogic {
     ///
     /// Fires one assist-weapon shot per DelayBetweenShots (**8** frames) until
     /// AssistingClipSize (**4**) is exhausted or victim dies / leaves range.
-    pub fn update_pending_patriot_assists(&mut self) {
+    pub(crate) fn tick_pending_patriot_assists_sole(&mut self) {
+        self.update_pending_patriot_assists();
+    }
+
+    fn update_pending_patriot_assists(&mut self) {
         use crate::game_logic::host_base_defense::{
             is_within_patriot_assist_weapon_range, LAZR_PATRIOT_FIRE_AUDIO,
             PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
