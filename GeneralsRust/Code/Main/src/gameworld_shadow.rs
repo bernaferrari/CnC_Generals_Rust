@@ -7737,7 +7737,18 @@ impl GameWorldShadow {
             .copied()
             .collect();
         let mut n = 0usize;
-                // Wave 807: snapshot sticky/booby attach target positions (borrow-safe).
+                // Wave 811: underpowered teams from shadow player economy (borrow-safe).
+        let mut underpowered_team_ords: std::collections::HashSet<u8> =
+            std::collections::HashSet::new();
+        for (_pid, pd) in self.world.world().active_players() {
+            if pd.power_available < 0 {
+                if let Some(t) = pd.team {
+                    underpowered_team_ords.insert(t);
+                }
+            }
+        }
+
+        // Wave 807: snapshot sticky/booby attach target positions (borrow-safe).
         let mut sticky_booby_targets: std::collections::HashMap<u32, (glam::Vec3, bool, bool)> =
             std::collections::HashMap::new();
         for eid in &eids {
@@ -10297,6 +10308,26 @@ for eid in eids {
                     );
                 }
                 changed = true;
+            }
+
+            // Wave 811: Powered buildings disabled_underpowered residual.
+            {
+                const POWERED_BIT: u32 = 1u32 << 28; // KindOf::Powered in presentation ORDER
+                if (e.kind_of_bits & POWERED_BIT) != 0 {
+                    let constructed =
+                        !e.under_construction && e.construction_percent + 0.001 >= 1.0;
+                    let alive = e.health > 0.0 && !e.destroyed;
+                    let should = underpowered_team_ords.contains(&e.team_ordinal)
+                        && alive
+                        && constructed;
+                    if e.disabled_underpowered != should {
+                        e.disabled_underpowered = should;
+                        changed = true;
+                    }
+                } else if e.disabled_underpowered {
+                    e.disabled_underpowered = false;
+                    changed = true;
+                }
             }
 
             if changed {

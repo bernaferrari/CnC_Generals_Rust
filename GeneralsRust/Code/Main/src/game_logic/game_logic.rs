@@ -24038,6 +24038,14 @@ impl GameLogic {
     }
 
     fn update_power_disabled_state(&mut self) {
+        // Wave 811: under coupled shadow, disabled_underpowered owned by GW expire.
+        // Keep Eva low-power residual on host (UI presentation).
+        if crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active()
+        {
+            self.update_eva_low_power();
+            return;
+        }
         // Build a set of teams that are underpowered.
         let mut underpowered_teams: std::collections::HashSet<Team> =
             std::collections::HashSet::new();
