@@ -38646,7 +38646,16 @@ impl GameLogic {
         for id in rubble_ids {
             self.tensile_formation_reg.record_rubble();
             if let Some(o) = self.objects.get_mut(&id) {
-                o.health.current = 0.0;
+                // Wave 749: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log;
+                // non-authority path keeps host HP clear. Tensile rubble flags
+                // remain host residual either way.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    crate::game_logic::host_damage_log::record(id, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
                 if let Some(tf) = o.tensile_formation.as_mut() {
                     tf.rubble = true;
                     tf.done = true;
