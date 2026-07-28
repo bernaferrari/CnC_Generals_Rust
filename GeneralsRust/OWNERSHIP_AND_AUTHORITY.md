@@ -220,6 +220,7 @@ Remaining engine residual after host update:
   - rebuild-hole worker/reconstruct spawn is GW entity-first under construction sole-tick (Wave 740)
   - construction sole-tick rebuild spawn without GW entity bind is fail-closed (Wave 741; opt-in REBUILD_SPAWN_WITHOUT_GW_BIND)
   - GLA rebuild-hole expose spawn is GW entity-first under construction sole-tick (Wave 742)
+  - production sole-tick: host does not dual-tick door residual (Wave 743; GW door writeback owns phase advance)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

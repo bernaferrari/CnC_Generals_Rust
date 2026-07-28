@@ -6876,7 +6876,11 @@ impl GameLogic {
                 if obj.tick_radar_extend(self.frame) {
                     radar_extend_done.push(id);
                 }
-                let _ = obj.tick_production_door(self.frame);
+                // Wave 743: under production sole-tick, GameWorld owns door phase
+                // advance + writeback; host must not dual-tick door residual.
+                if !crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+                    let _ = obj.tick_production_door(self.frame);
+                }
                 // Wave 626: under construction sole-tick, GW ready-log owns clear
                 // residual; host tick still advances non-sole path.
                 if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {

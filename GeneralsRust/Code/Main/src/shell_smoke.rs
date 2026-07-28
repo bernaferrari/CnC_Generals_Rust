@@ -3185,6 +3185,11 @@ use crate::game_logic::host_live_host_rebuild_hole_expose_entity_first_residual_
     honesty_host_rebuild_hole_expose_entity_first_nav_commands_residual_wave742,
     simulate_live_host_rebuild_hole_expose_entity_first_honesty,
 };
+use crate::game_logic::host_live_host_production_door_sole_no_dual_tick_residual_wave743::{
+    honesty_host_production_door_sole_no_dual_tick_method_names_residual_wave743,
+    honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743,
+    simulate_live_host_production_door_sole_no_dual_tick_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7050,6 +7055,9 @@ pub struct ShellSmokeResult {
     pub host_rebuild_hole_expose_entity_first_method_names_wave742_ok: bool,
     pub host_rebuild_hole_expose_entity_first_nav_commands_wave742_ok: bool,
     pub host_rebuild_hole_expose_entity_first_live_wave742_ok: bool,
+    pub host_production_door_sole_no_dual_tick_method_names_wave743_ok: bool,
+    pub host_production_door_sole_no_dual_tick_nav_commands_wave743_ok: bool,
+    pub host_production_door_sole_no_dual_tick_live_wave743_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11241,6 +11249,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_rebuild_hole_expose_entity_first_nav_commands_residual_wave742();
     let host_rebuild_hole_expose_entity_first_live_wave742_ok =
         simulate_live_host_rebuild_hole_expose_entity_first_honesty();
+    let host_production_door_sole_no_dual_tick_method_names_wave743_ok =
+        honesty_host_production_door_sole_no_dual_tick_method_names_residual_wave743();
+    let host_production_door_sole_no_dual_tick_nav_commands_wave743_ok =
+        honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743();
+    let host_production_door_sole_no_dual_tick_live_wave743_ok =
+        simulate_live_host_production_door_sole_no_dual_tick_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13456,6 +13470,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_rebuild_hole_expose_entity_first_method_names_wave742_ok,
         host_rebuild_hole_expose_entity_first_nav_commands_wave742_ok,
         host_rebuild_hole_expose_entity_first_live_wave742_ok,
+        host_production_door_sole_no_dual_tick_method_names_wave743_ok,
+        host_production_door_sole_no_dual_tick_nav_commands_wave743_ok,
+        host_production_door_sole_no_dual_tick_live_wave743_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24856,6 +24873,21 @@ mod tests {
         assert!(
             r.host_rebuild_hole_expose_entity_first_live_wave742_ok,
             "host rebuild_hole_expose_entity_first live residual wave742: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_door_sole_no_dual_tick_method_names_wave743_ok,
+            "host production_door_sole_no_dual_tick method names residual pack wave743: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_door_sole_no_dual_tick_nav_commands_wave743_ok,
+            "host production_door_sole_no_dual_tick nav commands residual pack wave743: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_door_sole_no_dual_tick_live_wave743_ok,
+            "host production_door_sole_no_dual_tick live residual wave743: {}",
             r.detail
         );
         assert!(
