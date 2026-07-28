@@ -23424,6 +23424,21 @@ impl CnCGameEngine {
         if !self.selected_objects.is_empty() {
             return;
         }
+        // Wave 726: auto-pick first friendly mobile is opt-in only (default fail-closed).
+        // Retail commands require a real selection. Vertical-slice smoke already
+        // issues select_local_unit / box_select before movement commands.
+        // Opt in: GENERALS_RUNTIME_HOST_AUTO_SELECT_MOBILE=1.
+        let allow_auto_select = std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_SELECT_MOBILE")
+            .is_some_and(|v| {
+                let s = v.to_string_lossy();
+                !(s.is_empty()
+                    || s == "0"
+                    || s.eq_ignore_ascii_case("false")
+                    || s.eq_ignore_ascii_case("no"))
+            });
+        if !allow_auto_select {
+            return;
+        }
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
