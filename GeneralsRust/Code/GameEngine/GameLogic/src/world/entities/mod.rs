@@ -778,6 +778,14 @@ pub struct Entity {
     /// Host CarpetBomb payload residual.
     pub carpet_bomb_payload: bool,
     pub carpet_bomb_payload_vel_y: f32,
+    /// Host Leaflet B52 transport residual.
+    pub leaflet_transport_active: bool,
+    pub leaflet_transport_target_x: f32,
+    pub leaflet_transport_target_y: f32,
+    pub leaflet_transport_target_z: f32,
+    /// Host LeafletContainer residual.
+    pub leaflet_container: bool,
+    pub leaflet_container_vel_y: f32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1549,6 +1557,12 @@ impl EntityStore {
             carpet_bomb_transport_launch_z: 0.0,
             carpet_bomb_payload: false,
             carpet_bomb_payload_vel_y: 0.0,
+            leaflet_transport_active: false,
+            leaflet_transport_target_x: 0.0,
+            leaflet_transport_target_y: 0.0,
+            leaflet_transport_target_z: 0.0,
+            leaflet_container: false,
+            leaflet_container_vel_y: 0.0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
