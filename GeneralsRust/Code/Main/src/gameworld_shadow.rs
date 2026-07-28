@@ -315,24 +315,65 @@ pub fn clear_active_shadow_for_coupled_tick() {
 ///
 /// Idempotent with end-of-tick `host_spawn_log` drain (`apply_host_spawn_events`
 /// skips already-mapped host IDs). Fail-closed when no active shadow pointer.
+thread_local! {
+    /// Wave 736: when set, the next host spawn event binds to this pre-spawned
+    /// GameWorld entity raw id instead of queueing a second Spawn mutation.
+    static NEXT_HOST_SPAWN_BIND_ENTITY: std::cell::Cell<Option<u32>> =
+        std::cell::Cell::new(None);
+}
+
+/// Wave 736: bind the next host `create_object` / spawn-log map to a pre-spawned GW entity.
+pub fn set_next_host_spawn_bind_entity(gw_entity_raw: u32) {
+    NEXT_HOST_SPAWN_BIND_ENTITY.with(|c| c.set(Some(gw_entity_raw)));
+}
+
+fn take_next_host_spawn_bind_entity() -> Option<u32> {
+    NEXT_HOST_SPAWN_BIND_ENTITY.with(|c| c.take())
+}
+
+/// Wave 736: bind host ObjectId → existing GameWorld entity (production entity-first).
+fn bind_host_to_existing_entity(
+    shadow: &mut GameWorldShadow,
+    host_id: u32,
+    gw_entity_raw: u32,
+) -> bool {
+    use gamelogic::world::entities::EntityId;
+    let eid = EntityId::from_raw(gw_entity_raw);
+    if shadow.world.entity(eid).is_none() {
+        return false;
+    }
+    if shadow.host_to_entity.contains_key(&host_id) {
+        return true;
+    }
+    shadow.host_to_entity.insert(host_id, eid);
+    shadow.entity_to_host.insert(eid.get(), host_id);
+    true
+}
+
 pub fn eager_map_host_spawn_if_coupled(
     logic: &GameLogic,
     event: &crate::game_logic::host_spawn_log::HostSpawnEvent,
 ) -> bool {
     if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        // Still consume bind token so sole-tick without live shadow does not leak.
+        let _ = take_next_host_spawn_bind_entity();
         return false;
     }
     ACTIVE_SHADOW_PTR.with(|c| {
         let Some(ptr) = c.get() else {
+            let _ = take_next_host_spawn_bind_entity();
             return false;
         };
         // SAFETY: engine installs live shadow for coupled tick and clears before
         // drop/session. `create_object` does not re-enter the engine shadow field.
         let shadow = unsafe { &mut *ptr.as_ptr() };
+        // Wave 736: production entity-first bind (no second Spawn).
+        if let Some(raw) = take_next_host_spawn_bind_entity() {
+            return bind_host_to_existing_entity(shadow, event.id.0, raw);
+        }
         shadow.apply_host_spawn_events(std::slice::from_ref(event), logic) > 0
     })
 }
-
 /// Wave 681: if a coupled shadow tick is live, queue GameWorld Destroy for this
 /// host ObjectId now (unmap after apply_pending).
 ///
@@ -4741,12 +4782,23 @@ impl GameWorldShadow {
         n
     }
 
-    pub fn writeback_production_to_host(&self, logic: &mut GameLogic) -> usize {
+    pub fn writeback_production_to_host(&mut self, logic: &mut GameLogic) -> usize {
         if !gameworld_production_authority_enabled() {
             return 0;
         }
         use crate::game_logic::{ProductionItem, ProductionKind, Resources};
+        use gamelogic::world::WorldMutation;
         let mut updated = 0usize;
+        // Wave 736: (host_id, template, is_upgrade, spawn_pos, rally, owner, health)
+        let mut sole_ready_intents: Vec<(
+            u32,
+            String,
+            bool,
+            Option<[f32; 3]>,
+            Option<[f32; 3]>,
+            Option<PlayerId>,
+            f32,
+        )> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -4807,14 +4859,15 @@ impl GameWorldShadow {
             }
             // Wave 614: GameWorld sole-tick ready residual — finished heads
             // (progress complete + exit delay clear) are recorded for host collect.
+            // Wave 735: GW spawn pose + rally ride the ready event.
+            // Wave 736: collect sole-tick ready intents (pose + entity-first spawn
+            // data). Entity Spawn + ready-log record happen after this loop so we
+            // do not mutably borrow GameWorld while iterating host maps.
             if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
                 if let Some(head) = bd.production_queue.first() {
                     if head.progress + 1e-6 >= head.total_time.max(0.0)
                         && bd.exit_delay_remaining <= 1e-6
                     {
-                        // Wave 735: GW spawn pose + rally ride the ready event so
-                        // host sole-tick complete/spawn does not re-derive exit pose
-                        // solely from host building scan.
                         let p = ent.transform.position;
                         let yaw = ent.transform.orientation;
                         let radius = ent.selection_radius.max(10.0);
@@ -4823,8 +4876,8 @@ impl GameWorldShadow {
                             p.y,
                             p.z + yaw.sin() * radius,
                         ];
-                        crate::game_logic::host_production_ready_log::record_with_pose(
-                            ObjectId(hid),
+                        sole_ready_intents.push((
+                            hid,
                             head.template_name.clone(),
                             head.is_upgrade(),
                             if head.is_upgrade() {
@@ -4833,16 +4886,46 @@ impl GameWorldShadow {
                                 Some(spawn_pos)
                             },
                             ent.rally_point,
-                        );
+                            ent.owner,
+                            obj.health.maximum.max(1.0),
+                        ));
                     }
                 }
             }
-            if dirty {
+                        if dirty {
                 updated += 1;
             }
         }
+        // Wave 736: entity-first production spawn + ready-log after host queue writeback.
+        for (hid, template, is_upgrade, spawn_pos, rally, owner, health) in sole_ready_intents {
+            let gw_entity_raw = if is_upgrade {
+                None
+            } else if let Some(pos) = spawn_pos {
+                self.world.queue_mutation(WorldMutation::Spawn {
+                    template: template.clone(),
+                    owner,
+                    position: pos,
+                    health,
+                });
+                let _ = self.world.apply_pending_mutations();
+                self.world
+                    .take_last_spawned_entity()
+                    .map(|eid| eid.get())
+            } else {
+                None
+            };
+            crate::game_logic::host_production_ready_log::record_with_pose(
+                ObjectId(hid),
+                template,
+                is_upgrade,
+                spawn_pos,
+                rally,
+                gw_entity_raw,
+            );
+        }
         updated
     }
+
 
     pub fn writeback_production_door_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -5927,6 +6010,14 @@ impl GameWorldShadow {
         for ev in events {
             if self.host_to_entity.contains_key(&ev.id.0) {
                 continue;
+            }
+            // Wave 736: if a production pre-spawn bind is pending for this event, map only.
+            if let Some(raw) = take_next_host_spawn_bind_entity() {
+                if bind_host_to_existing_entity(self, ev.id.0, raw) {
+                    spawned += 1;
+                    continue;
+                }
+                // Entity lost — fall through to normal Spawn residual.
             }
             let (health, owner) = if let Some(obj) = logic.get_objects().get(&ev.id) {
                 let owner = self.owner_for_host_object(logic, obj.team);

@@ -7195,6 +7195,7 @@ impl GameLogic {
                             }
                             // Wave 735: under sole-tick, GameWorld ready-log pose/rally
                             // and template are authoritative for the completion spawn.
+                            // Wave 736: queue GW pre-spawned entity bind for host ObjectId.
                             let mut completed_name = completed;
                             if sole {
                                 if let Some(ev) = ready_by_producer.get(&id) {
@@ -7206,6 +7207,11 @@ impl GameLogic {
                                     }
                                     if let Some(r) = ev.rally {
                                         rally = Some(Vec3::new(r[0], r[1], r[2]));
+                                    }
+                                    if let Some(raw) = ev.gw_entity_raw {
+                                        crate::game_logic::host_production_ready_log::push_pending_bind(
+                                            raw,
+                                        );
                                     }
                                 }
                             }
@@ -7308,6 +7314,13 @@ impl GameLogic {
         spawn_pos: Vec3,
     ) -> Option<ObjectId> {
         // Wave 615: host production spawn residual.
+        // Wave 736: under sole-tick, bind host ObjectId to GW pre-spawned entity
+        // (entity-first). Host still allocates ObjectId via create_object.
+        if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+            if let Some(raw) = crate::game_logic::host_production_ready_log::pop_pending_bind() {
+                crate::gameworld_shadow::set_next_host_spawn_bind_entity(raw);
+            }
+        }
         self.create_object(template, team, spawn_pos)
     }
 
