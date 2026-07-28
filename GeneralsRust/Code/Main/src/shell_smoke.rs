@@ -2666,6 +2666,41 @@ use crate::game_logic::host_live_host_vision_camo_ready_log_helper_residual_wave
     honesty_host_vision_camo_ready_log_helper_nav_commands_residual_wave654,
     simulate_live_host_vision_camo_ready_log_helper_honesty,
 };
+use crate::game_logic::host_live_host_selection_radius_ready_log_helper_residual_wave655::{
+    honesty_host_selection_radius_ready_log_helper_method_names_residual_wave655,
+    honesty_host_selection_radius_ready_log_helper_nav_commands_residual_wave655,
+    simulate_live_host_selection_radius_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_ground_height_ready_log_helper_residual_wave656::{
+    honesty_host_ground_height_ready_log_helper_method_names_residual_wave656,
+    honesty_host_ground_height_ready_log_helper_nav_commands_residual_wave656,
+    simulate_live_host_ground_height_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_weapon_slot_ready_log_helper_residual_wave657::{
+    honesty_host_weapon_slot_ready_log_helper_method_names_residual_wave657,
+    honesty_host_weapon_slot_ready_log_helper_nav_commands_residual_wave657,
+    simulate_live_host_weapon_slot_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_weapon_bonus_ready_log_helper_residual_wave658::{
+    honesty_host_weapon_bonus_ready_log_helper_method_names_residual_wave658,
+    honesty_host_weapon_bonus_ready_log_helper_nav_commands_residual_wave658,
+    simulate_live_host_weapon_bonus_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_ai_attitude_ready_log_helper_residual_wave659::{
+    honesty_host_ai_attitude_ready_log_helper_method_names_residual_wave659,
+    honesty_host_ai_attitude_ready_log_helper_nav_commands_residual_wave659,
+    simulate_live_host_ai_attitude_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_identity_ready_log_helper_residual_wave660::{
+    honesty_host_identity_ready_log_helper_method_names_residual_wave660,
+    honesty_host_identity_ready_log_helper_nav_commands_residual_wave660,
+    simulate_live_host_identity_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_repulsor_ready_log_helper_residual_wave661::{
+    honesty_host_repulsor_ready_log_helper_method_names_residual_wave661,
+    honesty_host_repulsor_ready_log_helper_nav_commands_residual_wave661,
+    simulate_live_host_repulsor_ready_log_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6346,6 +6381,27 @@ pub struct ShellSmokeResult {
     pub host_vision_camo_ready_log_helper_method_names_wave654_ok: bool,
     pub host_vision_camo_ready_log_helper_nav_commands_wave654_ok: bool,
     pub host_vision_camo_ready_log_helper_live_wave654_ok: bool,
+    pub host_selection_radius_ready_log_helper_method_names_wave655_ok: bool,
+    pub host_selection_radius_ready_log_helper_nav_commands_wave655_ok: bool,
+    pub host_selection_radius_ready_log_helper_live_wave655_ok: bool,
+    pub host_ground_height_ready_log_helper_method_names_wave656_ok: bool,
+    pub host_ground_height_ready_log_helper_nav_commands_wave656_ok: bool,
+    pub host_ground_height_ready_log_helper_live_wave656_ok: bool,
+    pub host_weapon_slot_ready_log_helper_method_names_wave657_ok: bool,
+    pub host_weapon_slot_ready_log_helper_nav_commands_wave657_ok: bool,
+    pub host_weapon_slot_ready_log_helper_live_wave657_ok: bool,
+    pub host_weapon_bonus_ready_log_helper_method_names_wave658_ok: bool,
+    pub host_weapon_bonus_ready_log_helper_nav_commands_wave658_ok: bool,
+    pub host_weapon_bonus_ready_log_helper_live_wave658_ok: bool,
+    pub host_ai_attitude_ready_log_helper_method_names_wave659_ok: bool,
+    pub host_ai_attitude_ready_log_helper_nav_commands_wave659_ok: bool,
+    pub host_ai_attitude_ready_log_helper_live_wave659_ok: bool,
+    pub host_identity_ready_log_helper_method_names_wave660_ok: bool,
+    pub host_identity_ready_log_helper_nav_commands_wave660_ok: bool,
+    pub host_identity_ready_log_helper_live_wave660_ok: bool,
+    pub host_repulsor_ready_log_helper_method_names_wave661_ok: bool,
+    pub host_repulsor_ready_log_helper_nav_commands_wave661_ok: bool,
+    pub host_repulsor_ready_log_helper_live_wave661_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10011,6 +10067,48 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_vision_camo_ready_log_helper_nav_commands_residual_wave654();
     let host_vision_camo_ready_log_helper_live_wave654_ok =
         simulate_live_host_vision_camo_ready_log_helper_honesty();
+    let host_selection_radius_ready_log_helper_method_names_wave655_ok =
+        honesty_host_selection_radius_ready_log_helper_method_names_residual_wave655();
+    let host_selection_radius_ready_log_helper_nav_commands_wave655_ok =
+        honesty_host_selection_radius_ready_log_helper_nav_commands_residual_wave655();
+    let host_selection_radius_ready_log_helper_live_wave655_ok =
+        simulate_live_host_selection_radius_ready_log_helper_honesty();
+    let host_ground_height_ready_log_helper_method_names_wave656_ok =
+        honesty_host_ground_height_ready_log_helper_method_names_residual_wave656();
+    let host_ground_height_ready_log_helper_nav_commands_wave656_ok =
+        honesty_host_ground_height_ready_log_helper_nav_commands_residual_wave656();
+    let host_ground_height_ready_log_helper_live_wave656_ok =
+        simulate_live_host_ground_height_ready_log_helper_honesty();
+    let host_weapon_slot_ready_log_helper_method_names_wave657_ok =
+        honesty_host_weapon_slot_ready_log_helper_method_names_residual_wave657();
+    let host_weapon_slot_ready_log_helper_nav_commands_wave657_ok =
+        honesty_host_weapon_slot_ready_log_helper_nav_commands_residual_wave657();
+    let host_weapon_slot_ready_log_helper_live_wave657_ok =
+        simulate_live_host_weapon_slot_ready_log_helper_honesty();
+    let host_weapon_bonus_ready_log_helper_method_names_wave658_ok =
+        honesty_host_weapon_bonus_ready_log_helper_method_names_residual_wave658();
+    let host_weapon_bonus_ready_log_helper_nav_commands_wave658_ok =
+        honesty_host_weapon_bonus_ready_log_helper_nav_commands_residual_wave658();
+    let host_weapon_bonus_ready_log_helper_live_wave658_ok =
+        simulate_live_host_weapon_bonus_ready_log_helper_honesty();
+    let host_ai_attitude_ready_log_helper_method_names_wave659_ok =
+        honesty_host_ai_attitude_ready_log_helper_method_names_residual_wave659();
+    let host_ai_attitude_ready_log_helper_nav_commands_wave659_ok =
+        honesty_host_ai_attitude_ready_log_helper_nav_commands_residual_wave659();
+    let host_ai_attitude_ready_log_helper_live_wave659_ok =
+        simulate_live_host_ai_attitude_ready_log_helper_honesty();
+    let host_identity_ready_log_helper_method_names_wave660_ok =
+        honesty_host_identity_ready_log_helper_method_names_residual_wave660();
+    let host_identity_ready_log_helper_nav_commands_wave660_ok =
+        honesty_host_identity_ready_log_helper_nav_commands_residual_wave660();
+    let host_identity_ready_log_helper_live_wave660_ok =
+        simulate_live_host_identity_ready_log_helper_honesty();
+    let host_repulsor_ready_log_helper_method_names_wave661_ok =
+        honesty_host_repulsor_ready_log_helper_method_names_residual_wave661();
+    let host_repulsor_ready_log_helper_nav_commands_wave661_ok =
+        honesty_host_repulsor_ready_log_helper_nav_commands_residual_wave661();
+    let host_repulsor_ready_log_helper_live_wave661_ok =
+        simulate_live_host_repulsor_ready_log_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11962,6 +12060,27 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_vision_camo_ready_log_helper_method_names_wave654_ok,
         host_vision_camo_ready_log_helper_nav_commands_wave654_ok,
         host_vision_camo_ready_log_helper_live_wave654_ok,
+        host_selection_radius_ready_log_helper_method_names_wave655_ok,
+        host_selection_radius_ready_log_helper_nav_commands_wave655_ok,
+        host_selection_radius_ready_log_helper_live_wave655_ok,
+        host_ground_height_ready_log_helper_method_names_wave656_ok,
+        host_ground_height_ready_log_helper_nav_commands_wave656_ok,
+        host_ground_height_ready_log_helper_live_wave656_ok,
+        host_weapon_slot_ready_log_helper_method_names_wave657_ok,
+        host_weapon_slot_ready_log_helper_nav_commands_wave657_ok,
+        host_weapon_slot_ready_log_helper_live_wave657_ok,
+        host_weapon_bonus_ready_log_helper_method_names_wave658_ok,
+        host_weapon_bonus_ready_log_helper_nav_commands_wave658_ok,
+        host_weapon_bonus_ready_log_helper_live_wave658_ok,
+        host_ai_attitude_ready_log_helper_method_names_wave659_ok,
+        host_ai_attitude_ready_log_helper_nav_commands_wave659_ok,
+        host_ai_attitude_ready_log_helper_live_wave659_ok,
+        host_identity_ready_log_helper_method_names_wave660_ok,
+        host_identity_ready_log_helper_nav_commands_wave660_ok,
+        host_identity_ready_log_helper_live_wave660_ok,
+        host_repulsor_ready_log_helper_method_names_wave661_ok,
+        host_repulsor_ready_log_helper_nav_commands_wave661_ok,
+        host_repulsor_ready_log_helper_live_wave661_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -22042,6 +22161,111 @@ mod tests {
         assert!(
             r.host_vision_camo_ready_log_helper_live_wave654_ok,
             "host vision_camo ready log helper live residual wave654: {}",
+            r.detail
+        );
+        assert!(
+            r.host_selection_radius_ready_log_helper_method_names_wave655_ok,
+            "host selection_radius ready log helper method names residual pack wave655: {}",
+            r.detail
+        );
+        assert!(
+            r.host_selection_radius_ready_log_helper_nav_commands_wave655_ok,
+            "host selection_radius ready log helper nav commands residual pack wave655: {}",
+            r.detail
+        );
+        assert!(
+            r.host_selection_radius_ready_log_helper_live_wave655_ok,
+            "host selection_radius ready log helper live residual wave655: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ground_height_ready_log_helper_method_names_wave656_ok,
+            "host ground_height ready log helper method names residual pack wave656: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ground_height_ready_log_helper_nav_commands_wave656_ok,
+            "host ground_height ready log helper nav commands residual pack wave656: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ground_height_ready_log_helper_live_wave656_ok,
+            "host ground_height ready log helper live residual wave656: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_slot_ready_log_helper_method_names_wave657_ok,
+            "host weapon_slot ready log helper method names residual pack wave657: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_slot_ready_log_helper_nav_commands_wave657_ok,
+            "host weapon_slot ready log helper nav commands residual pack wave657: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_slot_ready_log_helper_live_wave657_ok,
+            "host weapon_slot ready log helper live residual wave657: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_bonus_ready_log_helper_method_names_wave658_ok,
+            "host weapon_bonus ready log helper method names residual pack wave658: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_bonus_ready_log_helper_nav_commands_wave658_ok,
+            "host weapon_bonus ready log helper nav commands residual pack wave658: {}",
+            r.detail
+        );
+        assert!(
+            r.host_weapon_bonus_ready_log_helper_live_wave658_ok,
+            "host weapon_bonus ready log helper live residual wave658: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ai_attitude_ready_log_helper_method_names_wave659_ok,
+            "host ai_attitude ready log helper method names residual pack wave659: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ai_attitude_ready_log_helper_nav_commands_wave659_ok,
+            "host ai_attitude ready log helper nav commands residual pack wave659: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ai_attitude_ready_log_helper_live_wave659_ok,
+            "host ai_attitude ready log helper live residual wave659: {}",
+            r.detail
+        );
+        assert!(
+            r.host_identity_ready_log_helper_method_names_wave660_ok,
+            "host identity ready log helper method names residual pack wave660: {}",
+            r.detail
+        );
+        assert!(
+            r.host_identity_ready_log_helper_nav_commands_wave660_ok,
+            "host identity ready log helper nav commands residual pack wave660: {}",
+            r.detail
+        );
+        assert!(
+            r.host_identity_ready_log_helper_live_wave660_ok,
+            "host identity ready log helper live residual wave660: {}",
+            r.detail
+        );
+        assert!(
+            r.host_repulsor_ready_log_helper_method_names_wave661_ok,
+            "host repulsor ready log helper method names residual pack wave661: {}",
+            r.detail
+        );
+        assert!(
+            r.host_repulsor_ready_log_helper_nav_commands_wave661_ok,
+            "host repulsor ready log helper nav commands residual pack wave661: {}",
+            r.detail
+        );
+        assert!(
+            r.host_repulsor_ready_log_helper_live_wave661_ok,
+            "host repulsor ready log helper live residual wave661: {}",
             r.detail
         );
         assert!(
