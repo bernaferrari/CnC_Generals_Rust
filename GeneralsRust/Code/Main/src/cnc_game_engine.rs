@@ -18133,6 +18133,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 700: post-logic model-mesh / FOW / kind-of.
+                let _mm = crate::gameworld_shadow::eager_apply_host_model_mesh_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _fow = crate::gameworld_shadow::eager_apply_host_fow_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _ko = crate::gameworld_shadow::eager_apply_host_kind_of_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
