@@ -2821,6 +2821,11 @@ use crate::game_logic::host_live_host_eager_heal_helper_residual_wave685::{
     honesty_host_eager_heal_helper_nav_commands_residual_wave685,
     simulate_live_host_eager_heal_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_max_health_xp_helper_residual_wave686::{
+    honesty_host_eager_max_health_xp_helper_method_names_residual_wave686,
+    honesty_host_eager_max_health_xp_helper_nav_commands_residual_wave686,
+    simulate_live_host_eager_max_health_xp_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6594,6 +6599,9 @@ pub struct ShellSmokeResult {
     pub host_eager_heal_helper_method_names_wave685_ok: bool,
     pub host_eager_heal_helper_nav_commands_wave685_ok: bool,
     pub host_eager_heal_helper_live_wave685_ok: bool,
+    pub host_eager_max_health_xp_helper_method_names_wave686_ok: bool,
+    pub host_eager_max_health_xp_helper_nav_commands_wave686_ok: bool,
+    pub host_eager_max_health_xp_helper_live_wave686_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10443,6 +10451,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_eager_heal_helper_nav_commands_wave685_ok =
         honesty_host_eager_heal_helper_nav_commands_residual_wave685();
     let host_eager_heal_helper_live_wave685_ok = simulate_live_host_eager_heal_helper_honesty();
+    let host_eager_max_health_xp_helper_method_names_wave686_ok =
+        honesty_host_eager_max_health_xp_helper_method_names_residual_wave686();
+    let host_eager_max_health_xp_helper_nav_commands_wave686_ok =
+        honesty_host_eager_max_health_xp_helper_nav_commands_residual_wave686();
+    let host_eager_max_health_xp_helper_live_wave686_ok =
+        simulate_live_host_eager_max_health_xp_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12487,6 +12501,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_heal_helper_method_names_wave685_ok,
         host_eager_heal_helper_nav_commands_wave685_ok,
         host_eager_heal_helper_live_wave685_ok,
+        host_eager_max_health_xp_helper_method_names_wave686_ok,
+        host_eager_max_health_xp_helper_nav_commands_wave686_ok,
+        host_eager_max_health_xp_helper_live_wave686_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23032,6 +23049,21 @@ mod tests {
         assert!(
             r.host_eager_heal_helper_live_wave685_ok,
             "host eager_heal helper live residual wave685: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_max_health_xp_helper_method_names_wave686_ok,
+            "host eager_max_health_xp helper method names residual pack wave686: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_max_health_xp_helper_nav_commands_wave686_ok,
+            "host eager_max_health_xp helper nav commands residual pack wave686: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_max_health_xp_helper_live_wave686_ok,
+            "host eager_max_health_xp helper live residual wave686: {}",
             r.detail
         );
         assert!(

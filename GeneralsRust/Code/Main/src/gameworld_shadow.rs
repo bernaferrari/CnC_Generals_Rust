@@ -195,6 +195,8 @@ pub fn end_shadow_coupled_tick() {
         if next == 0 {
             EARLY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_HEAL_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_MAX_HEALTH_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_EXPERIENCE_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -413,6 +415,71 @@ pub fn eager_apply_host_heal_after_logic(
     }
     let n = shadow.apply_host_heal_events(&events);
     EARLY_HEAL_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 686: post-logic max-health / experience batch handoff (avoid double-apply).
+thread_local! {
+    static EARLY_MAX_HEALTH_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_max_health_log::HostMaxHealthEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_EXPERIENCE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_experience_log::HostExperienceEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_max_health_batch() -> Option<(
+    Vec<crate::game_logic::host_max_health_log::HostMaxHealthEvent>,
+    bool,
+)> {
+    EARLY_MAX_HEALTH_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_experience_batch() -> Option<(
+    Vec<crate::game_logic::host_experience_log::HostExperienceEvent>,
+    bool,
+)> {
+    EARLY_EXPERIENCE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 686: post-logic drain `host_max_health_log` into GameWorld SetMaxHealth.
+pub fn eager_apply_host_max_health_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active()
+        || !gameworld_shadow_enabled()
+        || !gameworld_damage_authority_enabled()
+    {
+        return 0;
+    }
+    // Wave 686: post-logic max-health materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_max_health_log::drain();
+    if events.is_empty() {
+        EARLY_MAX_HEALTH_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_max_health_events(&events);
+    EARLY_MAX_HEALTH_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 686: post-logic drain `host_experience_log` into GameWorld SetExperience.
+pub fn eager_apply_host_experience_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active()
+        || !gameworld_shadow_enabled()
+        || !gameworld_damage_authority_enabled()
+    {
+        return 0;
+    }
+    // Wave 686: post-logic experience materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_experience_log::drain();
+    if events.is_empty() {
+        EARLY_EXPERIENCE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_experience_events(&events);
+    EARLY_EXPERIENCE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8153,8 +8220,15 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_heal_log::drain(), false),
     };
-    let max_health_events = crate::game_logic::host_max_health_log::drain();
-    let experience_events = crate::game_logic::host_experience_log::drain();
+    // Wave 686: prefer post-logic max-health / experience batches.
+    let (max_health_events, early_max_health_applied) = match take_early_max_health_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_max_health_log::drain(), false),
+    };
+    let (experience_events, early_experience_applied) = match take_early_experience_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_experience_log::drain(), false),
+    };
     let weapon_bonus_events = crate::game_logic::host_weapon_bonus_log::drain();
     let weapon_slot_events = crate::game_logic::host_weapon_slot_log::drain();
     let entity_power_events = crate::game_logic::host_entity_power_log::drain();
@@ -8264,8 +8338,17 @@ pub fn shadow_session_after_host_tick(
     } else {
         heal_events.len()
     };
-    let _maxh_applied = shadow.apply_host_max_health_events(&max_health_events);
-    let _xp_applied = shadow.apply_host_experience_events(&experience_events);
+    // Wave 686: skip GW re-apply when post-logic eager path already ran.
+    let _maxh_applied = if !early_max_health_applied {
+        shadow.apply_host_max_health_events(&max_health_events)
+    } else {
+        max_health_events.len()
+    };
+    let _xp_applied = if !early_experience_applied {
+        shadow.apply_host_experience_events(&experience_events)
+    } else {
+        experience_events.len()
+    };
     let _wb_applied = shadow.apply_host_weapon_bonus_events(&weapon_bonus_events);
     let _wslot_applied = shadow.apply_host_weapon_slot_events(&weapon_slot_events);
     let _epow_applied = shadow.apply_host_entity_power_events(&entity_power_events);
