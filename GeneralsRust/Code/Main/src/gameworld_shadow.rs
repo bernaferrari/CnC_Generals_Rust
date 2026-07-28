@@ -188,7 +188,14 @@ pub fn begin_shadow_coupled_tick() {
 /// Clear one shadow-coupled host-frame mark (nested-safe).
 #[inline]
 pub fn end_shadow_coupled_tick() {
-    SHADOW_COUPLED_TICK_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    SHADOW_COUPLED_TICK_DEPTH.with(|d| {
+        let next = d.get().saturating_sub(1);
+        d.set(next);
+        // Wave 684: drop unused post-logic damage handoff when outermost couple ends.
+        if next == 0 {
+            EARLY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = None);
+        }
+    });
 }
 
 /// Host freeze of sole-tick systems is valid only on a coupled engine frame.
@@ -223,6 +230,9 @@ pub fn install_active_shadow_for_coupled_tick(shadow: &mut GameWorldShadow) {
 #[inline]
 pub fn clear_active_shadow_for_coupled_tick() {
     ACTIVE_SHADOW_PTR.with(|c| c.set(None));
+    // Note: EARLY_DAMAGE_BATCH is consumed by shadow_session_after_host_tick
+    // (Wave 684). Do not clear here — engine clears the active shadow pointer
+    // before the session exclusive borrow.
 }
 
 /// Wave 680: if a coupled shadow tick is live, map this host spawn into GameWorld now.
@@ -328,6 +338,46 @@ pub fn eager_apply_host_move_attack_after_logic(
         let _ = shadow.apply_pending();
     }
     (attacks, moves)
+}
+// Wave 684: post-logic damage batch handoff to shadow session (avoid double-apply).
+thread_local! {
+    static EARLY_DAMAGE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_damage_log::HostDamageEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Take post-logic damage batch if Wave 684 already drained+applied it.
+/// Returns `(events, already_applied_to_shadow)`.
+fn take_early_damage_batch() -> Option<(
+    Vec<crate::game_logic::host_damage_log::HostDamageEvent>,
+    bool,
+)> {
+    EARLY_DAMAGE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 684: immediately after the host logic frame on a coupled tick, drain
+/// `host_damage_log` into GameWorld Damage/Destroy mutations.
+///
+/// Stashes the batch for `shadow_session_after_host_tick` so `write_health` still
+/// sees non-empty events and does not double-apply mutations.
+pub fn eager_apply_host_damage_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active()
+        || !gameworld_shadow_enabled()
+        || !gameworld_damage_authority_enabled()
+    {
+        return 0;
+    }
+    // Wave 684: post-logic damage materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_damage_log::drain();
+    if events.is_empty() {
+        EARLY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let (queued, applied) = shadow.apply_host_damage_events(&events);
+    EARLY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    queued.saturating_add(applied)
 }
 
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
@@ -8057,7 +8107,11 @@ pub fn shadow_session_after_host_tick(
     logic: &mut GameLogic,
 ) -> GameWorldShadowProbe {
     let _couple_guard = ShadowCoupleGuard::enter();
-    let events = crate::game_logic::host_damage_log::drain();
+    // Wave 684: prefer post-logic damage batch (already applied to GW when present).
+    let (events, early_damage_applied) = match take_early_damage_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_damage_log::drain(), false),
+    };
     let heal_events = crate::game_logic::host_heal_log::drain();
     let max_health_events = crate::game_logic::host_max_health_log::drain();
     let experience_events = crate::game_logic::host_experience_log::drain();
@@ -8418,12 +8472,18 @@ pub fn shadow_session_after_host_tick(
     if auth && (!events.is_empty() || !heal_events.is_empty() || !experience_events.is_empty()) {
         let (mut queued, mut applied) = (0usize, 0usize);
         if !events.is_empty() {
-            let pair = shadow.apply_host_damage_events(&events);
-            queued = pair.0;
-            applied = pair.1;
+            // Wave 684: skip GW re-apply when post-logic eager path already ran.
+            if !early_damage_applied {
+                let pair = shadow.apply_host_damage_events(&events);
+                queued = pair.0;
+                applied = pair.1;
+            } else {
+                queued = events.len();
+                applied = events.len();
+            }
             // Host objects with no shadow entity mapping would otherwise lose combat HP.
             // `ev.amount` is already post-armor — apply raw HP, do not re-run armor/log.
-            if queued < events.len() {
+            if queued < events.len() || early_damage_applied {
                 let mut fallback = 0usize;
                 for ev in &events {
                     if shadow.entity_for_host(ev.target).is_some() {
