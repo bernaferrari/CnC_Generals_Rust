@@ -10437,10 +10437,28 @@ impl CnCGameEngine {
                             };
                         }
                     }
-                    // Host residual: CreateFormation needs ≥2 mobiles. If the map only
-                    // left one friendly (or presentation still has a single local mobile),
-                    // spawn buddy infantry beside the anchor so the command path is honest.
-                    if mobile_sel.len() < 2 {
+                    // Wave 720: free buddy-infantry spawn is opt-in only (default fail-closed).
+                    // CreateFormation needs ≥2 mobiles; retail maps must supply them.
+                    // Smoke may set spawn_buddy=1 / GENERALS_RUNTIME_HOST_FORMATION_SPAWN_BUDDY=1.
+                    let allow_spawn_buddy = args
+                        .get("spawn_buddy")
+                        .or_else(|| args.get("force_spawn_buddy"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_FORMATION_SPAWN_BUDDY")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if mobile_sel.len() < 2 && allow_spawn_buddy {
                         if let Some(team) = team {
                             let frame = self.last_presentation_frame.as_ref();
                             let anchor = mobile_sel
