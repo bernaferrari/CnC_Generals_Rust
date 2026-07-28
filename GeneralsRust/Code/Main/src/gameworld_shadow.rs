@@ -263,6 +263,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_COMBAT_ATTACK_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_PROJECTILE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_DESTROY_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_CONTAIN_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_AI_DECISION_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -2449,6 +2452,88 @@ pub fn eager_apply_host_projectile_after_logic(
     EARLY_PROJECTILE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
+// Wave 711: post-logic destroy / contain / AI-decision batch handoff.
+thread_local! {
+    static EARLY_DESTROY_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_destroy_log::HostDestroyEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_CONTAIN_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_contain_log::HostContainEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_AI_DECISION_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ai_decision_log::HostAiDecisionEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_destroy_batch() -> Option<(Vec<crate::game_logic::host_destroy_log::HostDestroyEvent>, bool)> {
+    EARLY_DESTROY_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_contain_batch() -> Option<(Vec<crate::game_logic::host_contain_log::HostContainEvent>, bool)> {
+    EARLY_CONTAIN_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_ai_decision_batch() -> Option<(Vec<crate::game_logic::host_ai_decision_log::HostAiDecisionEvent>, bool)> {
+    EARLY_AI_DECISION_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 711: post-logic drain `host_destroy_log` into GameWorld destroy queue.
+pub fn eager_apply_host_destroy_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 711: post-logic destroy materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_destroy_log::drain();
+    if events.is_empty() {
+        EARLY_DESTROY_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let (queued, _) = shadow.apply_host_destroy_events(&events);
+    EARLY_DESTROY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    queued
+}
+
+/// Wave 711: post-logic drain `host_contain_log` into GameWorld contain/garrison.
+pub fn eager_apply_host_contain_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 711: post-logic contain materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_contain_log::drain();
+    if events.is_empty() {
+        EARLY_CONTAIN_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_contain_events(&events);
+    EARLY_CONTAIN_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 711: post-logic drain `host_ai_decision_log` into GameWorld AI decisions.
+pub fn eager_apply_host_ai_decision_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active()
+        || !gameworld_shadow_enabled()
+        || !gameworld_ai_decision_authority_enabled()
+    {
+        return 0;
+    }
+    // Wave 711: post-logic AI-decision materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_ai_decision_log::drain();
+    if events.is_empty() {
+        EARLY_AI_DECISION_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_ai_decisions_as_world_mutations(&events);
+    EARLY_AI_DECISION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
 
 
 
@@ -10388,7 +10473,11 @@ pub fn shadow_session_after_host_tick(
         None => (crate::game_logic::host_owner_log::drain(), false),
     };
     let spawn_events = crate::game_logic::host_spawn_log::drain();
-    let destroy_events = crate::game_logic::host_destroy_log::drain();
+    // Wave 711: prefer post-logic destroy batch.
+    let (destroy_events, early_destroy_applied) = match take_early_destroy_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_destroy_log::drain(), false),
+    };
     let attack_events = crate::game_logic::host_attack_log::drain();
     let _fire_loop_events = crate::game_logic::host_fire_sound_loop_log::drain();
     // Wave 689: prefer post-logic status / veterancy batches.
@@ -10435,7 +10524,11 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_ai_state_log::drain(), false),
     };
-    let contain_events = crate::game_logic::host_contain_log::drain();
+    // Wave 711: prefer post-logic contain batch.
+    let (contain_events, early_contain_applied) = match take_early_contain_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_contain_log::drain(), false),
+    };
     // Wave 707: prefer post-logic radar batch.
     let (radar_events, early_radar_applied) = match take_early_radar_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -10529,7 +10622,12 @@ pub fn shadow_session_after_host_tick(
     } else {
         ai_state_events.len()
     };
-    let _contain_applied = shadow.apply_host_contain_events(&contain_events);
+    // Wave 711: skip GW re-apply when post-logic eager path already ran.
+    let _contain_applied = if early_contain_applied {
+        0
+    } else {
+        shadow.apply_host_contain_events(&contain_events)
+    };
     // Wave 628: contain membership last-write + ready-log residual.
     let _contain_wb = shadow.writeback_contain_to_host(logic);
     let _contain_ready = logic.host_apply_contain_ready_completions();
@@ -10566,7 +10664,12 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_shared_special_power_cooldowns_to_host(logic);
     }
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
-    let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
+    // Wave 711: skip GW re-apply when post-logic eager path already ran.
+    let (dest_q, _dest_a) = if early_destroy_applied {
+        (0usize, 0usize)
+    } else {
+        shadow.apply_host_destroy_events(&destroy_events)
+    };
     // Wave 685: skip GW re-apply when post-logic eager path already ran.
     let _heals = if !early_heal_applied {
         shadow.apply_host_heal_events(&heal_events)
@@ -10727,8 +10830,16 @@ pub fn shadow_session_after_host_tick(
         shadow.apply_host_ai_request_events(&ai_req_events)
     };
     if gameworld_ai_decision_authority_enabled() {
-        let ai_decision_events = crate::game_logic::host_ai_decision_log::drain();
-        let _ad = shadow.apply_ai_decisions_as_world_mutations(&ai_decision_events);
+        // Wave 711: prefer post-logic AI-decision batch.
+        let (ai_decision_events, early_ai_decision_applied) = match take_early_ai_decision_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_ai_decision_log::drain(), false),
+        };
+        let _ad = if early_ai_decision_applied {
+            0
+        } else {
+            shadow.apply_ai_decisions_as_world_mutations(&ai_decision_events)
+        };
         // Last-write host attack target / AI state / move from GameWorld.
         let _ = shadow.writeback_attack_targets_to_host(logic);
         // Wave 638: drain attack-target ready log after GW writeback.
