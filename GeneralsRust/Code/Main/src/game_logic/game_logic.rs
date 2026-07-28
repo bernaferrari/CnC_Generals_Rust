@@ -7573,6 +7573,21 @@ impl GameLogic {
         if self.game_mode == GameMode::Shell {
             return;
         }
+        // Wave 732: free fallback CC/dozer seeding is opt-in only (default fail-closed).
+        // Retail maps must supply start objects. Vertical-slice/incomplete catalogs may set
+        // GENERALS_RUNTIME_HOST_SEED_START_PRESENCE=1.
+        let allow_seed = std::env::var_os("GENERALS_RUNTIME_HOST_SEED_START_PRESENCE").is_some_and(
+            |v| {
+                let s = v.to_string_lossy();
+                !(s.is_empty()
+                    || s == "0"
+                    || s.eq_ignore_ascii_case("false")
+                    || s.eq_ignore_ascii_case("no"))
+            },
+        );
+        if !allow_seed {
+            return;
+        }
 
         let mut team_order = Vec::new();
         let mut player_ids: Vec<u32> = self.players.keys().copied().collect();
