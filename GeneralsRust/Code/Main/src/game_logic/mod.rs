@@ -159,6 +159,7 @@ pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
 pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
+pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3374,6 +3375,15 @@ pub use host_live_host_spawn_faction_base_opt_in_residual_wave733::{
     residual_host_spawn_faction_base_opt_in_last_action,
     residual_host_spawn_faction_base_opt_in_ok,
     simulate_live_host_spawn_faction_base_opt_in_honesty,
+};
+pub use host_live_host_seed_starting_building_opt_in_residual_wave734::{
+    honesty_host_seed_starting_building_opt_in_method_names_residual_wave734,
+    honesty_host_seed_starting_building_opt_in_nav_commands_residual_wave734,
+    honesty_host_seed_starting_building_opt_in_residual_pack_wave734,
+    honesty_host_seed_starting_building_opt_in_source_markers_residual_wave734,
+    residual_host_seed_starting_building_opt_in_last_action,
+    residual_host_seed_starting_building_opt_in_ok,
+    simulate_live_host_seed_starting_building_opt_in_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,
