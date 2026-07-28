@@ -63,6 +63,7 @@ pub mod host_ai_state_ready_log;
 pub mod host_attack_log;
 pub mod host_attack_target_ready_log;
 pub mod host_body_damage_ready_log;
+pub mod host_bounce_land_ready_log;
 pub mod host_building_type_log;
 pub mod host_combat_attack_ready_log;
 pub mod host_combat_status_ready_log;
@@ -109,6 +110,7 @@ pub mod host_overcharge_log;
 pub mod host_overlord_log;
 pub mod host_owner_log;
 pub mod host_owner_ready_log;
+pub mod host_physics_motive_ready_log;
 pub mod host_player_cooldown_log;
 pub mod host_player_meta_log;
 pub mod host_player_progress_log;
@@ -128,6 +130,7 @@ pub mod host_spawn_log;
 pub mod host_special_power_log;
 pub mod host_special_power_ready_log;
 pub mod host_status_log;
+pub mod host_stealth_delay_ready_log;
 pub mod host_stealth_flags_log;
 pub mod host_stored_supplies_log;
 pub mod host_stored_supplies_ready_log;
@@ -408,6 +411,7 @@ pub mod host_live_host_ai_state_ready_log_helper_residual_wave630;
 pub mod host_live_host_attack_target_ready_log_helper_residual_wave638;
 pub mod host_live_host_beacon_presentation_residual_wave211;
 pub mod host_live_host_body_damage_ready_log_helper_residual_wave623;
+pub mod host_live_host_bounce_land_ready_log_helper_residual_wave650;
 pub mod host_live_host_camera_queue_drain_helper_residual_wave596;
 pub mod host_live_host_camera_start_helper_residual_wave577;
 pub mod host_live_host_cancel_selection_helper_residual_wave580;
@@ -443,6 +447,7 @@ pub mod host_live_host_os_inject_presentation_notify_helper_residual_wave606;
 pub mod host_live_host_owner_ready_log_helper_residual_wave629;
 pub mod host_live_host_pause_team_helper_residual_wave575;
 pub mod host_live_host_paused_endgame_boot_ui_helper_residual_wave603;
+pub mod host_live_host_physics_motive_ready_log_helper_residual_wave649;
 pub mod host_live_host_post_presentation_client_helper_residual_wave600;
 pub mod host_live_host_presentation_finalize_helper_residual_wave589;
 pub mod host_live_host_presentation_seed_helper_residual_wave590;
@@ -466,6 +471,7 @@ pub mod host_live_host_special_power_ready_log_helper_residual_wave618;
 pub mod host_live_host_start_save_load_helper_residual_wave611;
 pub mod host_live_host_status_map_presentation_fail_closed_residual_wave546;
 pub mod host_live_host_status_selected_presentation_fail_closed_residual_wave547;
+pub mod host_live_host_stealth_delay_ready_log_helper_residual_wave651;
 pub mod host_live_host_stored_supplies_ready_log_helper_residual_wave641;
 pub mod host_live_host_template_spawn_helper_residual_wave581;
 pub mod host_live_host_tick_mutation_helper_residual_wave584;
@@ -2649,6 +2655,15 @@ pub use host_live_host_body_damage_ready_log_helper_residual_wave623::{
     residual_host_body_damage_ready_log_helper_ok,
     simulate_live_host_body_damage_ready_log_helper_honesty,
 };
+pub use host_live_host_bounce_land_ready_log_helper_residual_wave650::{
+    honesty_host_bounce_land_ready_log_helper_method_names_residual_wave650,
+    honesty_host_bounce_land_ready_log_helper_nav_commands_residual_wave650,
+    honesty_host_bounce_land_ready_log_helper_residual_pack_wave650,
+    honesty_host_bounce_land_ready_log_helper_source_markers_residual_wave650,
+    residual_host_bounce_land_ready_log_helper_last_action,
+    residual_host_bounce_land_ready_log_helper_ok,
+    simulate_live_host_bounce_land_ready_log_helper_honesty,
+};
 pub use host_live_host_camera_queue_drain_helper_residual_wave596::{
     honesty_host_camera_queue_drain_helper_method_names_residual_wave596,
     honesty_host_camera_queue_drain_helper_nav_commands_residual_wave596,
@@ -2951,6 +2966,15 @@ pub use host_live_host_paused_endgame_boot_ui_helper_residual_wave603::{
     residual_host_paused_endgame_boot_ui_helper_ok,
     simulate_live_host_paused_endgame_boot_ui_helper_honesty,
 };
+pub use host_live_host_physics_motive_ready_log_helper_residual_wave649::{
+    honesty_host_physics_motive_ready_log_helper_method_names_residual_wave649,
+    honesty_host_physics_motive_ready_log_helper_nav_commands_residual_wave649,
+    honesty_host_physics_motive_ready_log_helper_residual_pack_wave649,
+    honesty_host_physics_motive_ready_log_helper_source_markers_residual_wave649,
+    residual_host_physics_motive_ready_log_helper_last_action,
+    residual_host_physics_motive_ready_log_helper_ok,
+    simulate_live_host_physics_motive_ready_log_helper_honesty,
+};
 pub use host_live_host_post_presentation_client_helper_residual_wave600::{
     honesty_host_post_presentation_client_helper_method_names_residual_wave600,
     honesty_host_post_presentation_client_helper_nav_commands_residual_wave600,
@@ -3148,6 +3172,15 @@ pub use host_live_host_status_selected_presentation_fail_closed_residual_wave547
     residual_host_status_selected_presentation_fail_closed_last_action,
     residual_host_status_selected_presentation_fail_closed_ok,
     simulate_live_host_status_selected_presentation_fail_closed_honesty,
+};
+pub use host_live_host_stealth_delay_ready_log_helper_residual_wave651::{
+    honesty_host_stealth_delay_ready_log_helper_method_names_residual_wave651,
+    honesty_host_stealth_delay_ready_log_helper_nav_commands_residual_wave651,
+    honesty_host_stealth_delay_ready_log_helper_residual_pack_wave651,
+    honesty_host_stealth_delay_ready_log_helper_source_markers_residual_wave651,
+    residual_host_stealth_delay_ready_log_helper_last_action,
+    residual_host_stealth_delay_ready_log_helper_ok,
+    simulate_live_host_stealth_delay_ready_log_helper_honesty,
 };
 pub use host_live_host_stored_supplies_ready_log_helper_residual_wave641::{
     honesty_host_stored_supplies_ready_log_helper_method_names_residual_wave641,

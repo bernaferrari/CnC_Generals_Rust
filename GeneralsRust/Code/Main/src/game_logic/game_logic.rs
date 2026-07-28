@@ -26137,6 +26137,57 @@ impl GameLogic {
     /// applies presentation bookkeeping residual via record_host_hijacker.
     /// Wave 648: GameWorld AI-request writeback records dirty objects; host
     /// applies presentation bookkeeping residual via record_host_ai_request.
+    /// Wave 649: GameWorld physics motive writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_physics_motive.
+    pub fn host_apply_physics_motive_ready_completions(&mut self) -> usize {
+        // Wave 649: GameWorld physics motive writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_physics_motive.
+        let events = crate::game_logic::host_physics_motive_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_physics_motive();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 650: GameWorld bounce land writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_bounce_land.
+    pub fn host_apply_bounce_land_ready_completions(&mut self) -> usize {
+        // Wave 650: GameWorld bounce land writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_bounce_land.
+        let events = crate::game_logic::host_bounce_land_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_bounce_land();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 651: GameWorld stealth delay writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_stealth_delay.
+    pub fn host_apply_stealth_delay_ready_completions(&mut self) -> usize {
+        // Wave 651: GameWorld stealth delay writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_stealth_delay.
+        let events = crate::game_logic::host_stealth_delay_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_stealth_delay();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_ai_request_ready_completions(&mut self) -> usize {
         // Wave 648: GameWorld AI-request writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_ai_request.

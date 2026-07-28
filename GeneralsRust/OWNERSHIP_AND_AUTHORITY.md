@@ -189,6 +189,9 @@ Remaining engine residual after host update:
   - Locomotor ready log: GW writeback → `host_locomotor_ready_log` → host locomotor presentation (Wave 646)
   - Hijacker ready log: GW writeback → `host_hijacker_ready_log` → host hijacker presentation (Wave 647)
   - AI-request ready log: GW writeback → `host_ai_request_ready_log` → host AI-request presentation (Wave 648)
+  - Physics Motive ready log: GW writeback → `host_physics_motive_ready_log` → host physics motive presentation (Wave 649)
+  - Bounce Land ready log: GW writeback → `host_bounce_land_ready_log` → host bounce land presentation (Wave 650)
+  - Stealth Delay ready log: GW writeback → `host_stealth_delay_ready_log` → host stealth delay presentation (Wave 651)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
