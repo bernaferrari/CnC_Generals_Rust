@@ -69494,16 +69494,11 @@ impl GameLogic {
         let mut finished: Vec<ObjectId> = Vec::new();
         let mut still: Vec<ObjectSellInfo> = Vec::with_capacity(self.sell_list.len());
         // Wave 619: under construction sole-tick, GameWorld writeback records sell-ready
-        // structures (pct <= -0.5); host only finishes those IDs (GW decides readiness).
+        // structures (pct <= -0.5); host finishes after writeback same frame (Wave 716).
         let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-        let ready_sells: std::collections::HashSet<ObjectId> = if construction_sole {
-            crate::game_logic::host_sell_ready_log::drain()
-                .into_iter()
-                .map(|ev| ev.structure)
-                .collect()
-        } else {
-            std::collections::HashSet::new()
-        };
+        // Empty mid-update ready set under sole: finish only via post-writeback helper.
+        // Non-sole finishes via projected percent (may_finish without ready membership).
+        let ready_sells: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
         for entry in std::mem::take(&mut self.sell_list) {
             let Some(obj) = self.objects.get_mut(&entry.id) else {
                 // Object gone by other means.
@@ -69581,6 +69576,56 @@ impl GameLogic {
                 }
             }
             // Cancel any leftover production (C++ cancel again at finish).
+            self.cancel_all_production(id);
+            self.destroy_object(id);
+            self.sell_process_finishes = self.sell_process_finishes.saturating_add(1);
+            let msg = crate::localization::localize("hud.sell.complete", "Structure sold");
+            self.queue_radar_message_for_team(team, msg);
+        }
+    }
+
+
+    /// Wave 716: after GW construction writeback records sell-ready structures,
+    /// host applies refund/destroy in the same coupled tick (not next frame).
+    pub(crate) fn host_apply_sell_completions_after_ready_writeback(&mut self) {
+        if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
+            return;
+        }
+        let ready: std::collections::HashSet<ObjectId> =
+            crate::game_logic::host_sell_ready_log::drain()
+                .into_iter()
+                .map(|ev| ev.structure)
+                .collect();
+        if ready.is_empty() {
+            return;
+        }
+        // Drop finished entries from sell_list residual.
+        self.sell_list
+            .retain(|entry| !ready.contains(&entry.id));
+        for id in ready {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if !obj.is_alive() {
+                continue;
+            }
+            // Writeback already pushed percent <= SELL_FINISH while sold.
+            if !obj.status.sold
+                && obj.construction_percent > SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL + 1e-6
+            {
+                continue;
+            }
+            let team = obj.team;
+            let sell_percentage = game_engine::common::global_data::read().sell_percentage;
+            let refund = ((obj.thing.template.build_cost.supplies as f32) * sell_percentage)
+                .max(0.0) as u32;
+            if refund > 0 {
+                if let Some(player) = self.get_player_mut_by_team(team) {
+                    player.apply_supply_gain(refund);
+                } else if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
+                    player.apply_supply_gain(refund);
+                }
+            }
             self.cancel_all_production(id);
             self.destroy_object(id);
             self.sell_process_finishes = self.sell_process_finishes.saturating_add(1);

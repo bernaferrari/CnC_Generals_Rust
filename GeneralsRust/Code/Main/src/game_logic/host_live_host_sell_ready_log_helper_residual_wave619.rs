@@ -159,10 +159,14 @@ pub fn honesty_host_sell_ready_log_helper_source_markers_residual_wave619() -> b
         residual_action_store(ResidualHostSellReadyLogHelperAction::SourceMarkers);
         return false;
     };
+    // Wave 716: drain moved to post-writeback helper; mid-update keeps ready_sells gate.
     let drain_ok = update.contains("Wave 619")
-        && update.contains("host_sell_ready_log::drain")
         && update.contains("ready_sells")
-        && update.contains("construction_sole");
+        && update.contains("construction_sole")
+        && (
+            update.contains("host_sell_ready_log::drain")
+                || gl.contains("host_apply_sell_completions_after_ready_writeback")
+        );
     let ok = log_ok && wb_ok && drain_ok && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostSellReadyLogHelperAction::SourceMarkers);
     ok

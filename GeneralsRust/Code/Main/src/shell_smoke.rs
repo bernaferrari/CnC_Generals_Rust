@@ -2971,6 +2971,11 @@ use crate::game_logic::host_live_host_construction_same_frame_ready_complete_res
     honesty_host_construction_same_frame_ready_complete_nav_commands_residual_wave715,
     simulate_live_host_construction_same_frame_ready_complete_honesty,
 };
+use crate::game_logic::host_live_host_sell_same_frame_ready_complete_residual_wave716::{
+    honesty_host_sell_same_frame_ready_complete_method_names_residual_wave716,
+    honesty_host_sell_same_frame_ready_complete_nav_commands_residual_wave716,
+    simulate_live_host_sell_same_frame_ready_complete_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6834,6 +6839,9 @@ pub struct ShellSmokeResult {
     pub host_construction_same_frame_ready_complete_method_names_wave715_ok: bool,
     pub host_construction_same_frame_ready_complete_nav_commands_wave715_ok: bool,
     pub host_construction_same_frame_ready_complete_live_wave715_ok: bool,
+    pub host_sell_same_frame_ready_complete_method_names_wave716_ok: bool,
+    pub host_sell_same_frame_ready_complete_nav_commands_wave716_ok: bool,
+    pub host_sell_same_frame_ready_complete_live_wave716_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10863,6 +10871,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_construction_same_frame_ready_complete_nav_commands_residual_wave715();
     let host_construction_same_frame_ready_complete_live_wave715_ok =
         simulate_live_host_construction_same_frame_ready_complete_honesty();
+    let host_sell_same_frame_ready_complete_method_names_wave716_ok =
+        honesty_host_sell_same_frame_ready_complete_method_names_residual_wave716();
+    let host_sell_same_frame_ready_complete_nav_commands_wave716_ok =
+        honesty_host_sell_same_frame_ready_complete_nav_commands_residual_wave716();
+    let host_sell_same_frame_ready_complete_live_wave716_ok =
+        simulate_live_host_sell_same_frame_ready_complete_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12997,6 +13011,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_construction_same_frame_ready_complete_method_names_wave715_ok,
         host_construction_same_frame_ready_complete_nav_commands_wave715_ok,
         host_construction_same_frame_ready_complete_live_wave715_ok,
+        host_sell_same_frame_ready_complete_method_names_wave716_ok,
+        host_sell_same_frame_ready_complete_nav_commands_wave716_ok,
+        host_sell_same_frame_ready_complete_live_wave716_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23992,6 +24009,21 @@ mod tests {
         assert!(
             r.host_construction_same_frame_ready_complete_live_wave715_ok,
             "host construction_same_frame_ready_complete live residual wave715: {}",
+            r.detail
+        );
+        assert!(
+            r.host_sell_same_frame_ready_complete_method_names_wave716_ok,
+            "host sell_same_frame_ready_complete method names residual pack wave716: {}",
+            r.detail
+        );
+        assert!(
+            r.host_sell_same_frame_ready_complete_nav_commands_wave716_ok,
+            "host sell_same_frame_ready_complete nav commands residual pack wave716: {}",
+            r.detail
+        );
+        assert!(
+            r.host_sell_same_frame_ready_complete_live_wave716_ok,
+            "host sell_same_frame_ready_complete live residual wave716: {}",
             r.detail
         );
         assert!(
