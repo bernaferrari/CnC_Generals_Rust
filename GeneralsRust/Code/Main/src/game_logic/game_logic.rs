@@ -25132,12 +25132,29 @@ impl GameLogic {
                     crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
                 );
                 // Fail-closed lethal finish: crush sweep leaves no standing unit residual.
+                // Wave 746: under damage authority, do not zero host HP (dual with GW
+                // HP writeback). Project lethal via damage log + destroyed flags;
+                // non-authority path keeps host HP clear.
                 if !obj.status.destroyed {
-                    obj.health.current = 0.0;
-                    obj.status.destroyed = true;
-                    obj.status.effectively_dead = true;
-                    obj.status.death_type =
-                        crate::game_logic::host_usa_pilot::HostDeathType::Crushed;
+                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                        let hp = obj.health.current.max(1.0);
+                        crate::game_logic::host_damage_log::record(
+                            id,
+                            hp,
+                            Some(building_id),
+                            true,
+                        );
+                        obj.status.destroyed = true;
+                        obj.status.effectively_dead = true;
+                        obj.status.death_type =
+                            crate::game_logic::host_usa_pilot::HostDeathType::Crushed;
+                    } else {
+                        obj.health.current = 0.0;
+                        obj.status.destroyed = true;
+                        obj.status.effectively_dead = true;
+                        obj.status.death_type =
+                            crate::game_logic::host_usa_pilot::HostDeathType::Crushed;
+                    }
                     dead = true;
                 }
                 dead
