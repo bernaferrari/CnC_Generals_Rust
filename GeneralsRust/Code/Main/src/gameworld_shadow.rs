@@ -4709,6 +4709,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 759: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_move_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_dest = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
             let shadow_dest = ent.move_target;
             let same = match (host_dest, shadow_dest) {
@@ -4749,6 +4755,13 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 759: under coupled tick, host move/movement pending owns pose.
+            if shadow_coupled_tick_active()
+                && (crate::game_logic::host_move_log::has_pending(ObjectId(hid))
+                    || crate::game_logic::host_movement_log::has_pending(ObjectId(hid)))
+            {
+                continue;
+            }
             let p = ent.transform.position;
             let host_p = obj.get_position();
             let host_o = obj.get_orientation();
@@ -5214,6 +5227,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 759: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_rebuild_producer_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_tpl = obj.rebuild_template_name.clone().unwrap_or_default();
             let changed = obj.is_rebuild_hole != ent.is_rebuild_hole
                 || host_tpl != ent.rebuild_template_name
@@ -9878,6 +9897,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 759: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_contain_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_garrison = obj
                 .building_data
                 .as_ref()
@@ -10531,6 +10556,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 759: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_combat_attack_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let mut dirty = false;
             macro_rules! set_flag {
                 ($host:expr, $ent:expr) => {

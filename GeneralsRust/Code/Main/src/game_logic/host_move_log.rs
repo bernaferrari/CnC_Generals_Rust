@@ -21,6 +21,10 @@ pub fn record(unit: ObjectId, destination: Option<[f32; 3]>) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.unit == object))
+}
+
 pub fn drain() -> Vec<HostMoveEvent> {
     let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
     // Keep last non-empty batch for PresentationFrame after shadow session.
