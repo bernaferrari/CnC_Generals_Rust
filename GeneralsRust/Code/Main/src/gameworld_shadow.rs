@@ -4155,6 +4155,37 @@ impl GameWorldShadow {
                     e.spy_satellite_ping = obj.spy_satellite_ping;
                     e.spy_satellite_ping_expires_frame =
                         obj.spy_satellite_ping_expires_frame.unwrap_or(0);
+                    e.flashbang_grenade_projectile = obj.flashbang_grenade_projectile;
+                    if let Some(a) = obj.flashbang_grenade_from {
+                        e.flashbang_grenade_has_from = true;
+                        e.flashbang_grenade_from_x = a[0];
+                        e.flashbang_grenade_from_y = a[1];
+                        e.flashbang_grenade_from_z = a[2];
+                    } else {
+                        e.flashbang_grenade_has_from = false;
+                    }
+                    if let Some(a) = obj.flashbang_grenade_aim {
+                        e.flashbang_grenade_has_aim = true;
+                        e.flashbang_grenade_aim_x = a[0];
+                        e.flashbang_grenade_aim_y = a[1];
+                        e.flashbang_grenade_aim_z = a[2];
+                    } else {
+                        e.flashbang_grenade_has_aim = false;
+                    }
+                    e.flashbang_grenade_launch_frame =
+                        obj.flashbang_grenade_launch_frame.unwrap_or(0);
+                    e.flashbang_grenade_flight_frames = obj.flashbang_grenade_flight_frames;
+                    if let Some(i) = obj.flashbang_grenade_intended {
+                        e.flashbang_grenade_has_intended = true;
+                        e.flashbang_grenade_intended = i;
+                    } else {
+                        e.flashbang_grenade_has_intended = false;
+                    }
+                    e.comanche_rocket_pod_projectile = obj.comanche_rocket_pod_projectile;
+                    e.comanche_rocket_pod_projectile_expires_frame = obj
+                        .comanche_rocket_pod_projectile_expires_frame
+                        .unwrap_or(0);
+                    e.helix_napalm_bomb_projectile = obj.helix_napalm_bomb_projectile;
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -9679,6 +9710,91 @@ impl GameWorldShadow {
                 changed = true;
             }
 
+            // Wave 804: Flashbang grenade residual.
+            if e.flashbang_grenade_projectile {
+                use crate::game_logic::host_ranger::flashbang_shell_bezier_point;
+                let pos = e.transform.position;
+                let from = if e.flashbang_grenade_has_from {
+                    glam::Vec3::new(
+                        e.flashbang_grenade_from_x,
+                        e.flashbang_grenade_from_y,
+                        e.flashbang_grenade_from_z,
+                    )
+                } else {
+                    glam::Vec3::new(pos.x, pos.y, pos.z)
+                };
+                let aim = if e.flashbang_grenade_has_aim {
+                    glam::Vec3::new(
+                        e.flashbang_grenade_aim_x,
+                        e.flashbang_grenade_aim_y,
+                        e.flashbang_grenade_aim_z,
+                    )
+                } else {
+                    from
+                };
+                let launch = e.flashbang_grenade_launch_frame;
+                let frames = e.flashbang_grenade_flight_frames.max(1);
+                let elapsed = frame.saturating_sub(launch);
+                let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+                let new_pos = flashbang_shell_bezier_point(from, aim, t);
+                let dx = new_pos.x - pos.x;
+                let dz = new_pos.z - pos.z;
+                e.transform.position.x = new_pos.x;
+                e.transform.position.y = new_pos.y;
+                e.transform.position.z = new_pos.z;
+                if dx * dx + dz * dz > 1.0e-6 {
+                    e.transform.orientation = dz.atan2(dx);
+                }
+                if elapsed >= frames {
+                    e.flashbang_grenade_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        let intended = if e.flashbang_grenade_has_intended {
+                            Some(crate::game_logic::ObjectId(e.flashbang_grenade_intended))
+                        } else {
+                            None
+                        };
+                        crate::game_logic::host_flashbang_comanche_helix_projectile_log::record_flashbang(
+                            crate::game_logic::host_flashbang_comanche_helix_projectile_log::FlashbangImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                intended,
+                                pos: aim,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 804: Comanche rocket-pod residual.
+            if e.comanche_rocket_pod_projectile {
+                let vx = e.velocity[0];
+                let vy = e.velocity[1];
+                let vz = e.velocity[2];
+                e.transform.position.x += vx;
+                e.transform.position.y += vy;
+                e.transform.position.z += vz;
+                if e.comanche_rocket_pod_projectile_expires_frame > 0
+                    && frame >= e.comanche_rocket_pod_projectile_expires_frame
+                {
+                    e.comanche_rocket_pod_projectile = false;
+                    e.comanche_rocket_pod_projectile_expires_frame = 0;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_flashbang_comanche_helix_projectile_log::record_comanche_expire(
+                            crate::game_logic::ObjectId(hid),
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 804: Helix napalm bomb residual.
+            if e.helix_napalm_bomb_projectile {
+                e.transform.position.x += e.velocity[0];
+                e.transform.position.y += e.velocity[1];
+                e.transform.position.z += e.velocity[2];
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -14786,6 +14902,50 @@ impl GameWorldShadow {
                     None
                 };
             }
+            {
+                obj.flashbang_grenade_projectile = ent.flashbang_grenade_projectile;
+                if ent.flashbang_grenade_has_from {
+                    obj.flashbang_grenade_from = Some([
+                        ent.flashbang_grenade_from_x,
+                        ent.flashbang_grenade_from_y,
+                        ent.flashbang_grenade_from_z,
+                    ]);
+                } else {
+                    obj.flashbang_grenade_from = None;
+                }
+                if ent.flashbang_grenade_has_aim {
+                    obj.flashbang_grenade_aim = Some([
+                        ent.flashbang_grenade_aim_x,
+                        ent.flashbang_grenade_aim_y,
+                        ent.flashbang_grenade_aim_z,
+                    ]);
+                } else {
+                    obj.flashbang_grenade_aim = None;
+                }
+                obj.flashbang_grenade_launch_frame = if ent.flashbang_grenade_launch_frame > 0
+                    || ent.flashbang_grenade_projectile
+                {
+                    Some(ent.flashbang_grenade_launch_frame)
+                } else {
+                    None
+                };
+                obj.flashbang_grenade_flight_frames = ent.flashbang_grenade_flight_frames;
+                obj.flashbang_grenade_intended = if ent.flashbang_grenade_has_intended {
+                    Some(ent.flashbang_grenade_intended)
+                } else {
+                    None
+                };
+                obj.comanche_rocket_pod_projectile = ent.comanche_rocket_pod_projectile;
+                obj.comanche_rocket_pod_projectile_expires_frame =
+                    if ent.comanche_rocket_pod_projectile
+                        && ent.comanche_rocket_pod_projectile_expires_frame > 0
+                    {
+                        Some(ent.comanche_rocket_pod_projectile_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.helix_napalm_bomb_projectile = ent.helix_napalm_bomb_projectile;
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -16914,6 +17074,41 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(id, None);
         }
+        // Wave 804: Flashbang impact + Comanche rocket expire.
+        for ev in crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_flashbang() {
+            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.flashbang_grenade_projectile = false;
+                o.set_position(ev.pos);
+            }
+            let _ = logic.apply_ranger_residual_at(ev.pos, ev.source, ev.intended, true);
+            logic.mark_object_for_destruction(ev.id, team);
+        }
+        for id in crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_comanche_expires() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.comanche_rocket_pod_projectile = false;
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+
 
 
 
