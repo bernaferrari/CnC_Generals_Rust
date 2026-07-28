@@ -254,6 +254,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_SPECIAL_POWER_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_RADAR_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_PLAYER_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PLAYER_META_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PLAYER_COOLDOWN_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PRODUCTION_DOOR_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -2195,6 +2198,93 @@ pub fn eager_apply_host_player_progress_after_logic(
     }
     let n = shadow.apply_host_player_progress_events(&events);
     EARLY_PLAYER_PROGRESS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 708: post-logic player-meta / player-cooldown / production-door batch handoff.
+thread_local! {
+    static EARLY_PLAYER_META_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_player_meta_log::HostPlayerMetaEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_PLAYER_COOLDOWN_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_player_cooldown_log::HostPlayerCooldownEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_PRODUCTION_DOOR_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_production_door_log::HostProductionDoorEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_player_meta_batch() -> Option<(
+    Vec<crate::game_logic::host_player_meta_log::HostPlayerMetaEvent>,
+    bool,
+)> {
+    EARLY_PLAYER_META_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_player_cooldown_batch() -> Option<(
+    Vec<crate::game_logic::host_player_cooldown_log::HostPlayerCooldownEvent>,
+    bool,
+)> {
+    EARLY_PLAYER_COOLDOWN_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_production_door_batch() -> Option<(
+    Vec<crate::game_logic::host_production_door_log::HostProductionDoorEvent>,
+    bool,
+)> {
+    EARLY_PRODUCTION_DOOR_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 708: post-logic drain `host_player_meta_log` into GameWorld player meta.
+pub fn eager_apply_host_player_meta_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 708: post-logic player-meta materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_player_meta_log::drain();
+    if events.is_empty() {
+        EARLY_PLAYER_META_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_player_meta_events(&events);
+    EARLY_PLAYER_META_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 708: post-logic drain `host_player_cooldown_log` into GameWorld player cooldowns.
+pub fn eager_apply_host_player_cooldown_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 708: post-logic player-cooldown materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_player_cooldown_log::drain();
+    if events.is_empty() {
+        EARLY_PLAYER_COOLDOWN_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_player_cooldown_events(&events);
+    EARLY_PLAYER_COOLDOWN_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 708: post-logic drain `host_production_door_log` into GameWorld SetProductionDoor.
+pub fn eager_apply_host_production_door_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 708: post-logic production-door materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_production_door_log::drain();
+    if events.is_empty() {
+        EARLY_PRODUCTION_DOOR_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_production_door_events(&events);
+    EARLY_PRODUCTION_DOOR_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -10180,8 +10270,17 @@ pub fn shadow_session_after_host_tick(
             Some((ev, applied)) => (ev, applied),
             None => (crate::game_logic::host_player_progress_log::drain(), false),
         };
-    let player_meta_events = crate::game_logic::host_player_meta_log::drain();
-    let player_cooldown_events = crate::game_logic::host_player_cooldown_log::drain();
+    // Wave 708: prefer post-logic player-meta batch.
+    let (player_meta_events, early_player_meta_applied) = match take_early_player_meta_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_player_meta_log::drain(), false),
+    };
+    // Wave 708: prefer post-logic player-cooldown batch.
+    let (player_cooldown_events, early_player_cooldown_applied) =
+        match take_early_player_cooldown_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_player_cooldown_log::drain(), false),
+        };
     let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
@@ -10194,8 +10293,17 @@ pub fn shadow_session_after_host_tick(
     // Sole progress tick under PRODUCTION_AUTHORITY (host skips advance; Wave 477 no progress stomp).
     let _prod_tick = shadow
         .tick_production_queues(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
-    let production_door_events = crate::game_logic::host_production_door_log::drain();
-    let _pd_applied = shadow.apply_host_production_door_events(&production_door_events);
+    // Wave 708: prefer post-logic production-door batch.
+    let (production_door_events, early_production_door_applied) =
+        match take_early_production_door_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_production_door_log::drain(), false),
+        };
+    let _pd_applied = if early_production_door_applied {
+        0
+    } else {
+        shadow.apply_host_production_door_events(&production_door_events)
+    };
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
     let _construction_progress_applied =
         shadow.apply_host_construction_progress_events(&construction_progress_events);
@@ -10243,8 +10351,18 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_player_progress_events(&player_progress_events)
     };
-    let _meta_applied = shadow.apply_host_player_meta_events(&player_meta_events);
-    let _cd_applied = shadow.apply_host_player_cooldown_events(&player_cooldown_events);
+    // Wave 708: skip GW re-apply when post-logic eager path already ran.
+    let _meta_applied = if early_player_meta_applied {
+        0
+    } else {
+        shadow.apply_host_player_meta_events(&player_meta_events)
+    };
+    // Wave 708: skip GW re-apply when post-logic eager path already ran.
+    let _cd_applied = if early_player_cooldown_applied {
+        0
+    } else {
+        shadow.apply_host_player_cooldown_events(&player_cooldown_events)
+    };
 
     // Shared SP sole-tick after host cooldown snapshot applied.
     let _sp_player_tick = shadow.tick_player_shared_special_power_cooldowns(

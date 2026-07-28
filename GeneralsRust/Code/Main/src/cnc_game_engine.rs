@@ -18233,6 +18233,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 708: post-logic player-meta / player-cooldown / production-door.
+                let _pmeta = crate::gameworld_shadow::eager_apply_host_player_meta_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _pcd = crate::gameworld_shadow::eager_apply_host_player_cooldown_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _pdoor = crate::gameworld_shadow::eager_apply_host_production_door_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
