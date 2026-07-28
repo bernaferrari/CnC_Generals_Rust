@@ -5014,6 +5014,39 @@ impl GameWorldShadow {
                         e.oil_derrick_next_deposit_frame = 0;
                     }
                 }
+                {
+                    use crate::game_logic::is_hacker_template;
+                    let name = obj.template_name.as_str();
+                    let is_hk =
+                        is_hacker_template(name) || name.to_ascii_lowercase().contains("hacker");
+                    if is_hk {
+                        e.hacker_unit = true;
+                        e.hacker_hacking = logic.hacker_income.is_hacking(oid);
+                        e.hacker_next_deposit_frame =
+                            logic.hacker_income.peek_next_deposit(oid).unwrap_or(0);
+                        // Contained in IC residual: host contained_by.
+                        let in_ic = obj
+                            .contained_by
+                            .map(|cid| {
+                                logic
+                                    .objects
+                                    .get(&cid)
+                                    .map(|c| {
+                                        let n = c.template_name.as_str();
+                                        crate::game_logic::is_internet_center_template(n)
+                                            || n.to_ascii_lowercase().contains("internetcenter")
+                                    })
+                                    .unwrap_or(false)
+                            })
+                            .unwrap_or(false);
+                        e.hacker_in_internet_center = in_ic;
+                    } else {
+                        e.hacker_unit = false;
+                        e.hacker_hacking = false;
+                        e.hacker_in_internet_center = false;
+                        e.hacker_next_deposit_frame = 0;
+                    }
+                }
                 e.turret_angle_deg = obj.turret_angle_deg;
                 e.turret_pitch_deg = obj.turret_pitch_deg;
                 e.turret_idle_scanning = obj.turret_idle_scanning;
@@ -10928,6 +10961,51 @@ impl GameWorldShadow {
                                     stealthed: e.stealthed,
                                     detected: e.detected,
                                     supply_lines_boost: boost,
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                }
+            }
+
+            // Wave 822: China Hacker HackInternet residual cash.
+            if e.hacker_unit && e.hacker_hacking {
+                use crate::game_logic::{
+                    cash_amount_for_level, cash_interval_frames, is_legal_hacker_income_source,
+                    VeterancyLevel,
+                };
+                let alive = e.health > 0.0 && !e.destroyed;
+                let neutral = e.team_ordinal == 255;
+                let disabled_hacked = e.disabled_hacked;
+                if is_legal_hacker_income_source(alive, neutral, disabled_hacked) {
+                    let level = match e.veterancy_ordinal {
+                        1 => VeterancyLevel::Veteran,
+                        2 => VeterancyLevel::Elite,
+                        3 => VeterancyLevel::Heroic,
+                        _ => VeterancyLevel::Rookie,
+                    };
+                    let amount = cash_amount_for_level(level);
+                    let interval = cash_interval_frames(e.hacker_in_internet_center);
+                    if e.hacker_next_deposit_frame == 0 {
+                        e.hacker_next_deposit_frame = frame.saturating_add(interval.max(1));
+                        changed = true;
+                    } else if frame >= e.hacker_next_deposit_frame {
+                        e.hacker_next_deposit_frame = frame.saturating_add(interval.max(1));
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            let pos = e.transform.position;
+                            crate::game_logic::host_hacker_income_log::record(
+                                crate::game_logic::host_hacker_income_log::HackerIncomeEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    team: Self::entity_team_from_ordinal(e.team_ordinal),
+                                    pos: glam::Vec3::new(pos.x, pos.y, pos.z),
+                                    amount,
+                                    next_deposit_frame: e.hacker_next_deposit_frame,
+                                    in_internet_center: e.hacker_in_internet_center,
+                                    stealthed: e.stealthed,
+                                    detected: e.detected,
+                                    veterancy_ordinal: e.veterancy_ordinal,
+                                    container_radius: 0.0,
                                 },
                             );
                         }
@@ -18644,6 +18722,11 @@ pub fn shadow_session_after_host_tick(
         // Wave 821: black market / oil derrick AutoDeposit residual.
         for ev in crate::game_logic::host_auto_deposit_log::drain() {
             logic.apply_auto_deposit_event(ev);
+        }
+
+        // Wave 822: China Hacker HackInternet residual.
+        for ev in crate::game_logic::host_hacker_income_log::drain() {
+            logic.apply_hacker_income_event(ev);
         }
 
         // Wave 634: drain combat-status ready log after GW writeback.
