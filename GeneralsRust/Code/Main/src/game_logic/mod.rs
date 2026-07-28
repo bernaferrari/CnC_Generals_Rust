@@ -162,6 +162,7 @@ pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
 pub mod host_live_host_production_ready_pose_authority_residual_wave735;
 pub mod host_live_host_production_spawn_entity_first_residual_wave736;
+pub mod host_live_host_production_object_id_prefers_gw_entity_residual_wave737;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3404,6 +3405,15 @@ pub use host_live_host_production_spawn_entity_first_residual_wave736::{
     residual_host_production_spawn_entity_first_last_action,
     residual_host_production_spawn_entity_first_ok,
     simulate_live_host_production_spawn_entity_first_honesty,
+};
+pub use host_live_host_production_object_id_prefers_gw_entity_residual_wave737::{
+    honesty_host_production_object_id_prefers_gw_entity_method_names_residual_wave737,
+    honesty_host_production_object_id_prefers_gw_entity_nav_commands_residual_wave737,
+    honesty_host_production_object_id_prefers_gw_entity_residual_pack_wave737,
+    honesty_host_production_object_id_prefers_gw_entity_source_markers_residual_wave737,
+    residual_host_production_object_id_prefers_gw_entity_last_action,
+    residual_host_production_object_id_prefers_gw_entity_ok,
+    simulate_live_host_production_object_id_prefers_gw_entity_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,
