@@ -249,6 +249,7 @@ pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
 pub mod host_live_host_battlemaster_horde_dual_peel_residual_wave812;
 pub mod host_live_host_china_infantry_horde_dual_peel_residual_wave813;
 pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
+pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -338,6 +339,7 @@ pub mod host_power_plant_rods_log;
 pub mod host_battlemaster_horde_log;
 pub mod host_china_infantry_horde_log;
 pub mod host_stinger_hive_log;
+pub mod host_actively_constructing_log;
 pub mod host_armor_residual;
 pub mod host_aurora_bomb;
 pub mod host_aurora_bomb_projectile_log;
@@ -4273,6 +4275,18 @@ pub use host_live_host_stinger_hive_dual_peel_residual_wave814::{
     simulate_host_stinger_hive_dual_peel_dispatch_source,
     simulate_live_host_stinger_hive_dual_peel_honesty,
 };
+pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
+    honesty_host_actively_constructing_dual_peel_method_names_residual_wave815,
+    honesty_host_actively_constructing_dual_peel_nav_commands_residual_wave815,
+    honesty_host_actively_constructing_dual_peel_residual_pack_wave815,
+    honesty_host_actively_constructing_dual_peel_source_markers_residual_wave815,
+    residual_host_actively_constructing_dual_peel_last_action,
+    residual_host_actively_constructing_dual_peel_ok,
+    simulate_host_actively_constructing_dual_peel_collect_source,
+    simulate_host_actively_constructing_dual_peel_dispatch_source,
+    simulate_live_host_actively_constructing_dual_peel_honesty,
+};
+
 
 
 
