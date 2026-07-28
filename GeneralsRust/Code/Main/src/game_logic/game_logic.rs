@@ -8254,11 +8254,16 @@ impl GameLogic {
                     }
                 }
                 // C++ LifetimeUpdate residual.
+                // Wave 745: under damage authority, do not zero host HP / stamp
+                // destroyed mid-frame (dual with GW HP writeback). Mark-for-destroy
+                // owns lethal residual; non-authority path keeps host HP clear.
                 if obj.tick_lifetime_update(self.frame) {
-                    obj.health.current = 0.0;
-                    obj.status.destroyed = true;
-                    obj.refresh_model_condition_bits();
                     lifetime_kill = true;
+                    if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+                        obj.health.current = 0.0;
+                        obj.status.destroyed = true;
+                        obj.refresh_model_condition_bits();
+                    }
                 }
                 obj.tick_continuous_fire_coast(self.frame);
                 obj.tick_force_reload_when_idle(self.frame);

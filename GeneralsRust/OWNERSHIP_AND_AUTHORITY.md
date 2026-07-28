@@ -222,6 +222,7 @@ Remaining engine residual after host update:
   - GLA rebuild-hole expose spawn is GW entity-first under construction sole-tick (Wave 742)
   - production sole-tick: host does not dual-tick door residual (Wave 743; GW door writeback owns phase advance)
   - coupled shadow: host does not dual-complete radar-extend tick (Wave 744; writeback + ready-apply own complete)
+  - damage authority: LifetimeUpdate kill does not stomp host HP mid-frame (Wave 745; mark-for-destroy owns lethal)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

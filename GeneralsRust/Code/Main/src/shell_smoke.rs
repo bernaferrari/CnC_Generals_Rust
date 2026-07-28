@@ -3195,6 +3195,11 @@ use crate::game_logic::host_live_host_radar_extend_no_dual_complete_residual_wav
     honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744,
     simulate_live_host_radar_extend_no_dual_complete_honesty,
 };
+use crate::game_logic::host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745::{
+    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745,
+    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_residual_wave745,
+    simulate_live_host_lifetime_kill_no_damage_auth_hp_stomp_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7066,6 +7071,9 @@ pub struct ShellSmokeResult {
     pub host_radar_extend_no_dual_complete_method_names_wave744_ok: bool,
     pub host_radar_extend_no_dual_complete_nav_commands_wave744_ok: bool,
     pub host_radar_extend_no_dual_complete_live_wave744_ok: bool,
+    pub host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok: bool,
+    pub host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok: bool,
+    pub host_lifetime_kill_no_damage_auth_hp_stomp_live_wave745_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11269,6 +11277,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744();
     let host_radar_extend_no_dual_complete_live_wave744_ok =
         simulate_live_host_radar_extend_no_dual_complete_honesty();
+    let host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok =
+        honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745();
+    let host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok =
+        honesty_host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_residual_wave745();
+    let host_lifetime_kill_no_damage_auth_hp_stomp_live_wave745_ok =
+        simulate_live_host_lifetime_kill_no_damage_auth_hp_stomp_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13490,6 +13504,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_radar_extend_no_dual_complete_method_names_wave744_ok,
         host_radar_extend_no_dual_complete_nav_commands_wave744_ok,
         host_radar_extend_no_dual_complete_live_wave744_ok,
+        host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok,
+        host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok,
+        host_lifetime_kill_no_damage_auth_hp_stomp_live_wave745_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24920,6 +24937,21 @@ mod tests {
         assert!(
             r.host_radar_extend_no_dual_complete_live_wave744_ok,
             "host radar_extend_no_dual_complete live residual wave744: {}",
+            r.detail
+        );
+        assert!(
+            r.host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok,
+            "host lifetime_kill_no_damage_auth_hp_stomp method names residual pack wave745: {}",
+            r.detail
+        );
+        assert!(
+            r.host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok,
+            "host lifetime_kill_no_damage_auth_hp_stomp nav commands residual pack wave745: {}",
+            r.detail
+        );
+        assert!(
+            r.host_lifetime_kill_no_damage_auth_hp_stomp_live_wave745_ok,
+            "host lifetime_kill_no_damage_auth_hp_stomp live residual wave745: {}",
             r.detail
         );
         assert!(
