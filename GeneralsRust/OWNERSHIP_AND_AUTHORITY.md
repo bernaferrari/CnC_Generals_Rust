@@ -230,6 +230,7 @@ Remaining engine residual after host update:
   - damage authority: Spectre prior-clear does not stomp host HP mid-frame (Wave 750; damage log + flags)
   - damage authority: booby-trap special destroy does not stomp host HP mid-frame (Wave 751; damage log + flags)
   - damage authority: bulk lethal-finish stamps + `host_lethal_finish_object` helper (Wave 752; ~53 production sites)
+  - damage authority: dual-line lethal stamps incl. Aurora stale clear (Wave 753)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
