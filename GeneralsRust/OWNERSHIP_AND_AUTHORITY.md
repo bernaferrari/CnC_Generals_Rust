@@ -196,6 +196,7 @@ Remaining engine residual after host update:
   - Same-frame sell finish after GW sell-ready writeback under sole-tick (Wave 716)
   - Same-frame special-power ready EVA after GW SP writeback under sole-tick (Wave 717)
   - train_unit force-complete barracks is opt-in only (Wave 718; smoke sets force_complete=1)
+  - construct free-dozer spawn is opt-in only (Wave 719; smoke sets spawn_dozer=1)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

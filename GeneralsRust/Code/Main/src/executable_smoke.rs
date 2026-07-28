@@ -1126,7 +1126,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
-                        let _ = write_control(&control_path, &["construct|template=USA_Barracks"]);
+                        let _ = write_control(&control_path, &["construct|template=USA_Barracks|spawn_dozer=1"]);
                         gameplay_step = 3;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 3
