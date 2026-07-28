@@ -4217,6 +4217,37 @@ impl GameWorldShadow {
                     e.weapon_laser_beam = obj.weapon_laser_beam;
                     e.weapon_laser_beam_expires_frame =
                         obj.weapon_laser_beam_expires_frame.unwrap_or(0);
+                    {
+                        use crate::game_logic::host_mines::HostMineKind;
+                        if let Some(md) = obj.mine_data.as_ref() {
+                            let sticky = matches!(
+                                md.kind,
+                                HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge
+                            ) && md.attached_to.is_some()
+                                && md.is_active();
+                            e.sticky_bomb_attached = sticky;
+                            e.sticky_bomb_attached_to =
+                                md.attached_to.map(|id| id.0).unwrap_or(0);
+                            e.sticky_bomb_mine_kind = match md.kind {
+                                HostMineKind::TimedDemoCharge => 2,
+                                HostMineKind::RemoteDemoCharge => 3,
+                                HostMineKind::LandMine => 0,
+                                HostMineKind::DemoTrap => 1,
+                            };
+                        } else {
+                            e.sticky_bomb_attached = false;
+                            e.sticky_bomb_attached_to = 0;
+                            e.sticky_bomb_mine_kind = 0;
+                        }
+                    }
+                    e.booby_trap_special = obj.booby_trap_special;
+                    if let Some(a) = obj.booby_trap_attached_to {
+                        e.booby_trap_has_attached = true;
+                        e.booby_trap_attached_to = a.0;
+                    } else {
+                        e.booby_trap_has_attached = false;
+                        e.booby_trap_attached_to = 0;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -7675,7 +7706,38 @@ impl GameWorldShadow {
             .copied()
             .collect();
         let mut n = 0usize;
-                // Wave 805: snapshot live scorpion missile intended positions (borrow-safe).
+                // Wave 807: snapshot sticky/booby attach target positions (borrow-safe).
+        let mut sticky_booby_targets: std::collections::HashMap<u32, (glam::Vec3, bool, bool)> =
+            std::collections::HashMap::new();
+        for eid in &eids {
+            let Some(e) = self.world.entity(*eid) else {
+                continue;
+            };
+            let tid = if e.sticky_bomb_attached {
+                Some(e.sticky_bomb_attached_to)
+            } else if e.booby_trap_special && e.booby_trap_has_attached {
+                Some(e.booby_trap_attached_to)
+            } else {
+                None
+            };
+            let Some(tid) = tid else { continue };
+            if sticky_booby_targets.contains_key(&tid) {
+                continue;
+            }
+            if let Some(teid) = self.host_to_entity.get(&tid).copied() {
+                if let Some(t) = self.world.entity(teid) {
+                    let tp = t.transform.position;
+                    let alive = t.health > 0.0 && !t.destroyed;
+                    let immobile = (t.kind_of_bits & 1) != 0; // Structure bit 0
+                    sticky_booby_targets.insert(
+                        tid,
+                        (glam::Vec3::new(tp.x, tp.y, tp.z), alive, immobile),
+                    );
+                }
+            }
+        }
+
+        // Wave 805: snapshot live scorpion missile intended positions (borrow-safe).
         let mut scorpion_retarget: std::collections::HashMap<u32, glam::Vec3> =
             std::collections::HashMap::new();
         for eid in &eids {
@@ -10001,6 +10063,78 @@ for eid in eids {
                     );
                 }
                 changed = true;
+            }
+
+            // Wave 807: Sticky bomb / booby-trap attach follow residual.
+            if e.sticky_bomb_attached {
+                const STICKY_OFFSET_Z: f32 = 8.0;
+                let tid = e.sticky_bomb_attached_to;
+                match sticky_booby_targets.get(&tid).copied() {
+                    Some((tpos, true, immobile)) => {
+                        let new_pos = if immobile {
+                            glam::Vec3::new(tpos.x, 0.0, tpos.z)
+                        } else {
+                            glam::Vec3::new(tpos.x, tpos.y + STICKY_OFFSET_Z, tpos.z)
+                        };
+                        e.transform.position.x = new_pos.x;
+                        e.transform.position.y = new_pos.y;
+                        e.transform.position.z = new_pos.z;
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_sticky_booby_attach_log::record_sticky_follow(
+                                crate::game_logic::host_sticky_booby_attach_log::StickyFollowEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    pos: new_pos,
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                    _ => {
+                        e.sticky_bomb_attached = false;
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_sticky_booby_attach_log::record_sticky_destroy(
+                                crate::game_logic::host_sticky_booby_attach_log::StickyDestroyEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                }
+            }
+            if e.booby_trap_special && e.booby_trap_has_attached {
+                const STICKY_OFFSET_Y: f32 = 8.0;
+                let tid = e.booby_trap_attached_to;
+                match sticky_booby_targets.get(&tid).copied() {
+                    Some((tpos, true, _)) => {
+                        let new_pos =
+                            glam::Vec3::new(tpos.x, tpos.y + STICKY_OFFSET_Y, tpos.z);
+                        e.transform.position.x = new_pos.x;
+                        e.transform.position.y = new_pos.y;
+                        e.transform.position.z = new_pos.z;
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_sticky_booby_attach_log::record_booby_follow(
+                                crate::game_logic::host_sticky_booby_attach_log::BoobyFollowEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    pos: new_pos,
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                    _ => {
+                        e.booby_trap_special = false;
+                        e.booby_trap_has_attached = false;
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_sticky_booby_attach_log::record_booby_destroy(
+                                crate::game_logic::host_sticky_booby_attach_log::BoobyDestroyEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                },
+                            );
+                        }
+                        changed = true;
+                    }
+                }
             }
 
             if changed {
@@ -15209,6 +15343,13 @@ for eid in eids {
                 } else {
                     None
                 };
+                // Sticky attach follow is position-only via drain; keep host mine_data.
+                obj.booby_trap_special = ent.booby_trap_special;
+                obj.booby_trap_attached_to = if ent.booby_trap_has_attached {
+                    Some(crate::game_logic::ObjectId(ent.booby_trap_attached_to))
+                } else {
+                    None
+                };
             }
 
             set_flag!(obj.status.masked, ent.masked);
@@ -17403,6 +17544,26 @@ pub fn shadow_session_after_host_tick(
             let _ = logic.apply_scorpion_residual_at(ev.pos, ev.source, ev.intended, ev.slot);
             logic.mark_object_for_destruction(ev.id, team);
         }
+        // Wave 807: Sticky bomb / booby-trap attach follow + orphan destroy.
+        for ev in crate::game_logic::host_sticky_booby_attach_log::drain_sticky_follows() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                o.set_position(ev.pos);
+            }
+            logic.sticky_bomb_follow_ticks = logic.sticky_bomb_follow_ticks.saturating_add(1);
+        }
+        for ev in crate::game_logic::host_sticky_booby_attach_log::drain_sticky_destroys() {
+            logic.sticky_bomb_target_deaths = logic.sticky_bomb_target_deaths.saturating_add(1);
+            logic.destroy_object(ev.id);
+        }
+        for ev in crate::game_logic::host_sticky_booby_attach_log::drain_booby_follows() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                o.set_position(ev.pos);
+            }
+        }
+        for ev in crate::game_logic::host_sticky_booby_attach_log::drain_booby_destroys() {
+            logic.destroy_booby_trap_special_object(ev.id);
+        }
+
 
 
 

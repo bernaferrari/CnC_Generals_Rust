@@ -2066,9 +2066,9 @@ pub struct GameLogic {
     special_power_completion_log:
         crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog,
     /// C++ StickyBombUpdate follow-position residual ticks.
-    sticky_bomb_follow_ticks: u32,
+    pub(crate) sticky_bomb_follow_ticks: u32,
     /// C++ StickyBombUpdate target-dead charge destroy residual.
-    sticky_bomb_target_deaths: u32,
+    pub(crate) sticky_bomb_target_deaths: u32,
     /// C++ RebuildHoleBehavior reconstruct residual events.
     rebuild_hole_reconstructs: u32,
     rebuild_hole_workers: u32,
@@ -61253,8 +61253,18 @@ impl GameLogic {
 
         let frame = self.frame;
         // C++ StickyBombUpdate::update residual — stick to target / die with target.
-        self.update_sticky_bomb_attachments();
-        self.update_booby_trap_special_attachments();
+        // Wave 807: under coupled shadow, attach follow owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_sticky_bomb_attachments();
+        }
+        // Wave 807: under coupled shadow, attach follow owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_booby_trap_special_attachments();
+        }
         // C++ SpecialObjectsPersistWhenOwnerDies = No for RemoteC4Charge residual.
         self.cleanup_remote_charges_when_owner_dies();
         let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
