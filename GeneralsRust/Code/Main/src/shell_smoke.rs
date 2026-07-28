@@ -3210,6 +3210,11 @@ use crate::game_logic::host_live_host_evacuate_exit_no_damage_auth_hp_stomp_resi
     honesty_host_evacuate_exit_no_damage_auth_hp_stomp_nav_commands_residual_wave747,
     simulate_live_host_evacuate_exit_no_damage_auth_hp_stomp_honesty,
 };
+use crate::game_logic::host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748::{
+    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_residual_wave748,
+    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_residual_wave748,
+    simulate_live_host_hive_struct_damage_no_damage_auth_hp_stomp_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7090,6 +7095,9 @@ pub struct ShellSmokeResult {
     pub host_evacuate_exit_no_damage_auth_hp_stomp_method_names_wave747_ok: bool,
     pub host_evacuate_exit_no_damage_auth_hp_stomp_nav_commands_wave747_ok: bool,
     pub host_evacuate_exit_no_damage_auth_hp_stomp_live_wave747_ok: bool,
+    pub host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_wave748_ok: bool,
+    pub host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_wave748_ok: bool,
+    pub host_hive_struct_damage_no_damage_auth_hp_stomp_live_wave748_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11311,6 +11319,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_evacuate_exit_no_damage_auth_hp_stomp_nav_commands_residual_wave747();
     let host_evacuate_exit_no_damage_auth_hp_stomp_live_wave747_ok =
         simulate_live_host_evacuate_exit_no_damage_auth_hp_stomp_honesty();
+    let host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_wave748_ok =
+        honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_residual_wave748();
+    let host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_wave748_ok =
+        honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_residual_wave748();
+    let host_hive_struct_damage_no_damage_auth_hp_stomp_live_wave748_ok =
+        simulate_live_host_hive_struct_damage_no_damage_auth_hp_stomp_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13541,6 +13555,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_evacuate_exit_no_damage_auth_hp_stomp_method_names_wave747_ok,
         host_evacuate_exit_no_damage_auth_hp_stomp_nav_commands_wave747_ok,
         host_evacuate_exit_no_damage_auth_hp_stomp_live_wave747_ok,
+        host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_wave748_ok,
+        host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_wave748_ok,
+        host_hive_struct_damage_no_damage_auth_hp_stomp_live_wave748_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25016,6 +25033,21 @@ mod tests {
         assert!(
             r.host_evacuate_exit_no_damage_auth_hp_stomp_live_wave747_ok,
             "host evacuate_exit_no_damage_auth_hp_stomp live residual wave747: {}",
+            r.detail
+        );
+        assert!(
+            r.host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_wave748_ok,
+            "host hive_struct_damage_no_damage_auth_hp_stomp method names residual pack wave748: {}",
+            r.detail
+        );
+        assert!(
+            r.host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_wave748_ok,
+            "host hive_struct_damage_no_damage_auth_hp_stomp nav commands residual pack wave748: {}",
+            r.detail
+        );
+        assert!(
+            r.host_hive_struct_damage_no_damage_auth_hp_stomp_live_wave748_ok,
+            "host hive_struct_damage_no_damage_auth_hp_stomp live residual wave748: {}",
             r.detail
         );
         assert!(

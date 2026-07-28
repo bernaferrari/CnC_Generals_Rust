@@ -55511,15 +55511,29 @@ impl GameLogic {
                     camo_reveal = true;
                 }
                 if result.structure_damage_applied > 0.0 {
-                    obj.health.current = new_struct_hp;
-                    crate::game_logic::host_damage_log::record(
-                        obj.id,
-                        result.structure_damage_applied,
-                        None,
-                        new_struct_hp <= 0.0,
-                    );
+                    // Wave 748: under damage authority, do not mutate host HP
+                    // (dual with GW HP writeback). Damage log owns the numeric
+                    // residual; lethal still stamps destroyed + idle residual.
+                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                        crate::game_logic::host_damage_log::record(
+                            obj.id,
+                            result.structure_damage_applied,
+                            None,
+                            new_struct_hp <= 0.0,
+                        );
+                    } else {
+                        obj.health.current = new_struct_hp;
+                        crate::game_logic::host_damage_log::record(
+                            obj.id,
+                            result.structure_damage_applied,
+                            None,
+                            new_struct_hp <= 0.0,
+                        );
+                        if new_struct_hp <= 0.0 {
+                            obj.health.current = 0.0;
+                        }
+                    }
                     if new_struct_hp <= 0.0 {
-                        obj.health.current = 0.0;
                         obj.status.destroyed = true;
                         let hid = obj.id;
                         obj.set_ai_state(AIState::Idle);
