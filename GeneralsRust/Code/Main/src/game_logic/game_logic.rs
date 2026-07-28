@@ -27415,6 +27415,9 @@ impl GameLogic {
 
             if let Some(obj) = self.objects.remove(&event.id) {
                 crate::game_logic::host_destroy_log::record(event.id);
+                // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
+                // End-of-tick host_destroy_log drain remains idempotent for unmapped IDs.
+                let _ = crate::gameworld_shadow::eager_unmap_host_destroy_if_coupled(event.id);
                 // Combat particle residual: death → registry entry (explosion + smoke).
                 // PresentationFrame / client can observe systems after the kill.
                 let death_pos = obj.get_position();
