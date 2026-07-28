@@ -715,6 +715,17 @@ pub struct Entity {
     /// Host AnthraxBomb payload residual.
     pub anthrax_bomb_payload: bool,
     pub anthrax_bomb_vel_y: f32,
+    /// Host ClusterMines transport residual.
+    pub cluster_mines_transport_active: bool,
+    pub cluster_mines_transport_target_x: f32,
+    pub cluster_mines_transport_target_y: f32,
+    pub cluster_mines_transport_target_z: f32,
+    pub cluster_mines_transport_launch_x: f32,
+    pub cluster_mines_transport_launch_y: f32,
+    pub cluster_mines_transport_launch_z: f32,
+    /// Host ClusterMinesBomb residual.
+    pub cluster_mines_bomb: bool,
+    pub cluster_mines_bomb_vel_y: f32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1434,6 +1445,15 @@ impl EntityStore {
             anthrax_transport_launch_z: 0.0,
             anthrax_bomb_payload: false,
             anthrax_bomb_vel_y: 0.0,
+            cluster_mines_transport_active: false,
+            cluster_mines_transport_target_x: 0.0,
+            cluster_mines_transport_target_y: 0.0,
+            cluster_mines_transport_target_z: 0.0,
+            cluster_mines_transport_launch_x: 0.0,
+            cluster_mines_transport_launch_y: 0.0,
+            cluster_mines_transport_launch_z: 0.0,
+            cluster_mines_bomb: false,
+            cluster_mines_bomb_vel_y: 0.0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,

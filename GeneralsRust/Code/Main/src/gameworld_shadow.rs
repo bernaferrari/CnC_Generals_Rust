@@ -3839,6 +3839,23 @@ impl GameWorldShadow {
                     } else {
                         0.0
                     };
+                    if let Some(d) = obj.cluster_mines_transport.as_ref() {
+                        e.cluster_mines_transport_active = true;
+                        e.cluster_mines_transport_target_x = d.target.x;
+                        e.cluster_mines_transport_target_y = d.target.y;
+                        e.cluster_mines_transport_target_z = d.target.z;
+                        e.cluster_mines_transport_launch_x = d.launch.x;
+                        e.cluster_mines_transport_launch_y = d.launch.y;
+                        e.cluster_mines_transport_launch_z = d.launch.z;
+                    } else {
+                        e.cluster_mines_transport_active = false;
+                    }
+                    e.cluster_mines_bomb = obj.cluster_mines_bomb;
+                    e.cluster_mines_bomb_vel_y = if obj.cluster_mines_bomb {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -8324,6 +8341,82 @@ impl GameWorldShadow {
                         let producer = e.producer_id.map(crate::game_logic::ObjectId);
                         crate::game_logic::host_anthrax_bomb_drop_log::record_detonate(
                             crate::game_logic::host_anthrax_bomb_drop_log::AnthraxDetonateEvent {
+                                bomb: crate::game_logic::ObjectId(hid),
+                                producer,
+                                team,
+                                pos: glam::Vec3::new(
+                                    e.transform.position.x,
+                                    0.0,
+                                    e.transform.position.z,
+                                ),
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 790: ClusterMines DeliverPayload flight residual.
+            if e.cluster_mines_transport_active {
+                use crate::game_logic::host_mines::CLUSTER_MINES_DELIVERY_DISTANCE;
+                let dest_x = e.cluster_mines_transport_target_x;
+                let dest_z = e.cluster_mines_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 18.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = new_pos.y.max(150.0);
+                let mut over = false;
+                let mut vel = glam::Vec3::ZERO;
+                if dist < 5.0 {
+                    over = true;
+                } else {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
+                    over = dist <= CLUSTER_MINES_DELIVERY_DISTANCE * 0.5;
+                }
+                e.transform.position = new_pos;
+                if vel.length_squared() > 1e-6 {
+                    e.transform.orientation = vel.z.atan2(vel.x);
+                }
+                if over {
+                    e.cluster_mines_transport_active = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e
+                            .producer_id
+                            .map(crate::game_logic::ObjectId)
+                            .unwrap_or(crate::game_logic::ObjectId(hid));
+                        crate::game_logic::host_cluster_mines_drop_log::record_drop(
+                            crate::game_logic::host_cluster_mines_drop_log::ClusterMinesDropEvent {
+                                team,
+                                target: glam::Vec3::new(
+                                    e.cluster_mines_transport_target_x,
+                                    e.cluster_mines_transport_target_y,
+                                    e.cluster_mines_transport_target_z,
+                                ),
+                                producer,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            if e.cluster_mines_bomb {
+                if e.cluster_mines_bomb_vel_y == 0.0 {
+                    e.cluster_mines_bomb_vel_y = -14.0;
+                }
+                e.transform.position.y += e.cluster_mines_bomb_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.cluster_mines_bomb = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_cluster_mines_drop_log::record_detonate(
+                            crate::game_logic::host_cluster_mines_drop_log::ClusterMinesDetonateEvent {
                                 bomb: crate::game_logic::ObjectId(hid),
                                 producer,
                                 team,
@@ -12861,6 +12954,30 @@ impl GameWorldShadow {
                     obj.movement.velocity.y = ent.anthrax_bomb_vel_y;
                 }
             }
+            {
+                if ent.cluster_mines_transport_active {
+                    use crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightData;
+                    let d = obj.cluster_mines_transport.get_or_insert_with(|| {
+                        HostClusterMinesFlightData::start(glam::Vec3::ZERO, glam::Vec3::ZERO)
+                    });
+                    d.target = glam::Vec3::new(
+                        ent.cluster_mines_transport_target_x,
+                        ent.cluster_mines_transport_target_y,
+                        ent.cluster_mines_transport_target_z,
+                    );
+                    d.launch = glam::Vec3::new(
+                        ent.cluster_mines_transport_launch_x,
+                        ent.cluster_mines_transport_launch_y,
+                        ent.cluster_mines_transport_launch_z,
+                    );
+                } else {
+                    obj.cluster_mines_transport = None;
+                }
+                obj.cluster_mines_bomb = ent.cluster_mines_bomb;
+                if ent.cluster_mines_bomb {
+                    obj.movement.velocity.y = ent.cluster_mines_bomb_vel_y;
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -14548,6 +14665,32 @@ pub fn shadow_session_after_host_tick(
             logic.mark_object_for_destruction(ev.bomb, None);
             logic.anthrax_bomb_flight_reg.record_detonation();
         }
+        // Wave 790: ClusterMines drop + detonate (no dual flight).
+        for ev in crate::game_logic::host_cluster_mines_drop_log::drain_drops() {
+            use crate::game_logic::host_cluster_mines_flight::CLUSTER_MINES_BOMB_OBJECT;
+            let drop_pos = glam::Vec3::new(ev.target.x, 80.0, ev.target.z);
+            if let Some(bid) = logic.create_object(CLUSTER_MINES_BOMB_OBJECT, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
+                    o.producer_id = Some(ev.producer);
+                    o.cluster_mines_bomb = true;
+                    o.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                }
+                logic.cluster_mines_flight_reg.record_drop();
+            }
+        }
+        for ev in crate::game_logic::host_cluster_mines_drop_log::drain_dets() {
+            let mines = logic.place_cluster_mines(ev.team, ev.pos, ev.producer);
+            logic
+                .cluster_mines_flight_reg
+                .record_minefield(mines.len() as u32);
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.bomb, None);
+        }
+
 
 
         // Wave 634: drain combat-status ready log after GW writeback.
