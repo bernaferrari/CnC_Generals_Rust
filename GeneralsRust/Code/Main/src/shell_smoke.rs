@@ -3240,6 +3240,11 @@ use crate::game_logic::host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_r
     honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_nav_commands_residual_wave753,
     simulate_live_host_dual_line_lethal_no_damage_auth_hp_stomp_honesty,
 };
+use crate::game_logic::host_live_host_eject_pilot_die_death_start_residual_wave754::{
+    honesty_host_eject_pilot_die_death_start_method_names_residual_wave754,
+    honesty_host_eject_pilot_die_death_start_nav_commands_residual_wave754,
+    simulate_live_host_eject_pilot_die_death_start_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7138,6 +7143,9 @@ pub struct ShellSmokeResult {
     pub host_dual_line_lethal_no_damage_auth_hp_stomp_method_names_wave753_ok: bool,
     pub host_dual_line_lethal_no_damage_auth_hp_stomp_nav_commands_wave753_ok: bool,
     pub host_dual_line_lethal_no_damage_auth_hp_stomp_live_wave753_ok: bool,
+    pub host_eject_pilot_die_death_start_method_names_wave754_ok: bool,
+    pub host_eject_pilot_die_death_start_nav_commands_wave754_ok: bool,
+    pub host_eject_pilot_die_death_start_live_wave754_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11395,6 +11403,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_nav_commands_residual_wave753();
     let host_dual_line_lethal_no_damage_auth_hp_stomp_live_wave753_ok =
         simulate_live_host_dual_line_lethal_no_damage_auth_hp_stomp_honesty();
+    let host_eject_pilot_die_death_start_method_names_wave754_ok =
+        honesty_host_eject_pilot_die_death_start_method_names_residual_wave754();
+    let host_eject_pilot_die_death_start_nav_commands_wave754_ok =
+        honesty_host_eject_pilot_die_death_start_nav_commands_residual_wave754();
+    let host_eject_pilot_die_death_start_live_wave754_ok =
+        simulate_live_host_eject_pilot_die_death_start_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13643,6 +13657,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_dual_line_lethal_no_damage_auth_hp_stomp_method_names_wave753_ok,
         host_dual_line_lethal_no_damage_auth_hp_stomp_nav_commands_wave753_ok,
         host_dual_line_lethal_no_damage_auth_hp_stomp_live_wave753_ok,
+        host_eject_pilot_die_death_start_method_names_wave754_ok,
+        host_eject_pilot_die_death_start_nav_commands_wave754_ok,
+        host_eject_pilot_die_death_start_live_wave754_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25208,6 +25225,21 @@ mod tests {
         assert!(
             r.host_dual_line_lethal_no_damage_auth_hp_stomp_live_wave753_ok,
             "host dual_line_lethal_no_damage_auth_hp_stomp live residual wave753: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eject_pilot_die_death_start_method_names_wave754_ok,
+            "host eject_pilot_die_death_start method names residual pack wave754: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eject_pilot_die_death_start_nav_commands_wave754_ok,
+            "host eject_pilot_die_death_start nav commands residual pack wave754: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eject_pilot_die_death_start_live_wave754_ok,
+            "host eject_pilot_die_death_start live residual wave754: {}",
             r.detail
         );
         assert!(
