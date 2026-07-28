@@ -242,6 +242,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_PHYSICS_MOTIVE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_LOCOMOTOR_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_BOUNCE_LAND_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_AI_MOOD_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_AI_REQUEST_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_SHOCK_STUN_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1837,6 +1840,93 @@ pub fn eager_apply_host_bounce_land_after_logic(
     }
     let n = shadow.apply_host_bounce_land_events(&events);
     EARLY_BOUNCE_LAND_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 704: post-logic AI-mood / AI-request / shock-stun batch handoff.
+thread_local! {
+    static EARLY_AI_MOOD_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ai_mood_log::HostAiMoodEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_AI_REQUEST_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ai_request_log::HostAiRequestEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_SHOCK_STUN_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_shock_stun_log::HostShockStunEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_ai_mood_batch() -> Option<(
+    Vec<crate::game_logic::host_ai_mood_log::HostAiMoodEvent>,
+    bool,
+)> {
+    EARLY_AI_MOOD_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_ai_request_batch() -> Option<(
+    Vec<crate::game_logic::host_ai_request_log::HostAiRequestEvent>,
+    bool,
+)> {
+    EARLY_AI_REQUEST_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_shock_stun_batch() -> Option<(
+    Vec<crate::game_logic::host_shock_stun_log::HostShockStunEvent>,
+    bool,
+)> {
+    EARLY_SHOCK_STUN_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 704: post-logic drain `host_ai_mood_log` into GameWorld SetAiMood.
+pub fn eager_apply_host_ai_mood_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 704: post-logic AI-mood materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_ai_mood_log::drain();
+    if events.is_empty() {
+        EARLY_AI_MOOD_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_ai_mood_events(&events);
+    EARLY_AI_MOOD_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 704: post-logic drain `host_ai_request_log` into GameWorld SetAiRequest.
+pub fn eager_apply_host_ai_request_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 704: post-logic AI-request materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_ai_request_log::drain();
+    if events.is_empty() {
+        EARLY_AI_REQUEST_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_ai_request_events(&events);
+    EARLY_AI_REQUEST_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 704: post-logic drain `host_shock_stun_log` into GameWorld SetShockStun.
+pub fn eager_apply_host_shock_stun_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 704: post-logic shock-stun materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_shock_stun_log::drain();
+    if events.is_empty() {
+        EARLY_SHOCK_STUN_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_shock_stun_events(&events);
+    EARLY_SHOCK_STUN_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9981,10 +10071,26 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_ai_attitude_events(&ai_attitude_events)
     };
-    let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
-    let _mood_applied = shadow.apply_host_ai_mood_events(&ai_mood_events);
-    let ai_req_events = crate::game_logic::host_ai_request_log::drain();
-    let _ar_applied = shadow.apply_host_ai_request_events(&ai_req_events);
+    // Wave 704: prefer post-logic AI-mood batch.
+    let (ai_mood_events, early_ai_mood_applied) = match take_early_ai_mood_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_ai_mood_log::drain(), false),
+    };
+    let _mood_applied = if early_ai_mood_applied {
+        0
+    } else {
+        shadow.apply_host_ai_mood_events(&ai_mood_events)
+    };
+    // Wave 704: prefer post-logic AI-request batch.
+    let (ai_req_events, early_ai_request_applied) = match take_early_ai_request_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_ai_request_log::drain(), false),
+    };
+    let _ar_applied = if early_ai_request_applied {
+        0
+    } else {
+        shadow.apply_host_ai_request_events(&ai_req_events)
+    };
     if gameworld_ai_decision_authority_enabled() {
         let ai_decision_events = crate::game_logic::host_ai_decision_log::drain();
         let _ad = shadow.apply_ai_decisions_as_world_mutations(&ai_decision_events);
@@ -10088,8 +10194,16 @@ pub fn shadow_session_after_host_tick(
     };
     let radar_extend_events = crate::game_logic::host_radar_extend_log::drain();
     let _re_applied = shadow.apply_host_radar_extend_events(&radar_extend_events);
-    let shock_stun_events = crate::game_logic::host_shock_stun_log::drain();
-    let _ss_applied = shadow.apply_host_shock_stun_events(&shock_stun_events);
+    // Wave 704: prefer post-logic shock-stun batch.
+    let (shock_stun_events, early_shock_stun_applied) = match take_early_shock_stun_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_shock_stun_log::drain(), false),
+    };
+    let _ss_applied = if early_shock_stun_applied {
+        0
+    } else {
+        shadow.apply_host_shock_stun_events(&shock_stun_events)
+    };
     let rebuild_producer_events = crate::game_logic::host_rebuild_producer_log::drain();
     let _rp_applied = shadow.apply_host_rebuild_producer_events(&rebuild_producer_events);
     let sole_healing_events = crate::game_logic::host_sole_healing_log::drain();
