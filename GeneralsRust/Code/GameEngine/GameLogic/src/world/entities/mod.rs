@@ -786,6 +786,14 @@ pub struct Entity {
     /// Host LeafletContainer residual.
     pub leaflet_container: bool,
     pub leaflet_container_vel_y: f32,
+    /// Host Paradrop cargo transport residual.
+    pub paradrop_transport_active: bool,
+    pub paradrop_transport_target_x: f32,
+    pub paradrop_transport_target_y: f32,
+    pub paradrop_transport_target_z: f32,
+    /// Host AmericaParachute residual.
+    pub paradrop_parachute: bool,
+    pub paradrop_parachute_vel_y: f32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1563,6 +1571,12 @@ impl EntityStore {
             leaflet_transport_target_z: 0.0,
             leaflet_container: false,
             leaflet_container_vel_y: 0.0,
+            paradrop_transport_active: false,
+            paradrop_transport_target_x: 0.0,
+            paradrop_transport_target_y: 0.0,
+            paradrop_transport_target_z: 0.0,
+            paradrop_parachute: false,
+            paradrop_parachute_vel_y: 0.0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,

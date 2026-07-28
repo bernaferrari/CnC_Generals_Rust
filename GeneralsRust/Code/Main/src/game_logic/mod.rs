@@ -20,6 +20,7 @@ pub mod host_bounce_land_log;
 pub mod host_carpet_bomb_flight;
 pub mod host_carpet_bomb_drop_log;
 pub mod host_leaflet_b52_drop_log;
+pub mod host_paradrop_cargo_drop_log;
 pub mod host_checkpoint_update;
 pub mod host_cluster_mines_flight;
 pub mod host_cluster_mines_drop_log;
@@ -229,6 +230,7 @@ pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
 pub mod host_live_host_artillery_barrage_flight_dual_peel_residual_wave793;
 pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
 pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
+pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -4028,6 +4030,17 @@ pub use host_live_host_leaflet_b52_flight_dual_peel_residual_wave795::{
     simulate_host_leaflet_b52_flight_dual_peel_dispatch_source,
     honesty_host_leaflet_b52_flight_dual_peel_residual_pack_wave795,
     simulate_live_host_leaflet_b52_flight_dual_peel_honesty,
+};
+pub use host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796::{
+    residual_host_paradrop_cargo_flight_dual_peel_ok,
+    residual_host_paradrop_cargo_flight_dual_peel_last_action,
+    honesty_host_paradrop_cargo_flight_dual_peel_method_names_residual_wave796,
+    honesty_host_paradrop_cargo_flight_dual_peel_source_markers_residual_wave796,
+    honesty_host_paradrop_cargo_flight_dual_peel_nav_commands_residual_wave796,
+    simulate_host_paradrop_cargo_flight_dual_peel_collect_source,
+    simulate_host_paradrop_cargo_flight_dual_peel_dispatch_source,
+    honesty_host_paradrop_cargo_flight_dual_peel_residual_pack_wave796,
+    simulate_live_host_paradrop_cargo_flight_dual_peel_honesty,
 };
 
 
