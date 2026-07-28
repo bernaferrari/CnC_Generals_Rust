@@ -33,3 +33,7 @@ pub fn clear() {
 pub fn snapshot() -> Vec<HostConstructionEvent> {
     LOG.with(|log| log.borrow().clone())
 }
+
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}

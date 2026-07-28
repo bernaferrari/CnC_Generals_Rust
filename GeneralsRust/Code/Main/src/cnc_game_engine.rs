@@ -18246,6 +18246,23 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 709: post-logic production / construction residual apply.
+                let _prod = crate::gameworld_shadow::eager_apply_host_production_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _pprog = crate::gameworld_shadow::eager_apply_host_production_progress_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _con = crate::gameworld_shadow::eager_apply_host_construction_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _cprog = crate::gameworld_shadow::eager_apply_host_construction_progress_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

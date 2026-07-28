@@ -130,6 +130,7 @@ pub mod host_live_host_eager_loco_bounce_helper_residual_wave703;
 pub mod host_live_host_eager_max_health_xp_helper_residual_wave686;
 pub mod host_live_host_eager_mesh_fow_kindof_helper_residual_wave700;
 pub mod host_live_host_eager_meta_cooldown_door_helper_residual_wave708;
+pub mod host_live_host_eager_prod_construction_helper_residual_wave709;
 pub mod host_live_host_eager_move_attack_helper_residual_wave683;
 pub mod host_live_host_eager_owner_movement_helper_residual_wave688;
 pub mod host_live_host_eager_sp_radar_progress_helper_residual_wave707;
@@ -3090,6 +3091,15 @@ pub use host_live_host_eager_meta_cooldown_door_helper_residual_wave708::{
     residual_host_eager_meta_cooldown_door_helper_last_action,
     residual_host_eager_meta_cooldown_door_helper_ok,
     simulate_live_host_eager_meta_cooldown_door_helper_honesty,
+};
+pub use host_live_host_eager_prod_construction_helper_residual_wave709::{
+    honesty_host_eager_prod_construction_helper_method_names_residual_wave709,
+    honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709,
+    honesty_host_eager_prod_construction_helper_residual_pack_wave709,
+    honesty_host_eager_prod_construction_helper_source_markers_residual_wave709,
+    residual_host_eager_prod_construction_helper_last_action,
+    residual_host_eager_prod_construction_helper_ok,
+    simulate_live_host_eager_prod_construction_helper_honesty,
 };
 pub use host_live_host_eager_move_attack_helper_residual_wave683::{
     honesty_host_eager_move_attack_helper_method_names_residual_wave683,

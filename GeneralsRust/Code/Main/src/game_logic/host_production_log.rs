@@ -92,3 +92,7 @@ pub fn take_last_drain() -> Vec<HostProductionEvent> {
 pub fn last_drain_snapshot() -> Vec<HostProductionEvent> {
     LAST_DRAIN.with(|last| last.borrow().clone())
 }
+
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}
