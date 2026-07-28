@@ -18107,6 +18107,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 698: post-logic demo-mine-cheer / formation / crush-vision.
+                let _dmc = crate::gameworld_shadow::eager_apply_host_demo_mine_cheer_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _form = crate::gameworld_shadow::eager_apply_host_formation_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _cv = crate::gameworld_shadow::eager_apply_host_crush_vision_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
