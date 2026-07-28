@@ -9909,8 +9909,33 @@ impl CnCGameEngine {
                             .next()
                             .or_else(|| any.into_iter().next());
                         if let Some(id) = pick {
-                            // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).
-                            let _ = self.host_ensure_barracks_building_data(id);
+                            // Wave 723: stamping Barracks building_data is opt-in only.
+                            // Default fail-closed: retail producers already carry building_data
+                            // after honest construction complete. Force-complete / smoke may set
+                            // ensure_barracks=1 or reuse force_complete=1 /
+                            // GENERALS_RUNTIME_HOST_ENSURE_BARRACKS=1.
+                            let allow_ensure_barracks = allow_force_complete
+                                || args
+                                    .get("ensure_barracks")
+                                    .map(|v| {
+                                        let s = v.trim();
+                                        s == "1"
+                                            || s.eq_ignore_ascii_case("true")
+                                            || s.eq_ignore_ascii_case("yes")
+                                    })
+                                    .unwrap_or(false)
+                                || std::env::var_os("GENERALS_RUNTIME_HOST_ENSURE_BARRACKS")
+                                    .is_some_and(|v| {
+                                        let s = v.to_string_lossy();
+                                        !(s.is_empty()
+                                            || s == "0"
+                                            || s.eq_ignore_ascii_case("false")
+                                            || s.eq_ignore_ascii_case("no"))
+                                    });
+                            if allow_ensure_barracks {
+                                // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).
+                                let _ = self.host_ensure_barracks_building_data(id);
+                            }
                         }
                         pick.or_else(|| {
                             self.last_presentation_frame
@@ -19637,10 +19662,10 @@ impl CnCGameEngine {
         self.game_logic.force_complete_construction(id)
     }
 
-    /// Wave 583: host barracks building-data residual (producer pick path).
+    /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
     #[inline]
     fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583: host barracks ensure residual.
+        // Wave 583/723: host barracks ensure residual (callers must opt in).
         self.game_logic.ensure_barracks_building_data(id)
     }
 

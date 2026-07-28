@@ -140,9 +140,10 @@ pub fn honesty_template_name_presentation_helper_source_markers_residual_wave563
         && helper.contains("self.game_logic.templates.contains_key(name)");
     let train_i = eng.find("\"enqueue_production\" | \"train_unit\"");
     let train_ok = train_i.is_some_and(|i| {
-        let w = &eng[i..eng.len().min(i + 16000)];
-        // Wave 581: mid-command path may use presentation_or_live_has_template +
-        // host_ensure_golden_ranger_template (insert lives in helper).
+        let w = &eng[i..eng.len().min(i + 24000)];
+        // Wave 581/722: mid-command path may use presentation_or_live_has_template +
+        // host_ensure_golden_ranger_template (insert lives in helper; gated opt-in).
+        // Window widened (Wave 723) as train honesty opt-in gates grew the arm.
         (w.contains("presentation_or_boot_has_template")
             || w.contains("presentation_or_live_has_template"))
             && (w.contains("Wave 563") || w.contains("Wave 581"))
@@ -183,7 +184,7 @@ pub fn simulate_template_name_presentation_helper_dispatch_source() -> bool {
         residual_action_store(ResidualTemplateNamePresentationHelperAction::DispatchSource);
         return false;
     };
-    let w = &eng[i..eng.len().min(i + 16000)];
+    let w = &eng[i..eng.len().min(i + 24000)];
     let ok = (w.contains("presentation_or_boot_has_template")
         || w.contains("presentation_or_live_has_template"))
         && w.contains("enqueue_production")
