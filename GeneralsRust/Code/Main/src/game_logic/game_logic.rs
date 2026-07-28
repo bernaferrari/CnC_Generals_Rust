@@ -1372,7 +1372,7 @@ pub struct GameLogic {
     spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
     /// Host America Countermeasures residual (aircraft flare diversion).
     /// CountermeasureFlare SpecialObject spawn residual closed.
-    countermeasures: crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+    pub(crate) countermeasures: crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
 
     /// Host CIA Intelligence / SpyVision residual (setUnitsVisionSpied).
     /// Fail-closed: not full SpyVisionUpdate module / kindof filter / sabotage path.
@@ -6332,8 +6332,18 @@ impl GameLogic {
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         self.update_point_defense_intercept();
-        self.update_point_defense_laser_beam_objects();
-        self.update_weapon_laser_beam_objects();
+        // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_point_defense_laser_beam_objects();
+        }
+        // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_weapon_laser_beam_objects();
+        }
         // Wave 804: under coupled shadow, residual owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
@@ -6672,7 +6682,12 @@ impl GameLogic {
         // Wave 470: countermeasure flare spawn/object residual stays host-owned
         // even when GameWorld sole-integrates projectile flight.
         self.flush_countermeasure_flare_spawns();
-        self.update_countermeasure_flare_objects();
+        // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_countermeasure_flare_objects();
+        }
         self.drain_historic_bonus_firestorms();
 
         if !projectile_hits.is_empty() {
@@ -8369,7 +8384,12 @@ impl GameLogic {
     fn update_ai(&mut self, object_ids: &[ObjectId], dt: f32) {
         use crate::ai_decisions::*;
         self.flush_countermeasure_flare_spawns();
-        self.update_countermeasure_flare_objects();
+        // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_countermeasure_flare_objects();
+        }
 
         let mut ai_commands = Vec::new();
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
@@ -62040,7 +62060,12 @@ impl GameLogic {
         // SpectreGunship residual orbit damage ticks (after insertion).
         self.update_spectre_orbit_fields();
         self.spawn_spectre_howitzer_shell_objects_for_new_spawns();
-        self.update_spectre_howitzer_shell_objects();
+        // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_spectre_howitzer_shell_objects();
+        }
         // ParticleCannon residual continuous beam pulses (after charge residual).
         self.update_particle_beam_fields();
         self.spawn_particle_orbital_laser_objects_for_new_beams();
