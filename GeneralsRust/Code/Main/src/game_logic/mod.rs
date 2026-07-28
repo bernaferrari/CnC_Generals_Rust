@@ -202,6 +202,7 @@ pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
 pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_structure_collapse_dual_peel_residual_wave775;
 pub mod host_live_host_structure_topple_dual_peel_residual_wave776;
+pub mod host_live_host_structure_topple_crush_dual_peel_residual_wave777;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -989,6 +990,7 @@ pub mod host_structure_economy_residual;
 pub mod host_structure_inventory_residual_wave149;
 pub mod host_structure_topple;
 pub mod host_structure_topple_kill_log;
+pub mod host_structure_topple_crush_log;
 mod host_sub_objects_upgrade;
 pub mod host_superweapon_kindof;
 pub mod host_supply_drop_zone;
@@ -3814,6 +3816,16 @@ pub use host_live_host_structure_topple_dual_peel_residual_wave776::{
     residual_host_structure_topple_dual_peel_ok,
     simulate_live_host_structure_topple_dual_peel_honesty,
 };
+pub use host_live_host_structure_topple_crush_dual_peel_residual_wave777::{
+    honesty_host_structure_topple_crush_dual_peel_method_names_residual_wave777,
+    honesty_host_structure_topple_crush_dual_peel_nav_commands_residual_wave777,
+    honesty_host_structure_topple_crush_dual_peel_residual_pack_wave777,
+    honesty_host_structure_topple_crush_dual_peel_source_markers_residual_wave777,
+    residual_host_structure_topple_crush_dual_peel_last_action,
+    residual_host_structure_topple_crush_dual_peel_ok,
+    simulate_live_host_structure_topple_crush_dual_peel_honesty,
+};
+
 
 
 
