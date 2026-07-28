@@ -7737,7 +7737,32 @@ impl GameWorldShadow {
             .copied()
             .collect();
         let mut n = 0usize;
-                // Wave 812: snapshot living Battlemasters for horde residual (borrow-safe).
+                // Wave 813: snapshot living infantry + China horde units (borrow-safe).
+        const INFANTRY_BIT: u32 = 1u32 << 1; // KindOf::Infantry in presentation ORDER
+        let mut infantry_snapshot: Vec<(u32, u8, f32, f32, bool)> = Vec::new();
+        for eid in &eids {
+            let Some(e) = self.world.entity(*eid) else {
+                continue;
+            };
+            let alive = e.health > 0.0 && !e.destroyed;
+            if !alive {
+                continue;
+            }
+            let Some(&hid) = self.entity_to_host.get(&eid.get()) else {
+                continue;
+            };
+            if (e.kind_of_bits & INFANTRY_BIT) != 0 {
+                infantry_snapshot.push((
+                    hid,
+                    e.team_ordinal,
+                    e.transform.position.x,
+                    e.transform.position.z,
+                    alive,
+                ));
+            }
+        }
+
+        // Wave 812: snapshot living Battlemasters for horde residual (borrow-safe).
         let mut battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool)> = Vec::new();
         for eid in &eids {
             let Some(e) = self.world.entity(*eid) else {
@@ -10389,6 +10414,59 @@ for eid in eids {
                         crate::game_logic::host_battlemaster_horde_log::record(
                             crate::game_logic::host_battlemaster_horde_log::BattlemasterHordeEvent {
                                 id: crate::game_logic::ObjectId(hid),
+                                now_horde,
+                                was_horde: was,
+                            },
+                        );
+                        changed = true;
+                    }
+                }
+            }
+
+            // Wave 813: China infantry horde status residual.
+            if crate::game_logic::host_red_guard::is_china_infantry_horde_unit(e.template_name()) {
+                use crate::game_logic::host_red_guard::{
+                    counts_toward_infantry_horde, distance_2d, is_in_infantry_horde,
+                    INFANTRY_HORDE_RADIUS,
+                };
+                let alive = e.health > 0.0 && !e.destroyed;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    let x = e.transform.position.x;
+                    let z = e.transform.position.z;
+                    let team = e.team_ordinal;
+                    let mut nearby = 0u32;
+                    for (oid, oteam, ox, oz, oalive) in &infantry_snapshot {
+                        if *oid == hid {
+                            continue;
+                        }
+                        let dist = distance_2d(x, z, *ox, *oz);
+                        if counts_toward_infantry_horde(
+                            alive,
+                            *oalive,
+                            team == *oteam,
+                            true,
+                            dist,
+                            INFANTRY_HORDE_RADIUS,
+                        ) {
+                            nearby = nearby.saturating_add(1);
+                        }
+                    }
+                    let now_horde = alive && is_in_infantry_horde(nearby);
+                    let was = e.weapon_bonus_horde;
+                    if e.weapon_bonus_horde != now_horde || now_horde {
+                        e.weapon_bonus_horde = now_horde;
+                        let name = e.template_name();
+                        let kind = if crate::game_logic::host_red_guard::is_red_guard_template(name) {
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::RedGuard
+                        } else if crate::game_logic::host_tank_hunter::is_tank_hunter_template(name) {
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::TankHunter
+                        } else {
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::Minigunner
+                        };
+                        crate::game_logic::host_china_infantry_horde_log::record(
+                            crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                kind,
                                 now_horde,
                                 was_horde: was,
                             },
@@ -17910,6 +17988,48 @@ pub fn shadow_session_after_host_tick(
                 logic.refresh_battlemaster_weapon(ev.id);
             }
         }
+        // Wave 813: China infantry horde status residual.
+        for ev in crate::game_logic::host_china_infantry_horde_log::drain() {
+            use crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind;
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                let was = o.weapon_bonus_horde;
+                o.weapon_bonus_horde = ev.now_horde;
+                o.record_host_weapon_bonus();
+                if ev.now_horde && !was {
+                    match ev.kind {
+                        ChinaInfantryHordeKind::RedGuard => {
+                            logic.red_guard_residual_horde_grants = logic
+                                .red_guard_residual_horde_grants
+                                .saturating_add(1);
+                        }
+                        ChinaInfantryHordeKind::TankHunter => {
+                            logic.tank_hunter_residual_horde_grants = logic
+                                .tank_hunter_residual_horde_grants
+                                .saturating_add(1);
+                        }
+                        ChinaInfantryHordeKind::Minigunner => {
+                            logic.minigunner_residual_horde_grants = logic
+                                .minigunner_residual_horde_grants
+                                .saturating_add(1);
+                        }
+                    }
+                }
+            }
+            if ev.now_horde != ev.was_horde || ev.now_horde {
+                match ev.kind {
+                    ChinaInfantryHordeKind::RedGuard => {
+                        logic.refresh_red_guard_weapon(ev.id);
+                    }
+                    ChinaInfantryHordeKind::TankHunter => {
+                        logic.refresh_tank_hunter_weapon(ev.id);
+                    }
+                    ChinaInfantryHordeKind::Minigunner => {
+                        logic.refresh_minigunner_weapon(ev.id);
+                    }
+                }
+            }
+        }
+
 
 
 
