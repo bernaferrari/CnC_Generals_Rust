@@ -3373,6 +3373,35 @@ impl GameWorldShadow {
                         e.jet_slow_death_roll_accum = 0.0;
                         e.jet_slow_death_done = false;
                     }
+                    if let Some(h) = obj.helicopter_slow_death.as_ref() {
+                        e.heli_slow_death_active = h.active;
+                        e.heli_slow_death_hit_ground = h.hit_ground;
+                        e.heli_slow_death_hit_ground_frame = h.hit_ground_frame;
+                        e.heli_slow_death_activate_frame = h.activate_frame;
+                        e.heli_slow_death_orbit_angle = h.orbit_angle;
+                        e.heli_slow_death_self_spin = h.self_spin;
+                        e.heli_slow_death_self_spin_dir = h.self_spin_dir;
+                        e.heli_slow_death_frames_since_spin_update = h.frames_since_spin_update;
+                        e.heli_slow_death_forward_speed = h.forward_speed;
+                        e.heli_slow_death_vertical_velocity = h.vertical_velocity;
+                        e.heli_slow_death_orientation_delta = h.orientation_delta;
+                        e.heli_slow_death_blade_flew_off = h.blade_flew_off;
+                        e.heli_slow_death_done = h.done;
+                    } else {
+                        e.heli_slow_death_active = false;
+                        e.heli_slow_death_hit_ground = false;
+                        e.heli_slow_death_hit_ground_frame = 0;
+                        e.heli_slow_death_activate_frame = 0;
+                        e.heli_slow_death_orbit_angle = 0.0;
+                        e.heli_slow_death_self_spin = 0.0;
+                        e.heli_slow_death_self_spin_dir = 1.0;
+                        e.heli_slow_death_frames_since_spin_update = 0;
+                        e.heli_slow_death_forward_speed = 0.0;
+                        e.heli_slow_death_vertical_velocity = 0.0;
+                        e.heli_slow_death_orientation_delta = 0.0;
+                        e.heli_slow_death_blade_flew_off = false;
+                        e.heli_slow_death_done = false;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7276,6 +7305,79 @@ impl GameWorldShadow {
                 if done {
                     if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                         crate::game_logic::host_jet_slow_death_kill_log::record(
+                            crate::game_logic::ObjectId(hid),
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 773: HelicopterSlowDeathBehavior residual (spiral crash death).
+            if e.heli_slow_death_active && !e.heli_slow_death_done {
+                use crate::game_logic::host_helicopter_slow_death::{
+                    HELI_BLADE_FLY_OFF_FRAMES, HELI_CRASH_GRAVITY, HELI_GROUND_SETTLE_FRAMES,
+                    HELI_MAX_SELF_SPIN, HELI_MIN_SELF_SPIN, HELI_SELF_SPIN_UPDATE_AMOUNT,
+                    HELI_SELF_SPIN_UPDATE_DELAY_FRAMES, HELI_SPIRAL_FORWARD_SPEED_DAMPING,
+                    HELI_SPIRAL_TURN_RATE,
+                };
+                let hat = (e.transform.position.y - e.ground_height).max(0.0);
+                if !e.heli_slow_death_blade_flew_off
+                    && frame.saturating_sub(e.heli_slow_death_activate_frame)
+                        >= HELI_BLADE_FLY_OFF_FRAMES
+                {
+                    e.heli_slow_death_blade_flew_off = true;
+                }
+                e.heli_slow_death_frames_since_spin_update = e
+                    .heli_slow_death_frames_since_spin_update
+                    .saturating_add(1);
+                if e.heli_slow_death_frames_since_spin_update >= HELI_SELF_SPIN_UPDATE_DELAY_FRAMES {
+                    e.heli_slow_death_frames_since_spin_update = 0;
+                    e.heli_slow_death_self_spin +=
+                        e.heli_slow_death_self_spin_dir * HELI_SELF_SPIN_UPDATE_AMOUNT;
+                    if e.heli_slow_death_self_spin >= HELI_MAX_SELF_SPIN {
+                        e.heli_slow_death_self_spin = HELI_MAX_SELF_SPIN;
+                        e.heli_slow_death_self_spin_dir = -1.0;
+                    } else if e.heli_slow_death_self_spin <= HELI_MIN_SELF_SPIN {
+                        e.heli_slow_death_self_spin = HELI_MIN_SELF_SPIN;
+                        e.heli_slow_death_self_spin_dir = 1.0;
+                    }
+                }
+                let mut dx = 0.0_f32;
+                let mut dy = 0.0_f32;
+                let mut dz = 0.0_f32;
+                let mut d_orient = 0.0_f32;
+                let mut done = false;
+                if !e.heli_slow_death_hit_ground {
+                    e.heli_slow_death_orbit_angle += HELI_SPIRAL_TURN_RATE;
+                    d_orient = e.heli_slow_death_self_spin + HELI_SPIRAL_TURN_RATE;
+                    e.heli_slow_death_orientation_delta += d_orient;
+                    dx = e.heli_slow_death_orbit_angle.cos() * e.heli_slow_death_forward_speed;
+                    dz = e.heli_slow_death_orbit_angle.sin() * e.heli_slow_death_forward_speed;
+                    e.heli_slow_death_forward_speed *= HELI_SPIRAL_FORWARD_SPEED_DAMPING;
+                    e.heli_slow_death_vertical_velocity += HELI_CRASH_GRAVITY;
+                    dy = e.heli_slow_death_vertical_velocity;
+                    if hat + dy <= 0.5 {
+                        e.heli_slow_death_hit_ground = true;
+                        e.heli_slow_death_hit_ground_frame = frame;
+                        e.heli_slow_death_vertical_velocity = 0.0;
+                        dy = -hat;
+                    }
+                } else if frame.saturating_sub(e.heli_slow_death_hit_ground_frame)
+                    >= HELI_GROUND_SETTLE_FRAMES
+                {
+                    e.heli_slow_death_done = true;
+                    e.heli_slow_death_active = false;
+                    done = true;
+                }
+                if dx.abs() > 0.0 || dy.abs() > 0.0 || dz.abs() > 0.0 || d_orient.abs() > 0.0 {
+                    e.transform.position.x += dx;
+                    e.transform.position.y =
+                        (e.transform.position.y + dy).max(e.ground_height);
+                    e.transform.position.z += dz;
+                    e.transform.orientation += d_orient;
+                }
+                if done {
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_heli_slow_death_kill_log::record(
                             crate::game_logic::ObjectId(hid),
                         );
                     }
@@ -11286,6 +11388,57 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_active = obj
+                    .helicopter_slow_death
+                    .as_ref()
+                    .map(|h| h.active)
+                    .unwrap_or(false);
+                let host_done = obj
+                    .helicopter_slow_death
+                    .as_ref()
+                    .map(|h| h.done)
+                    .unwrap_or(false);
+                if host_active != ent.heli_slow_death_active
+                    || host_done != ent.heli_slow_death_done
+                    || obj
+                        .helicopter_slow_death
+                        .as_ref()
+                        .map(|h| {
+                            h.hit_ground != ent.heli_slow_death_hit_ground
+                                || (h.forward_speed - ent.heli_slow_death_forward_speed).abs()
+                                    > f32::EPSILON
+                                || (h.vertical_velocity - ent.heli_slow_death_vertical_velocity)
+                                    .abs()
+                                    > f32::EPSILON
+                                || (h.orbit_angle - ent.heli_slow_death_orbit_angle).abs()
+                                    > f32::EPSILON
+                        })
+                        .unwrap_or(ent.heli_slow_death_active)
+                {
+                    if ent.heli_slow_death_active || ent.heli_slow_death_done {
+                        use crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData;
+                        let h = obj
+                            .helicopter_slow_death
+                            .get_or_insert_with(HostHelicopterSlowDeathData::default);
+                        h.active = ent.heli_slow_death_active;
+                        h.hit_ground = ent.heli_slow_death_hit_ground;
+                        h.hit_ground_frame = ent.heli_slow_death_hit_ground_frame;
+                        h.activate_frame = ent.heli_slow_death_activate_frame;
+                        h.orbit_angle = ent.heli_slow_death_orbit_angle;
+                        h.self_spin = ent.heli_slow_death_self_spin;
+                        h.self_spin_dir = ent.heli_slow_death_self_spin_dir;
+                        h.frames_since_spin_update = ent.heli_slow_death_frames_since_spin_update;
+                        h.forward_speed = ent.heli_slow_death_forward_speed;
+                        h.vertical_velocity = ent.heli_slow_death_vertical_velocity;
+                        h.orientation_delta = ent.heli_slow_death_orientation_delta;
+                        h.blade_flew_off = ent.heli_slow_death_blade_flew_off;
+                        h.done = ent.heli_slow_death_done;
+                    } else {
+                        obj.helicopter_slow_death = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12687,6 +12840,15 @@ pub fn shadow_session_after_host_tick(
         }
         // Wave 772: JetSlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_jet_slow_death_kill_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                obj.health.current = 0.0;
+                obj.status.destroyed = true;
+                obj.refresh_model_condition_bits();
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 773: HelicopterSlowDeathBehavior done → host destroy (no dual timer).
+        for id in crate::game_logic::host_heli_slow_death_kill_log::drain() {
             if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
