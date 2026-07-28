@@ -20,6 +20,10 @@ pub fn record(object: ObjectId, ordinal: u8) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostAiStateEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

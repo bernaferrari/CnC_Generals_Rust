@@ -234,6 +234,7 @@ Remaining engine residual after host update:
   - EjectPilotDie onDie at mark_object death-start (Wave 754; SlowDeath-safe)
   - writeback skips pending host continuous-fire/weapon-bonus/faerie logs (Wave 755)
   - writeback skips pending host shock/disable/repulsor logs under coupled tick (Wave 756)
+  - writeback skips pending combat/movement host logs under coupled tick (Wave 757; 12 writebacks)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

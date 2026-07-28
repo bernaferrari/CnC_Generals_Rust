@@ -35,6 +35,10 @@ pub fn record(ev: HostWeaponStatsEvent) {
     LOG.with(|log| log.borrow_mut().push(ev));
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostWeaponStatsEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
