@@ -3273,6 +3273,24 @@ impl GameWorldShadow {
                     e.subdual_heal_amount = obj.subdual_heal_amount;
                     e.subdual_heal_rate_frames = obj.subdual_heal_rate_frames;
                     e.subdual_heal_countdown = obj.subdual_heal_countdown;
+                    if let Some(d) = obj.defection_helper.as_ref() {
+                        e.defection_undetected = d.undetected_defector;
+                        e.defection_detection_end = d.detection_end;
+                        e.defection_detection_start = d.detection_start;
+                        e.defection_flash_phase = d.flash_phase;
+                        e.defection_do_fx = d.do_defector_fx;
+                        e.defection_flash_this_frame = d.flash_this_frame;
+                        e.defection_final_white_flash = d.final_white_flash;
+                    } else {
+                        e.defection_undetected = false;
+                        e.defection_detection_end = 0;
+                        e.defection_detection_start = 0;
+                        e.defection_flash_phase = 0.0;
+                        e.defection_do_fx = false;
+                        e.defection_flash_this_frame = false;
+                        e.defection_final_white_flash = false;
+                    }
+
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
                     e.ignoring_stealth = obj.status.ignoring_stealth;
@@ -3784,6 +3802,24 @@ impl GameWorldShadow {
                     e.subdual_heal_amount = obj.subdual_heal_amount;
                     e.subdual_heal_rate_frames = obj.subdual_heal_rate_frames;
                     e.subdual_heal_countdown = obj.subdual_heal_countdown;
+                    if let Some(d) = obj.defection_helper.as_ref() {
+                        e.defection_undetected = d.undetected_defector;
+                        e.defection_detection_end = d.detection_end;
+                        e.defection_detection_start = d.detection_start;
+                        e.defection_flash_phase = d.flash_phase;
+                        e.defection_do_fx = d.do_defector_fx;
+                        e.defection_flash_this_frame = d.flash_this_frame;
+                        e.defection_final_white_flash = d.final_white_flash;
+                    } else {
+                        e.defection_undetected = false;
+                        e.defection_detection_end = 0;
+                        e.defection_detection_start = 0;
+                        e.defection_flash_phase = 0.0;
+                        e.defection_do_fx = false;
+                        e.defection_flash_this_frame = false;
+                        e.defection_final_white_flash = false;
+                    }
+
                 e.is_carbomb = obj.status.is_carbomb;
                 e.hijacked = obj.status.hijacked;
                 e.ignoring_stealth = obj.status.ignoring_stealth;
@@ -6939,6 +6975,38 @@ impl GameWorldShadow {
                     let now = e.max_health > 0.0 && e.subdual_damage + 1e-3 >= e.max_health;
                     if was && !now {
                         e.disabled_subdued = false;
+                    }
+                    changed = true;
+                }
+            }
+            // Wave 766: ObjectDefectionHelper timer residual (flash/audio via writeback).
+            e.defection_flash_this_frame = false;
+            e.defection_final_white_flash = false;
+            if e.defection_undetected {
+                let dead = e.destroyed || e.health <= 0.0;
+                if dead || e.is_firing_weapon {
+                    e.defection_undetected = false;
+                    e.defection_do_fx = false;
+                    e.defection_detection_end = 0;
+                    e.defection_flash_phase = 0.0;
+                    changed = true;
+                } else if e.defection_detection_end > 0 && frame >= e.defection_detection_end {
+                    e.defection_undetected = false;
+                    if e.defection_do_fx {
+                        e.defection_final_white_flash = true;
+                    }
+                    e.defection_do_fx = false;
+                    e.defection_detection_end = 0;
+                    e.defection_flash_phase = 0.0;
+                    changed = true;
+                } else if e.defection_do_fx && e.defection_detection_end > 0 {
+                    let last_phase = (e.defection_flash_phase as i32) & 1;
+                    let time_left = e.defection_detection_end.saturating_sub(frame) as f32;
+                    let max_t = 300f32;
+                    e.defection_flash_phase += 0.5 * (1.0 - (time_left / max_t));
+                    let this_phase = (e.defection_flash_phase as i32) & 1;
+                    if last_phase != 0 && this_phase == 0 {
+                        e.defection_flash_this_frame = true;
                     }
                     changed = true;
                 }
@@ -10766,6 +10834,36 @@ impl GameWorldShadow {
                 obj.subdual_heal_rate_frames = ent.subdual_heal_rate_frames;
                 obj.subdual_heal_countdown = ent.subdual_heal_countdown;
             }
+            {
+                let need = match obj.defection_helper.as_ref() {
+                    Some(d) => {
+                        d.undetected_defector != ent.defection_undetected
+                            || d.detection_end != ent.defection_detection_end
+                            || d.detection_start != ent.defection_detection_start
+                            || (d.flash_phase - ent.defection_flash_phase).abs() > f32::EPSILON
+                            || d.do_defector_fx != ent.defection_do_fx
+                            || d.flash_this_frame != ent.defection_flash_this_frame
+                            || d.final_white_flash != ent.defection_final_white_flash
+                    }
+                    None => ent.defection_undetected || ent.defection_detection_end != 0,
+                };
+                if need {
+                    let d = obj.defection_helper.get_or_insert_with(|| {
+                        crate::game_logic::host_defection_helper::HostDefectionHelperData::default()
+                    });
+                    d.undetected_defector = ent.defection_undetected;
+                    d.detection_end = ent.defection_detection_end;
+                    d.detection_start = ent.defection_detection_start;
+                    d.flash_phase = ent.defection_flash_phase;
+                    d.do_defector_fx = ent.defection_do_fx;
+                    d.flash_this_frame = ent.defection_flash_this_frame;
+                    d.final_white_flash = ent.defection_final_white_flash;
+                    if ent.defection_final_white_flash {
+                        d.pending_audio.push("DefectorTimerDing".into());
+                    }
+                }
+            }
+
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
             set_flag!(obj.status.no_collisions, ent.no_collisions);

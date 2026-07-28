@@ -8224,8 +8224,14 @@ impl GameLogic {
                 {
                     obj.tick_eject_invulnerable(self.frame);
                 }
-                // C++ ObjectDefectionHelper::update residual.
-                obj.tick_defection_helper(self.frame);
+                // Wave 766: under coupled shadow, ObjectDefectionHelper timer is
+                // owned by GW tick_status_timer_expirations + writeback.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    // C++ ObjectDefectionHelper::update residual.
+                    obj.tick_defection_helper(self.frame);
+                }
                 // Snapshot FireWeaponPower residual before further mut uses.
                 let fwp_shot = obj.fire_weapon_power.as_ref().and_then(|req| {
                     if req.shots_remaining == 0 {
