@@ -3856,6 +3856,28 @@ impl GameWorldShadow {
                     } else {
                         0.0
                     };
+                    if let Some(d) = obj.emp_pulse_transport.as_ref() {
+                        e.emp_pulse_transport_active = true;
+                        e.emp_pulse_transport_player_id = d.player_id;
+                        e.emp_pulse_transport_caster_id = d.caster_id;
+                        e.emp_pulse_transport_target_x = d.target.x;
+                        e.emp_pulse_transport_target_y = d.target.y;
+                        e.emp_pulse_transport_target_z = d.target.z;
+                        e.emp_pulse_transport_launch_x = d.launch.x;
+                        e.emp_pulse_transport_launch_y = d.launch.y;
+                        e.emp_pulse_transport_launch_z = d.launch.z;
+                    } else {
+                        e.emp_pulse_transport_active = false;
+                    }
+                    e.emp_pulse_bomb = obj.emp_pulse_bomb;
+                    e.emp_pulse_bomb_vel_y = if obj.emp_pulse_bomb {
+                        obj.movement.velocity.y
+                    } else {
+                        0.0
+                    };
+                    e.emp_pulse_spheroid = obj.emp_pulse_spheroid;
+                    e.emp_pulse_spheroid_expires_frame =
+                        obj.emp_pulse_spheroid_expires_frame.unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -8431,6 +8453,99 @@ impl GameWorldShadow {
                 }
                 changed = true;
             }
+            // Wave 791: EMP Pulse DeliverPayload + spheroid residual.
+            if e.emp_pulse_transport_active {
+                use crate::game_logic::host_emp_pulse::EMP_PULSE_DELIVERY_DISTANCE;
+                let dest_x = e.emp_pulse_transport_target_x;
+                let dest_z = e.emp_pulse_transport_target_z;
+                let pos = e.transform.position;
+                let dx = dest_x - pos.x;
+                let dz = dest_z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let speed = 18.0_f32;
+                let mut new_pos = pos;
+                new_pos.y = new_pos.y.max(150.0);
+                let mut over = false;
+                let mut vel = glam::Vec3::ZERO;
+                if dist < 5.0 {
+                    over = true;
+                } else {
+                    let step = speed.min(dist);
+                    new_pos.x += dx / dist * step;
+                    new_pos.z += dz / dist * step;
+                    vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
+                    over = dist <= EMP_PULSE_DELIVERY_DISTANCE * 0.5;
+                }
+                e.transform.position = new_pos;
+                if vel.length_squared() > 1e-6 {
+                    e.transform.orientation = vel.z.atan2(vel.x);
+                }
+                if over {
+                    e.emp_pulse_transport_active = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e
+                            .producer_id
+                            .map(crate::game_logic::ObjectId)
+                            .unwrap_or(crate::game_logic::ObjectId(hid));
+                        crate::game_logic::host_emp_pulse_drop_log::record_drop(
+                            crate::game_logic::host_emp_pulse_drop_log::EmpPulseDropEvent {
+                                team,
+                                target: glam::Vec3::new(
+                                    e.emp_pulse_transport_target_x,
+                                    e.emp_pulse_transport_target_y,
+                                    e.emp_pulse_transport_target_z,
+                                ),
+                                producer,
+                                player_id: e.emp_pulse_transport_player_id,
+                                caster_id: e.emp_pulse_transport_caster_id,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            if e.emp_pulse_bomb {
+                if e.emp_pulse_bomb_vel_y == 0.0 {
+                    e.emp_pulse_bomb_vel_y = -14.0;
+                }
+                e.transform.position.y += e.emp_pulse_bomb_vel_y;
+                if e.transform.position.y <= 5.0 {
+                    e.emp_pulse_bomb = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let team = Self::entity_team_from_ordinal(e.team_ordinal);
+                        let producer = e.producer_id.map(crate::game_logic::ObjectId);
+                        crate::game_logic::host_emp_pulse_drop_log::record_detonate(
+                            crate::game_logic::host_emp_pulse_drop_log::EmpPulseDetonateEvent {
+                                bomb: crate::game_logic::ObjectId(hid),
+                                producer,
+                                team,
+                                pos: glam::Vec3::new(
+                                    e.transform.position.x,
+                                    0.0,
+                                    e.transform.position.z,
+                                ),
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            if e.emp_pulse_spheroid
+                && e.emp_pulse_spheroid_expires_frame > 0
+                && frame >= e.emp_pulse_spheroid_expires_frame
+            {
+                e.emp_pulse_spheroid = false;
+                e.emp_pulse_spheroid_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_emp_pulse_drop_log::record_spheroid_expire(
+                        crate::game_logic::host_emp_pulse_drop_log::EmpPulseSpheroidExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                        },
+                    );
+                }
+                changed = true;
+            }
             if changed {
                 n += 1;
             }
@@ -12978,6 +13093,45 @@ impl GameWorldShadow {
                     obj.movement.velocity.y = ent.cluster_mines_bomb_vel_y;
                 }
             }
+            {
+                if ent.emp_pulse_transport_active {
+                    use crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightData;
+                    let d = obj.emp_pulse_transport.get_or_insert_with(|| {
+                        HostEmpPulseFlightData::start(
+                            glam::Vec3::ZERO,
+                            glam::Vec3::ZERO,
+                            0,
+                            0,
+                        )
+                    });
+                    d.player_id = ent.emp_pulse_transport_player_id;
+                    d.caster_id = ent.emp_pulse_transport_caster_id;
+                    d.target = glam::Vec3::new(
+                        ent.emp_pulse_transport_target_x,
+                        ent.emp_pulse_transport_target_y,
+                        ent.emp_pulse_transport_target_z,
+                    );
+                    d.launch = glam::Vec3::new(
+                        ent.emp_pulse_transport_launch_x,
+                        ent.emp_pulse_transport_launch_y,
+                        ent.emp_pulse_transport_launch_z,
+                    );
+                } else {
+                    obj.emp_pulse_transport = None;
+                }
+                obj.emp_pulse_bomb = ent.emp_pulse_bomb;
+                if ent.emp_pulse_bomb {
+                    obj.movement.velocity.y = ent.emp_pulse_bomb_vel_y;
+                }
+                obj.emp_pulse_spheroid = ent.emp_pulse_spheroid;
+                obj.emp_pulse_spheroid_expires_frame = if ent.emp_pulse_spheroid
+                    && ent.emp_pulse_spheroid_expires_frame > 0
+                {
+                    Some(ent.emp_pulse_spheroid_expires_frame)
+                } else {
+                    None
+                };
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -14690,6 +14844,57 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.bomb, None);
         }
+        // Wave 791: EMP Pulse drop + detonate + spheroid expire (no dual flight).
+        for ev in crate::game_logic::host_emp_pulse_drop_log::drain_drops() {
+            use crate::game_logic::host_emp_pulse::EMP_PULSE_BOMB_TEMPLATE;
+            let drop_pos = glam::Vec3::new(ev.target.x, 80.0, ev.target.z);
+            if let Some(bid) = logic.create_object(EMP_PULSE_BOMB_TEMPLATE, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
+                    o.producer_id = Some(ev.producer);
+                    o.emp_pulse_bomb = true;
+                    o.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                    let _ = (ev.player_id, ev.caster_id);
+                }
+                logic.emp_pulse_flight_reg.record_drop();
+            }
+        }
+        for ev in crate::game_logic::host_emp_pulse_drop_log::drain_dets() {
+            let player_id = ev
+                .producer
+                .and_then(|pid| logic.get_objects().get(&pid))
+                .and_then(|o| {
+                    logic
+                        .get_players()
+                        .iter()
+                        .find(|(_, p)| p.team == o.team)
+                        .map(|(id, _)| *id)
+                })
+                .unwrap_or(0);
+            let _ = logic.apply_emp_pulse_at(player_id, ev.pos, ev.producer);
+            logic.emp_pulse_flight_reg.record_detonation();
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.bomb, None);
+        }
+        for ev in crate::game_logic::host_emp_pulse_drop_log::drain_spheroid_expires() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.emp_pulse_spheroid = false;
+            }
+            logic.mark_object_for_destruction(ev.id, None);
+        }
+
 
 
 

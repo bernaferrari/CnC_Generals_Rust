@@ -3425,6 +3425,11 @@ use crate::game_logic::host_live_host_cluster_mines_flight_dual_peel_residual_wa
     honesty_host_cluster_mines_flight_dual_peel_nav_commands_residual_wave790,
     simulate_live_host_cluster_mines_flight_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_emp_pulse_flight_dual_peel_residual_wave791::{
+    honesty_host_emp_pulse_flight_dual_peel_method_names_residual_wave791,
+    honesty_host_emp_pulse_flight_dual_peel_nav_commands_residual_wave791,
+    simulate_live_host_emp_pulse_flight_dual_peel_honesty,
+};
 
 
 
@@ -7464,6 +7469,9 @@ pub struct ShellSmokeResult {
     pub host_cluster_mines_flight_dual_peel_method_names_wave790_ok: bool,
     pub host_cluster_mines_flight_dual_peel_nav_commands_wave790_ok: bool,
     pub host_cluster_mines_flight_dual_peel_live_wave790_ok: bool,
+    pub host_emp_pulse_flight_dual_peel_method_names_wave791_ok: bool,
+    pub host_emp_pulse_flight_dual_peel_nav_commands_wave791_ok: bool,
+    pub host_emp_pulse_flight_dual_peel_live_wave791_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11943,6 +11951,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_cluster_mines_flight_dual_peel_nav_commands_residual_wave790();
     let host_cluster_mines_flight_dual_peel_live_wave790_ok =
         simulate_live_host_cluster_mines_flight_dual_peel_honesty();
+    let host_emp_pulse_flight_dual_peel_method_names_wave791_ok =
+        honesty_host_emp_pulse_flight_dual_peel_method_names_residual_wave791();
+    let host_emp_pulse_flight_dual_peel_nav_commands_wave791_ok =
+        honesty_host_emp_pulse_flight_dual_peel_nav_commands_residual_wave791();
+    let host_emp_pulse_flight_dual_peel_live_wave791_ok =
+        simulate_live_host_emp_pulse_flight_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14302,6 +14316,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_cluster_mines_flight_dual_peel_method_names_wave790_ok,
         host_cluster_mines_flight_dual_peel_nav_commands_wave790_ok,
         host_cluster_mines_flight_dual_peel_live_wave790_ok,
+        host_emp_pulse_flight_dual_peel_method_names_wave791_ok,
+        host_emp_pulse_flight_dual_peel_nav_commands_wave791_ok,
+        host_emp_pulse_flight_dual_peel_live_wave791_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
