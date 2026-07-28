@@ -26135,6 +26135,23 @@ impl GameLogic {
     /// applies presentation bookkeeping residual via record_host_locomotor.
     /// Wave 647: GameWorld hijacker writeback records dirty objects; host
     /// applies presentation bookkeeping residual via record_host_hijacker.
+    /// Wave 648: GameWorld AI-request writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_ai_request.
+    pub fn host_apply_ai_request_ready_completions(&mut self) -> usize {
+        // Wave 648: GameWorld AI-request writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_ai_request.
+        let events = crate::game_logic::host_ai_request_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_ai_request();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_hijacker_ready_completions(&mut self) -> usize {
         // Wave 647: GameWorld hijacker writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_hijacker.
