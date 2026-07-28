@@ -7084,14 +7084,21 @@ impl GameLogic {
         // Wave 614: under sole-tick, GameWorld writeback records ready producers;
         // host only try_completes those IDs (GW decides readiness).
         let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
-        let ready_producers: std::collections::HashSet<ObjectId> = if sole {
+        // Wave 735: keep full ready events (template + GW spawn pose/rally), not
+        // producer IDs alone — host sole-tick applies GW pose authority on spawn.
+        let ready_by_producer: std::collections::HashMap<
+            ObjectId,
+            crate::game_logic::host_production_ready_log::HostProductionReadyEvent,
+        > = if sole {
             crate::game_logic::host_production_ready_log::drain()
                 .into_iter()
-                .map(|ev| ev.producer)
+                .map(|ev| (ev.producer, ev))
                 .collect()
         } else {
-            std::collections::HashSet::new()
+            std::collections::HashMap::new()
         };
+        let ready_producers: std::collections::HashSet<ObjectId> =
+            ready_by_producer.keys().copied().collect();
 
         for (&id, obj) in self.objects.iter_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
@@ -7160,7 +7167,7 @@ impl GameLogic {
                             upgrade_completions.push((obj.team, completed, id));
                         }
                         ProductionKind::Unit => {
-                            let rally = building.rally_point;
+                            let mut rally = building.rally_point;
                             // Spawn slightly offset from the building facing to reduce clumping.
                             let forward = obj.thing.get_direction_vector();
                             let base =
@@ -7186,7 +7193,29 @@ impl GameLogic {
                                     crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_UNIT_CREATE_MODEL,
                                 );
                             }
-                            unit_completions.push((obj.team, completed, spawn_pos, rally, id));
+                            // Wave 735: under sole-tick, GameWorld ready-log pose/rally
+                            // and template are authoritative for the completion spawn.
+                            let mut completed_name = completed;
+                            if sole {
+                                if let Some(ev) = ready_by_producer.get(&id) {
+                                    if !ev.template_name.is_empty() {
+                                        completed_name = ev.template_name.clone();
+                                    }
+                                    if let Some(p) = ev.spawn_pos {
+                                        spawn_pos = Vec3::new(p[0], p[1], p[2]);
+                                    }
+                                    if let Some(r) = ev.rally {
+                                        rally = Some(Vec3::new(r[0], r[1], r[2]));
+                                    }
+                                }
+                            }
+                            unit_completions.push((
+                                obj.team,
+                                completed_name,
+                                spawn_pos,
+                                rally,
+                                id,
+                            ));
                         }
                     }
                 }
