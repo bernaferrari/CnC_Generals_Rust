@@ -1895,7 +1895,7 @@ pub struct GameLogic {
     /// Honesty: Weapon.ini LaserName SpecialObject Things spawned.
     weapon_laser_beams_spawned: u32,
     /// C++ ProjectileStreamUpdate residual registry.
-    projectile_streams: crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
+    pub(crate) projectile_streams: crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
     pending_patriot_assists: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
     /// StealthDetectorUpdate DetectionRate residual scans performed.
@@ -6345,7 +6345,13 @@ impl GameLogic {
         self.update_flashbang_grenade_projectiles();
         self.update_humvee_tow_missile_projectiles();
         self.update_dragon_flame_projectiles();
-        self.update_toxin_stream_projectiles();
+        // Wave 798: under coupled shadow, ToxinStream projectile flight is owned by
+        // GW tick_status_timer_expirations + impact/stream logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_toxin_stream_projectiles();
+        }
         self.update_technical_rpg_missile_projectiles();
         self.update_technical_cannon_shell_projectiles();
         self.update_cleanup_stream_projectiles();
@@ -49338,7 +49344,7 @@ impl GameLogic {
     }
 
     /// Apply Toxin Tractor primary stream residual (poison damage radius).
-    fn apply_toxin_tractor_stream_at(
+    pub(crate) fn apply_toxin_tractor_stream_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
