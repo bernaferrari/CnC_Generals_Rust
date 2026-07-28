@@ -6242,9 +6242,21 @@ impl GameLogic {
         // / PoisonField stack / B52 DeliverPayload / door loft path.
         self.update_special_power_strikes();
         self.spawn_nuke_radiation_field_objects_for_new_fields();
-        self.update_nuke_radiation_field_objects();
+        // Wave 802: under coupled shadow, field-object lifetime is owned by
+        // GW tick_status_timer_expirations + expire logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_nuke_radiation_field_objects();
+        }
         self.spawn_anthrax_toxin_field_objects_for_new_fields();
-        self.update_anthrax_toxin_field_objects();
+        // Wave 802: under coupled shadow, field-object lifetime is owned by
+        // GW tick_status_timer_expirations + expire logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_anthrax_toxin_field_objects();
+        }
 
         // Host America Paradrop residual: spawn infantry after approach delay.
         // Fail-closed vs full OCL cargo plane / parachute payload path.
@@ -6403,7 +6415,13 @@ impl GameLogic {
         // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
         self.update_inferno_fire_zones();
-        self.update_inferno_fire_field_objects();
+        // Wave 802: under coupled shadow, field-object lifetime is owned by
+        // GW tick_status_timer_expirations + expire logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_inferno_fire_field_objects();
+        }
 
         // Host China Helix NapalmBomb residual: tick FirestormSmall DoT at drop zones.
         // Fail-closed vs full SpecialObject NapalmBomb fall / expand animation.

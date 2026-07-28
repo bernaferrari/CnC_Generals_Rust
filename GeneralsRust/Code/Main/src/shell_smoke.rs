@@ -3480,6 +3480,11 @@ use crate::game_logic::host_live_host_angry_mob_member_follow_dual_peel_residual
     honesty_host_angry_mob_member_follow_dual_peel_nav_commands_residual_wave801,
     simulate_live_host_angry_mob_member_follow_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_field_object_expire_dual_peel_residual_wave802::{
+    honesty_host_field_object_expire_dual_peel_method_names_residual_wave802,
+    honesty_host_field_object_expire_dual_peel_nav_commands_residual_wave802,
+    simulate_live_host_field_object_expire_dual_peel_honesty,
+};
 
 
 
@@ -7552,6 +7557,9 @@ pub struct ShellSmokeResult {
     pub host_angry_mob_member_follow_dual_peel_method_names_wave801_ok: bool,
     pub host_angry_mob_member_follow_dual_peel_nav_commands_wave801_ok: bool,
     pub host_angry_mob_member_follow_dual_peel_live_wave801_ok: bool,
+    pub host_field_object_expire_dual_peel_method_names_wave802_ok: bool,
+    pub host_field_object_expire_dual_peel_nav_commands_wave802_ok: bool,
+    pub host_field_object_expire_dual_peel_live_wave802_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12097,6 +12105,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_angry_mob_member_follow_dual_peel_nav_commands_residual_wave801();
     let host_angry_mob_member_follow_dual_peel_live_wave801_ok =
         simulate_live_host_angry_mob_member_follow_dual_peel_honesty();
+    let host_field_object_expire_dual_peel_method_names_wave802_ok =
+        honesty_host_field_object_expire_dual_peel_method_names_residual_wave802();
+    let host_field_object_expire_dual_peel_nav_commands_wave802_ok =
+        honesty_host_field_object_expire_dual_peel_nav_commands_residual_wave802();
+    let host_field_object_expire_dual_peel_live_wave802_ok =
+        simulate_live_host_field_object_expire_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14489,6 +14503,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_angry_mob_member_follow_dual_peel_method_names_wave801_ok,
         host_angry_mob_member_follow_dual_peel_nav_commands_wave801_ok,
         host_angry_mob_member_follow_dual_peel_live_wave801_ok,
+        host_field_object_expire_dual_peel_method_names_wave802_ok,
+        host_field_object_expire_dual_peel_nav_commands_wave802_ok,
+        host_field_object_expire_dual_peel_live_wave802_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

@@ -870,6 +870,15 @@ pub struct Entity {
     pub angry_mob_member: bool,
     pub angry_mob_nexus_id: u32,
     pub angry_mob_has_nexus: bool,
+    /// Host NukeRadiationField object residual.
+    pub nuke_radiation_field: bool,
+    pub nuke_radiation_field_expires_frame: u32,
+    /// Host AnthraxToxinField object residual.
+    pub anthrax_toxin_field: bool,
+    pub anthrax_toxin_field_expires_frame: u32,
+    /// Host InfernoFireField object residual.
+    pub inferno_fire_field: bool,
+    pub inferno_fire_field_expires_frame: u32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1722,6 +1731,12 @@ impl EntityStore {
             angry_mob_member: false,
             angry_mob_nexus_id: 0,
             angry_mob_has_nexus: false,
+            nuke_radiation_field: false,
+            nuke_radiation_field_expires_frame: 0,
+            anthrax_toxin_field: false,
+            anthrax_toxin_field_expires_frame: 0,
+            inferno_fire_field: false,
+            inferno_fire_field_expires_frame: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
