@@ -132,6 +132,7 @@ pub mod host_live_host_eager_move_attack_helper_residual_wave683;
 pub mod host_live_host_eager_owner_movement_helper_residual_wave688;
 pub mod host_live_host_eager_spawn_map_helper_residual_wave680;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
+pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
 pub mod host_live_host_eager_turret_guard_rally_helper_residual_wave692;
 pub mod host_live_host_eager_weapon_bonus_slot_helper_residual_wave690;
@@ -3102,6 +3103,15 @@ pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     residual_host_eager_status_veterancy_helper_last_action,
     residual_host_eager_status_veterancy_helper_ok,
     simulate_live_host_eager_status_veterancy_helper_honesty,
+};
+pub use host_live_host_eager_stealth_sole_radar_helper_residual_wave705::{
+    honesty_host_eager_stealth_sole_radar_helper_method_names_residual_wave705,
+    honesty_host_eager_stealth_sole_radar_helper_nav_commands_residual_wave705,
+    honesty_host_eager_stealth_sole_radar_helper_residual_pack_wave705,
+    honesty_host_eager_stealth_sole_radar_helper_source_markers_residual_wave705,
+    residual_host_eager_stealth_sole_radar_helper_last_action,
+    residual_host_eager_stealth_sole_radar_helper_ok,
+    simulate_live_host_eager_stealth_sole_radar_helper_honesty,
 };
 pub use host_live_host_eager_tloc_detector_cf_helper_residual_wave693::{
     honesty_host_eager_tloc_detector_cf_helper_method_names_residual_wave693,

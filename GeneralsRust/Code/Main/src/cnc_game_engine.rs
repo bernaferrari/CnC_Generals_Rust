@@ -18194,6 +18194,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 705: post-logic stealth-delay / sole-healing / radar-extend.
+                let _sd = crate::gameworld_shadow::eager_apply_host_stealth_delay_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _sh = crate::gameworld_shadow::eager_apply_host_sole_healing_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _re = crate::gameworld_shadow::eager_apply_host_radar_extend_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
