@@ -1411,7 +1411,7 @@ pub struct GameLogic {
 
     /// Host CommandCenter / RadarVan radar-online residual (Player::hasRadar).
     /// Fail-closed: not full RadarUpgrade/RadarUpdate grant matrix / power-disable proof.
-    host_radar: crate::game_logic::host_radar::HostRadarRegistry,
+    pub(crate) host_radar: crate::game_logic::host_radar::HostRadarRegistry,
 
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
@@ -6891,7 +6891,12 @@ impl GameLogic {
         self.update_battle_drone_repair_residual(dt);
         // CommandCenter / RadarVan radar-online residual (Player::hasRadar).
         // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
-        self.update_player_radar();
+        // Wave 818: under coupled shadow, radar_count owned by GW tick + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_player_radar();
+        }
         self.update_power_disabled_state();
 
         // -----------------------------------------------------------------------
