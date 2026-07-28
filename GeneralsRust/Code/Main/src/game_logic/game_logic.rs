@@ -8291,17 +8291,15 @@ impl GameLogic {
                     }
                 }
                 // Wave 761: continuous-fire coast + repulsor expire peel under coupled.
+                // Wave 761: CF coast + repulsor peel under coupled.
+                // Wave 765: subdual heal owned by GW when coupled.
+                // Wave 767: fire-sound loop stop owned by GW tick_status_timer_expirations
+                // when coupled (non-coupled still via tick_continuous_fire_coast).
                 if !(crate::gameworld_shadow::gameworld_shadow_enabled()
                     && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
                     obj.tick_continuous_fire_coast(self.frame);
                     obj.tick_repulsor_status(self.frame);
-                } else {
-                    // fire-sound still host-owned (presentation audio residual).
-                    // Wave 765: subdual heal owned by GW tick_status_timer_expirations
-                    // + writeback under coupled dual-tick (non-coupled still heals via
-                    // tick_continuous_fire_coast → tick_subdual_damage).
-                    obj.tick_fire_sound_loop(self.frame);
                 }
                 // Wave 763: under coupled shadow, force-reload-when-idle is owned by
                 // GW tick_status_timer_expirations + weapon_stats/continuous-fire writeback.

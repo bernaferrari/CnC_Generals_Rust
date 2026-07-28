@@ -260,6 +260,10 @@ pub struct Entity {
     pub defection_flash_this_frame: bool,
     /// Presentation: final white flash on timer expire.
     pub defection_final_white_flash: bool,
+    /// Host Object::fire_sound_loop_until_frame residual (0 = none).
+    pub fire_sound_loop_until_frame: u32,
+    /// Host Object::fire_sound_loop_name residual (empty = none).
+    pub fire_sound_loop_name: String,
     /// Host Object::status.is_carbomb residual.
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
@@ -944,6 +948,8 @@ impl EntityStore {
             defection_do_fx: false,
             defection_flash_this_frame: false,
             defection_final_white_flash: false,
+            fire_sound_loop_until_frame: 0,
+            fire_sound_loop_name: String::new(),
             is_carbomb: false,
             hijacked: false,
             ignoring_stealth: false,
