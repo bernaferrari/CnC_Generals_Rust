@@ -629,6 +629,11 @@ pub struct Entity {
     pub fwwd_reaction_damaged: String,
     pub fwwd_reaction_really_damaged: String,
     pub fwwd_reaction_rubble: String,
+    /// Host BaseRegenerateUpdate residual.
+    pub base_regen_active: bool,
+    pub base_regen_wake_frame: u32,
+    pub base_regen_done_sold: bool,
+    pub base_regen_pending_damage: bool,
     /// C++ AnimationSteeringUpdate turn anim ordinal residual.
     pub anim_steer_turn: u8,
     /// Host Object::shock_yaw_rate residual.
@@ -1278,6 +1283,10 @@ impl EntityStore {
             fwwd_reaction_damaged: String::new(),
             fwwd_reaction_really_damaged: String::new(),
             fwwd_reaction_rubble: String::new(),
+            base_regen_active: false,
+            base_regen_wake_frame: 0,
+            base_regen_done_sold: false,
+            base_regen_pending_damage: false,
             anim_steer_turn: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
