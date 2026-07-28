@@ -6425,7 +6425,12 @@ impl GameLogic {
 
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // RadarVanPing DeletionUpdate residual + FOW undo.
-        self.update_radar_van_pings();
+        // Wave 809: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_radar_van_pings();
+        }
         self.update_radar_scans();
 
         // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
@@ -33133,6 +33138,12 @@ impl GameLogic {
         // C++ InchForwardLocomotor residual: segments crawl along wall direction.
         // Keep registry damage zones and live segment objects in lockstep.
         self.fire_walls.crawl_segments();
+        // Wave 809: under coupled shadow, object crawl/expire owned by GW.
+        if crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active()
+        {
+            return;
+        }
         let crawlers: Vec<(ObjectId, f32, f32)> = self
             .objects
             .iter()

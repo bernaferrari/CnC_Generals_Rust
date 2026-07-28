@@ -4257,6 +4257,28 @@ impl GameWorldShadow {
                     e.particle_connector_laser = obj.particle_connector_laser;
                     e.particle_connector_laser_expires_frame =
                         obj.particle_connector_laser_expires_frame.unwrap_or(0);
+                    e.firewall_segment = obj.firewall_segment;
+                    e.firewall_segment_expires_frame =
+                        obj.firewall_segment_expires_frame.unwrap_or(0);
+                    if let Some(wid) = obj.firewall_segment_wall_id {
+                        e.firewall_segment_has_wall_id = true;
+                        e.firewall_segment_wall_id = wid;
+                    } else {
+                        e.firewall_segment_has_wall_id = false;
+                        e.firewall_segment_wall_id = 0;
+                    }
+                    if let Some(d) = obj.firewall_segment_dir {
+                        e.firewall_segment_has_dir = true;
+                        e.firewall_segment_dir_x = d[0];
+                        e.firewall_segment_dir_z = d[1];
+                    } else {
+                        e.firewall_segment_has_dir = false;
+                        e.firewall_segment_dir_x = 1.0;
+                        e.firewall_segment_dir_z = 0.0;
+                    }
+                    e.radar_van_ping = obj.radar_van_ping;
+                    e.radar_van_ping_expires_frame =
+                        obj.radar_van_ping_expires_frame.unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -10202,6 +10224,59 @@ for eid in eids {
                 changed = true;
             }
 
+            // Wave 809: Firewall segment crawl + lifetime residual.
+            if e.firewall_segment {
+                use crate::game_logic::host_firewall::FIREWALL_INCH_PER_FRAME;
+                let (dx, dz) = if e.firewall_segment_has_dir {
+                    (
+                        e.firewall_segment_dir_x * FIREWALL_INCH_PER_FRAME,
+                        e.firewall_segment_dir_z * FIREWALL_INCH_PER_FRAME,
+                    )
+                } else {
+                    (FIREWALL_INCH_PER_FRAME, 0.0)
+                };
+                e.transform.position.x += dx;
+                e.transform.position.z += dz;
+                if e.firewall_segment_expires_frame > 0
+                    && frame >= e.firewall_segment_expires_frame
+                {
+                    e.firewall_segment = false;
+                    e.firewall_segment_expires_frame = 0;
+                    e.firewall_segment_has_wall_id = false;
+                    e.firewall_segment_has_dir = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_field_object_expire_log::record(
+                            crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                                kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::FirewallSegment,
+                                producer: None,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 809: Radar van ping lifetime residual.
+            if e.radar_van_ping
+                && e.radar_van_ping_expires_frame > 0
+                && frame >= e.radar_van_ping_expires_frame
+            {
+                e.radar_van_ping = false;
+                e.radar_van_ping_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::RadarVanPing,
+                            producer: None,
+                        },
+                    );
+                }
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -15437,6 +15512,30 @@ for eid in eids {
                 } else {
                     None
                 };
+                obj.firewall_segment = ent.firewall_segment;
+                obj.firewall_segment_expires_frame =
+                    if ent.firewall_segment && ent.firewall_segment_expires_frame > 0 {
+                        Some(ent.firewall_segment_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.firewall_segment_wall_id = if ent.firewall_segment_has_wall_id {
+                    Some(ent.firewall_segment_wall_id)
+                } else {
+                    None
+                };
+                obj.firewall_segment_dir = if ent.firewall_segment_has_dir {
+                    Some([ent.firewall_segment_dir_x, ent.firewall_segment_dir_z])
+                } else {
+                    None
+                };
+                obj.radar_van_ping = ent.radar_van_ping;
+                obj.radar_van_ping_expires_frame =
+                    if ent.radar_van_ping && ent.radar_van_ping_expires_frame > 0 {
+                        Some(ent.radar_van_ping_expires_frame)
+                    } else {
+                        None
+                    };
             }
 
             set_flag!(obj.status.masked, ent.masked);
@@ -17536,6 +17635,12 @@ pub fn shadow_session_after_host_tick(
                     FieldObjectKind::ParticleConnectorLaser => {
                         o.particle_connector_laser = false
                     }
+                    FieldObjectKind::FirewallSegment => {
+                        o.firewall_segment = false;
+                        o.firewall_segment_wall_id = None;
+                        o.firewall_segment_dir = None;
+                    }
+                    FieldObjectKind::RadarVanPing => o.radar_van_ping = false,
                 }
             }
             // Wave 806: countermeasure flare producer bookkeeping.
