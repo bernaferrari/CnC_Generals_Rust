@@ -201,6 +201,8 @@ pub fn end_shadow_coupled_tick() {
             EARLY_FIRE_INTENT_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_OWNER_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_MOVEMENT_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_STATUS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_VETERANCY_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -600,6 +602,81 @@ pub fn eager_apply_host_movement_after_logic(
     }
     let n = shadow.apply_host_movement_events(&events);
     EARLY_MOVEMENT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 689: post-logic combat-status / veterancy batch handoff (avoid double-apply).
+thread_local! {
+    static EARLY_STATUS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_status_log::HostStatusEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_VETERANCY_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_veterancy_log::HostVeterancyEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_status_batch() -> Option<(
+    Vec<crate::game_logic::host_status_log::HostStatusEvent>,
+    bool,
+)> {
+    EARLY_STATUS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_veterancy_batch() -> Option<(
+    Vec<crate::game_logic::host_veterancy_log::HostVeterancyEvent>,
+    bool,
+)> {
+    EARLY_VETERANCY_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 689: post-logic drain `host_status_log` into GameWorld SetCombatStatus.
+pub fn eager_apply_host_status_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 689: post-logic combat-status materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_status_log::drain();
+    if events.is_empty() {
+        EARLY_STATUS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let mut n = 0usize;
+    for ev in &events {
+        if shadow.queue_set_combat_status_for_host(*ev) {
+            n = n.saturating_add(1);
+        }
+    }
+    if n > 0 {
+        let _ = shadow.apply_pending();
+    }
+    EARLY_STATUS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 689: post-logic drain `host_veterancy_log` into GameWorld SetVeterancy.
+pub fn eager_apply_host_veterancy_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 689: post-logic veterancy materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_veterancy_log::drain();
+    if events.is_empty() {
+        EARLY_VETERANCY_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let mut n = 0usize;
+    for ev in &events {
+        if shadow.queue_set_veterancy_for_host(ev.object, ev.ordinal) {
+            n = n.saturating_add(1);
+        }
+    }
+    if n > 0 {
+        let _ = shadow.apply_pending();
+    }
+    EARLY_VETERANCY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8397,8 +8474,15 @@ pub fn shadow_session_after_host_tick(
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
     let _fire_loop_events = crate::game_logic::host_fire_sound_loop_log::drain();
-    let status_events = crate::game_logic::host_status_log::drain();
-    let veterancy_events = crate::game_logic::host_veterancy_log::drain();
+    // Wave 689: prefer post-logic status / veterancy batches.
+    let (status_events, early_status_applied) = match take_early_status_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_status_log::drain(), false),
+    };
+    let (veterancy_events, early_veterancy_applied) = match take_early_veterancy_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_veterancy_log::drain(), false),
+    };
     let move_events = crate::game_logic::host_move_log::drain();
     let production_events = crate::game_logic::host_production_log::drain();
     let production_progress_events = crate::game_logic::host_production_progress_log::drain();
@@ -8637,16 +8721,21 @@ pub fn shadow_session_after_host_tick(
     for ev in &move_events {
         let _ = shadow.queue_set_move_target_for_host(ev.unit, ev.destination);
     }
-    for ev in &status_events {
-        let _ = shadow.queue_set_combat_status_for_host(*ev);
+    // Wave 689: skip GW re-apply when post-logic eager path already ran.
+    if !early_status_applied {
+        for ev in &status_events {
+            let _ = shadow.queue_set_combat_status_for_host(*ev);
+        }
     }
-    for ev in &veterancy_events {
-        let _ = shadow.queue_set_veterancy_for_host(ev.object, ev.ordinal);
+    if !early_veterancy_applied {
+        for ev in &veterancy_events {
+            let _ = shadow.queue_set_veterancy_for_host(ev.object, ev.ordinal);
+        }
     }
     if !attack_events.is_empty()
         || !move_events.is_empty()
-        || !status_events.is_empty()
-        || !veterancy_events.is_empty()
+        || (!early_status_applied && !status_events.is_empty())
+        || (!early_veterancy_applied && !veterancy_events.is_empty())
     {
         let _ = shadow.apply_pending();
     }

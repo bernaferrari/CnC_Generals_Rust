@@ -18002,6 +18002,15 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 689: post-logic combat-status / veterancy before full session.
+                let _st = crate::gameworld_shadow::eager_apply_host_status_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _vet = crate::gameworld_shadow::eager_apply_host_veterancy_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
