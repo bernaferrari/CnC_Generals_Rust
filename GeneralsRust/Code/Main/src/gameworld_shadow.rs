@@ -3773,6 +3773,21 @@ impl GameWorldShadow {
                         e.checkpoint_open = false;
                         e.checkpoint_vision_range = 150.0;
                     }
+                    if let Some(h) = obj.smart_bomb_target_homing.as_ref() {
+                        e.smart_bomb_homing_active = true;
+                        e.smart_bomb_target_received = h.target_received;
+                        e.smart_bomb_course_scalar = h.course_correction_scalar;
+                        e.smart_bomb_target_x = h.target.x;
+                        e.smart_bomb_target_y = h.target.y;
+                        e.smart_bomb_target_z = h.target.z;
+                    } else {
+                        e.smart_bomb_homing_active = false;
+                        e.smart_bomb_target_received = false;
+                        e.smart_bomb_course_scalar = 0.99;
+                        e.smart_bomb_target_x = 0.0;
+                        e.smart_bomb_target_y = 0.0;
+                        e.smart_bomb_target_z = 0.0;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -8080,6 +8095,21 @@ impl GameWorldShadow {
                             + CHECKPOINT_RADIUS_STEP)
                             .min(e.checkpoint_max_minor_radius);
                     }
+                    changed = true;
+                }
+            }
+            // Wave 787: SmartBombTargetHomingUpdate residual (course fudge).
+            if e.smart_bomb_homing_active && e.smart_bomb_target_received {
+                use crate::game_logic::host_smart_bomb_target_homing::SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN;
+                let hat = (e.transform.position.y - e.ground_height).max(0.0);
+                if hat >= SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN {
+                    let status = e.smart_bomb_course_scalar.clamp(0.0, 1.0);
+                    let target_c = 1.0 - status;
+                    e.transform.position.x = e.smart_bomb_target_x * target_c
+                        + e.transform.position.x * status;
+                    e.transform.position.z = e.smart_bomb_target_z * target_c
+                        + e.transform.position.z * status;
+                    // Y altitude unchanged.
                     changed = true;
                 }
             }
@@ -12517,6 +12547,23 @@ impl GameWorldShadow {
                     cp.vision_range = ent.checkpoint_vision_range;
                 } else if obj.checkpoint_update.is_some() {
                     obj.checkpoint_update = None;
+                }
+            }
+            {
+                if ent.smart_bomb_homing_active {
+                    use crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingData;
+                    let h = obj
+                        .smart_bomb_target_homing
+                        .get_or_insert_with(HostSmartBombTargetHomingData::default);
+                    h.target_received = ent.smart_bomb_target_received;
+                    h.course_correction_scalar = ent.smart_bomb_course_scalar;
+                    h.target = glam::Vec3::new(
+                        ent.smart_bomb_target_x,
+                        ent.smart_bomb_target_y,
+                        ent.smart_bomb_target_z,
+                    );
+                } else if obj.smart_bomb_target_homing.is_some() {
+                    obj.smart_bomb_target_homing = None;
                 }
             }
 

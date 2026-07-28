@@ -683,6 +683,13 @@ pub struct Entity {
     pub checkpoint_door_anim: u8,
     pub checkpoint_open: bool,
     pub checkpoint_vision_range: f32,
+    /// Host SmartBombTargetHomingUpdate residual.
+    pub smart_bomb_homing_active: bool,
+    pub smart_bomb_target_received: bool,
+    pub smart_bomb_course_scalar: f32,
+    pub smart_bomb_target_x: f32,
+    pub smart_bomb_target_y: f32,
+    pub smart_bomb_target_z: f32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1375,6 +1382,12 @@ impl EntityStore {
             checkpoint_door_anim: 0,
             checkpoint_open: false,
             checkpoint_vision_range: 150.0,
+            smart_bomb_homing_active: false,
+            smart_bomb_target_received: false,
+            smart_bomb_course_scalar: 0.99,
+            smart_bomb_target_x: 0.0,
+            smart_bomb_target_y: 0.0,
+            smart_bomb_target_z: 0.0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
