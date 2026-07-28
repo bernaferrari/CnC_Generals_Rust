@@ -18094,6 +18094,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 697: post-logic weapon-stats / selection-radius / model-condition.
+                let _ws = crate::gameworld_shadow::eager_apply_host_weapon_stats_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _sr = crate::gameworld_shadow::eager_apply_host_selection_radius_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _mc = crate::gameworld_shadow::eager_apply_host_model_condition_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
