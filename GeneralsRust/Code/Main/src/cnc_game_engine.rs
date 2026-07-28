@@ -18081,6 +18081,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 696: post-logic command-set / disguise / vision-camo.
+                let _cs = crate::gameworld_shadow::eager_apply_host_command_set_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _dg = crate::gameworld_shadow::eager_apply_host_disguise_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _vc = crate::gameworld_shadow::eager_apply_host_vision_camo_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
