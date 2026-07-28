@@ -8282,12 +8282,18 @@ impl GameLogic {
                 // Wave 745: under damage authority, do not zero host HP / stamp
                 // destroyed mid-frame (dual with GW HP writeback). Mark-for-destroy
                 // owns lethal residual; non-authority path keeps host HP clear.
-                if obj.tick_lifetime_update(self.frame) {
-                    lifetime_kill = true;
-                    if !crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        obj.health.current = 0.0;
-                        obj.status.destroyed = true;
-                        obj.refresh_model_condition_bits();
+                // Wave 768: under coupled shadow, LifetimeUpdate expire is owned by
+                // GW tick_status_timer_expirations + host_lifetime_expire_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    if obj.tick_lifetime_update(self.frame) {
+                        lifetime_kill = true;
+                        if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+                            obj.health.current = 0.0;
+                            obj.status.destroyed = true;
+                            obj.refresh_model_condition_bits();
+                        }
                     }
                 }
                 // Wave 761: continuous-fire coast + repulsor expire peel under coupled.

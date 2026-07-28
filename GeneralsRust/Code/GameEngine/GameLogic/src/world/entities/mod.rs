@@ -264,6 +264,10 @@ pub struct Entity {
     pub fire_sound_loop_until_frame: u32,
     /// Host Object::fire_sound_loop_name residual (empty = none).
     pub fire_sound_loop_name: String,
+    /// Host LifetimeUpdate expire_at_frame residual (0 = none).
+    pub lifetime_expire_at_frame: u32,
+    /// Host LifetimeUpdate active residual.
+    pub lifetime_active: bool,
     /// Host Object::status.is_carbomb residual.
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
@@ -950,6 +954,8 @@ impl EntityStore {
             defection_final_white_flash: false,
             fire_sound_loop_until_frame: 0,
             fire_sound_loop_name: String::new(),
+            lifetime_expire_at_frame: 0,
+            lifetime_active: false,
             is_carbomb: false,
             hijacked: false,
             ignoring_stealth: false,
