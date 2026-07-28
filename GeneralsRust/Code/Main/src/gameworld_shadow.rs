@@ -5984,6 +5984,7 @@ impl GameWorldShadow {
 
     pub fn writeback_faerie_fire_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -5997,14 +5998,20 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            if ent.faerie_fire {
-                obj.set_status_faerie_fire(true);
-                obj.faerie_fire_until_frame = ent.faerie_fire_until_frame;
+            // Direct assign — avoid set_status_faerie_fire re-entry during writeback.
+            obj.status.faerie_fire = ent.faerie_fire;
+            obj.faerie_fire_until_frame = if ent.faerie_fire {
+                ent.faerie_fire_until_frame
             } else {
-                obj.set_status_faerie_fire(false);
-                obj.faerie_fire_until_frame = 0;
-            }
+                0
+            };
+            // Wave 676: GameWorld faerie-fire last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_faerie_fire_ready_log::record(oid);
         }
         updated
     }
@@ -6086,6 +6093,7 @@ impl GameWorldShadow {
 
     pub fn writeback_disable_timers_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6102,7 +6110,13 @@ impl GameWorldShadow {
             obj.status.disabled_emp_until_frame = ent.disabled_emp_until_frame;
             obj.status.disabled_hacked_until_frame = ent.disabled_hacked_until_frame;
             obj.status.disabled_paralyzed_until_frame = ent.disabled_paralyzed_until_frame;
+            // Wave 677: GameWorld disable-timers last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_disable_timers_ready_log::record(oid);
         }
         updated
     }
@@ -8302,10 +8316,14 @@ pub fn shadow_session_after_host_tick(
         // Wave 658: drain weapon-bonus ready log after GW writeback.
         let _w658_ready = logic.host_apply_weapon_bonus_ready_completions();
         let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
+        // Wave 676: drain faerie-fire ready log after GW writeback.
+        let _w676_ready = logic.host_apply_faerie_fire_ready_completions();
         let _rp_wb = shadow.writeback_repulsor_to_host(logic);
         // Wave 661: drain repulsor ready log after GW writeback.
         let _w661_ready = logic.host_apply_repulsor_ready_completions();
         let _dt_wb = shadow.writeback_disable_timers_to_host(logic);
+        // Wave 677: drain disable-timers ready log after GW writeback.
+        let _w677_ready = logic.host_apply_disable_timers_ready_completions();
         let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
         // Wave 657: drain weapon-slot ready log after GW writeback.
         let _w657_ready = logic.host_apply_weapon_slot_ready_completions();
@@ -13915,6 +13933,7 @@ mod tests {
             e.faerie_fire_until_frame = 99;
         }
         assert!(shadow.writeback_faerie_fire_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_faerie_fire_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.is_faerie_fire());
         assert_eq!(o.faerie_fire_until_frame, 99);
@@ -14316,6 +14335,7 @@ mod tests {
             e.disabled_paralyzed_until_frame = 33;
         }
         assert!(shadow.writeback_disable_timers_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_disable_timers_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.status.disabled_emp_until_frame, 11);
         assert_eq!(o.status.disabled_hacked_until_frame, 22);

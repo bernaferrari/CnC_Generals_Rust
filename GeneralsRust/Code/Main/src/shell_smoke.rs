@@ -2771,6 +2771,16 @@ use crate::game_logic::host_live_host_building_type_ready_log_helper_residual_wa
     honesty_host_building_type_ready_log_helper_nav_commands_residual_wave675,
     simulate_live_host_building_type_ready_log_helper_honesty,
 };
+use crate::game_logic::host_live_host_faerie_fire_ready_log_helper_residual_wave676::{
+    honesty_host_faerie_fire_ready_log_helper_method_names_residual_wave676,
+    honesty_host_faerie_fire_ready_log_helper_nav_commands_residual_wave676,
+    simulate_live_host_faerie_fire_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_disable_timers_ready_log_helper_residual_wave677::{
+    honesty_host_disable_timers_ready_log_helper_method_names_residual_wave677,
+    honesty_host_disable_timers_ready_log_helper_nav_commands_residual_wave677,
+    simulate_live_host_disable_timers_ready_log_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6514,6 +6524,12 @@ pub struct ShellSmokeResult {
     pub host_building_type_ready_log_helper_method_names_wave675_ok: bool,
     pub host_building_type_ready_log_helper_nav_commands_wave675_ok: bool,
     pub host_building_type_ready_log_helper_live_wave675_ok: bool,
+    pub host_faerie_fire_ready_log_helper_method_names_wave676_ok: bool,
+    pub host_faerie_fire_ready_log_helper_nav_commands_wave676_ok: bool,
+    pub host_faerie_fire_ready_log_helper_live_wave676_ok: bool,
+    pub host_disable_timers_ready_log_helper_method_names_wave677_ok: bool,
+    pub host_disable_timers_ready_log_helper_nav_commands_wave677_ok: bool,
+    pub host_disable_timers_ready_log_helper_live_wave677_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10305,6 +10321,18 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_building_type_ready_log_helper_nav_commands_residual_wave675();
     let host_building_type_ready_log_helper_live_wave675_ok =
         simulate_live_host_building_type_ready_log_helper_honesty();
+    let host_faerie_fire_ready_log_helper_method_names_wave676_ok =
+        honesty_host_faerie_fire_ready_log_helper_method_names_residual_wave676();
+    let host_faerie_fire_ready_log_helper_nav_commands_wave676_ok =
+        honesty_host_faerie_fire_ready_log_helper_nav_commands_residual_wave676();
+    let host_faerie_fire_ready_log_helper_live_wave676_ok =
+        simulate_live_host_faerie_fire_ready_log_helper_honesty();
+    let host_disable_timers_ready_log_helper_method_names_wave677_ok =
+        honesty_host_disable_timers_ready_log_helper_method_names_residual_wave677();
+    let host_disable_timers_ready_log_helper_nav_commands_wave677_ok =
+        honesty_host_disable_timers_ready_log_helper_nav_commands_residual_wave677();
+    let host_disable_timers_ready_log_helper_live_wave677_ok =
+        simulate_live_host_disable_timers_ready_log_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12319,6 +12347,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_building_type_ready_log_helper_method_names_wave675_ok,
         host_building_type_ready_log_helper_nav_commands_wave675_ok,
         host_building_type_ready_log_helper_live_wave675_ok,
+        host_faerie_fire_ready_log_helper_method_names_wave676_ok,
+        host_faerie_fire_ready_log_helper_nav_commands_wave676_ok,
+        host_faerie_fire_ready_log_helper_live_wave676_ok,
+        host_disable_timers_ready_log_helper_method_names_wave677_ok,
+        host_disable_timers_ready_log_helper_nav_commands_wave677_ok,
+        host_disable_timers_ready_log_helper_live_wave677_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -22714,6 +22748,36 @@ mod tests {
         assert!(
             r.host_building_type_ready_log_helper_live_wave675_ok,
             "host building_type ready log helper live residual wave675: {}",
+            r.detail
+        );
+        assert!(
+            r.host_faerie_fire_ready_log_helper_method_names_wave676_ok,
+            "host faerie_fire ready log helper method names residual pack wave676: {}",
+            r.detail
+        );
+        assert!(
+            r.host_faerie_fire_ready_log_helper_nav_commands_wave676_ok,
+            "host faerie_fire ready log helper nav commands residual pack wave676: {}",
+            r.detail
+        );
+        assert!(
+            r.host_faerie_fire_ready_log_helper_live_wave676_ok,
+            "host faerie_fire ready log helper live residual wave676: {}",
+            r.detail
+        );
+        assert!(
+            r.host_disable_timers_ready_log_helper_method_names_wave677_ok,
+            "host disable_timers ready log helper method names residual pack wave677: {}",
+            r.detail
+        );
+        assert!(
+            r.host_disable_timers_ready_log_helper_nav_commands_wave677_ok,
+            "host disable_timers ready log helper nav commands residual pack wave677: {}",
+            r.detail
+        );
+        assert!(
+            r.host_disable_timers_ready_log_helper_live_wave677_ok,
+            "host disable_timers ready log helper live residual wave677: {}",
             r.detail
         );
         assert!(

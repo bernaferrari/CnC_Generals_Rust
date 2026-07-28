@@ -26536,6 +26536,49 @@ impl GameLogic {
 
     /// Wave 675: GameWorld building type writeback records dirty objects; host
     /// applies presentation bookkeeping residual via record_host_building_type.
+    /// Wave 676: GameWorld faerie-fire writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via host_faerie_fire_log.
+    pub fn host_apply_faerie_fire_ready_completions(&mut self) -> usize {
+        // Wave 676: GameWorld faerie-fire writeback records dirty objects; host
+        // applies presentation bookkeeping residual via host_faerie_fire_log.
+        let events = crate::game_logic::host_faerie_fire_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            crate::game_logic::host_faerie_fire_log::record(
+                obj.id,
+                obj.status.faerie_fire,
+                obj.faerie_fire_until_frame,
+            );
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 677: GameWorld disable-timers writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via host_disable_timers_log.
+    pub fn host_apply_disable_timers_ready_completions(&mut self) -> usize {
+        // Wave 677: GameWorld disable-timers writeback records dirty objects; host
+        // applies presentation bookkeeping residual via host_disable_timers_log.
+        let events = crate::game_logic::host_disable_timers_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            crate::game_logic::host_disable_timers_log::record(
+                obj.id,
+                obj.status.disabled_emp_until_frame,
+                obj.status.disabled_hacked_until_frame,
+                obj.status.disabled_paralyzed_until_frame,
+            );
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_building_type_ready_completions(&mut self) -> usize {
         // Wave 675: GameWorld building type writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_building_type.
