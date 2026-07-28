@@ -180,6 +180,7 @@ pub mod host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave7
 pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
 pub mod host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753;
 pub mod host_live_host_eject_pilot_die_death_start_residual_wave754;
+pub mod host_live_host_writeback_skip_pending_host_logs_residual_wave755;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3584,6 +3585,15 @@ pub use host_live_host_eject_pilot_die_death_start_residual_wave754::{
     residual_host_eject_pilot_die_death_start_last_action,
     residual_host_eject_pilot_die_death_start_ok,
     simulate_live_host_eject_pilot_die_death_start_honesty,
+};
+pub use host_live_host_writeback_skip_pending_host_logs_residual_wave755::{
+    honesty_host_writeback_skip_pending_host_logs_method_names_residual_wave755,
+    honesty_host_writeback_skip_pending_host_logs_nav_commands_residual_wave755,
+    honesty_host_writeback_skip_pending_host_logs_residual_pack_wave755,
+    honesty_host_writeback_skip_pending_host_logs_source_markers_residual_wave755,
+    residual_host_writeback_skip_pending_host_logs_last_action,
+    residual_host_writeback_skip_pending_host_logs_ok,
+    simulate_live_host_writeback_skip_pending_host_logs_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,

@@ -8672,6 +8672,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 755: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_faerie_fire_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_active = obj.is_faerie_fire();
             if host_active == ent.faerie_fire
                 && obj.faerie_fire_until_frame == ent.faerie_fire_until_frame
@@ -9791,6 +9797,14 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 755: under coupled tick, host continuous-fire log is mid-frame
+            // authority until apply drains it. Do not stomp host from a stale
+            // entity while pending host clear/set is still unapplied.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_continuous_fire_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let host_consec = obj.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
             let changed = obj.continuous_fire_level != ent.continuous_fire_level
                 || host_consec != ent.continuous_fire_consecutive
@@ -10107,6 +10121,12 @@ impl GameWorldShadow {
             let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
                 continue;
             };
+            // Wave 755: under coupled tick, host log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_weapon_bonus_log::has_pending(ObjectId(hid))
+            {
+                continue;
+            }
             let changed = obj.weapon_bonus_enthusiastic != ent.weapon_bonus_enthusiastic
                 || obj.weapon_bonus_subliminal != ent.weapon_bonus_subliminal
                 || obj.weapon_bonus_horde != ent.weapon_bonus_horde
