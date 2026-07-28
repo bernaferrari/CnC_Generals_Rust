@@ -210,6 +210,7 @@ Remaining engine residual after host update:
   - return_supplies/rally empty-selection auto-pick is opt-in only (Wave 730)
   - guard/attack_move/scatter/overcharge/cancel_queue empty auto-pick is opt-in only (Wave 731)
   - free fallback start CC/dozer seeding is opt-in only (Wave 732)
+  - free demo faction base/army spawn is opt-in only (Wave 733)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

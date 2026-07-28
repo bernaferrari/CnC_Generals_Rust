@@ -29509,6 +29509,18 @@ impl GameLogic {
     }
 
     fn create_test_map(&mut self) {
+        // Wave 733: free demo test map army seed is opt-in only (default fail-closed).
+        // Shares GENERALS_RUNTIME_HOST_SPAWN_FACTION_BASE with spawn_faction_base.
+        let allow = std::env::var_os("GENERALS_RUNTIME_HOST_SPAWN_FACTION_BASE").is_some_and(|v| {
+            let s = v.to_string_lossy();
+            !(s.is_empty()
+                || s == "0"
+                || s.eq_ignore_ascii_case("false")
+                || s.eq_ignore_ascii_case("no"))
+        });
+        if !allow {
+            return;
+        }
         println!("🗺️ Creating comprehensive RTS test map with faction-aware bases...");
 
         let mut player_ids: Vec<u32> = self.players.keys().cloned().collect();
@@ -29554,6 +29566,19 @@ impl GameLogic {
     }
 
     fn spawn_faction_base(&mut self, team: Team, origin: Vec3) {
+        // Wave 733: free demo faction army/base spawn is opt-in only (default fail-closed).
+        // Not retail skirmish start — vertical-slice/demo harness may set
+        // GENERALS_RUNTIME_HOST_SPAWN_FACTION_BASE=1.
+        let allow = std::env::var_os("GENERALS_RUNTIME_HOST_SPAWN_FACTION_BASE").is_some_and(|v| {
+            let s = v.to_string_lossy();
+            !(s.is_empty()
+                || s == "0"
+                || s.eq_ignore_ascii_case("false")
+                || s.eq_ignore_ascii_case("no"))
+        });
+        if !allow {
+            return;
+        }
         println!("Creating {:?} base at {:?}", team, origin);
         match team {
             Team::USA => {
