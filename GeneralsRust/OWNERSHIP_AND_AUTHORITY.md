@@ -214,6 +214,7 @@ Remaining engine residual after host update:
   - free invent of skirmish starting building when map has no base is opt-in only (Wave 734)
   - production ready-log carries GW spawn pose/rally; sole-tick host applies it (Wave 735; host still allocates ObjectId)
   - production unit spawn is GW entity-first under sole-tick: writeback pre-spawns entity, host binds ObjectId (Wave 736; host still allocates ObjectId)
+  - production ObjectId prefers free GW entity raw under sole-tick (Wave 737; collision falls back to host allocate)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)

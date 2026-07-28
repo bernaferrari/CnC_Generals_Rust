@@ -7315,10 +7315,28 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         // Wave 615: host production spawn residual.
         // Wave 736: under sole-tick, bind host ObjectId to GW pre-spawned entity
-        // (entity-first). Host still allocates ObjectId via create_object.
+        // (entity-first).
+        // Wave 737: when the GW entity raw id is free on the host, prefer it as the
+        // production ObjectId so host ID space tracks GW entity-first spawns.
+        // Collision / missing bind still falls back to allocate_object_id.
+        // playable_claim stays false.
         if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
             if let Some(raw) = crate::game_logic::host_production_ready_log::pop_pending_bind() {
                 crate::gameworld_shadow::set_next_host_spawn_bind_entity(raw);
+                let preferred = ObjectId(raw);
+                if raw != 0 && !self.objects.contains_key(&preferred) {
+                    let saved_next = self.next_object_id;
+                    self.next_object_id = preferred;
+                    let spawned = self.create_object(template, team, spawn_pos);
+                    // Keep monotonic next_id at least past both saved and allocated.
+                    let after = self.next_object_id.0;
+                    self.next_object_id = ObjectId(saved_next.0.max(after));
+                    if spawned.is_some() {
+                        return spawned;
+                    }
+                    // create_object failed — restore and fall through without preferred id.
+                    self.next_object_id = saved_next;
+                }
             }
         }
         self.create_object(template, team, spawn_pos)
