@@ -1077,7 +1077,7 @@ pub struct GameLogic {
     /// Host USA Leaflet Drop residual.
     /// Queues on DoSpecialPower; after Delay disables enemy infantry/vehicles
     /// (DISABLED_EMP residual) — fail-closed vs full OCL B52 / LeafletContainer path.
-    host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry,
+    pub(crate) host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry,
 
     /// Host GLA Sneak Attack residual.
     /// Queues on DoSpecialPower; after Lifetime delay spawns tunnel structure +
@@ -6265,7 +6265,13 @@ impl GameLogic {
 
         // Host USA Leaflet Drop residual: disable enemy infantry/vehicles after Delay.
         // Fail-closed vs full OCL B52 / LeafletContainer / LeafletFX particle path.
-        self.update_leaflet_b52_flights();
+        // Wave 795: under coupled shadow, Leaflet B52 flight is owned by
+        // GW tick_status_timer_expirations + drop/ground logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_leaflet_b52_flights();
+        }
         self.update_leaflet_drops();
 
         // Host GLA Sneak Attack residual: spawn tunnel + shockwave after Lifetime delay.
