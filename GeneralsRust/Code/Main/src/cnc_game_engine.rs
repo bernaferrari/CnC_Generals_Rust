@@ -10023,13 +10023,16 @@ impl CnCGameEngine {
                             self.game_logic
                                 .ensure_player_min_supplies(self.current_player_id, floor);
                         }
-                        let try_names = [
+                        // Wave 724: GoldenRanger enqueue fallback is opt-in only (same gate as Wave 722).
+                        let mut try_names = vec![
                             template.as_str(),
                             "AmericaInfantryRanger",
                             "USA_Ranger",
                             "USARanger",
-                            "GoldenRanger",
                         ];
+                        if allow_golden_template {
+                            try_names.push("GoldenRanger");
+                        }
                         let mut ok_name = None;
                         let mut last_fail = template.clone();
                         for name in try_names {
