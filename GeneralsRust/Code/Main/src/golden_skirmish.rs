@@ -2926,4 +2926,38 @@ mod tests {
         );
         assert!(result.victory);
     }
+
+    #[test]
+    fn map_sides_list_army_spawn_residual() {
+        let (map_identity, map_exists) = resolve_map(None);
+        if !map_exists {
+            return;
+        }
+        let config = golden_skirmish_config(&map_identity);
+        let mut logic = GameLogic::new();
+        install_templates(&mut logic);
+        let _ = apply_skirmish_config(&mut logic, &config);
+        assert!(logic.load_map(&map_identity));
+        let mut by_team = std::collections::BTreeMap::<String, u32>::new();
+        let mut faction_structures = 0u32;
+        for o in logic.get_objects().values() {
+            if !o.is_alive() {
+                continue;
+            }
+            *by_team.entry(format!("{:?}", o.team)).or_default() += 1;
+            if o.team != Team::Neutral
+                && (o.is_kind_of(KindOf::Structure)
+                    || o.is_kind_of(KindOf::CommandCenter)
+                    || o.template_name.to_ascii_lowercase().contains("command"))
+            {
+                faction_structures += 1;
+            }
+        }
+        assert!(
+            faction_structures >= 2
+                && by_team.get("USA").copied().unwrap_or(0) > 0
+                && by_team.get("GLA").copied().unwrap_or(0) > 0,
+            "Wave 831: expected skirmish start armies after load_map, teams={by_team:?} structures={faction_structures}"
+        );
+    }
 }

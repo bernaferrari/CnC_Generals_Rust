@@ -5137,6 +5137,86 @@ impl GameLogic {
         self.game_mode
     }
 
+    /// Wave 831: spawn SidesList build-list entries (initiallyBuilt faction bases).
+
+    fn spawn_side_build_list(
+        &mut self,
+        builds: &[super::script_loader::SideBuildEntry],
+        map_player_to_team: &std::collections::HashMap<u32, Team>,
+    ) -> u32 {
+        if builds.is_empty() {
+            return 0;
+        }
+        // Map side_index -> team from skirmish players (sorted) and map_player_to_team.
+        let mut side_teams: std::collections::HashMap<u32, Team> = std::collections::HashMap::new();
+        let mut pids: Vec<u32> = self.players.keys().copied().collect();
+        pids.sort_unstable();
+        for (idx, pid) in pids.iter().enumerate() {
+            if let Some(p) = self.players.get(pid) {
+                if p.team != Team::Neutral {
+                    side_teams.insert(idx as u32, p.team);
+                }
+            }
+        }
+        for (pid, team) in map_player_to_team {
+            // Common residual: side index aligns with player id on skirmish maps.
+            side_teams.entry(*pid).or_insert(*team);
+        }
+
+        let mut spawned = 0u32;
+        for entry in builds {
+            if !entry.initially_built {
+                continue;
+            }
+            let template = entry.template.trim();
+            if template.is_empty() {
+                continue;
+            }
+            // Skip pure rebuild-hole placeholders without templates.
+            let lower = template.to_ascii_lowercase();
+            if lower.contains("waypoint") || lower.contains("camera") {
+                continue;
+            }
+            let team = side_teams
+                .get(&entry.side_index)
+                .copied()
+                .or_else(|| Self::team_from_template_name(template))
+                .unwrap_or(Team::Neutral);
+
+            let mut pos = glam::Vec3::new(entry.position.x, entry.position.z, entry.position.y);
+            // C++ map coords: x,y ground plane, z height — PlacedObject uses x,z,y in object path.
+            // Side build stores x,y,z same as C++ BuildList: x/y plane, z height.
+            pos = glam::Vec3::new(entry.position.x, entry.position.z, entry.position.y);
+            if let Some(ground) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+                pos.y = ground + entry.position.z;
+            }
+            let id = if entry.initially_built {
+                self.create_object(template, team, pos)
+            } else {
+                None
+            };
+            if let Some(id) = id {
+                spawned = spawned.saturating_add(1);
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_orientation(entry.angle);
+                    if let Some(hp) = entry.health {
+                        if hp > 0 {
+                            let h = hp as f32;
+                            obj.health.current = h;
+                            if obj.health.maximum < h {
+                                obj.health.maximum = h;
+                            }
+                        }
+                    }
+                }
+                let _ = entry.building_name;
+                let _ = entry.num_rebuilds;
+                let _ = entry.script_name;
+            }
+        }
+        spawned
+    }
+
     fn team_from_string(name: &str) -> Option<Team> {
         let normalized = name.trim().to_ascii_lowercase();
         match normalized.as_str() {
@@ -5906,6 +5986,18 @@ impl GameLogic {
                         }
                         report_progress(0.80, "World objects spawned");
                         self.spawned_map_object_ids = spawned_object_ids;
+                        // Wave 831: SidesList build-list faction bases (skirmish armies).
+                        let side_spawned =
+                            self.spawn_side_build_list(&meta.side_builds, &map_player_to_team);
+                        if side_spawned > 0 {
+                            log::info!(
+                                "Spawned {} SidesList build-list objects for '{}'",
+                                side_spawned,
+                                map_name
+                            );
+                        }
+                        // Wave 831: starting yard+dozer at Player_N_Start waypoints.
+                        self.spawn_skirmish_starting_units();
                         report_progress(0.82, "Finalizing world objects");
                         self.ensure_non_shell_player_presence(parsed_settings.as_ref());
                         log::info!(
@@ -8093,44 +8185,71 @@ impl GameLogic {
             // Anchor near command center / any structure / team base residual.
             let mut base = self.team_base_position(player.team);
             if base.is_none() {
-                // Wave 734: inventing a free starting building when the map has no
-                // base is opt-in only (default fail-closed). Retail maps supply the
-                // construction yard; StartingUnit0 still places the dozer beside an
-                // existing base. Incomplete-catalog harness may set
-                // GENERALS_RUNTIME_HOST_SEED_STARTING_BUILDING=1.
-                let allow_seed_building = std::env::var_os(
-                    "GENERALS_RUNTIME_HOST_SEED_STARTING_BUILDING",
-                )
-                .is_some_and(|v| {
-                    let s = v.to_string_lossy();
-                    !(s.is_empty()
-                        || s == "0"
-                        || s.eq_ignore_ascii_case("false")
-                        || s.eq_ignore_ascii_case("no"))
-                });
-                if allow_seed_building {
-                    let building = residual.starting_building;
-                    if !building.is_empty() {
-                        let mut pos = Vec3::new(
-                            200.0 + (pid as f32) * 400.0,
-                            0.0,
-                            200.0 + (pid as f32) * 400.0,
-                        );
+                // Wave 831: C++ placeNetworkStartingUnits residual — place
+                // PlayerTemplate starting building at Player_N_Start waypoint when
+                // the map object list has no faction army (Lone Eagle multiplayer).
+                // Wave 734 env seed remains as last-resort synthetic pad.
+                let building = residual.starting_building;
+                let mut pos_opt: Option<Vec3> = None;
+                if !building.is_empty() {
+                    if let Ok(starts) =
+                        super::script_loader::parse_player_start_waypoints(&self.map_name)
+                    {
+                        // Prefer player.start_position when set (>=0), else slot order.
+                        let want_idx = if player.start_position >= 0 {
+                            player.start_position as u32
+                        } else {
+                            pid
+                        };
+                        if let Some((_, wp, _rally)) =
+                            starts.iter().find(|(idx, _, _)| *idx == want_idx)
                         {
-                            let (bmin, bmax) = self.world_bounds();
-                            let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
-                            pos = Vec3::new(
-                                bmin.x + (bmax.x - bmin.x) * t,
-                                0.0,
-                                bmin.z + (bmax.z - bmin.z) * 0.2,
-                            );
+                            let mut pos = Vec3::new(wp.x, wp.z, wp.y);
+                            if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
+                                pos.y = h;
+                            }
+                            pos_opt = Some(pos);
+                        } else if let Some((_, wp, _)) = starts.first() {
+                            // Fallback first free start.
+                            let mut pos = Vec3::new(wp.x, wp.z, wp.y);
+                            if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
+                                pos.y = h;
+                            }
+                            pos_opt = Some(pos);
                         }
-                        if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
-                            pos.y = h;
-                        }
-                        self.ensure_ai_faction_templates(player.team);
-                        let _ = self.create_object(building, player.team, pos);
+                    }
+                }
+                let allow_seed_building = pos_opt.is_some()
+                    || std::env::var_os("GENERALS_RUNTIME_HOST_SEED_STARTING_BUILDING")
+                        .is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
+                if allow_seed_building && !building.is_empty() {
+                    let mut pos = pos_opt.unwrap_or_else(|| {
+                        let (bmin, bmax) = self.world_bounds();
+                        let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
+                        Vec3::new(
+                            bmin.x + (bmax.x - bmin.x) * t,
+                            0.0,
+                            bmin.z + (bmax.z - bmin.z) * 0.2,
+                        )
+                    });
+                    if let Some(h) = self.terrain_height_at(Vec3::new(pos.x, 0.0, pos.z)) {
+                        pos.y = h;
+                    }
+                    self.ensure_ai_faction_templates(player.team);
+                    if self.create_object(building, player.team, pos).is_some() {
                         base = Some(pos);
+                        log::info!(
+                            "Wave 831: seeded starting building {} for player {} at {:?}",
+                            building,
+                            pid,
+                            pos
+                        );
                     }
                 }
             }
@@ -80278,7 +80397,6 @@ mod tests {
         let _ = (ecm, HOST_ECM_JAM_RADIUS, TECH_CANNON_SHELL_PROJECTILE);
     }
 
-    #[test]
     #[test]
     fn ecm_jam_spawns_disable_stream_laser() {
         use crate::game_logic::host_ecm_jam::{

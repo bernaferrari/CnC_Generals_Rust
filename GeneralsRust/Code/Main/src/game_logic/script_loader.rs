@@ -541,10 +541,29 @@ pub struct PlacedObject {
     pub upgrade: Option<String>,
 }
 
+/// C++ SidesList build-list entry residual (skirmish army / base placements).
+#[derive(Debug, Clone)]
+pub struct SideBuildEntry {
+    pub building_name: String,
+    pub template: String,
+    pub position: Coord3D,
+    pub angle: f32,
+    pub initially_built: bool,
+    pub num_rebuilds: i32,
+    /// Side index in SidesList (0..N).
+    pub side_index: u32,
+    pub script_name: Option<String>,
+    pub health: Option<i32>,
+}
+
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
     pub objects: Vec<PlacedObject>,
+    /// Wave 831: SidesList build-list entries (skirmish faction bases).
+    pub side_builds: Vec<SideBuildEntry>,
+    /// Wave 831: Player_N_Start waypoints (name, position).
+    pub start_waypoints: Vec<(String, Coord3D)>,
     pub world_min: Option<Coord3D>,
     pub world_max: Option<Coord3D>,
     pub initial_camera_position: Option<Coord3D>,
@@ -611,6 +630,8 @@ struct PendingRuntimeBridge {
 pub struct RuntimeSidesData {
     pub side_dicts: Vec<Dict>,
     pub team_dicts: Vec<Dict>,
+    /// Wave 831: build-list placements per side.
+    pub side_builds: Vec<SideBuildEntry>,
 }
 
 /// Decoded heightmap data extracted from the `HeightMapData` chunk.
@@ -886,6 +907,34 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
         Err(err) => {
             warn!(
                 "Failed to parse map object placements for '{}': {}",
+                map_name, err
+            );
+        }
+    }
+
+    // Wave 831: SidesList build-list army/base placements (skirmish).
+    match parse_side_build_list(map_name) {
+        Ok(builds) => {
+            meta.side_builds = builds;
+        }
+        Err(err) => {
+            warn!(
+                "Failed to parse SidesList build entries for '{}': {}",
+                map_name, err
+            );
+        }
+    }
+
+    match parse_player_start_waypoints(map_name) {
+        Ok(starts) => {
+            meta.start_waypoints = starts
+                .into_iter()
+                .map(|(idx, pos, _rally)| (format!("Player_{}_Start", idx + 1), pos))
+                .collect();
+        }
+        Err(err) => {
+            warn!(
+                "Failed to parse player start waypoints for '{}': {}",
                 map_name, err
             );
         }
@@ -1275,12 +1324,17 @@ pub fn parse_runtime_sides_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Runti
     let mut side_dicts = Vec::new();
     let mut team_dicts = Vec::new();
 
+    let mut side_builds = Vec::new();
     let side_count = reader.read_i32()?.max(0) as usize;
-    for _ in 0..side_count {
+    for side_index in 0..side_count {
         side_dicts.push(parse_chunk_dict_typed(&mut reader, &chunky.toc)?);
         let build_count = reader.read_i32()?.max(0) as usize;
         for _ in 0..build_count {
-            skip_side_build_entry(&mut reader, version)?;
+            side_builds.push(parse_side_build_entry(
+                &mut reader,
+                version,
+                side_index as u32,
+            )?);
         }
     }
 
@@ -1294,11 +1348,61 @@ pub fn parse_runtime_sides_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Runti
     Ok(RuntimeSidesData {
         side_dicts,
         team_dicts,
+        side_builds,
     })
 }
 
 /// Parse placed objects from a chunky map. Currently supports a minimal subset
 /// of the ObjectCreationList chunk (template, position, rotation, team).
+
+/// Wave 831: parse SidesList build-list entries for skirmish faction bases.
+
+/// Wave 831: Player_N_Start / Player_N_Rally waypoints (1-based N).
+pub fn parse_player_start_waypoints(
+    map_name: &str,
+) -> LoaderResult<Vec<(u32, Coord3D, Option<Coord3D>)>> {
+    let Some(chunky) = load_chunky_map(map_name)? else {
+        return Ok(Vec::new());
+    };
+    let (waypoints, _links) = parse_runtime_waypoints_from_chunky(&chunky)?;
+    let mut starts: std::collections::HashMap<u32, Coord3D> = std::collections::HashMap::new();
+    let mut rallies: std::collections::HashMap<u32, Coord3D> = std::collections::HashMap::new();
+    for wp in waypoints {
+        let name = wp.name.trim();
+        let lower = name.to_ascii_lowercase();
+        // Player_1_Start style (1-based index).
+        if let Some(rest) = lower.strip_prefix("player_") {
+            if let Some((num, kind)) = rest.split_once('_') {
+                if let Ok(idx1) = num.parse::<u32>() {
+                    if idx1 >= 1 {
+                        let idx0 = idx1 - 1;
+                        if kind.starts_with("start") {
+                            starts.insert(idx0, wp.location);
+                        } else if kind.starts_with("rally") {
+                            rallies.insert(idx0, wp.location);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut keys: Vec<u32> = starts.keys().copied().collect();
+    keys.sort_unstable();
+    for k in keys {
+        out.push((k, starts[&k], rallies.get(&k).copied()));
+    }
+    Ok(out)
+}
+
+pub fn parse_side_build_list(map_name: &str) -> LoaderResult<Vec<SideBuildEntry>> {
+    let Some(chunky) = load_chunky_map(map_name)? else {
+        return Ok(Vec::new());
+    };
+    let sides = parse_runtime_sides_from_chunky(&chunky)?;
+    Ok(sides.side_builds)
+}
+
 pub fn parse_object_placements(map_name: &str) -> LoaderResult<Vec<PlacedObject>> {
     ensure_terrain_roads_loaded();
 
@@ -1963,24 +2067,48 @@ fn parse_chunk_dict_typed(
     Ok(dict)
 }
 
-fn skip_side_build_entry(reader: &mut BinaryReader<'_>, version: u16) -> LoaderResult<()> {
-    let _building_name = reader.read_ascii_string()?;
-    let _template_name = reader.read_ascii_string()?;
-    let _x = reader.read_f32()?;
-    let _y = reader.read_f32()?;
-    let _z = reader.read_f32()?;
-    let _angle = reader.read_f32()?;
-    let _initially_built = reader.read_u8()?;
-    let _num_rebuilds = reader.read_i32()?;
+fn parse_side_build_entry(
+    reader: &mut BinaryReader<'_>,
+    version: u16,
+    side_index: u32,
+) -> LoaderResult<SideBuildEntry> {
+    let building_name = reader.read_ascii_string()?;
+    let template = reader.read_ascii_string()?;
+    let x = reader.read_f32()?;
+    let y = reader.read_f32()?;
+    let z = reader.read_f32()?;
+    let angle = reader.read_f32()?;
+    let initially_built = reader.read_u8()? != 0;
+    let num_rebuilds = reader.read_i32()?;
 
+    let mut script_name = None;
+    let mut health = None;
     if version >= 3 {
-        let _script_name = reader.read_ascii_string()?;
-        let _health = reader.read_i32()?;
+        let s = reader.read_ascii_string()?;
+        if !s.is_empty() {
+            script_name = Some(s);
+        }
+        health = Some(reader.read_i32()?);
         let _whiner = reader.read_u8()?;
         let _unsellable = reader.read_u8()?;
         let _repairable = reader.read_u8()?;
     }
 
+    Ok(SideBuildEntry {
+        building_name,
+        template,
+        position: Coord3D::new(x, y, z),
+        angle,
+        initially_built,
+        num_rebuilds,
+        side_index,
+        script_name,
+        health,
+    })
+}
+
+fn skip_side_build_entry(reader: &mut BinaryReader<'_>, version: u16) -> LoaderResult<()> {
+    let _ = parse_side_build_entry(reader, version, 0)?;
     Ok(())
 }
 
