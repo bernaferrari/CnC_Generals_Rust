@@ -64,6 +64,16 @@ pub fn record_cancel(producer: ObjectId, template_name: impl Into<String>) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| {
+        log.borrow().iter().any(|e| match e {
+            HostProductionEvent::Enqueue { producer, .. }
+            | HostProductionEvent::Complete { producer, .. }
+            | HostProductionEvent::Cancel { producer, .. } => *producer == object,
+        })
+    })
+}
+
 pub fn drain() -> Vec<HostProductionEvent> {
     let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
     // Keep last non-empty batch for PresentationFrame after shadow session.

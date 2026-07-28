@@ -24,6 +24,10 @@ pub fn record(object: ObjectId, ground_height: f32, from_terrain: bool) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostGroundHeightEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

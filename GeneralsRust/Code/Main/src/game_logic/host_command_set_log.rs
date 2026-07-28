@@ -23,6 +23,10 @@ pub fn record(object: ObjectId, command_set: Option<String>) {
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostCommandSetEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

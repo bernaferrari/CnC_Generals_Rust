@@ -31,6 +31,10 @@ pub fn record(object: ObjectId, ready: bool, cooldown_remaining: f32, cooldown: 
     });
 }
 
+pub fn has_pending(object: ObjectId) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+}
+
 pub fn drain() -> Vec<HostSpecialPowerEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
