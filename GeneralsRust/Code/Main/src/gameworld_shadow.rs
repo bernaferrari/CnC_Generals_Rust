@@ -231,6 +231,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_BUILDING_TYPE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_IDENTITY_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_GROUND_HEIGHT_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_MODEL_MESH_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_FOW_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_KIND_OF_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1512,6 +1515,87 @@ pub fn eager_apply_host_ground_height_after_logic(
     }
     let n = shadow.apply_host_ground_height_events(&events);
     EARLY_GROUND_HEIGHT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 700: post-logic model-mesh / fow / kind-of batch handoff.
+thread_local! {
+    static EARLY_MODEL_MESH_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_model_mesh_log::HostModelMeshEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_FOW_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_fow_log::HostFowEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_KIND_OF_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_kind_of_log::HostKindOfEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_model_mesh_batch() -> Option<(
+    Vec<crate::game_logic::host_model_mesh_log::HostModelMeshEvent>,
+    bool,
+)> {
+    EARLY_MODEL_MESH_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_fow_batch() -> Option<(Vec<crate::game_logic::host_fow_log::HostFowEvent>, bool)> {
+    EARLY_FOW_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_kind_of_batch() -> Option<(
+    Vec<crate::game_logic::host_kind_of_log::HostKindOfEvent>,
+    bool,
+)> {
+    EARLY_KIND_OF_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 700: post-logic drain `host_model_mesh_log` into GameWorld SetModelMesh.
+pub fn eager_apply_host_model_mesh_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 700: post-logic model-mesh materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_model_mesh_log::drain();
+    if events.is_empty() {
+        EARLY_MODEL_MESH_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_model_mesh_events(&events);
+    EARLY_MODEL_MESH_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 700: post-logic drain `host_fow_log` into GameWorld SetFow.
+pub fn eager_apply_host_fow_after_logic(shadow: &mut GameWorldShadow, _logic: &GameLogic) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 700: post-logic FOW materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_fow_log::drain();
+    if events.is_empty() {
+        EARLY_FOW_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_fow_events(&events);
+    EARLY_FOW_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 700: post-logic drain `host_kind_of_log` into GameWorld SetKindOfBits.
+pub fn eager_apply_host_kind_of_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 700: post-logic kind-of materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_kind_of_log::drain();
+    if events.is_empty() {
+        EARLY_KIND_OF_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_kind_of_events(&events);
+    EARLY_KIND_OF_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9414,9 +9498,21 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_ground_height_log::drain(), false),
     };
-    let model_mesh_events = crate::game_logic::host_model_mesh_log::drain();
-    let fow_events = crate::game_logic::host_fow_log::drain();
-    let kind_of_events = crate::game_logic::host_kind_of_log::drain();
+    // Wave 700: prefer post-logic model-mesh batch.
+    let (model_mesh_events, early_model_mesh_applied) = match take_early_model_mesh_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_model_mesh_log::drain(), false),
+    };
+    // Wave 700: prefer post-logic FOW batch.
+    let (fow_events, early_fow_applied) = match take_early_fow_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_fow_log::drain(), false),
+    };
+    // Wave 700: prefer post-logic kind-of batch.
+    let (kind_of_events, early_kind_of_applied) = match take_early_kind_of_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_kind_of_log::drain(), false),
+    };
     let faerie_events = crate::game_logic::host_faerie_fire_log::drain();
     let repulsor_events = crate::game_logic::host_repulsor_log::drain();
     let disable_timer_events = crate::game_logic::host_disable_timers_log::drain();
@@ -9789,9 +9885,24 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_ground_height_events(&ground_height_events)
     };
-    let _mm_applied = shadow.apply_host_model_mesh_events(&model_mesh_events);
-    let _fow_applied = shadow.apply_host_fow_events(&fow_events);
-    let _ko_applied = shadow.apply_host_kind_of_events(&kind_of_events);
+    // Wave 700: skip GW re-apply when post-logic eager path already ran.
+    let _mm_applied = if early_model_mesh_applied {
+        0
+    } else {
+        shadow.apply_host_model_mesh_events(&model_mesh_events)
+    };
+    // Wave 700: skip GW re-apply when post-logic eager path already ran.
+    let _fow_applied = if early_fow_applied {
+        0
+    } else {
+        shadow.apply_host_fow_events(&fow_events)
+    };
+    // Wave 700: skip GW re-apply when post-logic eager path already ran.
+    let _ko_applied = if early_kind_of_applied {
+        0
+    } else {
+        shadow.apply_host_kind_of_events(&kind_of_events)
+    };
     let _ff_applied = shadow.apply_host_faerie_fire_events(&faerie_events);
     let _rp_applied = shadow.apply_host_repulsor_events(&repulsor_events);
     let _dt_applied = shadow.apply_host_disable_timers_events(&disable_timer_events);
