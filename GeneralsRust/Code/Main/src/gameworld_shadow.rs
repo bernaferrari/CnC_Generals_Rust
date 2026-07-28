@@ -4248,6 +4248,15 @@ impl GameWorldShadow {
                         e.booby_trap_has_attached = false;
                         e.booby_trap_attached_to = 0;
                     }
+                    e.particle_trail_remnant = obj.particle_trail_remnant;
+                    e.particle_trail_remnant_expires_frame =
+                        obj.particle_trail_remnant_expires_frame.unwrap_or(0);
+                    e.particle_orbital_laser = obj.particle_orbital_laser;
+                    e.particle_orbital_laser_expires_frame =
+                        obj.particle_orbital_laser_expires_frame.unwrap_or(0);
+                    e.particle_connector_laser = obj.particle_connector_laser;
+                    e.particle_connector_laser_expires_frame =
+                        obj.particle_connector_laser_expires_frame.unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -10137,6 +10146,62 @@ for eid in eids {
                 }
             }
 
+            // Wave 808: Particle uplink trail/orbital/connector laser lifetimes.
+            if e.particle_trail_remnant
+                && e.particle_trail_remnant_expires_frame > 0
+                && frame >= e.particle_trail_remnant_expires_frame
+            {
+                e.particle_trail_remnant = false;
+                e.particle_trail_remnant_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::ParticleTrailRemnant,
+                            producer: None,
+                        },
+                    );
+                }
+                changed = true;
+            }
+            if e.particle_orbital_laser
+                && e.particle_orbital_laser_expires_frame > 0
+                && frame >= e.particle_orbital_laser_expires_frame
+            {
+                e.particle_orbital_laser = false;
+                e.particle_orbital_laser_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::ParticleOrbitalLaser,
+                            producer: None,
+                        },
+                    );
+                }
+                changed = true;
+            }
+            if e.particle_connector_laser
+                && e.particle_connector_laser_expires_frame > 0
+                && frame >= e.particle_connector_laser_expires_frame
+            {
+                e.particle_connector_laser = false;
+                e.particle_connector_laser_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::ParticleConnectorLaser,
+                            producer: None,
+                        },
+                    );
+                }
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -15350,6 +15415,28 @@ for eid in eids {
                 } else {
                     None
                 };
+                obj.particle_trail_remnant = ent.particle_trail_remnant;
+                obj.particle_trail_remnant_expires_frame =
+                    if ent.particle_trail_remnant && ent.particle_trail_remnant_expires_frame > 0 {
+                        Some(ent.particle_trail_remnant_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.particle_orbital_laser = ent.particle_orbital_laser;
+                obj.particle_orbital_laser_expires_frame =
+                    if ent.particle_orbital_laser && ent.particle_orbital_laser_expires_frame > 0 {
+                        Some(ent.particle_orbital_laser_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.particle_connector_laser = ent.particle_connector_laser;
+                obj.particle_connector_laser_expires_frame = if ent.particle_connector_laser
+                    && ent.particle_connector_laser_expires_frame > 0
+                {
+                    Some(ent.particle_connector_laser_expires_frame)
+                } else {
+                    None
+                };
             }
 
             set_flag!(obj.status.masked, ent.masked);
@@ -17444,6 +17531,11 @@ pub fn shadow_session_after_host_tick(
                         o.point_defense_laser_beam = false
                     }
                     FieldObjectKind::WeaponLaserBeam => o.weapon_laser_beam = false,
+                    FieldObjectKind::ParticleTrailRemnant => o.particle_trail_remnant = false,
+                    FieldObjectKind::ParticleOrbitalLaser => o.particle_orbital_laser = false,
+                    FieldObjectKind::ParticleConnectorLaser => {
+                        o.particle_connector_laser = false
+                    }
                 }
             }
             // Wave 806: countermeasure flare producer bookkeeping.

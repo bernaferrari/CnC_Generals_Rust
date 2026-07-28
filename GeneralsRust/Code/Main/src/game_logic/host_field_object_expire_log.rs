@@ -1,8 +1,8 @@
 //! Frame-local field/beam/shell lifetime expire logs for GW shadow parity.
 //!
 //! Covers NukeRadiationField / AnthraxToxinField / InfernoFireField object
-//! residuals plus Wave 806 Spectre howitzer shell, countermeasure flare, and
-//! laser-beam object lifetimes.
+//! residuals plus Wave 806 Spectre/flare/laser beams and Wave 808 particle
+//! trail remnant / orbital / connector laser object lifetimes.
 
 use super::{ObjectId, Team};
 use std::cell::RefCell;
@@ -16,6 +16,9 @@ pub enum FieldObjectKind {
     CountermeasureFlare,
     PointDefenseLaserBeam,
     WeaponLaserBeam,
+    ParticleTrailRemnant,
+    ParticleOrbitalLaser,
+    ParticleConnectorLaser,
 }
 
 #[derive(Debug, Clone)]

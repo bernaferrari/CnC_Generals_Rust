@@ -62080,11 +62080,26 @@ impl GameLogic {
         self.update_particle_beam_fields();
         self.spawn_particle_orbital_laser_objects_for_new_beams();
         self.spawn_particle_connector_laser_objects_for_new_beams();
-        self.update_particle_orbital_laser_objects();
-        self.update_particle_connector_laser_objects();
+        // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_particle_orbital_laser_objects();
+        }
+        // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_particle_connector_laser_objects();
+        }
         // Particle Uplink DamagePulseRemnant trail residual ticks.
         self.spawn_particle_trail_remnant_objects_for_new_fields();
-        self.update_particle_trail_remnant_objects();
+        // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_particle_trail_remnant_objects();
+        }
         self.update_particle_remnant_fields();
     }
 
