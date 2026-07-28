@@ -169,6 +169,7 @@ pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
 pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
 pub mod host_live_host_production_door_sole_no_dual_tick_residual_wave743;
+pub mod host_live_host_radar_extend_no_dual_complete_residual_wave744;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -3474,6 +3475,15 @@ pub use host_live_host_production_door_sole_no_dual_tick_residual_wave743::{
     residual_host_production_door_sole_no_dual_tick_last_action,
     residual_host_production_door_sole_no_dual_tick_ok,
     simulate_live_host_production_door_sole_no_dual_tick_honesty,
+};
+pub use host_live_host_radar_extend_no_dual_complete_residual_wave744::{
+    honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744,
+    honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744,
+    honesty_host_radar_extend_no_dual_complete_residual_pack_wave744,
+    honesty_host_radar_extend_no_dual_complete_source_markers_residual_wave744,
+    residual_host_radar_extend_no_dual_complete_last_action,
+    residual_host_radar_extend_no_dual_complete_ok,
+    simulate_live_host_radar_extend_no_dual_complete_honesty,
 };
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,

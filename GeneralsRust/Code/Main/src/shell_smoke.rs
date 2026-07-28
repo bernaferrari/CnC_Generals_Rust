@@ -3190,6 +3190,11 @@ use crate::game_logic::host_live_host_production_door_sole_no_dual_tick_residual
     honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743,
     simulate_live_host_production_door_sole_no_dual_tick_honesty,
 };
+use crate::game_logic::host_live_host_radar_extend_no_dual_complete_residual_wave744::{
+    honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744,
+    honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744,
+    simulate_live_host_radar_extend_no_dual_complete_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7058,6 +7063,9 @@ pub struct ShellSmokeResult {
     pub host_production_door_sole_no_dual_tick_method_names_wave743_ok: bool,
     pub host_production_door_sole_no_dual_tick_nav_commands_wave743_ok: bool,
     pub host_production_door_sole_no_dual_tick_live_wave743_ok: bool,
+    pub host_radar_extend_no_dual_complete_method_names_wave744_ok: bool,
+    pub host_radar_extend_no_dual_complete_nav_commands_wave744_ok: bool,
+    pub host_radar_extend_no_dual_complete_live_wave744_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11255,6 +11263,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743();
     let host_production_door_sole_no_dual_tick_live_wave743_ok =
         simulate_live_host_production_door_sole_no_dual_tick_honesty();
+    let host_radar_extend_no_dual_complete_method_names_wave744_ok =
+        honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744();
+    let host_radar_extend_no_dual_complete_nav_commands_wave744_ok =
+        honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744();
+    let host_radar_extend_no_dual_complete_live_wave744_ok =
+        simulate_live_host_radar_extend_no_dual_complete_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13473,6 +13487,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_production_door_sole_no_dual_tick_method_names_wave743_ok,
         host_production_door_sole_no_dual_tick_nav_commands_wave743_ok,
         host_production_door_sole_no_dual_tick_live_wave743_ok,
+        host_radar_extend_no_dual_complete_method_names_wave744_ok,
+        host_radar_extend_no_dual_complete_nav_commands_wave744_ok,
+        host_radar_extend_no_dual_complete_live_wave744_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24888,6 +24905,21 @@ mod tests {
         assert!(
             r.host_production_door_sole_no_dual_tick_live_wave743_ok,
             "host production_door_sole_no_dual_tick live residual wave743: {}",
+            r.detail
+        );
+        assert!(
+            r.host_radar_extend_no_dual_complete_method_names_wave744_ok,
+            "host radar_extend_no_dual_complete method names residual pack wave744: {}",
+            r.detail
+        );
+        assert!(
+            r.host_radar_extend_no_dual_complete_nav_commands_wave744_ok,
+            "host radar_extend_no_dual_complete nav commands residual pack wave744: {}",
+            r.detail
+        );
+        assert!(
+            r.host_radar_extend_no_dual_complete_live_wave744_ok,
+            "host radar_extend_no_dual_complete live residual wave744: {}",
             r.detail
         );
         assert!(
