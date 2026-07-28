@@ -7737,7 +7737,31 @@ impl GameWorldShadow {
             .copied()
             .collect();
         let mut n = 0usize;
-                // Wave 811: underpowered teams from shadow player economy (borrow-safe).
+                // Wave 812: snapshot living Battlemasters for horde residual (borrow-safe).
+        let mut battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool)> = Vec::new();
+        for eid in &eids {
+            let Some(e) = self.world.entity(*eid) else {
+                continue;
+            };
+            let alive = e.health > 0.0 && !e.destroyed;
+            if !alive {
+                continue;
+            }
+            if !crate::game_logic::host_battlemaster::is_battlemaster_template(e.template_name()) {
+                continue;
+            }
+            if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                battlemaster_snapshot.push((
+                    hid,
+                    e.team_ordinal,
+                    e.transform.position.x,
+                    e.transform.position.z,
+                    alive,
+                ));
+            }
+        }
+
+        // Wave 811: underpowered teams from shadow player economy (borrow-safe).
         let mut underpowered_team_ords: std::collections::HashSet<u8> =
             std::collections::HashSet::new();
         for (_pid, pd) in self.world.world().active_players() {
@@ -10327,6 +10351,50 @@ for eid in eids {
                 } else if e.disabled_underpowered {
                     e.disabled_underpowered = false;
                     changed = true;
+                }
+            }
+
+            // Wave 812: Battlemaster horde status residual.
+            if crate::game_logic::host_battlemaster::is_battlemaster_template(e.template_name()) {
+                use crate::game_logic::host_battlemaster::{
+                    counts_toward_battlemaster_horde, distance_2d, is_in_horde,
+                    BATTLE_MASTER_HORDE_RADIUS,
+                };
+                let alive = e.health > 0.0 && !e.destroyed;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    let x = e.transform.position.x;
+                    let z = e.transform.position.z;
+                    let team = e.team_ordinal;
+                    let mut nearby = 0u32;
+                    for (oid, oteam, ox, oz, oalive) in &battlemaster_snapshot {
+                        if *oid == hid {
+                            continue;
+                        }
+                        let dist = distance_2d(x, z, *ox, *oz);
+                        if counts_toward_battlemaster_horde(
+                            alive,
+                            *oalive,
+                            team == *oteam,
+                            true,
+                            dist,
+                            BATTLE_MASTER_HORDE_RADIUS,
+                        ) {
+                            nearby = nearby.saturating_add(1);
+                        }
+                    }
+                    let now_horde = alive && is_in_horde(nearby);
+                    let was = e.weapon_bonus_horde;
+                    if e.weapon_bonus_horde != now_horde || now_horde {
+                        e.weapon_bonus_horde = now_horde;
+                        crate::game_logic::host_battlemaster_horde_log::record(
+                            crate::game_logic::host_battlemaster_horde_log::BattlemasterHordeEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                now_horde,
+                                was_horde: was,
+                            },
+                        );
+                        changed = true;
+                    }
                 }
             }
 
@@ -17826,6 +17894,23 @@ pub fn shadow_session_after_host_tick(
                 .special_power_completion_log
                 .record_rods_complete();
         }
+        // Wave 812: Battlemaster horde status residual.
+        for ev in crate::game_logic::host_battlemaster_horde_log::drain() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                let was = o.weapon_bonus_horde;
+                o.weapon_bonus_horde = ev.now_horde;
+                o.record_host_weapon_bonus();
+                if ev.now_horde && !was {
+                    logic.battlemaster_residual_horde_grants = logic
+                        .battlemaster_residual_horde_grants
+                        .saturating_add(1);
+                }
+            }
+            if ev.now_horde != ev.was_horde || ev.now_horde {
+                logic.refresh_battlemaster_weapon(ev.id);
+            }
+        }
+
 
 
 
