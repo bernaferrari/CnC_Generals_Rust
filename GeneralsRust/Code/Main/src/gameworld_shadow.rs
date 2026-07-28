@@ -261,6 +261,8 @@ pub fn end_shadow_coupled_tick() {
             EARLY_PRODUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_CONSTRUCTION_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_COMBAT_ATTACK_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PROJECTILE_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -2394,6 +2396,60 @@ pub fn eager_apply_host_construction_progress_after_logic(
     EARLY_CONSTRUCTION_PROGRESS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
+// Wave 710: post-logic combat-attack / projectile batch handoff.
+thread_local! {
+    static EARLY_COMBAT_ATTACK_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_combat_attack_log::HostCombatAttackEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_PROJECTILE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_projectile_log::HostProjectileEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_combat_attack_batch() -> Option<(Vec<crate::game_logic::host_combat_attack_log::HostCombatAttackEvent>, bool)> {
+    EARLY_COMBAT_ATTACK_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_projectile_batch() -> Option<(Vec<crate::game_logic::host_projectile_log::HostProjectileEvent>, bool)> {
+    EARLY_PROJECTILE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 710: post-logic drain `host_combat_attack_log` into GameWorld combat-attack state.
+pub fn eager_apply_host_combat_attack_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 710: post-logic combat-attack materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_combat_attack_log::drain();
+    if events.is_empty() {
+        EARLY_COMBAT_ATTACK_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_combat_attack_events(&events);
+    EARLY_COMBAT_ATTACK_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 710: post-logic drain `host_projectile_log` into GameWorld projectile flight.
+pub fn eager_apply_host_projectile_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 710: post-logic projectile materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_projectile_log::drain();
+    if events.is_empty() {
+        EARLY_PROJECTILE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_projectile_events(&events);
+    EARLY_PROJECTILE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
 
 
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
@@ -10569,8 +10625,16 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_continuous_fire_events(&continuous_fire_events)
     };
-    let combat_attack_events = crate::game_logic::host_combat_attack_log::drain();
-    let _ca_applied = shadow.apply_host_combat_attack_events(&combat_attack_events);
+    // Wave 710: prefer post-logic combat-attack batch.
+    let (combat_attack_events, early_combat_attack_applied) = match take_early_combat_attack_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_combat_attack_log::drain(), false),
+    };
+    let _ca_applied = if early_combat_attack_applied {
+        0
+    } else {
+        shadow.apply_host_combat_attack_events(&combat_attack_events)
+    };
     // Wave 687: prefer post-logic fire-intent batch.
     let (fire_intent_events, early_fire_intent_applied) = match take_early_fire_intent_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -10581,8 +10645,16 @@ pub fn shadow_session_after_host_tick(
     } else {
         fire_intent_events.len()
     };
-    let projectile_events = crate::game_logic::host_projectile_log::drain();
-    let _proj_applied = shadow.apply_host_projectile_events(&projectile_events);
+    // Wave 710: prefer post-logic projectile batch.
+    let (projectile_events, early_projectile_applied) = match take_early_projectile_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_projectile_log::drain(), false),
+    };
+    let _proj_applied = if early_projectile_applied {
+        0
+    } else {
+        shadow.apply_host_projectile_events(&projectile_events)
+    };
     // Fire-spawn authority: materialize deferred weapon discharges into CombatSystem
     // before projectile integrate authority steps flight.
     if gameworld_fire_spawn_authority_enabled() {

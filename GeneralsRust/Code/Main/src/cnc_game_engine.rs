@@ -18263,6 +18263,15 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 710: post-logic combat-attack / projectile residual apply.
+                let _ca = crate::gameworld_shadow::eager_apply_host_combat_attack_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _proj = crate::gameworld_shadow::eager_apply_host_projectile_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

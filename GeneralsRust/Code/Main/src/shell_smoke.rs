@@ -2941,6 +2941,11 @@ use crate::game_logic::host_live_host_eager_prod_construction_helper_residual_wa
     honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709,
     simulate_live_host_eager_prod_construction_helper_honesty,
 };
+use crate::game_logic::host_live_host_eager_combat_projectile_helper_residual_wave710::{
+    honesty_host_eager_combat_projectile_helper_method_names_residual_wave710,
+    honesty_host_eager_combat_projectile_helper_nav_commands_residual_wave710,
+    simulate_live_host_eager_combat_projectile_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6786,6 +6791,9 @@ pub struct ShellSmokeResult {
     pub host_eager_prod_construction_helper_method_names_wave709_ok: bool,
     pub host_eager_prod_construction_helper_nav_commands_wave709_ok: bool,
     pub host_eager_prod_construction_helper_live_wave709_ok: bool,
+    pub host_eager_combat_projectile_helper_method_names_wave710_ok: bool,
+    pub host_eager_combat_projectile_helper_nav_commands_wave710_ok: bool,
+    pub host_eager_combat_projectile_helper_live_wave710_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10779,6 +10787,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709();
     let host_eager_prod_construction_helper_live_wave709_ok =
         simulate_live_host_eager_prod_construction_helper_honesty();
+    let host_eager_combat_projectile_helper_method_names_wave710_ok =
+        honesty_host_eager_combat_projectile_helper_method_names_residual_wave710();
+    let host_eager_combat_projectile_helper_nav_commands_wave710_ok =
+        honesty_host_eager_combat_projectile_helper_nav_commands_residual_wave710();
+    let host_eager_combat_projectile_helper_live_wave710_ok =
+        simulate_live_host_eager_combat_projectile_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12895,6 +12909,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_prod_construction_helper_method_names_wave709_ok,
         host_eager_prod_construction_helper_nav_commands_wave709_ok,
         host_eager_prod_construction_helper_live_wave709_ok,
+        host_eager_combat_projectile_helper_method_names_wave710_ok,
+        host_eager_combat_projectile_helper_nav_commands_wave710_ok,
+        host_eager_combat_projectile_helper_live_wave710_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23800,6 +23817,21 @@ mod tests {
         assert!(
             r.host_eager_prod_construction_helper_live_wave709_ok,
             "host eager_prod_construction helper live residual wave709: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_combat_projectile_helper_method_names_wave710_ok,
+            "host eager_combat_projectile helper method names residual pack wave710: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_combat_projectile_helper_nav_commands_wave710_ok,
+            "host eager_combat_projectile helper nav commands residual pack wave710: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eager_combat_projectile_helper_live_wave710_ok,
+            "host eager_combat_projectile helper live residual wave710: {}",
             r.detail
         );
         assert!(
