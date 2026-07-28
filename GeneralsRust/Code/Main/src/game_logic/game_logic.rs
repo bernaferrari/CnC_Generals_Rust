@@ -6400,7 +6400,13 @@ impl GameLogic {
         {
             self.update_enemy_near();
         }
-        self.update_animation_steering();
+        // Wave 784: under coupled shadow, AnimationSteeringUpdate is owned by
+        // GW tick_status_timer_expirations + writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_animation_steering();
+        }
         // Wave 783: under coupled shadow, FloatUpdate is owned by
         // GW tick_status_timer_expirations + transform writeback.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()

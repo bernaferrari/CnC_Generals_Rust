@@ -3715,11 +3715,19 @@ impl GameWorldShadow {
                     e.power_plant_rods_extended = obj.power_plant_rods_extended;
                     e.power_plant_rods_done_frame = obj.power_plant_rods_done_frame;
                     e.jet_slow_death_active = obj.jet_slow_death.is_some();
-                    e.anim_steer_turn = obj
-                        .animation_steering
-                        .as_ref()
-                        .map(|s| s.current_turn_anim as u8)
-                        .unwrap_or(0);
+                    if let Some(s) = obj.animation_steering.as_ref() {
+                        e.anim_steer_active = true;
+                        e.anim_steer_turn = s.current_turn_anim as u8;
+                        e.anim_steer_next_transition_frame = s.next_transition_frame;
+                        e.anim_steer_transition_frames = s.transition_frames;
+                        e.anim_steer_has_condition = s.active_condition.is_some();
+                    } else {
+                        e.anim_steer_active = false;
+                        e.anim_steer_turn = 0;
+                        e.anim_steer_next_transition_frame = 0;
+                        e.anim_steer_transition_frames = 9;
+                        e.anim_steer_has_condition = false;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -7895,6 +7903,68 @@ impl GameWorldShadow {
                     e.transform.position.y = e.ground_height;
                 }
                 changed = true;
+            }
+            // Wave 784: AnimationSteeringUpdate residual (turn anim conditions).
+            if e.anim_steer_active {
+                use crate::game_logic::host_animation_steering::HostAnimSteerTurnAnim;
+                use crate::game_logic::object::PhysicsTurningType;
+                if frame >= e.anim_steer_next_transition_frame {
+                    let turning = match e.physics_turning_ordinal {
+                        -1 => PhysicsTurningType::TurnNegative,
+                        1 => PhysicsTurningType::TurnPositive,
+                        _ => PhysicsTurningType::TurnNone,
+                    };
+                    let cur = match e.anim_steer_turn {
+                        1 => HostAnimSteerTurnAnim::CenterToRight,
+                        2 => HostAnimSteerTurnAnim::CenterToLeft,
+                        3 => HostAnimSteerTurnAnim::LeftToCenter,
+                        4 => HostAnimSteerTurnAnim::RightToCenter,
+                        _ => HostAnimSteerTurnAnim::Invalid,
+                    };
+                    let mut next = cur;
+                    let mut changed_anim: Option<&'static str> = None;
+                    let tf = e.anim_steer_transition_frames.max(1);
+                    match cur {
+                        HostAnimSteerTurnAnim::Invalid => {
+                            if turning == PhysicsTurningType::TurnNegative {
+                                next = HostAnimSteerTurnAnim::CenterToRight;
+                                e.anim_steer_next_transition_frame = frame.saturating_add(tf);
+                                changed_anim = Some("CENTER_TO_RIGHT");
+                            } else if turning == PhysicsTurningType::TurnPositive {
+                                next = HostAnimSteerTurnAnim::CenterToLeft;
+                                e.anim_steer_next_transition_frame = frame.saturating_add(tf);
+                                changed_anim = Some("CENTER_TO_LEFT");
+                            }
+                        }
+                        HostAnimSteerTurnAnim::CenterToRight => {
+                            if turning != PhysicsTurningType::TurnNegative {
+                                next = HostAnimSteerTurnAnim::RightToCenter;
+                                e.anim_steer_next_transition_frame = frame.saturating_add(tf);
+                                changed_anim = Some("RIGHT_TO_CENTER");
+                            }
+                        }
+                        HostAnimSteerTurnAnim::CenterToLeft => {
+                            if turning != PhysicsTurningType::TurnPositive {
+                                next = HostAnimSteerTurnAnim::LeftToCenter;
+                                e.anim_steer_next_transition_frame = frame.saturating_add(tf);
+                                changed_anim = Some("LEFT_TO_CENTER");
+                            }
+                        }
+                        HostAnimSteerTurnAnim::LeftToCenter
+                        | HostAnimSteerTurnAnim::RightToCenter => {
+                            if turning == PhysicsTurningType::TurnNone {
+                                next = HostAnimSteerTurnAnim::Invalid;
+                                e.anim_steer_next_transition_frame = frame;
+                                e.anim_steer_has_condition = false;
+                            }
+                        }
+                    }
+                    e.anim_steer_turn = next as u8;
+                    if let Some(_) = changed_anim {
+                        e.anim_steer_has_condition = true;
+                    }
+                    changed = true;
+                }
             }
             if changed {
                 n += 1;
@@ -12250,6 +12320,32 @@ impl GameWorldShadow {
                     // Enabled snap residual already applied on entity transform writeback.
                 } else if obj.float_update.is_some() {
                     obj.float_update = None;
+                }
+            }
+            {
+                if ent.anim_steer_active {
+                    use crate::game_logic::host_animation_steering::{
+                        HostAnimSteerTurnAnim, HostAnimationSteeringData,
+                    };
+                    let s = obj
+                        .animation_steering
+                        .get_or_insert_with(HostAnimationSteeringData::default);
+                    s.current_turn_anim = match ent.anim_steer_turn {
+                        1 => HostAnimSteerTurnAnim::CenterToRight,
+                        2 => HostAnimSteerTurnAnim::CenterToLeft,
+                        3 => HostAnimSteerTurnAnim::LeftToCenter,
+                        4 => HostAnimSteerTurnAnim::RightToCenter,
+                        _ => HostAnimSteerTurnAnim::Invalid,
+                    };
+                    s.next_transition_frame = ent.anim_steer_next_transition_frame;
+                    s.transition_frames = ent.anim_steer_transition_frames;
+                    if !ent.anim_steer_has_condition {
+                        s.active_condition = None;
+                    } else if s.active_condition.is_none() {
+                        s.active_condition = s.current_turn_anim.model_condition_name().map(|n| n.to_string());
+                    }
+                } else if obj.animation_steering.is_some() {
+                    obj.animation_steering = None;
                 }
             }
 
