@@ -1359,7 +1359,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("cheer_") {
                             cheer_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["formation"]);
+                        let _ = write_control(&control_path, &["formation|spawn_buddy=1"]);
                         gameplay_step = 16;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 16
