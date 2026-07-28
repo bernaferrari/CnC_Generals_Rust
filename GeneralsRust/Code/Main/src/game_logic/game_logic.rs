@@ -8399,8 +8399,14 @@ impl GameLogic {
                         topple_kill = obj.tick_structure_collapse(self.frame);
                     }
                 }
-                if !topple_kill && obj.structure_topple_data.is_some() {
-                    topple_kill = obj.tick_structure_topple(self.frame);
+                // Wave 776: under coupled shadow, StructureToppleUpdate is owned by
+                // GW tick_status_timer_expirations + host_structure_topple_kill_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    if !topple_kill && obj.structure_topple_data.is_some() {
+                        topple_kill = obj.tick_structure_topple(self.frame);
+                    }
                 }
             }
             // C++ StructureToppleUpdate::applyCrushingDamage residual.

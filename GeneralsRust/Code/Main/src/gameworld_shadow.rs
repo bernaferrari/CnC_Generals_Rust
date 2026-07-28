@@ -3448,6 +3448,35 @@ impl GameWorldShadow {
                         e.structure_collapse_shudder_x = 0.0;
                         e.structure_collapse_shudder_z = 0.0;
                     }
+                    if let Some(st) = obj.structure_topple_data.as_ref() {
+                        e.structure_topple_state = st.state as u8;
+                        e.structure_topple_start_frame = st.topple_start_frame;
+                        e.structure_topple_dir_x = st.dir_x;
+                        e.structure_topple_dir_y = st.dir_y;
+                        e.structure_topple_velocity = st.topple_velocity;
+                        e.structure_topple_accumulated_angle = st.accumulated_angle;
+                        e.structure_topple_structural_integrity = st.structural_integrity;
+                        e.structure_topple_structural_decay = st.structural_decay;
+                        e.structure_topple_done_frame = st.done_frame;
+                        e.structure_topple_lean_radians = st.lean_radians;
+                        e.structure_topple_last_crushed_location = st.last_crushed_location;
+                        e.structure_topple_building_height = st.building_height;
+                        e.structure_topple_facing_width = st.facing_width;
+                    } else {
+                        e.structure_topple_state = 0;
+                        e.structure_topple_start_frame = 0;
+                        e.structure_topple_dir_x = 0.0;
+                        e.structure_topple_dir_y = 1.0;
+                        e.structure_topple_velocity = 0.0;
+                        e.structure_topple_accumulated_angle = 0.0;
+                        e.structure_topple_structural_integrity = 0.5;
+                        e.structure_topple_structural_decay = 0.1;
+                        e.structure_topple_done_frame = 0;
+                        e.structure_topple_lean_radians = 0.0;
+                        e.structure_topple_last_crushed_location = 0.0;
+                        e.structure_topple_building_height = 40.0;
+                        e.structure_topple_facing_width = 20.0;
+                    }
 
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
@@ -7530,6 +7559,70 @@ impl GameWorldShadow {
                 if done {
                     if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                         crate::game_logic::host_structure_collapse_kill_log::record(
+                            crate::game_logic::ObjectId(hid),
+                        );
+                    }
+                }
+                changed = true;
+            }
+            // Wave 776: StructureToppleUpdate residual (building fall death).
+            // state: 0 Standing, 1 WaitingForStart, 2 Toppling, 3 WaitingForDone, 4 Done
+            if e.structure_topple_state != 0 && e.structure_topple_state != 4 {
+                use crate::game_logic::host_structure_topple::{
+                    STRUCTURE_TOPPLE_ACCEL_FACTOR, STRUCTURE_TOPPLE_DONE_DELAY_FRAMES,
+                    STRUCTURE_TOPPLE_INTEGRITY_DEFAULT,
+                };
+                let mut done = false;
+                match e.structure_topple_state {
+                    1 => {
+                        if frame >= e.structure_topple_start_frame {
+                            e.structure_topple_state = 2;
+                            e.structure_topple_structural_integrity =
+                                STRUCTURE_TOPPLE_INTEGRITY_DEFAULT;
+                        }
+                    }
+                    2 => {
+                        let integrity_term =
+                            (1.0 - e.structure_topple_structural_integrity).max(0.0);
+                        let topple_acceleration = STRUCTURE_TOPPLE_ACCEL_FACTOR
+                            * e.structure_topple_accumulated_angle.sin()
+                            * integrity_term;
+                        let accel = if e.structure_topple_velocity <= 1e-6
+                            && e.structure_topple_accumulated_angle <= 1e-6
+                        {
+                            STRUCTURE_TOPPLE_ACCEL_FACTOR * 0.05
+                        } else {
+                            topple_acceleration.max(STRUCTURE_TOPPLE_ACCEL_FACTOR * 0.01)
+                        };
+                        e.structure_topple_velocity += accel;
+                        if e.structure_topple_structural_integrity > 0.0 {
+                            e.structure_topple_structural_integrity *=
+                                e.structure_topple_structural_decay;
+                            if e.structure_topple_structural_integrity < 0.0 {
+                                e.structure_topple_structural_integrity = 0.0;
+                            }
+                        }
+                        e.structure_topple_accumulated_angle += e.structure_topple_velocity;
+                        e.structure_topple_lean_radians = e.structure_topple_accumulated_angle;
+                        if e.structure_topple_accumulated_angle >= std::f32::consts::FRAC_PI_2 {
+                            e.structure_topple_accumulated_angle = std::f32::consts::FRAC_PI_2;
+                            e.structure_topple_lean_radians = e.structure_topple_accumulated_angle;
+                            e.structure_topple_state = 3;
+                            e.structure_topple_done_frame =
+                                frame.saturating_add(STRUCTURE_TOPPLE_DONE_DELAY_FRAMES);
+                        }
+                    }
+                    3 => {
+                        if frame >= e.structure_topple_done_frame {
+                            e.structure_topple_state = 4;
+                            done = true;
+                        }
+                    }
+                    _ => {}
+                }
+                if done {
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_structure_topple_kill_log::record(
                             crate::game_logic::ObjectId(hid),
                         );
                     }
@@ -11673,6 +11766,54 @@ impl GameWorldShadow {
                     }
                 }
             }
+            {
+                let host_state = obj
+                    .structure_topple_data
+                    .as_ref()
+                    .map(|s| s.state as u8)
+                    .unwrap_or(0);
+                if host_state != ent.structure_topple_state
+                    || obj
+                        .structure_topple_data
+                        .as_ref()
+                        .map(|s| {
+                            (s.accumulated_angle - ent.structure_topple_accumulated_angle).abs()
+                                > f32::EPSILON
+                                || s.topple_start_frame != ent.structure_topple_start_frame
+                        })
+                        .unwrap_or(ent.structure_topple_state != 0)
+                {
+                    if ent.structure_topple_state != 0 {
+                        use crate::game_logic::host_structure_topple::{
+                            HostStructureToppleData, HostStructureToppleState,
+                        };
+                        let st = obj
+                            .structure_topple_data
+                            .get_or_insert_with(HostStructureToppleData::default);
+                        st.state = match ent.structure_topple_state {
+                            1 => HostStructureToppleState::WaitingForStart,
+                            2 => HostStructureToppleState::Toppling,
+                            3 => HostStructureToppleState::WaitingForDone,
+                            4 => HostStructureToppleState::Done,
+                            _ => HostStructureToppleState::Standing,
+                        };
+                        st.topple_start_frame = ent.structure_topple_start_frame;
+                        st.dir_x = ent.structure_topple_dir_x;
+                        st.dir_y = ent.structure_topple_dir_y;
+                        st.topple_velocity = ent.structure_topple_velocity;
+                        st.accumulated_angle = ent.structure_topple_accumulated_angle;
+                        st.structural_integrity = ent.structure_topple_structural_integrity;
+                        st.structural_decay = ent.structure_topple_structural_decay;
+                        st.done_frame = ent.structure_topple_done_frame;
+                        st.lean_radians = ent.structure_topple_lean_radians;
+                        st.last_crushed_location = ent.structure_topple_last_crushed_location;
+                        st.building_height = ent.structure_topple_building_height;
+                        st.facing_width = ent.structure_topple_facing_width;
+                    } else {
+                        obj.structure_topple_data = None;
+                    }
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -13100,6 +13241,16 @@ pub fn shadow_session_after_host_tick(
         }
         // Wave 775: StructureCollapseUpdate done → host destroy (no dual timer).
         for id in crate::game_logic::host_structure_collapse_kill_log::drain() {
+            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+                obj.health.current = 0.0;
+                obj.status.destroyed = true;
+                obj.status.death_type =
+                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+            }
+            logic.mark_object_for_destruction(id, None);
+        }
+        // Wave 776: StructureToppleUpdate done → host destroy (no dual timer).
+        for id in crate::game_logic::host_structure_topple_kill_log::drain() {
             if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
