@@ -10729,6 +10729,8 @@ pub fn shadow_session_after_host_tick(
     );
     if gameworld_special_power_sole_tick_enabled() {
         let _sp_wb = shadow.writeback_special_power_to_host(logic);
+        // Wave 717: same-frame host SP-ready EVA after GW writeback.
+        logic.host_apply_special_power_ready_after_writeback();
     }
 
     // Wave 706: skip GW re-apply when post-logic eager path already ran.

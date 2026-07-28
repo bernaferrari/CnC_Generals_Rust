@@ -6894,18 +6894,7 @@ impl GameLogic {
             self.try_eva_superweapon_ready(id, team, &name);
         }
         // Wave 618: under sole-tick, GameWorld writeback records SP ready flips;
-        // host drains for EVA residual (object already writeback-ready).
-        if crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled() {
-            for ev in crate::game_logic::host_special_power_ready_log::drain() {
-                if let Some(obj) = self.objects.get(&ev.object) {
-                    if obj.is_alive() {
-                        let team = obj.team;
-                        let name = obj.template_name.clone();
-                        self.try_eva_superweapon_ready(ev.object, team, &name);
-                    }
-                }
-            }
-        }
+        // Wave 717: host EVA drain runs after writeback same frame (not mid-update).
 
         for _id in radar_extend_done {
             self.radar_extend_completes = self.radar_extend_completes.saturating_add(1);
@@ -6953,6 +6942,24 @@ impl GameLogic {
 
     /// Wave 715: after GW construction writeback records ready structures, host
     /// applies completion side effects in the same coupled tick (not next frame).
+
+    /// Wave 717: after GW special-power writeback records ready flips, host
+    /// applies EVA superweapon-ready residual in the same coupled tick.
+    pub(crate) fn host_apply_special_power_ready_after_writeback(&mut self) {
+        if !crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled() {
+            return;
+        }
+        for ev in crate::game_logic::host_special_power_ready_log::drain() {
+            if let Some(obj) = self.objects.get(&ev.object) {
+                if obj.is_alive() {
+                    let team = obj.team;
+                    let name = obj.template_name.clone();
+                    self.try_eva_superweapon_ready(ev.object, team, &name);
+                }
+            }
+        }
+    }
+
     pub(crate) fn host_apply_construction_completions_after_ready_writeback(&mut self) {
         if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
             return;
