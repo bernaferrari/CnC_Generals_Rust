@@ -7397,7 +7397,12 @@ impl GameLogic {
             self.block_structure_object_path(completed_id);
         }
         if !completed_structures.is_empty() {
-            self.update_actively_constructing_model_conditions();
+            // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
+            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                && crate::gameworld_shadow::shadow_coupled_tick_active())
+            {
+                self.update_actively_constructing_model_conditions();
+            }
         }
     }
 
@@ -71423,7 +71428,12 @@ impl GameLogic {
         if cancelled > 0 {
             self.dozer_cancel_task_events = self.dozer_cancel_task_events.saturating_add(cancelled);
             // Refresh ACTIVELY_CONSTRUCTING residual globally after cancel.
-            self.update_actively_constructing_model_conditions();
+            // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
+            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                && crate::gameworld_shadow::shadow_coupled_tick_active())
+            {
+                self.update_actively_constructing_model_conditions();
+            }
         }
     }
 
@@ -71483,7 +71493,12 @@ impl GameLogic {
                 st.set_under_construction_model_conditions(true);
             }
             self.resume_construction_events = self.resume_construction_events.saturating_add(1);
-            self.update_actively_constructing_model_conditions();
+            // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
+            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                && crate::gameworld_shadow::shadow_coupled_tick_active())
+            {
+                self.update_actively_constructing_model_conditions();
+            }
             return true;
         }
         false

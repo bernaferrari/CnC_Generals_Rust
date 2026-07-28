@@ -122,6 +122,7 @@ pub mod host_identity_log;
 pub mod host_identity_ready_log;
 pub mod host_kind_of_log;
 pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
+pub mod host_live_host_actively_constructing_complete_peel_residual_wave828;
 pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
 pub mod host_live_host_alias_fallback_opt_in_residual_wave725;
 pub mod host_live_host_angry_mob_member_follow_dual_peel_residual_wave801;
@@ -2868,6 +2869,12 @@ pub use host_live_host_a10_strike_flight_dual_peel_residual_wave792::{
     simulate_host_a10_strike_flight_dual_peel_collect_source,
     simulate_host_a10_strike_flight_dual_peel_dispatch_source,
     simulate_live_host_a10_strike_flight_dual_peel_honesty,
+};
+pub use host_live_host_actively_constructing_complete_peel_residual_wave828::{
+    honesty_host_actively_constructing_complete_peel_method_names_residual_wave828,
+    honesty_host_actively_constructing_complete_peel_nav_commands_residual_wave828,
+    honesty_host_actively_constructing_complete_peel_residual_pack_wave828,
+    simulate_live_host_actively_constructing_complete_peel_honesty,
 };
 pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
     honesty_host_actively_constructing_dual_peel_method_names_residual_wave815,
