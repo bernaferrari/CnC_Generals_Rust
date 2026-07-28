@@ -4200,50 +4200,58 @@ impl CnCGameEngine {
                 // shell/WND push is enabled. Headless still exercises the latch so smoke
                 // can observe open_skirmish_menu_ok_wnd without requiring W3D.
                 // Fallback: soft UI override and/or direct SkirmishGameOptionsMenu push.
+                //
+                // Wave 833: full simulate_main_menu_skirmish_button_gadget_selected() runs
+                // execute_pending_actions → parse Menus/SkirmishGameOptionsMenu.wnd (~900KB)
+                // and stalls the runtime-host frame forever. Use latch_only + soft override
+                // on headless; interactive keeps the full GBM_SELECTED path.
                 let env_soft = std::env::var("GENERALS_RUNTIME_HOST_WND")
                     .map(|v| v == "0" || v.eq_ignore_ascii_case("false"))
                     .unwrap_or(false);
                 let mut main_menu_skirmish_wnd_ok = false;
                 #[cfg(feature = "game_client")]
                 {
-                    // Always try ButtonSkirmish residual (state latch); shell push is
-                    // additional when WND is enabled and not soft-disabled.
-                    main_menu_skirmish_wnd_ok =
-                        game_client::gui::simulate_main_menu_skirmish_button_gadget_selected();
-                    if !env_soft {
-                        if self.runtime_host_headless {
-                            // Headless: keep soft Skirmish override; optional shell push
-                            // when WND residual is on (default) so ButtonStart can bind.
-                            self.set_runtime_host_ui_screen_override(Some("Skirmish"));
-                            let push_wnd = std::env::var("GENERALS_RUNTIME_HOST_WND")
-                                .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
-                                .unwrap_or(true);
-                            if push_wnd {
-                                self.show_shell_menu();
-                                // Ensure MainMenu then Skirmish options are on the stack.
-                                let _ =
-                                    game_client::gui::get_shell().push("Menus/MainMenu.wnd", false);
-                                let _ = game_client::gui::get_shell()
-                                    .push("Menus/SkirmishGameOptionsMenu.wnd", false);
+                    if self.runtime_host_headless || env_soft {
+                        // Latch-only residual (C++ ButtonSkirmish GBM_SELECTED outcomes)
+                        // without pending PushShellScreen / WND parse.
+                        main_menu_skirmish_wnd_ok =
+                            game_client::gui::simulate_main_menu_skirmish_button_latch_only();
+                        self.set_runtime_host_ui_screen_override(Some("Skirmish"));
+                        // Best-effort stack push without re-entering MainMenu system().
+                        // Skip if already on a Skirmish layout to avoid double-parse stalls.
+                        if !env_soft {
+                            let top = game_client::gui::get_shell()
+                                .top()
+                                .map(|l| l.get_filename().to_string())
+                                .unwrap_or_default();
+                            let top_l = top.to_ascii_lowercase();
+                            if !top_l.contains("skirmish") {
+                                // Push only the options menu; MainMenu already active.
+                                // create_layout may still be heavy — gate behind explicit env.
+                                let allow_heavy = std::env::var("GENERALS_RUNTIME_HOST_SKIRMISH_WND")
+                                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                                    .unwrap_or(false);
+                                if allow_heavy {
+                                    let _ = game_client::gui::get_shell()
+                                        .push("Menus/SkirmishGameOptionsMenu.wnd", false);
+                                }
                             }
-                        } else {
-                            // Interactive: MainMenu layout, ButtonSkirmish residual, then
-                            // ensure Skirmish options layout is present for ButtonStart.
-                            self.enter_shell_screen_from_runtime_host(
-                                Some("MainMenu"),
-                                "Menus/MainMenu.wnd",
-                            );
-                            // Re-fire after layout push so shell push residual can land.
-                            main_menu_skirmish_wnd_ok =
-                                game_client::gui::simulate_main_menu_skirmish_button_gadget_selected(
-                                ) || main_menu_skirmish_wnd_ok;
-                            self.enter_shell_screen_from_runtime_host(
-                                Some("Skirmish"),
-                                "Menus/SkirmishGameOptionsMenu.wnd",
-                            );
                         }
                     } else {
-                        self.set_runtime_host_ui_screen_override(Some("Skirmish"));
+                        // Interactive: full ButtonSkirmish residual + shell layout push.
+                        main_menu_skirmish_wnd_ok =
+                            game_client::gui::simulate_main_menu_skirmish_button_gadget_selected();
+                        self.enter_shell_screen_from_runtime_host(
+                            Some("MainMenu"),
+                            "Menus/MainMenu.wnd",
+                        );
+                        main_menu_skirmish_wnd_ok =
+                            game_client::gui::simulate_main_menu_skirmish_button_gadget_selected()
+                                || main_menu_skirmish_wnd_ok;
+                        self.enter_shell_screen_from_runtime_host(
+                            Some("Skirmish"),
+                            "Menus/SkirmishGameOptionsMenu.wnd",
+                        );
                     }
                 }
                 #[cfg(not(feature = "game_client"))]
@@ -4288,12 +4296,31 @@ impl CnCGameEngine {
                     .skirmish_menu_mut()
                     .configure_slot_medium_ai(1);
 
+                if let Some(map) = args.get("map") {
+                    self.ui_manager
+                        .skirmish_menu_mut()
+                        .set_map_name(map.clone());
+                }
+                let _ = self
+                    .ui_manager
+                    .skirmish_menu_mut()
+                    .configure_slot_medium_ai(1);
+
                 let mut wnd_start_ok = false;
                 #[cfg(feature = "game_client")]
                 {
-                    let push_wnd = std::env::var("GENERALS_RUNTIME_HOST_WND")
-                        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
-                        .unwrap_or(true);
+                    // Wave 833: headless default avoids SkirmishGameOptionsMenu.wnd parse
+                    // (stalls the frame). Soft SkirmishMenu Start residual still starts
+                    // the match. Opt into heavy WND with GENERALS_RUNTIME_HOST_SKIRMISH_WND=1.
+                    let push_wnd = if self.runtime_host_headless {
+                        std::env::var("GENERALS_RUNTIME_HOST_SKIRMISH_WND")
+                            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                            .unwrap_or(false)
+                    } else {
+                        std::env::var("GENERALS_RUNTIME_HOST_WND")
+                            .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+                            .unwrap_or(true)
+                    };
                     if push_wnd {
                         self.enter_shell_screen_from_runtime_host(
                             Some("Skirmish"),
@@ -26221,36 +26248,37 @@ impl RuntimeHostBridge {
     }
 
     fn drain_commands(&mut self) -> Vec<String> {
-        let mut control_file = match fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&self.control_path)
-        {
-            Ok(file) => file,
+        // Wave 833: read via fs::read_to_string + atomic clear. OpenOptions
+        // read/write without an explicit seek(0) can miss peer writes on some
+        // platforms; empty drains left smoke stuck at MainMenu forever.
+        let payload = match fs::read_to_string(&self.control_path) {
+            Ok(text) => text,
             Err(_) => return Vec::new(),
         };
-        let mut payload = String::new();
-        if control_file.read_to_string(&mut payload).is_err() {
-            return Vec::new();
-        }
         if payload.trim().is_empty() {
             return Vec::new();
         }
-        if let Err(err) = control_file.set_len(0) {
+        // Clear after successful read so each command is consumed once.
+        if let Err(err) = fs::write(&self.control_path, b"") {
             warn!(
-                "Runtime host failed truncating control file {}: {err}",
+                "Runtime host failed clearing control file {}: {err}",
                 self.control_path.display()
             );
-        } else {
-            let _ = control_file.seek(SeekFrom::Start(0));
         }
-        payload
+        let cmds: Vec<String> = payload
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .map(|line| line.to_string())
-            .collect()
+            .collect();
+        if !cmds.is_empty() {
+            info!(
+                "Runtime host drained {} control command(s): {:?}",
+                cmds.len(),
+                cmds.iter().take(4).collect::<Vec<_>>()
+            );
+        }
+        cmds
     }
 
     fn publish_booting(&mut self) {

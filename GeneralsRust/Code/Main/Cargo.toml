@@ -413,3 +413,8 @@ path = "src/bin/shell_smoke_gate.rs"
 [[bin]]
 name = "executable_smoke_gate"
 path = "src/bin/executable_smoke_gate.rs"
+
+[[example]]
+name = "run_exec_smoke"
+path = "examples/run_exec_smoke.rs"
+
