@@ -26131,6 +26131,23 @@ impl GameLogic {
     /// applies presentation bookkeeping residual via record_host_command_set.
     /// Wave 645: GameWorld AI-mood writeback records dirty objects; host
     /// applies presentation bookkeeping residual via record_host_ai_mood.
+    /// Wave 646: GameWorld locomotor writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_locomotor.
+    pub fn host_apply_locomotor_ready_completions(&mut self) -> usize {
+        // Wave 646: GameWorld locomotor writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_locomotor.
+        let events = crate::game_logic::host_locomotor_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_locomotor();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_ai_mood_ready_completions(&mut self) -> usize {
         // Wave 645: GameWorld AI-mood writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_ai_mood.

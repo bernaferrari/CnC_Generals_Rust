@@ -6419,6 +6419,7 @@ impl GameWorldShadow {
 
     pub fn writeback_locomotor_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6465,7 +6466,13 @@ impl GameWorldShadow {
             obj.min_turn_speed = ent.min_turn_speed;
             obj.physics_turning =
                 crate::game_logic::PhysicsTurningType::from_ordinal(ent.physics_turning_ordinal);
+            // Wave 646: GameWorld locomotor last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_locomotor_ready_log::record(oid);
         }
         updated
     }
@@ -7973,10 +7980,14 @@ pub fn shadow_session_after_host_tick(
         // Wave 637: drain movement ready log after GW writeback.
         let _mv_ready = logic.host_apply_movement_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_bounce_land_to_host(logic);
@@ -8074,6 +8085,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _tloc_wb = shadow.writeback_target_location_to_host(logic);
@@ -8086,6 +8099,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _guard_wb = shadow.writeback_guard_to_host(logic);
@@ -8111,6 +8126,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
@@ -8127,6 +8144,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 640: drain fire-intent ready log after GW writeback.
         let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
@@ -8139,10 +8158,14 @@ pub fn shadow_session_after_host_tick(
         // Wave 637: drain movement ready log after GW writeback.
         let _mv_ready = logic.host_apply_movement_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
+        // Wave 646: drain locomotor ready log after GW writeback.
+        let _loco_ready = logic.host_apply_locomotor_ready_completions();
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_bounce_land_to_host(logic);
@@ -12170,10 +12193,12 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
@@ -12384,6 +12409,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
@@ -12613,6 +12639,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
@@ -13059,6 +13086,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
@@ -13264,6 +13292,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
@@ -15676,10 +15705,12 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
@@ -15760,10 +15791,12 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
@@ -15905,10 +15938,12 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
@@ -16283,6 +16318,7 @@ mod tests {
         }
         assert!(shadow.writeback_physics_motive_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
@@ -16460,6 +16496,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
@@ -16524,6 +16561,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
@@ -16609,6 +16647,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
@@ -16703,6 +16742,7 @@ mod tests {
             o.loco_preferred_height = 0.0;
         }
         assert!(shadow.writeback_locomotor_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_locomotor_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
