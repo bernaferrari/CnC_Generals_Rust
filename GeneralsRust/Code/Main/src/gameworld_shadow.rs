@@ -4495,6 +4495,16 @@ impl GameWorldShadow {
                     e.demo_suicided_detonating = obj.demo_suicided_detonating;
                     e.hive_slave_count = obj.hive_slave_count;
                     e.hive_slave_hp = obj.hive_slave_hp;
+                    e.hive_slaves_alive = [
+                        obj.hive_slaves[0].alive,
+                        obj.hive_slaves[1].alive,
+                        obj.hive_slaves[2].alive,
+                    ];
+                    e.hive_slaves_hp = [
+                        obj.hive_slaves[0].hp,
+                        obj.hive_slaves[1].hp,
+                        obj.hive_slaves[2].hp,
+                    ];
                     e.turret_angle_deg = obj.turret_angle_deg;
                     e.turret_pitch_deg = obj.turret_pitch_deg;
                     e.turret_idle_scanning = obj.turret_idle_scanning;
@@ -4891,6 +4901,16 @@ impl GameWorldShadow {
                 e.demo_suicided_detonating = obj.demo_suicided_detonating;
                 e.hive_slave_count = obj.hive_slave_count;
                 e.hive_slave_hp = obj.hive_slave_hp;
+                e.hive_slaves_alive = [
+                    obj.hive_slaves[0].alive,
+                    obj.hive_slaves[1].alive,
+                    obj.hive_slaves[2].alive,
+                ];
+                e.hive_slaves_hp = [
+                    obj.hive_slaves[0].hp,
+                    obj.hive_slaves[1].hp,
+                    obj.hive_slaves[2].hp,
+                ];
                 e.turret_angle_deg = obj.turret_angle_deg;
                 e.turret_pitch_deg = obj.turret_pitch_deg;
                 e.turret_idle_scanning = obj.turret_idle_scanning;
@@ -10476,6 +10496,97 @@ for eid in eids {
                 }
             }
 
+            // Wave 814: Stinger hive slave respawn residual.
+            if crate::game_logic::host_base_defense::is_stinger_site_structure(e.template_name()) {
+                use crate::game_logic::host_base_defense::{
+                    next_stinger_slave_respawn_frame, should_respawn_stinger_slave,
+                    STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
+                };
+                let alive = e.health > 0.0 && !e.destroyed;
+                if alive {
+                    // Align roster alive count to hive_slave_count mirror when diverged.
+                    let roster_alive = e.hive_slaves_alive.iter().filter(|&&a| a).count() as u8;
+                    if roster_alive != e.hive_slave_count {
+                        let desired = e.hive_slave_count.min(3);
+                        for i in 0..3 {
+                            let should = (i as u8) < desired;
+                            e.hive_slaves_alive[i] = should;
+                            if should && e.hive_slaves_hp[i] <= 0.0 {
+                                e.hive_slaves_hp[i] = if e.hive_slave_hp > 0.0 {
+                                    e.hive_slave_hp
+                                } else {
+                                    STINGER_SOLDIER_MAX_HEALTH
+                                };
+                            }
+                            if !should {
+                                e.hive_slaves_hp[i] = 0.0;
+                            }
+                        }
+                        changed = true;
+                    }
+                    if should_respawn_stinger_slave(
+                        e.hive_slave_count,
+                        frame,
+                        e.hive_slave_respawn_frame,
+                    ) {
+                        // Respawn first dead slot.
+                        let mut did = false;
+                        for i in 0..3 {
+                            if !e.hive_slaves_alive[i] {
+                                e.hive_slaves_alive[i] = true;
+                                e.hive_slaves_hp[i] = STINGER_SOLDIER_MAX_HEALTH;
+                                did = true;
+                                break;
+                            }
+                        }
+                        if did {
+                            e.hive_slave_count =
+                                e.hive_slaves_alive.iter().filter(|&&a| a).count() as u8;
+                            e.hive_slave_hp = e
+                                .hive_slaves_alive
+                                .iter()
+                                .zip(e.hive_slaves_hp.iter())
+                                .find(|(a, _)| **a)
+                                .map(|(_, h)| *h)
+                                .unwrap_or(0.0);
+                        } else {
+                            e.hive_slave_count = e
+                                .hive_slave_count
+                                .saturating_add(1)
+                                .min(STINGER_SPAWN_NUMBER as u8);
+                            if e.hive_slave_count == 1 {
+                                e.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+                            }
+                        }
+                        if e.hive_slave_count < STINGER_SPAWN_NUMBER as u8 {
+                            e.hive_slave_respawn_frame =
+                                next_stinger_slave_respawn_frame(frame, 0);
+                        } else {
+                            e.hive_slave_respawn_frame = 0;
+                        }
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            crate::game_logic::host_stinger_hive_log::record(
+                                crate::game_logic::host_stinger_hive_log::StingerHiveRespawnEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    hive_slave_count: e.hive_slave_count,
+                                    hive_slave_hp: e.hive_slave_hp,
+                                    hive_slave_respawn_frame: e.hive_slave_respawn_frame,
+                                    slaves_alive: e.hive_slaves_alive,
+                                    slaves_hp: e.hive_slaves_hp,
+                                },
+                            );
+                        }
+                        changed = true;
+                    } else if e.hive_slave_count < STINGER_SPAWN_NUMBER as u8
+                        && e.hive_slave_respawn_frame == 0
+                    {
+                        e.hive_slave_respawn_frame =
+                            next_stinger_slave_respawn_frame(frame, 0);
+                        changed = true;
+                    }
+                }
+            }
+
             if changed {
                 n += 1;
             }
@@ -13682,6 +13793,10 @@ for eid in eids {
             }
             obj.hive_slave_count = ent.hive_slave_count;
             obj.hive_slave_hp = ent.hive_slave_hp.max(0.0);
+            for i in 0..3 {
+                obj.hive_slaves[i].alive = ent.hive_slaves_alive[i];
+                obj.hive_slaves[i].hp = ent.hive_slaves_hp[i].max(0.0);
+            }
             // Wave 667: GameWorld hive last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -18029,6 +18144,23 @@ pub fn shadow_session_after_host_tick(
                 }
             }
         }
+// Wave 814: Stinger hive respawn residual.
+        for ev in crate::game_logic::host_stinger_hive_log::drain() {
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                o.hive_slave_count = ev.hive_slave_count;
+                o.hive_slave_hp = ev.hive_slave_hp;
+                o.hive_slave_respawn_frame = ev.hive_slave_respawn_frame;
+                for i in 0..3 {
+                    o.hive_slaves[i].alive = ev.slaves_alive[i];
+                    o.hive_slaves[i].hp = ev.slaves_hp[i];
+                }
+                o.record_host_hive();
+            }
+            logic.stinger_hive_residual_respawns = logic
+                .stinger_hive_residual_respawns
+                .saturating_add(1);
+        }
+
 
 
 

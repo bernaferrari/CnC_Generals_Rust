@@ -1094,6 +1094,10 @@ pub struct Entity {
     pub hijacker_eject_pos: Option<[f32; 3]>,
     /// Host hijacker residual `hive_slave_respawn_frame`.
     pub hive_slave_respawn_frame: u32,
+    /// Host ResidualHiveSlave alive flags (3 slots).
+    pub hive_slaves_alive: [bool; 3],
+    /// Host ResidualHiveSlave HP (3 slots).
+    pub hive_slaves_hp: [f32; 3],
     /// Host hijacker residual `next_detection_scan_frame`.
     pub next_detection_scan_frame: u32,
     /// Host Object::stealth_allowed_frame residual.
@@ -1989,6 +1993,8 @@ impl EntityStore {
             hijacker_was_airborne: false,
             hijacker_eject_pos: None,
             hive_slave_respawn_frame: 0,
+            hive_slaves_alive: [false; 3],
+            hive_slaves_hp: [0.0; 3],
             next_detection_scan_frame: 0,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,
