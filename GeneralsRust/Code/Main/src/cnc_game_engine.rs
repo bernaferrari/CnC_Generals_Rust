@@ -9717,29 +9717,28 @@ impl CnCGameEngine {
                     // Wave 727: missing template is fail-closed (no free default unit).
                     // Smoke always passes template=...; harness may set default_template=1
                     // / GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE=1 for legacy bare commands.
-                    let allow_default_template = args
-                        .get("default_template")
-                        .map(|v| {
-                            let s = v.trim();
-                            s == "1"
-                                || s.eq_ignore_ascii_case("true")
-                                || s.eq_ignore_ascii_case("yes")
-                        })
-                        .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                    let allow_default_template =
+                        args.get("default_template")
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
                     let requested = match args.get("template").cloned() {
                         Some(t) if !t.trim().is_empty() => t,
                         _ if allow_default_template => "AmericaInfantryRanger".to_string(),
                         _ => {
-                            self.runtime_host_last_gameplay_cmd =
-                                "train_fail_no_template".into();
+                            self.runtime_host_last_gameplay_cmd = "train_fail_no_template".into();
                             return;
                         }
                     };
@@ -9758,18 +9757,19 @@ impl CnCGameEngine {
                         .get("force_complete")
                         .map(|v| {
                             let s = v.trim();
-                            s == "1" || s.eq_ignore_ascii_case("true") || s.eq_ignore_ascii_case("yes")
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_TRAIN_FORCE_COMPLETE").is_some_and(
-                            |v| {
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_TRAIN_FORCE_COMPLETE")
+                            .is_some_and(|v| {
                                 let s = v.to_string_lossy();
                                 !(s.is_empty()
                                     || s == "0"
                                     || s.eq_ignore_ascii_case("false")
                                     || s.eq_ignore_ascii_case("no"))
-                            },
-                        );
+                            });
                     let mut force_completed: Vec<crate::game_logic::ObjectId> = Vec::new();
                     if allow_force_complete {
                         let mut unfinished: Vec<crate::game_logic::ObjectId> = if let Some(frame) =
@@ -9823,14 +9823,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     // Prefer force-completed + presentation constructed producers.
                     // Live full dual-scan is boot residual or fail-open when presentation
                     // still marks force-completed barracks under_construction.
@@ -9996,24 +9995,24 @@ impl CnCGameEngine {
                     // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
                     // Retail commands use the exact requested template name.
                     // Smoke/harness may set alias_fallback=1 / GENERALS_RUNTIME_HOST_ALIAS_FALLBACK=1.
-                    let allow_alias_fallback = args
-                        .get("alias_fallback")
-                        .or_else(|| args.get("soft_alias"))
-                        .map(|v| {
-                            let s = v.trim();
-                            s == "1"
-                                || s.eq_ignore_ascii_case("true")
-                                || s.eq_ignore_ascii_case("yes")
-                        })
-                        .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                    let allow_alias_fallback =
+                        args.get("alias_fallback")
+                            .or_else(|| args.get("soft_alias"))
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
                     // Wave 722: synthetic GoldenRanger template insert is opt-in only.
                     // Default fail-closed: train only against real retail/map templates.
                     // Smoke/harness may set golden_template=1 /
@@ -10099,11 +10098,7 @@ impl CnCGameEngine {
                         // Wave 724/725: alias + GoldenRanger enqueue fallbacks are opt-in only.
                         let mut try_names = vec![template.as_str()];
                         if allow_alias_fallback {
-                            try_names.extend([
-                                "AmericaInfantryRanger",
-                                "USA_Ranger",
-                                "USARanger",
-                            ]);
+                            try_names.extend(["AmericaInfantryRanger", "USA_Ranger", "USARanger"]);
                         }
                         if allow_golden_template {
                             try_names.push("GoldenRanger");
@@ -10355,35 +10350,31 @@ impl CnCGameEngine {
                     // Wave 727: missing upgrade name is fail-closed (no free default upgrade).
                     // Smoke always passes name=...; harness may set default_template=1
                     // / GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE=1 for legacy bare commands.
-                    let allow_default_template = args
-                        .get("default_template")
-                        .map(|v| {
-                            let s = v.trim();
-                            s == "1"
-                                || s.eq_ignore_ascii_case("true")
-                                || s.eq_ignore_ascii_case("yes")
-                        })
-                        .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
-                    let requested = match args
-                        .get("name")
-                        .or_else(|| args.get("upgrade"))
-                        .cloned()
+                    let allow_default_template =
+                        args.get("default_template")
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
+                    let requested = match args.get("name").or_else(|| args.get("upgrade")).cloned()
                     {
                         Some(t) if !t.trim().is_empty() => t,
                         _ if allow_default_template => {
                             "UpgradeAmericaRangerCaptureBuilding".to_string()
                         }
                         _ => {
-                            self.runtime_host_last_gameplay_cmd =
-                                "upgrade_fail_no_name".into();
+                            self.runtime_host_last_gameplay_cmd = "upgrade_fail_no_name".into();
                             return;
                         }
                     };
@@ -10432,14 +10423,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     if producers.is_empty() && allow_auto_target {
                         producers = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             frame.alive_upgrade_producer_structure_ids(team)
@@ -10489,24 +10479,24 @@ impl CnCGameEngine {
                     // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
                     // Retail commands use the exact requested template name.
                     // Smoke/harness may set alias_fallback=1 / GENERALS_RUNTIME_HOST_ALIAS_FALLBACK=1.
-                    let allow_alias_fallback = args
-                        .get("alias_fallback")
-                        .or_else(|| args.get("soft_alias"))
-                        .map(|v| {
-                            let s = v.trim();
-                            s == "1"
-                                || s.eq_ignore_ascii_case("true")
-                                || s.eq_ignore_ascii_case("yes")
-                        })
-                        .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                    let allow_alias_fallback =
+                        args.get("alias_fallback")
+                            .or_else(|| args.get("soft_alias"))
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
                     let mut candidates = vec![requested.as_str()];
                     if allow_alias_fallback {
                         candidates.extend([
@@ -10574,14 +10564,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     if self.selected_objects.is_empty() && allow_auto_target {
                         // pick local mobile (presentation when available)
                         // Wave 220: team via presentation-first local_team_for_ui.
@@ -10631,14 +10620,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
                         let team = Some(self.local_team_for_ui());
@@ -10685,14 +10673,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
                         let team = Some(self.local_team_for_ui());
@@ -10910,14 +10897,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     // Prefer harvester-like selection only when auto_target opted in.
                     if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
@@ -11037,14 +11023,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     // Prefer selected structure producer only when auto_target opted in.
                     if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
@@ -11186,14 +11171,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     // Prefer power plant selection only when auto_target opted in.
                     if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
@@ -11700,14 +11684,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     // Prefer structure with production queue only when auto_target opted in.
                     if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
@@ -11788,23 +11771,23 @@ impl CnCGameEngine {
                     // Wave 727: missing template is fail-closed (no free default structure).
                     // Smoke always passes template=...; harness may set default_template=1
                     // / GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE=1 for legacy bare commands.
-                    let allow_default_template = args
-                        .get("default_template")
-                        .map(|v| {
-                            let s = v.trim();
-                            s == "1"
-                                || s.eq_ignore_ascii_case("true")
-                                || s.eq_ignore_ascii_case("yes")
-                        })
-                        .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                    let allow_default_template =
+                        args.get("default_template")
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_DEFAULT_TEMPLATE")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
                     let requested = match args
                         .get("template")
                         .cloned()
@@ -11821,32 +11804,28 @@ impl CnCGameEngine {
                     // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
                     // Retail commands use the exact requested template name.
                     // Smoke/harness may set alias_fallback=1 / GENERALS_RUNTIME_HOST_ALIAS_FALLBACK=1.
-                    let allow_alias_fallback = args
-                        .get("alias_fallback")
-                        .or_else(|| args.get("soft_alias"))
-                        .map(|v| {
-                            let s = v.trim();
-                            s == "1"
-                                || s.eq_ignore_ascii_case("true")
-                                || s.eq_ignore_ascii_case("yes")
-                        })
-                        .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                    let allow_alias_fallback =
+                        args.get("alias_fallback")
+                            .or_else(|| args.get("soft_alias"))
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_ALIAS_FALLBACK")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
                     // Prefer exact requested; common barracks aliases only when opted in.
                     let mut candidates = vec![requested.as_str()];
                     if allow_alias_fallback {
-                        candidates.extend([
-                            "USA_Barracks",
-                            "AmericaBarracks",
-                            "Barracks",
-                        ]);
+                        candidates.extend(["USA_Barracks", "AmericaBarracks", "Barracks"]);
                     }
                     // Wave 565: template residual prefers presentation freeze names.
                     let template = candidates
@@ -11887,14 +11866,13 @@ impl CnCGameEngine {
                                 || s.eq_ignore_ascii_case("yes")
                         })
                         .unwrap_or(false)
-                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
-                            .is_some_and(|v| {
-                                let s = v.to_string_lossy();
-                                !(s.is_empty()
-                                    || s == "0"
-                                    || s.eq_ignore_ascii_case("false")
-                                    || s.eq_ignore_ascii_case("no"))
-                            });
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET").is_some_and(|v| {
+                            let s = v.to_string_lossy();
+                            !(s.is_empty()
+                                || s == "0"
+                                || s.eq_ignore_ascii_case("false")
+                                || s.eq_ignore_ascii_case("no"))
+                        });
                     if builders.is_empty() && allow_auto_target {
                         builders = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             frame.alive_construct_builder_ids(team)

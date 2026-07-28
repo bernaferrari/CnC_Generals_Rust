@@ -197,6 +197,15 @@ impl HostBlackMarketRegistry {
             current_frame.saturating_add(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES.max(1))
         })
     }
+    /// Peek scheduled next deposit frame without inserting.
+    pub fn peek_next_deposit(&self, market_id: ObjectId) -> Option<u32> {
+        self.next_deposit_frame.get(&market_id).copied()
+    }
+
+    /// Force-set next deposit frame (GW writeback residual).
+    pub fn set_next_deposit(&mut self, market_id: ObjectId, frame: u32) {
+        self.next_deposit_frame.insert(market_id, frame);
+    }
 
     /// When due, schedule next interval and record a deposit of `amount`.
     /// Returns deposited amount (0 if not yet due).
@@ -214,6 +223,16 @@ impl HostBlackMarketRegistry {
         );
         self.deposits = self.deposits.saturating_add(1);
         self.cash_total = self.cash_total.saturating_add(amount);
+        amount
+    }
+    /// Record a deposit without schedule gate (GW already advanced next frame).
+    pub fn force_record_deposit(&mut self, market_id: ObjectId, amount: u32) -> u32 {
+        if amount == 0 {
+            return 0;
+        }
+        self.deposits = self.deposits.saturating_add(1);
+        self.cash_total = self.cash_total.saturating_add(amount);
+        let _ = market_id;
         amount
     }
 

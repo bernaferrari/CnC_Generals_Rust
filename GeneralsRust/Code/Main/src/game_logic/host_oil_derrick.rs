@@ -341,6 +341,15 @@ impl HostOilDerrickRegistry {
                 current_frame.saturating_add(OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES.max(1))
             })
     }
+    /// Peek scheduled next deposit frame without inserting.
+    pub fn peek_next_deposit(&self, derrick_id: ObjectId) -> Option<u32> {
+        self.next_deposit_frame.get(&derrick_id).copied()
+    }
+
+    /// Force-set next deposit frame (GW writeback residual).
+    pub fn set_next_deposit(&mut self, derrick_id: ObjectId, frame: u32) {
+        self.next_deposit_frame.insert(derrick_id, frame);
+    }
 
     /// When due, schedule next interval and record a deposit of `amount`.
     /// Returns deposited amount (0 if not yet due).
@@ -370,6 +379,21 @@ impl HostOilDerrickRegistry {
         self.supply_lines_boost_cash_total = self
             .supply_lines_boost_cash_total
             .saturating_add(supply_lines_boost.min(amount));
+        amount
+    }
+    /// Record a deposit without schedule gate (GW already advanced next frame).
+    pub fn force_record_deposit(
+        &mut self,
+        derrick_id: ObjectId,
+        amount: u32,
+        supply_lines_boost: u32,
+    ) -> u32 {
+        if amount == 0 {
+            return 0;
+        }
+        self.deposits = self.deposits.saturating_add(1);
+        self.cash_total = self.cash_total.saturating_add(amount);
+        let _ = (derrick_id, supply_lines_boost);
         amount
     }
 

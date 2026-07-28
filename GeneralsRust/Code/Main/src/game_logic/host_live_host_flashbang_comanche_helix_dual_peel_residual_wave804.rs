@@ -57,7 +57,9 @@ pub fn residual_host_flashbang_comanche_helix_dual_peel_ok() -> bool {
 }
 pub fn residual_host_flashbang_comanche_helix_dual_peel_last_action(
 ) -> ResidualHostFlashbangComancheHelixDualPeelAction {
-    ResidualHostFlashbangComancheHelixDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
+    ResidualHostFlashbangComancheHelixDualPeelAction::from_u8(
+        RESIDUAL_ACTION.load(Ordering::SeqCst),
+    )
 }
 fn sh_source() -> &'static str {
     include_str!("../gameworld_shadow.rs")
@@ -117,7 +119,8 @@ pub fn simulate_host_flashbang_comanche_helix_dual_peel_collect_source() -> bool
 }
 pub fn simulate_host_flashbang_comanche_helix_dual_peel_dispatch_source() -> bool {
     let ok = sh_source().contains("host_flashbang_comanche_helix_projectile_log::record_flashbang")
-        && sh_source().contains("host_flashbang_comanche_helix_projectile_log::drain_comanche_expires")
+        && sh_source()
+            .contains("host_flashbang_comanche_helix_projectile_log::drain_comanche_expires")
         && gl_source().contains("update_flashbang_grenade_projectiles")
         && gl_source().contains("update_comanche_rocket_pod_projectiles")
         && gl_source().contains("update_helix_napalm_bomb_projectiles")

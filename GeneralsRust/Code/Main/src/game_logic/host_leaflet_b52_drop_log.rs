@@ -22,10 +22,18 @@ thread_local! {
     static GROUND: RefCell<Vec<LeafletContainerGroundEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record_drop(ev: LeafletB52DropEvent) { DROPS.with(|l| l.borrow_mut().push(ev)); }
-pub fn record_ground(ev: LeafletContainerGroundEvent) { GROUND.with(|l| l.borrow_mut().push(ev)); }
-pub fn drain_drops() -> Vec<LeafletB52DropEvent> { DROPS.with(|l| std::mem::take(&mut *l.borrow_mut())) }
-pub fn drain_ground() -> Vec<LeafletContainerGroundEvent> { GROUND.with(|l| std::mem::take(&mut *l.borrow_mut())) }
+pub fn record_drop(ev: LeafletB52DropEvent) {
+    DROPS.with(|l| l.borrow_mut().push(ev));
+}
+pub fn record_ground(ev: LeafletContainerGroundEvent) {
+    GROUND.with(|l| l.borrow_mut().push(ev));
+}
+pub fn drain_drops() -> Vec<LeafletB52DropEvent> {
+    DROPS.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
+pub fn drain_ground() -> Vec<LeafletContainerGroundEvent> {
+    GROUND.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
 pub fn clear() {
     DROPS.with(|l| l.borrow_mut().clear());
     GROUND.with(|l| l.borrow_mut().clear());

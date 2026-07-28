@@ -3,35 +3,33 @@ pub mod buildings;
 pub mod combat;
 pub mod combat_particles;
 pub mod game_logic;
-pub mod host_a10_strike_flight;
 pub mod host_a10_strike_drop_log;
+pub mod host_a10_strike_flight;
 pub mod host_active_shroud_upgrade;
 pub mod host_ai_ability_upgrade_residual;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;
 pub mod host_ai_request_log;
 pub mod host_animation_steering;
-pub mod host_anthrax_bomb_flight;
 pub mod host_anthrax_bomb_drop_log;
-pub mod host_artillery_barrage_flight;
+pub mod host_anthrax_bomb_flight;
 pub mod host_artillery_barrage_drop_log;
+pub mod host_artillery_barrage_flight;
 pub mod host_body_damage_log;
 pub mod host_bounce_land_log;
-pub mod host_carpet_bomb_flight;
 pub mod host_carpet_bomb_drop_log;
-pub mod host_leaflet_b52_drop_log;
-pub mod host_paradrop_cargo_drop_log;
+pub mod host_carpet_bomb_flight;
 pub mod host_checkpoint_update;
-pub mod host_cluster_mines_flight;
 pub mod host_cluster_mines_drop_log;
+pub mod host_cluster_mines_flight;
 pub mod host_combat_attack_log;
 pub mod host_create_crate_die;
-pub mod host_daisy_cutter_flight;
 pub mod host_daisy_cutter_drop_log;
+pub mod host_daisy_cutter_flight;
 pub mod host_damage_log;
 pub mod host_death_type_log;
-pub mod host_emp_pulse_flight;
 pub mod host_emp_pulse_drop_log;
+pub mod host_emp_pulse_flight;
 pub mod host_fire_intent_log;
 pub mod host_fire_sound_loop_log;
 pub mod host_fire_spawn_log;
@@ -41,6 +39,7 @@ pub mod host_guard_log;
 pub mod host_heal_log;
 pub mod host_hijacker_log;
 pub mod host_hive_log;
+pub mod host_leaflet_b52_drop_log;
 pub mod host_locomotor_log;
 pub mod host_max_health_log;
 pub mod host_neutron_missile_update;
@@ -48,6 +47,7 @@ pub mod host_ocl_apply_random_force;
 pub mod host_ocl_create_debris;
 pub mod host_ocl_fire_weapon_attack;
 pub mod host_ocl_special_power;
+pub mod host_paradrop_cargo_drop_log;
 pub mod host_physics_motive_log;
 pub mod host_production_door_log;
 pub mod host_projectile_log;
@@ -121,6 +121,37 @@ pub mod host_hive_ready_log;
 pub mod host_identity_log;
 pub mod host_identity_ready_log;
 pub mod host_kind_of_log;
+pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
+pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
+pub mod host_live_host_alias_fallback_opt_in_residual_wave725;
+pub mod host_live_host_angry_mob_member_follow_dual_peel_residual_wave801;
+pub mod host_live_host_angry_mob_projectile_dual_peel_residual_wave799;
+pub mod host_live_host_anim_steer_dual_peel_residual_wave784;
+pub mod host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789;
+pub mod host_live_host_artillery_barrage_flight_dual_peel_residual_wave793;
+pub mod host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797;
+pub mod host_live_host_auto_deposit_dual_peel_residual_wave821;
+pub mod host_live_host_auto_select_mobile_opt_in_residual_wave726;
+pub mod host_live_host_auto_target_opt_in_residual_wave729;
+pub mod host_live_host_base_regen_dual_peel_residual_wave780;
+pub mod host_live_host_battlemaster_horde_dual_peel_residual_wave812;
+pub mod host_live_host_beam_flare_shell_dual_peel_residual_wave806;
+pub mod host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751;
+pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
+pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
+pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
+pub mod host_live_host_china_infantry_horde_dual_peel_residual_wave813;
+pub mod host_live_host_cluster_mines_flight_dual_peel_residual_wave790;
+pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
+pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
+pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
+pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
+pub mod host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746;
+pub mod host_live_host_daisy_cutter_flight_dual_peel_residual_wave788;
+pub mod host_live_host_default_template_opt_in_residual_wave727;
+pub mod host_live_host_defection_timer_dual_peel_residual_wave766;
+pub mod host_live_host_dozer_bored_dual_peel_residual_wave819;
+pub mod host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753;
 pub mod host_live_host_eager_ai_fire_intent_helper_residual_wave687;
 pub mod host_live_host_eager_aimood_request_shock_helper_residual_wave704;
 pub mod host_live_host_eager_attitude_overcharge_stealth_helper_residual_wave694;
@@ -147,114 +178,6 @@ pub mod host_live_host_eager_prod_construction_helper_residual_wave709;
 pub mod host_live_host_eager_sp_radar_progress_helper_residual_wave707;
 pub mod host_live_host_eager_spawn_map_helper_residual_wave680;
 pub mod host_live_host_eager_spawn_move_attack_helper_residual_wave712;
-pub mod host_live_host_production_ready_no_empty_scan_residual_wave713;
-pub mod host_live_host_production_same_frame_ready_complete_residual_wave714;
-pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
-pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
-pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
-pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
-pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
-pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
-pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
-pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
-pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
-pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
-pub mod host_live_host_alias_fallback_opt_in_residual_wave725;
-pub mod host_live_host_auto_select_mobile_opt_in_residual_wave726;
-pub mod host_live_host_default_template_opt_in_residual_wave727;
-pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
-pub mod host_live_host_auto_target_opt_in_residual_wave729;
-pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
-pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
-pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
-pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
-pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
-pub mod host_live_host_production_ready_pose_authority_residual_wave735;
-pub mod host_live_host_production_spawn_entity_first_residual_wave736;
-pub mod host_live_host_production_object_id_prefers_gw_entity_residual_wave737;
-pub mod host_live_host_production_spawn_requires_gw_bind_residual_wave738;
-pub mod host_live_host_production_spawn_pose_no_rejitter_residual_wave739;
-pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
-pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
-pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
-pub mod host_live_host_production_door_sole_no_dual_tick_residual_wave743;
-pub mod host_live_host_radar_extend_no_dual_complete_residual_wave744;
-pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
-pub mod host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746;
-pub mod host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747;
-pub mod host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748;
-pub mod host_live_host_tensile_rubble_no_damage_auth_hp_stomp_residual_wave749;
-pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
-pub mod host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751;
-pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
-pub mod host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753;
-pub mod host_live_host_eject_pilot_die_death_start_residual_wave754;
-pub mod host_live_host_writeback_skip_pending_host_logs_residual_wave755;
-pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
-pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
-pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
-pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave759;
-pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wave760;
-pub mod host_live_host_status_timer_dual_peel_residual_wave761;
-pub mod host_live_host_eject_invuln_dual_peel_residual_wave762;
-pub mod host_live_host_force_reload_dual_peel_residual_wave763;
-pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
-pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
-pub mod host_live_host_defection_timer_dual_peel_residual_wave766;
-pub mod host_live_host_fire_sound_loop_dual_peel_residual_wave767;
-pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
-pub mod host_live_host_poison_dot_dual_peel_residual_wave769;
-pub mod host_live_host_topple_fall_dual_peel_residual_wave770;
-pub mod host_live_host_height_die_dual_peel_residual_wave771;
-pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
-pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
-pub mod host_live_host_slow_death_dual_peel_residual_wave774;
-pub mod host_live_host_structure_collapse_dual_peel_residual_wave775;
-pub mod host_live_host_structure_topple_dual_peel_residual_wave776;
-pub mod host_live_host_structure_topple_crush_dual_peel_residual_wave777;
-pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
-pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
-pub mod host_live_host_base_regen_dual_peel_residual_wave780;
-pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
-pub mod host_live_host_prone_update_dual_peel_residual_wave782;
-pub mod host_live_host_float_update_dual_peel_residual_wave783;
-pub mod host_live_host_anim_steer_dual_peel_residual_wave784;
-pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
-pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
-pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
-pub mod host_live_host_daisy_cutter_flight_dual_peel_residual_wave788;
-pub mod host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789;
-pub mod host_live_host_cluster_mines_flight_dual_peel_residual_wave790;
-pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
-pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
-pub mod host_live_host_artillery_barrage_flight_dual_peel_residual_wave793;
-pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
-pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
-pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
-pub mod host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797;
-pub mod host_live_host_toxin_stream_projectile_dual_peel_residual_wave798;
-pub mod host_live_host_angry_mob_projectile_dual_peel_residual_wave799;
-pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
-pub mod host_live_host_angry_mob_member_follow_dual_peel_residual_wave801;
-pub mod host_live_host_field_object_expire_dual_peel_residual_wave802;
-pub mod host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803;
-pub mod host_live_host_flashbang_comanche_helix_dual_peel_residual_wave804;
-pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
-pub mod host_live_host_beam_flare_shell_dual_peel_residual_wave806;
-pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
-pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
-pub mod host_live_host_firewall_radar_dual_peel_residual_wave809;
-pub mod host_live_host_power_plant_rods_dual_peel_residual_wave810;
-pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
-pub mod host_live_host_battlemaster_horde_dual_peel_residual_wave812;
-pub mod host_live_host_china_infantry_horde_dual_peel_residual_wave813;
-pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
-pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
-pub mod host_live_host_player_alive_dual_peel_residual_wave816;
-pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
-pub mod host_live_host_player_radar_dual_peel_residual_wave818;
-pub mod host_live_host_dozer_bored_dual_peel_residual_wave819;
-pub mod host_live_host_fire_spread_dual_peel_residual_wave820;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_stealth_sole_radar_helper_residual_wave705;
 pub mod host_live_host_eager_tloc_detector_cf_helper_residual_wave693;
@@ -262,8 +185,86 @@ pub mod host_live_host_eager_turret_guard_rally_helper_residual_wave692;
 pub mod host_live_host_eager_weapon_bonus_slot_helper_residual_wave690;
 pub mod host_live_host_eager_weapon_set_power_helper_residual_wave691;
 pub mod host_live_host_eager_wstats_sel_model_helper_residual_wave697;
+pub mod host_live_host_eject_invuln_dual_peel_residual_wave762;
+pub mod host_live_host_eject_pilot_die_death_start_residual_wave754;
+pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
+pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
+pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
+pub mod host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747;
+pub mod host_live_host_field_object_expire_dual_peel_residual_wave802;
+pub mod host_live_host_fire_sound_loop_dual_peel_residual_wave767;
+pub mod host_live_host_fire_spread_dual_peel_residual_wave820;
+pub mod host_live_host_firewall_radar_dual_peel_residual_wave809;
+pub mod host_live_host_flashbang_comanche_helix_dual_peel_residual_wave804;
+pub mod host_live_host_float_update_dual_peel_residual_wave783;
+pub mod host_live_host_force_reload_dual_peel_residual_wave763;
+pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
+pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
+pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
+pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
+pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
+pub mod host_live_host_height_die_dual_peel_residual_wave771;
+pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
+pub mod host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748;
+pub mod host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803;
+pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
+pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
+pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
+pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
+pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
+pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
+pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
+pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
+pub mod host_live_host_player_alive_dual_peel_residual_wave816;
+pub mod host_live_host_player_radar_dual_peel_residual_wave818;
+pub mod host_live_host_poison_dot_dual_peel_residual_wave769;
+pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
+pub mod host_live_host_power_plant_rods_dual_peel_residual_wave810;
+pub mod host_live_host_production_door_sole_no_dual_tick_residual_wave743;
+pub mod host_live_host_production_object_id_prefers_gw_entity_residual_wave737;
+pub mod host_live_host_production_ready_no_empty_scan_residual_wave713;
+pub mod host_live_host_production_ready_pose_authority_residual_wave735;
+pub mod host_live_host_production_same_frame_ready_complete_residual_wave714;
+pub mod host_live_host_production_spawn_entity_first_residual_wave736;
+pub mod host_live_host_production_spawn_pose_no_rejitter_residual_wave739;
 pub mod host_live_host_production_spawn_ready_log_helper_residual_wave679;
+pub mod host_live_host_production_spawn_requires_gw_bind_residual_wave738;
 pub mod host_live_host_projectiles_ready_log_helper_residual_wave678;
+pub mod host_live_host_prone_update_dual_peel_residual_wave782;
+pub mod host_live_host_radar_extend_no_dual_complete_residual_wave744;
+pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
+pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
+pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
+pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
+pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
+pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
+pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
+pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
+pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
+pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
+pub mod host_live_host_slow_death_dual_peel_residual_wave774;
+pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
+pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
+pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
+pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
+pub mod host_live_host_status_timer_dual_peel_residual_wave761;
+pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
+pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
+pub mod host_live_host_structure_collapse_dual_peel_residual_wave775;
+pub mod host_live_host_structure_topple_crush_dual_peel_residual_wave777;
+pub mod host_live_host_structure_topple_dual_peel_residual_wave776;
+pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
+pub mod host_live_host_tensile_rubble_no_damage_auth_hp_stomp_residual_wave749;
+pub mod host_live_host_topple_fall_dual_peel_residual_wave770;
+pub mod host_live_host_toxin_stream_projectile_dual_peel_residual_wave798;
+pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
+pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
+pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
+pub mod host_live_host_writeback_skip_pending_host_logs_residual_wave755;
+pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave759;
+pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wave760;
+pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
+pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
 pub mod host_locomotor_ready_log;
 pub mod host_model_condition_log;
 pub mod host_model_condition_ready_log;
@@ -328,47 +329,36 @@ pub mod host_weapon_slot_ready_log;
 pub mod host_weapon_stats_log;
 pub mod host_weapon_stats_ready_log;
 pub use host_economy_log::{drain as drain_host_economy_events, HostEconomyEvent};
+pub mod host_actively_constructing_log;
 pub mod host_ai_path_combat_residual_wave105;
 pub mod host_ambush;
 pub mod host_angry_mob;
-pub mod host_angry_mob_projectile_log;
-pub mod host_cannon_shell_projectile_log;
 pub mod host_angry_mob_member_follow_log;
-pub mod host_field_object_expire_log;
-pub mod host_inferno_shell_projectile_log;
-pub mod host_spy_satellite_ping_log;
-pub mod host_flashbang_comanche_helix_projectile_log;
-pub mod host_scorpion_missile_projectile_log;
-pub mod host_sticky_booby_attach_log;
-pub mod host_power_plant_rods_log;
-pub mod host_battlemaster_horde_log;
-pub mod host_china_infantry_horde_log;
-pub mod host_stinger_hive_log;
-pub mod host_actively_constructing_log;
-pub mod host_player_radar_log;
-pub mod host_dozer_bored_log;
-pub mod host_fire_spread_log;
+pub mod host_angry_mob_projectile_log;
 pub mod host_armor_residual;
 pub mod host_aurora_bomb;
 pub mod host_aurora_bomb_projectile_log;
-pub mod host_toxin_stream_projectile_log;
+pub mod host_auto_deposit_log;
 pub mod host_avenger;
 mod host_baikonur_launch;
 pub mod host_base_defense;
 pub mod host_base_regenerate;
 pub mod host_battle_bus;
 pub mod host_battlemaster;
+pub mod host_battlemaster_horde_log;
 pub mod host_beacon_residual_wave142;
-pub mod host_black_market;
+mod host_black_market;
 pub mod host_bomb_truck_detonate;
 pub mod host_bomb_truck_disguise;
 mod host_bone_fx_damage;
 pub mod host_booby_trap;
 pub mod host_bunker_buster;
+pub mod host_cannon_shell_projectile_log;
 pub mod host_car_bomb;
 pub mod host_cash_bounty;
 pub mod host_challenge_generals_residual_wave152;
 pub mod host_challenge_menu_residual_wave120;
+pub mod host_china_infantry_horde_log;
 pub mod host_cia_intelligence;
 pub mod host_cleanup_area;
 pub mod host_colonel_burton;
@@ -396,6 +386,7 @@ mod host_deploy_style;
 pub mod host_difficulty_select_residual_wave134;
 pub mod host_diplomacy_residual_wave129;
 pub mod host_dock_contain_exit_heal_residual;
+pub mod host_dozer_bored_log;
 pub mod host_dragon_tank;
 pub mod host_drawable_display_client_residual_wave111;
 pub mod host_ecm_jam;
@@ -408,15 +399,18 @@ pub mod host_eva_residual_wave143;
 pub mod host_executable_gameworld_presentation_residual_wave188;
 pub mod host_executable_presentation_boundary_residual_wave176;
 pub mod host_faction_skirmish_residual;
+pub mod host_field_object_expire_log;
 pub mod host_fire_base;
 pub mod host_fire_spread;
+pub mod host_fire_spread_log;
 mod host_fire_weapon_power;
 pub mod host_fire_weapon_when_damaged;
-pub mod host_fwwd_continuous_log;
-pub mod host_fwwd_reaction_log;
 mod host_fire_weapon_when_dead;
 pub mod host_firewall;
+pub mod host_flashbang_comanche_helix_projectile_log;
 pub mod host_frenzy;
+pub mod host_fwwd_continuous_log;
+pub mod host_fwwd_reaction_log;
 pub mod host_fx_audio_cursor_residual;
 mod host_fx_list_die;
 pub mod host_fx_ocl_particle_audio_residual_wave107;
@@ -438,6 +432,7 @@ pub mod host_hacker_income;
 pub mod host_heal;
 pub mod host_height_die;
 pub mod host_height_die_kill_log;
+pub mod host_heli_slow_death_kill_log;
 pub mod host_helicopter_slow_death;
 pub mod host_helix_minigun;
 pub mod host_helix_napalm;
@@ -449,15 +444,15 @@ pub mod host_idle_worker_residual_wave137;
 pub mod host_ime_residual_wave144;
 pub mod host_in_game_chat_residual_wave136;
 pub mod host_inferno_cannon;
+pub mod host_inferno_shell_projectile_log;
 pub mod host_jarmen_kell;
 pub mod host_jet_slow_death;
 pub mod host_jet_slow_death_kill_log;
-pub mod host_heli_slow_death_kill_log;
 mod host_keep_object_die;
 pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
-pub mod host_lifetime_update;
 pub mod host_lifetime_expire_log;
+pub mod host_lifetime_update;
 pub mod host_listening_outpost;
 pub mod host_live_a10_strike_dual_world_empty_gate_residual_wave330;
 pub mod host_live_action_manager_dual_world_empty_gate_residual_wave347;
@@ -995,11 +990,13 @@ pub mod host_paradrop;
 pub mod host_partition_collision_physics_residual;
 pub mod host_passengers_fire_upgrade;
 pub mod host_pathfinder;
+pub mod host_player_radar_log;
 pub mod host_point_defense;
-pub mod host_poisoned_behavior;
 pub mod host_poison_dot_log;
+pub mod host_poisoned_behavior;
 pub mod host_popup_communicator_residual_wave139;
 pub mod host_popup_replay_residual_wave130;
+pub mod host_power_plant_rods_log;
 mod host_preorder_create;
 pub mod host_presentation_boundary_residual_wave157;
 pub mod host_presentation_client_boundary_residual_wave174;
@@ -1028,6 +1025,7 @@ pub mod host_save_load_menu_residual_wave121;
 pub mod host_science_rank;
 pub mod host_score_screen_residual_wave125;
 pub mod host_scorpion;
+pub mod host_scorpion_missile_projectile_log;
 pub mod host_script_map_team_player_residual;
 pub mod host_scud_launcher;
 pub mod host_sentry_drone;
@@ -1051,19 +1049,22 @@ mod host_special_power_completion_die;
 pub mod host_special_power_enum_residual;
 pub mod host_spy_drone;
 pub mod host_spy_satellite;
+pub mod host_spy_satellite_ping_log;
 mod host_squish_collide;
 pub mod host_start_game_loading_residual_wave169;
 pub mod host_status_bits_upgrade;
 mod host_status_damage;
 pub mod host_stealth_fighter;
+pub mod host_sticky_booby_attach_log;
+pub mod host_stinger_hive_log;
 pub mod host_strategy_center;
 pub mod host_structure_collapse;
 pub mod host_structure_collapse_kill_log;
 pub mod host_structure_economy_residual;
 pub mod host_structure_inventory_residual_wave149;
 pub mod host_structure_topple;
-pub mod host_structure_topple_kill_log;
 pub mod host_structure_topple_crush_log;
+pub mod host_structure_topple_kill_log;
 mod host_sub_objects_upgrade;
 pub mod host_superweapon_kindof;
 pub mod host_supply_drop_zone;
@@ -1078,6 +1079,7 @@ pub mod host_timing_shell_residual;
 pub mod host_tomahawk;
 pub mod host_topple;
 pub mod host_topple_kill_log;
+pub mod host_toxin_stream_projectile_log;
 pub mod host_toxin_tractor;
 mod host_transition_damage_fx;
 pub mod host_troop_crawler;
@@ -1457,10 +1459,11 @@ pub use host_object_register_drawable_residual_wave104::{
 };
 pub use host_oil_derrick::{
     is_legal_oil_derrick_income_source, is_oil_derrick_structure, is_oil_derrick_template,
-    structure_floating_text_scatter, HostOilDerrickRegistry, OIL_DERRICK_CAPTURE_BONUS_AUDIO,
-    OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO,
-    OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, OIL_DERRICK_DEPOSIT_TIMING_MS,
-    OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE, OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+    oil_derrick_deposit_amount, structure_floating_text_scatter, HostOilDerrickRegistry,
+    OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+    OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO, OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES,
+    OIL_DERRICK_DEPOSIT_TIMING_MS, OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE,
+    OIL_DERRICK_INITIAL_CAPTURE_BONUS,
 };
 pub use host_overlord_addons::{
     is_emperor_template, is_helix_template, is_overlord_family_host, is_overlord_tank_template,
@@ -2848,6 +2851,28 @@ pub use host_live_fixed_step_diag_presentation_helper_residual_wave564::{
     residual_fixed_step_diag_presentation_helper_ok,
     simulate_live_fixed_step_diag_presentation_helper_honesty,
 };
+pub use host_live_host_a10_strike_flight_dual_peel_residual_wave792::{
+    honesty_host_a10_strike_flight_dual_peel_method_names_residual_wave792,
+    honesty_host_a10_strike_flight_dual_peel_nav_commands_residual_wave792,
+    honesty_host_a10_strike_flight_dual_peel_residual_pack_wave792,
+    honesty_host_a10_strike_flight_dual_peel_source_markers_residual_wave792,
+    residual_host_a10_strike_flight_dual_peel_last_action,
+    residual_host_a10_strike_flight_dual_peel_ok,
+    simulate_host_a10_strike_flight_dual_peel_collect_source,
+    simulate_host_a10_strike_flight_dual_peel_dispatch_source,
+    simulate_live_host_a10_strike_flight_dual_peel_honesty,
+};
+pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
+    honesty_host_actively_constructing_dual_peel_method_names_residual_wave815,
+    honesty_host_actively_constructing_dual_peel_nav_commands_residual_wave815,
+    honesty_host_actively_constructing_dual_peel_residual_pack_wave815,
+    honesty_host_actively_constructing_dual_peel_source_markers_residual_wave815,
+    residual_host_actively_constructing_dual_peel_last_action,
+    residual_host_actively_constructing_dual_peel_ok,
+    simulate_host_actively_constructing_dual_peel_collect_source,
+    simulate_host_actively_constructing_dual_peel_dispatch_source,
+    simulate_live_host_actively_constructing_dual_peel_honesty,
+};
 pub use host_live_host_ai_attitude_ready_log_helper_residual_wave659::{
     honesty_host_ai_attitude_ready_log_helper_method_names_residual_wave659,
     honesty_host_ai_attitude_ready_log_helper_nav_commands_residual_wave659,
@@ -2883,6 +2908,66 @@ pub use host_live_host_ai_state_ready_log_helper_residual_wave630::{
     residual_host_ai_state_ready_log_helper_ok,
     simulate_live_host_ai_state_ready_log_helper_honesty,
 };
+pub use host_live_host_alias_fallback_opt_in_residual_wave725::{
+    honesty_host_alias_fallback_opt_in_method_names_residual_wave725,
+    honesty_host_alias_fallback_opt_in_nav_commands_residual_wave725,
+    honesty_host_alias_fallback_opt_in_residual_pack_wave725,
+    honesty_host_alias_fallback_opt_in_source_markers_residual_wave725,
+    residual_host_alias_fallback_opt_in_last_action, residual_host_alias_fallback_opt_in_ok,
+    simulate_live_host_alias_fallback_opt_in_honesty,
+};
+pub use host_live_host_angry_mob_member_follow_dual_peel_residual_wave801::{
+    honesty_host_angry_mob_member_follow_dual_peel_method_names_residual_wave801,
+    honesty_host_angry_mob_member_follow_dual_peel_nav_commands_residual_wave801,
+    honesty_host_angry_mob_member_follow_dual_peel_residual_pack_wave801,
+    honesty_host_angry_mob_member_follow_dual_peel_source_markers_residual_wave801,
+    residual_host_angry_mob_member_follow_dual_peel_last_action,
+    residual_host_angry_mob_member_follow_dual_peel_ok,
+    simulate_host_angry_mob_member_follow_dual_peel_collect_source,
+    simulate_host_angry_mob_member_follow_dual_peel_dispatch_source,
+    simulate_live_host_angry_mob_member_follow_dual_peel_honesty,
+};
+pub use host_live_host_angry_mob_projectile_dual_peel_residual_wave799::{
+    honesty_host_angry_mob_projectile_dual_peel_method_names_residual_wave799,
+    honesty_host_angry_mob_projectile_dual_peel_nav_commands_residual_wave799,
+    honesty_host_angry_mob_projectile_dual_peel_residual_pack_wave799,
+    honesty_host_angry_mob_projectile_dual_peel_source_markers_residual_wave799,
+    residual_host_angry_mob_projectile_dual_peel_last_action,
+    residual_host_angry_mob_projectile_dual_peel_ok,
+    simulate_host_angry_mob_projectile_dual_peel_collect_source,
+    simulate_host_angry_mob_projectile_dual_peel_dispatch_source,
+    simulate_live_host_angry_mob_projectile_dual_peel_honesty,
+};
+pub use host_live_host_anim_steer_dual_peel_residual_wave784::{
+    honesty_host_anim_steer_dual_peel_method_names_residual_wave784,
+    honesty_host_anim_steer_dual_peel_nav_commands_residual_wave784,
+    honesty_host_anim_steer_dual_peel_residual_pack_wave784,
+    honesty_host_anim_steer_dual_peel_source_markers_residual_wave784,
+    residual_host_anim_steer_dual_peel_last_action, residual_host_anim_steer_dual_peel_ok,
+    simulate_live_host_anim_steer_dual_peel_honesty,
+};
+pub use host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789::{
+    honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789,
+    honesty_host_anthrax_bomb_flight_dual_peel_nav_commands_residual_wave789,
+    honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789,
+    honesty_host_anthrax_bomb_flight_dual_peel_source_markers_residual_wave789,
+    residual_host_anthrax_bomb_flight_dual_peel_last_action,
+    residual_host_anthrax_bomb_flight_dual_peel_ok,
+    simulate_host_anthrax_bomb_flight_dual_peel_collect_source,
+    simulate_host_anthrax_bomb_flight_dual_peel_dispatch_source,
+    simulate_live_host_anthrax_bomb_flight_dual_peel_honesty,
+};
+pub use host_live_host_artillery_barrage_flight_dual_peel_residual_wave793::{
+    honesty_host_artillery_barrage_flight_dual_peel_method_names_residual_wave793,
+    honesty_host_artillery_barrage_flight_dual_peel_nav_commands_residual_wave793,
+    honesty_host_artillery_barrage_flight_dual_peel_residual_pack_wave793,
+    honesty_host_artillery_barrage_flight_dual_peel_source_markers_residual_wave793,
+    residual_host_artillery_barrage_flight_dual_peel_last_action,
+    residual_host_artillery_barrage_flight_dual_peel_ok,
+    simulate_host_artillery_barrage_flight_dual_peel_collect_source,
+    simulate_host_artillery_barrage_flight_dual_peel_dispatch_source,
+    simulate_live_host_artillery_barrage_flight_dual_peel_honesty,
+};
 pub use host_live_host_attack_target_ready_log_helper_residual_wave638::{
     honesty_host_attack_target_ready_log_helper_method_names_residual_wave638,
     honesty_host_attack_target_ready_log_helper_nav_commands_residual_wave638,
@@ -2892,6 +2977,70 @@ pub use host_live_host_attack_target_ready_log_helper_residual_wave638::{
     residual_host_attack_target_ready_log_helper_ok,
     simulate_live_host_attack_target_ready_log_helper_honesty,
 };
+pub use host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797::{
+    honesty_host_aurora_bomb_projectile_dual_peel_method_names_residual_wave797,
+    honesty_host_aurora_bomb_projectile_dual_peel_nav_commands_residual_wave797,
+    honesty_host_aurora_bomb_projectile_dual_peel_residual_pack_wave797,
+    honesty_host_aurora_bomb_projectile_dual_peel_source_markers_residual_wave797,
+    residual_host_aurora_bomb_projectile_dual_peel_last_action,
+    residual_host_aurora_bomb_projectile_dual_peel_ok,
+    simulate_host_aurora_bomb_projectile_dual_peel_collect_source,
+    simulate_host_aurora_bomb_projectile_dual_peel_dispatch_source,
+    simulate_live_host_aurora_bomb_projectile_dual_peel_honesty,
+};
+pub use host_live_host_auto_deposit_dual_peel_residual_wave821::{
+    honesty_host_auto_deposit_dual_peel_method_names_residual_wave821,
+    honesty_host_auto_deposit_dual_peel_nav_commands_residual_wave821,
+    honesty_host_auto_deposit_dual_peel_residual_pack_wave821,
+    simulate_live_host_auto_deposit_dual_peel_honesty,
+};
+pub use host_live_host_auto_select_mobile_opt_in_residual_wave726::{
+    honesty_host_auto_select_mobile_opt_in_method_names_residual_wave726,
+    honesty_host_auto_select_mobile_opt_in_nav_commands_residual_wave726,
+    honesty_host_auto_select_mobile_opt_in_residual_pack_wave726,
+    honesty_host_auto_select_mobile_opt_in_source_markers_residual_wave726,
+    residual_host_auto_select_mobile_opt_in_last_action,
+    residual_host_auto_select_mobile_opt_in_ok,
+    simulate_live_host_auto_select_mobile_opt_in_honesty,
+};
+pub use host_live_host_auto_target_opt_in_residual_wave729::{
+    honesty_host_auto_target_opt_in_method_names_residual_wave729,
+    honesty_host_auto_target_opt_in_nav_commands_residual_wave729,
+    honesty_host_auto_target_opt_in_residual_pack_wave729,
+    honesty_host_auto_target_opt_in_source_markers_residual_wave729,
+    residual_host_auto_target_opt_in_last_action, residual_host_auto_target_opt_in_ok,
+    simulate_live_host_auto_target_opt_in_honesty,
+};
+pub use host_live_host_base_regen_dual_peel_residual_wave780::{
+    honesty_host_base_regen_dual_peel_method_names_residual_wave780,
+    honesty_host_base_regen_dual_peel_nav_commands_residual_wave780,
+    honesty_host_base_regen_dual_peel_residual_pack_wave780,
+    honesty_host_base_regen_dual_peel_source_markers_residual_wave780,
+    residual_host_base_regen_dual_peel_last_action, residual_host_base_regen_dual_peel_ok,
+    simulate_live_host_base_regen_dual_peel_honesty,
+};
+pub use host_live_host_battlemaster_horde_dual_peel_residual_wave812::{
+    honesty_host_battlemaster_horde_dual_peel_method_names_residual_wave812,
+    honesty_host_battlemaster_horde_dual_peel_nav_commands_residual_wave812,
+    honesty_host_battlemaster_horde_dual_peel_residual_pack_wave812,
+    honesty_host_battlemaster_horde_dual_peel_source_markers_residual_wave812,
+    residual_host_battlemaster_horde_dual_peel_last_action,
+    residual_host_battlemaster_horde_dual_peel_ok,
+    simulate_host_battlemaster_horde_dual_peel_collect_source,
+    simulate_host_battlemaster_horde_dual_peel_dispatch_source,
+    simulate_live_host_battlemaster_horde_dual_peel_honesty,
+};
+pub use host_live_host_beam_flare_shell_dual_peel_residual_wave806::{
+    honesty_host_beam_flare_shell_dual_peel_method_names_residual_wave806,
+    honesty_host_beam_flare_shell_dual_peel_nav_commands_residual_wave806,
+    honesty_host_beam_flare_shell_dual_peel_residual_pack_wave806,
+    honesty_host_beam_flare_shell_dual_peel_source_markers_residual_wave806,
+    residual_host_beam_flare_shell_dual_peel_last_action,
+    residual_host_beam_flare_shell_dual_peel_ok,
+    simulate_host_beam_flare_shell_dual_peel_collect_source,
+    simulate_host_beam_flare_shell_dual_peel_dispatch_source,
+    simulate_live_host_beam_flare_shell_dual_peel_honesty,
+};
 pub use host_live_host_body_damage_ready_log_helper_residual_wave623::{
     honesty_host_body_damage_ready_log_helper_method_names_residual_wave623,
     honesty_host_body_damage_ready_log_helper_nav_commands_residual_wave623,
@@ -2900,6 +3049,15 @@ pub use host_live_host_body_damage_ready_log_helper_residual_wave623::{
     residual_host_body_damage_ready_log_helper_last_action,
     residual_host_body_damage_ready_log_helper_ok,
     simulate_live_host_body_damage_ready_log_helper_honesty,
+};
+pub use host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751::{
+    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_method_names_residual_wave751,
+    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_nav_commands_residual_wave751,
+    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_pack_wave751,
+    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_source_markers_residual_wave751,
+    residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_last_action,
+    residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_honesty,
 };
 pub use host_live_host_bounce_land_ready_log_helper_residual_wave650::{
     honesty_host_bounce_land_ready_log_helper_method_names_residual_wave650,
@@ -2943,6 +3101,74 @@ pub use host_live_host_cancel_selection_helper_residual_wave580::{
     honesty_host_cancel_selection_helper_source_markers_residual_wave580,
     residual_host_cancel_selection_helper_last_action, residual_host_cancel_selection_helper_ok,
     simulate_live_host_cancel_selection_helper_honesty,
+};
+pub use host_live_host_cannon_shell_projectile_dual_peel_residual_wave800::{
+    honesty_host_cannon_shell_projectile_dual_peel_method_names_residual_wave800,
+    honesty_host_cannon_shell_projectile_dual_peel_nav_commands_residual_wave800,
+    honesty_host_cannon_shell_projectile_dual_peel_residual_pack_wave800,
+    honesty_host_cannon_shell_projectile_dual_peel_source_markers_residual_wave800,
+    residual_host_cannon_shell_projectile_dual_peel_last_action,
+    residual_host_cannon_shell_projectile_dual_peel_ok,
+    simulate_host_cannon_shell_projectile_dual_peel_collect_source,
+    simulate_host_cannon_shell_projectile_dual_peel_dispatch_source,
+    simulate_live_host_cannon_shell_projectile_dual_peel_honesty,
+};
+pub use host_live_host_carpet_bomb_flight_dual_peel_residual_wave794::{
+    honesty_host_carpet_bomb_flight_dual_peel_method_names_residual_wave794,
+    honesty_host_carpet_bomb_flight_dual_peel_nav_commands_residual_wave794,
+    honesty_host_carpet_bomb_flight_dual_peel_residual_pack_wave794,
+    honesty_host_carpet_bomb_flight_dual_peel_source_markers_residual_wave794,
+    residual_host_carpet_bomb_flight_dual_peel_last_action,
+    residual_host_carpet_bomb_flight_dual_peel_ok,
+    simulate_host_carpet_bomb_flight_dual_peel_collect_source,
+    simulate_host_carpet_bomb_flight_dual_peel_dispatch_source,
+    simulate_live_host_carpet_bomb_flight_dual_peel_honesty,
+};
+pub use host_live_host_checkpoint_dual_peel_residual_wave786::{
+    honesty_host_checkpoint_dual_peel_method_names_residual_wave786,
+    honesty_host_checkpoint_dual_peel_nav_commands_residual_wave786,
+    honesty_host_checkpoint_dual_peel_residual_pack_wave786,
+    honesty_host_checkpoint_dual_peel_source_markers_residual_wave786,
+    residual_host_checkpoint_dual_peel_last_action, residual_host_checkpoint_dual_peel_ok,
+    simulate_live_host_checkpoint_dual_peel_honesty,
+};
+pub use host_live_host_china_infantry_horde_dual_peel_residual_wave813::{
+    honesty_host_china_infantry_horde_dual_peel_method_names_residual_wave813,
+    honesty_host_china_infantry_horde_dual_peel_nav_commands_residual_wave813,
+    honesty_host_china_infantry_horde_dual_peel_residual_pack_wave813,
+    honesty_host_china_infantry_horde_dual_peel_source_markers_residual_wave813,
+    residual_host_china_infantry_horde_dual_peel_last_action,
+    residual_host_china_infantry_horde_dual_peel_ok,
+    simulate_host_china_infantry_horde_dual_peel_collect_source,
+    simulate_host_china_infantry_horde_dual_peel_dispatch_source,
+    simulate_live_host_china_infantry_horde_dual_peel_honesty,
+};
+pub use host_live_host_cluster_mines_flight_dual_peel_residual_wave790::{
+    honesty_host_cluster_mines_flight_dual_peel_method_names_residual_wave790,
+    honesty_host_cluster_mines_flight_dual_peel_nav_commands_residual_wave790,
+    honesty_host_cluster_mines_flight_dual_peel_residual_pack_wave790,
+    honesty_host_cluster_mines_flight_dual_peel_source_markers_residual_wave790,
+    residual_host_cluster_mines_flight_dual_peel_last_action,
+    residual_host_cluster_mines_flight_dual_peel_ok,
+    simulate_host_cluster_mines_flight_dual_peel_collect_source,
+    simulate_host_cluster_mines_flight_dual_peel_dispatch_source,
+    simulate_live_host_cluster_mines_flight_dual_peel_honesty,
+};
+pub use host_live_host_cmd_auto_pick_opt_in_residual_wave731::{
+    honesty_host_cmd_auto_pick_opt_in_method_names_residual_wave731,
+    honesty_host_cmd_auto_pick_opt_in_nav_commands_residual_wave731,
+    honesty_host_cmd_auto_pick_opt_in_residual_pack_wave731,
+    honesty_host_cmd_auto_pick_opt_in_source_markers_residual_wave731,
+    residual_host_cmd_auto_pick_opt_in_last_action, residual_host_cmd_auto_pick_opt_in_ok,
+    simulate_live_host_cmd_auto_pick_opt_in_honesty,
+};
+pub use host_live_host_cmd_auto_select_opt_in_residual_wave730::{
+    honesty_host_cmd_auto_select_opt_in_method_names_residual_wave730,
+    honesty_host_cmd_auto_select_opt_in_nav_commands_residual_wave730,
+    honesty_host_cmd_auto_select_opt_in_residual_pack_wave730,
+    honesty_host_cmd_auto_select_opt_in_source_markers_residual_wave730,
+    residual_host_cmd_auto_select_opt_in_last_action, residual_host_cmd_auto_select_opt_in_ok,
+    simulate_live_host_cmd_auto_select_opt_in_honesty,
 };
 pub use host_live_host_combat_attack_ready_log_helper_residual_wave643::{
     honesty_host_combat_attack_ready_log_helper_method_names_residual_wave643,
@@ -2988,6 +3214,15 @@ pub use host_live_host_command_set_ready_log_helper_residual_wave644::{
     residual_host_command_set_ready_log_helper_ok,
     simulate_live_host_command_set_ready_log_helper_honesty,
 };
+pub use host_live_host_construct_spawn_dozer_opt_in_residual_wave719::{
+    honesty_host_construct_spawn_dozer_opt_in_method_names_residual_wave719,
+    honesty_host_construct_spawn_dozer_opt_in_nav_commands_residual_wave719,
+    honesty_host_construct_spawn_dozer_opt_in_residual_pack_wave719,
+    honesty_host_construct_spawn_dozer_opt_in_source_markers_residual_wave719,
+    residual_host_construct_spawn_dozer_opt_in_last_action,
+    residual_host_construct_spawn_dozer_opt_in_ok,
+    simulate_live_host_construct_spawn_dozer_opt_in_honesty,
+};
 pub use host_live_host_construction_complete_clear_ready_log_helper_residual_wave626::{
     honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626,
     honesty_host_construction_complete_clear_ready_log_helper_nav_commands_residual_wave626,
@@ -3006,6 +3241,15 @@ pub use host_live_host_construction_ready_log_helper_residual_wave617::{
     residual_host_construction_ready_log_helper_ok,
     simulate_live_host_construction_ready_log_helper_honesty,
 };
+pub use host_live_host_construction_same_frame_ready_complete_residual_wave715::{
+    honesty_host_construction_same_frame_ready_complete_method_names_residual_wave715,
+    honesty_host_construction_same_frame_ready_complete_nav_commands_residual_wave715,
+    honesty_host_construction_same_frame_ready_complete_residual_pack_wave715,
+    honesty_host_construction_same_frame_ready_complete_source_markers_residual_wave715,
+    residual_host_construction_same_frame_ready_complete_last_action,
+    residual_host_construction_same_frame_ready_complete_ok,
+    simulate_live_host_construction_same_frame_ready_complete_honesty,
+};
 pub use host_live_host_contain_ready_log_helper_residual_wave628::{
     honesty_host_contain_ready_log_helper_method_names_residual_wave628,
     honesty_host_contain_ready_log_helper_nav_commands_residual_wave628,
@@ -3023,6 +3267,15 @@ pub use host_live_host_continuous_fire_ready_log_helper_residual_wave670::{
     residual_host_continuous_fire_ready_log_helper_ok,
     simulate_live_host_continuous_fire_ready_log_helper_honesty,
 };
+pub use host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746::{
+    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_method_names_residual_wave746,
+    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_nav_commands_residual_wave746,
+    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_residual_pack_wave746,
+    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_source_markers_residual_wave746,
+    residual_host_crush_failclosed_no_damage_auth_hp_stomp_last_action,
+    residual_host_crush_failclosed_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_crush_failclosed_no_damage_auth_hp_stomp_honesty,
+};
 pub use host_live_host_crush_vision_ready_log_helper_residual_wave664::{
     honesty_host_crush_vision_ready_log_helper_method_names_residual_wave664,
     honesty_host_crush_vision_ready_log_helper_nav_commands_residual_wave664,
@@ -3032,6 +3285,15 @@ pub use host_live_host_crush_vision_ready_log_helper_residual_wave664::{
     residual_host_crush_vision_ready_log_helper_ok,
     simulate_live_host_crush_vision_ready_log_helper_honesty,
 };
+pub use host_live_host_daisy_cutter_flight_dual_peel_residual_wave788::{
+    honesty_host_daisy_cutter_flight_dual_peel_method_names_residual_wave788,
+    honesty_host_daisy_cutter_flight_dual_peel_nav_commands_residual_wave788,
+    honesty_host_daisy_cutter_flight_dual_peel_residual_pack_wave788,
+    honesty_host_daisy_cutter_flight_dual_peel_source_markers_residual_wave788,
+    residual_host_daisy_cutter_flight_dual_peel_last_action,
+    residual_host_daisy_cutter_flight_dual_peel_ok,
+    simulate_live_host_daisy_cutter_flight_dual_peel_honesty,
+};
 pub use host_live_host_death_type_ready_log_helper_residual_wave632::{
     honesty_host_death_type_ready_log_helper_method_names_residual_wave632,
     honesty_host_death_type_ready_log_helper_nav_commands_residual_wave632,
@@ -3040,6 +3302,23 @@ pub use host_live_host_death_type_ready_log_helper_residual_wave632::{
     residual_host_death_type_ready_log_helper_last_action,
     residual_host_death_type_ready_log_helper_ok,
     simulate_live_host_death_type_ready_log_helper_honesty,
+};
+pub use host_live_host_default_template_opt_in_residual_wave727::{
+    honesty_host_default_template_opt_in_method_names_residual_wave727,
+    honesty_host_default_template_opt_in_nav_commands_residual_wave727,
+    honesty_host_default_template_opt_in_residual_pack_wave727,
+    honesty_host_default_template_opt_in_source_markers_residual_wave727,
+    residual_host_default_template_opt_in_last_action, residual_host_default_template_opt_in_ok,
+    simulate_live_host_default_template_opt_in_honesty,
+};
+pub use host_live_host_defection_timer_dual_peel_residual_wave766::{
+    honesty_host_defection_timer_dual_peel_method_names_residual_wave766,
+    honesty_host_defection_timer_dual_peel_nav_commands_residual_wave766,
+    honesty_host_defection_timer_dual_peel_residual_pack_wave766,
+    honesty_host_defection_timer_dual_peel_source_markers_residual_wave766,
+    residual_host_defection_timer_dual_peel_last_action,
+    residual_host_defection_timer_dual_peel_ok,
+    simulate_live_host_defection_timer_dual_peel_honesty,
 };
 pub use host_live_host_demo_mine_cheer_ready_log_helper_residual_wave665::{
     honesty_host_demo_mine_cheer_ready_log_helper_method_names_residual_wave665,
@@ -3084,6 +3363,25 @@ pub use host_live_host_disguise_ready_log_helper_residual_wave653::{
     residual_host_disguise_ready_log_helper_last_action,
     residual_host_disguise_ready_log_helper_ok,
     simulate_live_host_disguise_ready_log_helper_honesty,
+};
+pub use host_live_host_dozer_bored_dual_peel_residual_wave819::{
+    honesty_host_dozer_bored_dual_peel_method_names_residual_wave819,
+    honesty_host_dozer_bored_dual_peel_nav_commands_residual_wave819,
+    honesty_host_dozer_bored_dual_peel_residual_pack_wave819,
+    honesty_host_dozer_bored_dual_peel_source_markers_residual_wave819,
+    residual_host_dozer_bored_dual_peel_last_action, residual_host_dozer_bored_dual_peel_ok,
+    simulate_host_dozer_bored_dual_peel_collect_source,
+    simulate_host_dozer_bored_dual_peel_dispatch_source,
+    simulate_live_host_dozer_bored_dual_peel_honesty,
+};
+pub use host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753::{
+    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_method_names_residual_wave753,
+    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_nav_commands_residual_wave753,
+    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_pack_wave753,
+    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_source_markers_residual_wave753,
+    residual_host_dual_line_lethal_no_damage_auth_hp_stomp_last_action,
+    residual_host_dual_line_lethal_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_dual_line_lethal_no_damage_auth_hp_stomp_honesty,
 };
 pub use host_live_host_eager_ai_fire_intent_helper_residual_wave687::{
     honesty_host_eager_ai_fire_intent_helper_method_names_residual_wave687,
@@ -3313,68 +3611,125 @@ pub use host_live_host_eager_spawn_move_attack_helper_residual_wave712::{
     residual_host_eager_spawn_move_attack_helper_ok,
     simulate_live_host_eager_spawn_move_attack_helper_honesty,
 };
-pub use host_live_host_production_ready_no_empty_scan_residual_wave713::{
-    honesty_host_production_ready_no_empty_scan_method_names_residual_wave713,
-    honesty_host_production_ready_no_empty_scan_nav_commands_residual_wave713,
-    honesty_host_production_ready_no_empty_scan_residual_pack_wave713,
-    honesty_host_production_ready_no_empty_scan_source_markers_residual_wave713,
-    residual_host_production_ready_no_empty_scan_last_action,
-    residual_host_production_ready_no_empty_scan_ok,
-    simulate_live_host_production_ready_no_empty_scan_honesty,
+pub use host_live_host_eject_invuln_dual_peel_residual_wave762::{
+    honesty_host_eject_invuln_dual_peel_method_names_residual_wave762,
+    honesty_host_eject_invuln_dual_peel_nav_commands_residual_wave762,
+    honesty_host_eject_invuln_dual_peel_residual_pack_wave762,
+    honesty_host_eject_invuln_dual_peel_source_markers_residual_wave762,
+    residual_host_eject_invuln_dual_peel_last_action, residual_host_eject_invuln_dual_peel_ok,
+    simulate_live_host_eject_invuln_dual_peel_honesty,
 };
-pub use host_live_host_production_same_frame_ready_complete_residual_wave714::{
-    honesty_host_production_same_frame_ready_complete_method_names_residual_wave714,
-    honesty_host_production_same_frame_ready_complete_nav_commands_residual_wave714,
-    honesty_host_production_same_frame_ready_complete_residual_pack_wave714,
-    honesty_host_production_same_frame_ready_complete_source_markers_residual_wave714,
-    residual_host_production_same_frame_ready_complete_last_action,
-    residual_host_production_same_frame_ready_complete_ok,
-    simulate_live_host_production_same_frame_ready_complete_honesty,
+pub use host_live_host_eject_pilot_die_death_start_residual_wave754::{
+    honesty_host_eject_pilot_die_death_start_method_names_residual_wave754,
+    honesty_host_eject_pilot_die_death_start_nav_commands_residual_wave754,
+    honesty_host_eject_pilot_die_death_start_residual_pack_wave754,
+    honesty_host_eject_pilot_die_death_start_source_markers_residual_wave754,
+    residual_host_eject_pilot_die_death_start_last_action,
+    residual_host_eject_pilot_die_death_start_ok,
+    simulate_live_host_eject_pilot_die_death_start_honesty,
 };
-pub use host_live_host_construction_same_frame_ready_complete_residual_wave715::{
-    honesty_host_construction_same_frame_ready_complete_method_names_residual_wave715,
-    honesty_host_construction_same_frame_ready_complete_nav_commands_residual_wave715,
-    honesty_host_construction_same_frame_ready_complete_residual_pack_wave715,
-    honesty_host_construction_same_frame_ready_complete_source_markers_residual_wave715,
-    residual_host_construction_same_frame_ready_complete_last_action,
-    residual_host_construction_same_frame_ready_complete_ok,
-    simulate_live_host_construction_same_frame_ready_complete_honesty,
+pub use host_live_host_emp_pulse_flight_dual_peel_residual_wave791::{
+    honesty_host_emp_pulse_flight_dual_peel_method_names_residual_wave791,
+    honesty_host_emp_pulse_flight_dual_peel_nav_commands_residual_wave791,
+    honesty_host_emp_pulse_flight_dual_peel_residual_pack_wave791,
+    honesty_host_emp_pulse_flight_dual_peel_source_markers_residual_wave791,
+    residual_host_emp_pulse_flight_dual_peel_last_action,
+    residual_host_emp_pulse_flight_dual_peel_ok,
+    simulate_host_emp_pulse_flight_dual_peel_collect_source,
+    simulate_host_emp_pulse_flight_dual_peel_dispatch_source,
+    simulate_live_host_emp_pulse_flight_dual_peel_honesty,
 };
-pub use host_live_host_sell_same_frame_ready_complete_residual_wave716::{
-    honesty_host_sell_same_frame_ready_complete_method_names_residual_wave716,
-    honesty_host_sell_same_frame_ready_complete_nav_commands_residual_wave716,
-    honesty_host_sell_same_frame_ready_complete_residual_pack_wave716,
-    honesty_host_sell_same_frame_ready_complete_source_markers_residual_wave716,
-    residual_host_sell_same_frame_ready_complete_last_action,
-    residual_host_sell_same_frame_ready_complete_ok,
-    simulate_live_host_sell_same_frame_ready_complete_honesty,
+pub use host_live_host_enemy_near_dual_peel_residual_wave781::{
+    honesty_host_enemy_near_dual_peel_method_names_residual_wave781,
+    honesty_host_enemy_near_dual_peel_nav_commands_residual_wave781,
+    honesty_host_enemy_near_dual_peel_residual_pack_wave781,
+    honesty_host_enemy_near_dual_peel_source_markers_residual_wave781,
+    residual_host_enemy_near_dual_peel_last_action, residual_host_enemy_near_dual_peel_ok,
+    simulate_live_host_enemy_near_dual_peel_honesty,
 };
-pub use host_live_host_special_power_same_frame_ready_eva_residual_wave717::{
-    honesty_host_special_power_same_frame_ready_eva_method_names_residual_wave717,
-    honesty_host_special_power_same_frame_ready_eva_nav_commands_residual_wave717,
-    honesty_host_special_power_same_frame_ready_eva_residual_pack_wave717,
-    honesty_host_special_power_same_frame_ready_eva_source_markers_residual_wave717,
-    residual_host_special_power_same_frame_ready_eva_last_action,
-    residual_host_special_power_same_frame_ready_eva_ok,
-    simulate_live_host_special_power_same_frame_ready_eva_honesty,
+pub use host_live_host_ensure_barracks_opt_in_residual_wave723::{
+    honesty_host_ensure_barracks_opt_in_method_names_residual_wave723,
+    honesty_host_ensure_barracks_opt_in_nav_commands_residual_wave723,
+    honesty_host_ensure_barracks_opt_in_residual_pack_wave723,
+    honesty_host_ensure_barracks_opt_in_source_markers_residual_wave723,
+    residual_host_ensure_barracks_opt_in_last_action, residual_host_ensure_barracks_opt_in_ok,
+    simulate_live_host_ensure_barracks_opt_in_honesty,
 };
-pub use host_live_host_train_force_complete_opt_in_residual_wave718::{
-    honesty_host_train_force_complete_opt_in_method_names_residual_wave718,
-    honesty_host_train_force_complete_opt_in_nav_commands_residual_wave718,
-    honesty_host_train_force_complete_opt_in_residual_pack_wave718,
-    honesty_host_train_force_complete_opt_in_source_markers_residual_wave718,
-    residual_host_train_force_complete_opt_in_last_action,
-    residual_host_train_force_complete_opt_in_ok,
-    simulate_live_host_train_force_complete_opt_in_honesty,
+pub use host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747::{
+    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_method_names_residual_wave747,
+    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_nav_commands_residual_wave747,
+    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_residual_pack_wave747,
+    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_source_markers_residual_wave747,
+    residual_host_evacuate_exit_no_damage_auth_hp_stomp_last_action,
+    residual_host_evacuate_exit_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_evacuate_exit_no_damage_auth_hp_stomp_honesty,
 };
-pub use host_live_host_construct_spawn_dozer_opt_in_residual_wave719::{
-    honesty_host_construct_spawn_dozer_opt_in_method_names_residual_wave719,
-    honesty_host_construct_spawn_dozer_opt_in_nav_commands_residual_wave719,
-    honesty_host_construct_spawn_dozer_opt_in_residual_pack_wave719,
-    honesty_host_construct_spawn_dozer_opt_in_source_markers_residual_wave719,
-    residual_host_construct_spawn_dozer_opt_in_last_action,
-    residual_host_construct_spawn_dozer_opt_in_ok,
-    simulate_live_host_construct_spawn_dozer_opt_in_honesty,
+pub use host_live_host_field_object_expire_dual_peel_residual_wave802::{
+    honesty_host_field_object_expire_dual_peel_method_names_residual_wave802,
+    honesty_host_field_object_expire_dual_peel_nav_commands_residual_wave802,
+    honesty_host_field_object_expire_dual_peel_residual_pack_wave802,
+    honesty_host_field_object_expire_dual_peel_source_markers_residual_wave802,
+    residual_host_field_object_expire_dual_peel_last_action,
+    residual_host_field_object_expire_dual_peel_ok,
+    simulate_host_field_object_expire_dual_peel_collect_source,
+    simulate_host_field_object_expire_dual_peel_dispatch_source,
+    simulate_live_host_field_object_expire_dual_peel_honesty,
+};
+pub use host_live_host_fire_sound_loop_dual_peel_residual_wave767::{
+    honesty_host_fire_sound_loop_dual_peel_method_names_residual_wave767,
+    honesty_host_fire_sound_loop_dual_peel_nav_commands_residual_wave767,
+    honesty_host_fire_sound_loop_dual_peel_residual_pack_wave767,
+    honesty_host_fire_sound_loop_dual_peel_source_markers_residual_wave767,
+    residual_host_fire_sound_loop_dual_peel_last_action,
+    residual_host_fire_sound_loop_dual_peel_ok,
+    simulate_live_host_fire_sound_loop_dual_peel_honesty,
+};
+pub use host_live_host_fire_spread_dual_peel_residual_wave820::{
+    honesty_host_fire_spread_dual_peel_method_names_residual_wave820,
+    honesty_host_fire_spread_dual_peel_nav_commands_residual_wave820,
+    honesty_host_fire_spread_dual_peel_residual_pack_wave820,
+    honesty_host_fire_spread_dual_peel_source_markers_residual_wave820,
+    residual_host_fire_spread_dual_peel_last_action, residual_host_fire_spread_dual_peel_ok,
+    simulate_host_fire_spread_dual_peel_collect_source,
+    simulate_host_fire_spread_dual_peel_dispatch_source,
+    simulate_live_host_fire_spread_dual_peel_honesty,
+};
+pub use host_live_host_firewall_radar_dual_peel_residual_wave809::{
+    honesty_host_firewall_radar_dual_peel_method_names_residual_wave809,
+    honesty_host_firewall_radar_dual_peel_nav_commands_residual_wave809,
+    honesty_host_firewall_radar_dual_peel_residual_pack_wave809,
+    honesty_host_firewall_radar_dual_peel_source_markers_residual_wave809,
+    residual_host_firewall_radar_dual_peel_last_action, residual_host_firewall_radar_dual_peel_ok,
+    simulate_host_firewall_radar_dual_peel_collect_source,
+    simulate_host_firewall_radar_dual_peel_dispatch_source,
+    simulate_live_host_firewall_radar_dual_peel_honesty,
+};
+pub use host_live_host_flashbang_comanche_helix_dual_peel_residual_wave804::{
+    honesty_host_flashbang_comanche_helix_dual_peel_method_names_residual_wave804,
+    honesty_host_flashbang_comanche_helix_dual_peel_nav_commands_residual_wave804,
+    honesty_host_flashbang_comanche_helix_dual_peel_residual_pack_wave804,
+    honesty_host_flashbang_comanche_helix_dual_peel_source_markers_residual_wave804,
+    residual_host_flashbang_comanche_helix_dual_peel_last_action,
+    residual_host_flashbang_comanche_helix_dual_peel_ok,
+    simulate_host_flashbang_comanche_helix_dual_peel_collect_source,
+    simulate_host_flashbang_comanche_helix_dual_peel_dispatch_source,
+    simulate_live_host_flashbang_comanche_helix_dual_peel_honesty,
+};
+pub use host_live_host_float_update_dual_peel_residual_wave783::{
+    honesty_host_float_update_dual_peel_method_names_residual_wave783,
+    honesty_host_float_update_dual_peel_nav_commands_residual_wave783,
+    honesty_host_float_update_dual_peel_residual_pack_wave783,
+    honesty_host_float_update_dual_peel_source_markers_residual_wave783,
+    residual_host_float_update_dual_peel_last_action, residual_host_float_update_dual_peel_ok,
+    simulate_live_host_float_update_dual_peel_honesty,
+};
+pub use host_live_host_force_reload_dual_peel_residual_wave763::{
+    honesty_host_force_reload_dual_peel_method_names_residual_wave763,
+    honesty_host_force_reload_dual_peel_nav_commands_residual_wave763,
+    honesty_host_force_reload_dual_peel_residual_pack_wave763,
+    honesty_host_force_reload_dual_peel_source_markers_residual_wave763,
+    residual_host_force_reload_dual_peel_last_action, residual_host_force_reload_dual_peel_ok,
+    simulate_live_host_force_reload_dual_peel_honesty,
 };
 pub use host_live_host_formation_spawn_buddy_opt_in_residual_wave720::{
     honesty_host_formation_spawn_buddy_opt_in_method_names_residual_wave720,
@@ -3385,14 +3740,22 @@ pub use host_live_host_formation_spawn_buddy_opt_in_residual_wave720::{
     residual_host_formation_spawn_buddy_opt_in_ok,
     simulate_live_host_formation_spawn_buddy_opt_in_honesty,
 };
-pub use host_live_host_grant_min_supplies_opt_in_residual_wave721::{
-    honesty_host_grant_min_supplies_opt_in_method_names_residual_wave721,
-    honesty_host_grant_min_supplies_opt_in_nav_commands_residual_wave721,
-    honesty_host_grant_min_supplies_opt_in_residual_pack_wave721,
-    honesty_host_grant_min_supplies_opt_in_source_markers_residual_wave721,
-    residual_host_grant_min_supplies_opt_in_last_action,
-    residual_host_grant_min_supplies_opt_in_ok,
-    simulate_live_host_grant_min_supplies_opt_in_honesty,
+pub use host_live_host_fwwd_continuous_dual_peel_residual_wave778::{
+    honesty_host_fwwd_continuous_dual_peel_method_names_residual_wave778,
+    honesty_host_fwwd_continuous_dual_peel_nav_commands_residual_wave778,
+    honesty_host_fwwd_continuous_dual_peel_residual_pack_wave778,
+    honesty_host_fwwd_continuous_dual_peel_source_markers_residual_wave778,
+    residual_host_fwwd_continuous_dual_peel_last_action,
+    residual_host_fwwd_continuous_dual_peel_ok,
+    simulate_live_host_fwwd_continuous_dual_peel_honesty,
+};
+pub use host_live_host_fwwd_reaction_dual_peel_residual_wave779::{
+    honesty_host_fwwd_reaction_dual_peel_method_names_residual_wave779,
+    honesty_host_fwwd_reaction_dual_peel_nav_commands_residual_wave779,
+    honesty_host_fwwd_reaction_dual_peel_residual_pack_wave779,
+    honesty_host_fwwd_reaction_dual_peel_source_markers_residual_wave779,
+    residual_host_fwwd_reaction_dual_peel_last_action, residual_host_fwwd_reaction_dual_peel_ok,
+    simulate_live_host_fwwd_reaction_dual_peel_honesty,
 };
 pub use host_live_host_golden_ranger_template_opt_in_residual_wave722::{
     honesty_host_golden_ranger_template_opt_in_method_names_residual_wave722,
@@ -3403,131 +3766,188 @@ pub use host_live_host_golden_ranger_template_opt_in_residual_wave722::{
     residual_host_golden_ranger_template_opt_in_ok,
     simulate_live_host_golden_ranger_template_opt_in_honesty,
 };
-pub use host_live_host_ensure_barracks_opt_in_residual_wave723::{
-    honesty_host_ensure_barracks_opt_in_method_names_residual_wave723,
-    honesty_host_ensure_barracks_opt_in_nav_commands_residual_wave723,
-    honesty_host_ensure_barracks_opt_in_residual_pack_wave723,
-    honesty_host_ensure_barracks_opt_in_source_markers_residual_wave723,
-    residual_host_ensure_barracks_opt_in_last_action,
-    residual_host_ensure_barracks_opt_in_ok,
-    simulate_live_host_ensure_barracks_opt_in_honesty,
+pub use host_live_host_grant_min_supplies_opt_in_residual_wave721::{
+    honesty_host_grant_min_supplies_opt_in_method_names_residual_wave721,
+    honesty_host_grant_min_supplies_opt_in_nav_commands_residual_wave721,
+    honesty_host_grant_min_supplies_opt_in_residual_pack_wave721,
+    honesty_host_grant_min_supplies_opt_in_source_markers_residual_wave721,
+    residual_host_grant_min_supplies_opt_in_last_action,
+    residual_host_grant_min_supplies_opt_in_ok,
+    simulate_live_host_grant_min_supplies_opt_in_honesty,
 };
-pub use host_live_host_train_try_names_golden_opt_in_residual_wave724::{
-    honesty_host_train_try_names_golden_opt_in_method_names_residual_wave724,
-    honesty_host_train_try_names_golden_opt_in_nav_commands_residual_wave724,
-    honesty_host_train_try_names_golden_opt_in_residual_pack_wave724,
-    honesty_host_train_try_names_golden_opt_in_source_markers_residual_wave724,
-    residual_host_train_try_names_golden_opt_in_last_action,
-    residual_host_train_try_names_golden_opt_in_ok,
-    simulate_live_host_train_try_names_golden_opt_in_honesty,
+pub use host_live_host_height_die_dual_peel_residual_wave771::{
+    honesty_host_height_die_dual_peel_method_names_residual_wave771,
+    honesty_host_height_die_dual_peel_nav_commands_residual_wave771,
+    honesty_host_height_die_dual_peel_residual_pack_wave771,
+    honesty_host_height_die_dual_peel_source_markers_residual_wave771,
+    residual_host_height_die_dual_peel_last_action, residual_host_height_die_dual_peel_ok,
+    simulate_live_host_height_die_dual_peel_honesty,
 };
-pub use host_live_host_alias_fallback_opt_in_residual_wave725::{
-    honesty_host_alias_fallback_opt_in_method_names_residual_wave725,
-    honesty_host_alias_fallback_opt_in_nav_commands_residual_wave725,
-    honesty_host_alias_fallback_opt_in_residual_pack_wave725,
-    honesty_host_alias_fallback_opt_in_source_markers_residual_wave725,
-    residual_host_alias_fallback_opt_in_last_action,
-    residual_host_alias_fallback_opt_in_ok,
-    simulate_live_host_alias_fallback_opt_in_honesty,
+pub use host_live_host_heli_slow_death_dual_peel_residual_wave773::{
+    honesty_host_heli_slow_death_dual_peel_method_names_residual_wave773,
+    honesty_host_heli_slow_death_dual_peel_nav_commands_residual_wave773,
+    honesty_host_heli_slow_death_dual_peel_residual_pack_wave773,
+    honesty_host_heli_slow_death_dual_peel_source_markers_residual_wave773,
+    residual_host_heli_slow_death_dual_peel_last_action,
+    residual_host_heli_slow_death_dual_peel_ok,
+    simulate_live_host_heli_slow_death_dual_peel_honesty,
 };
-pub use host_live_host_auto_select_mobile_opt_in_residual_wave726::{
-    honesty_host_auto_select_mobile_opt_in_method_names_residual_wave726,
-    honesty_host_auto_select_mobile_opt_in_nav_commands_residual_wave726,
-    honesty_host_auto_select_mobile_opt_in_residual_pack_wave726,
-    honesty_host_auto_select_mobile_opt_in_source_markers_residual_wave726,
-    residual_host_auto_select_mobile_opt_in_last_action,
-    residual_host_auto_select_mobile_opt_in_ok,
-    simulate_live_host_auto_select_mobile_opt_in_honesty,
+pub use host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748::{
+    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_residual_wave748,
+    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_residual_wave748,
+    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_pack_wave748,
+    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_source_markers_residual_wave748,
+    residual_host_hive_struct_damage_no_damage_auth_hp_stomp_last_action,
+    residual_host_hive_struct_damage_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_hive_struct_damage_no_damage_auth_hp_stomp_honesty,
 };
-pub use host_live_host_default_template_opt_in_residual_wave727::{
-    honesty_host_default_template_opt_in_method_names_residual_wave727,
-    honesty_host_default_template_opt_in_nav_commands_residual_wave727,
-    honesty_host_default_template_opt_in_residual_pack_wave727,
-    honesty_host_default_template_opt_in_source_markers_residual_wave727,
-    residual_host_default_template_opt_in_last_action,
-    residual_host_default_template_opt_in_ok,
-    simulate_live_host_default_template_opt_in_honesty,
+pub use host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803::{
+    honesty_host_inferno_shell_spy_ping_dual_peel_method_names_residual_wave803,
+    honesty_host_inferno_shell_spy_ping_dual_peel_nav_commands_residual_wave803,
+    honesty_host_inferno_shell_spy_ping_dual_peel_residual_pack_wave803,
+    honesty_host_inferno_shell_spy_ping_dual_peel_source_markers_residual_wave803,
+    residual_host_inferno_shell_spy_ping_dual_peel_last_action,
+    residual_host_inferno_shell_spy_ping_dual_peel_ok,
+    simulate_host_inferno_shell_spy_ping_dual_peel_collect_source,
+    simulate_host_inferno_shell_spy_ping_dual_peel_dispatch_source,
+    simulate_live_host_inferno_shell_spy_ping_dual_peel_honesty,
 };
-pub use host_live_host_sell_auto_target_opt_in_residual_wave728::{
-    honesty_host_sell_auto_target_opt_in_method_names_residual_wave728,
-    honesty_host_sell_auto_target_opt_in_nav_commands_residual_wave728,
-    honesty_host_sell_auto_target_opt_in_residual_pack_wave728,
-    honesty_host_sell_auto_target_opt_in_source_markers_residual_wave728,
-    residual_host_sell_auto_target_opt_in_last_action,
-    residual_host_sell_auto_target_opt_in_ok,
-    simulate_live_host_sell_auto_target_opt_in_honesty,
+pub use host_live_host_jet_slow_death_dual_peel_residual_wave772::{
+    honesty_host_jet_slow_death_dual_peel_method_names_residual_wave772,
+    honesty_host_jet_slow_death_dual_peel_nav_commands_residual_wave772,
+    honesty_host_jet_slow_death_dual_peel_residual_pack_wave772,
+    honesty_host_jet_slow_death_dual_peel_source_markers_residual_wave772,
+    residual_host_jet_slow_death_dual_peel_last_action, residual_host_jet_slow_death_dual_peel_ok,
+    simulate_live_host_jet_slow_death_dual_peel_honesty,
 };
-pub use host_live_host_auto_target_opt_in_residual_wave729::{
-    honesty_host_auto_target_opt_in_method_names_residual_wave729,
-    honesty_host_auto_target_opt_in_nav_commands_residual_wave729,
-    honesty_host_auto_target_opt_in_residual_pack_wave729,
-    honesty_host_auto_target_opt_in_source_markers_residual_wave729,
-    residual_host_auto_target_opt_in_last_action,
-    residual_host_auto_target_opt_in_ok,
-    simulate_live_host_auto_target_opt_in_honesty,
+pub use host_live_host_leaflet_b52_flight_dual_peel_residual_wave795::{
+    honesty_host_leaflet_b52_flight_dual_peel_method_names_residual_wave795,
+    honesty_host_leaflet_b52_flight_dual_peel_nav_commands_residual_wave795,
+    honesty_host_leaflet_b52_flight_dual_peel_residual_pack_wave795,
+    honesty_host_leaflet_b52_flight_dual_peel_source_markers_residual_wave795,
+    residual_host_leaflet_b52_flight_dual_peel_last_action,
+    residual_host_leaflet_b52_flight_dual_peel_ok,
+    simulate_host_leaflet_b52_flight_dual_peel_collect_source,
+    simulate_host_leaflet_b52_flight_dual_peel_dispatch_source,
+    simulate_live_host_leaflet_b52_flight_dual_peel_honesty,
 };
-pub use host_live_host_cmd_auto_select_opt_in_residual_wave730::{
-    honesty_host_cmd_auto_select_opt_in_method_names_residual_wave730,
-    honesty_host_cmd_auto_select_opt_in_nav_commands_residual_wave730,
-    honesty_host_cmd_auto_select_opt_in_residual_pack_wave730,
-    honesty_host_cmd_auto_select_opt_in_source_markers_residual_wave730,
-    residual_host_cmd_auto_select_opt_in_last_action,
-    residual_host_cmd_auto_select_opt_in_ok,
-    simulate_live_host_cmd_auto_select_opt_in_honesty,
+pub use host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752::{
+    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_method_names_residual_wave752,
+    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_nav_commands_residual_wave752,
+    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_pack_wave752,
+    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_source_markers_residual_wave752,
+    residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_last_action,
+    residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_honesty,
 };
-pub use host_live_host_cmd_auto_pick_opt_in_residual_wave731::{
-    honesty_host_cmd_auto_pick_opt_in_method_names_residual_wave731,
-    honesty_host_cmd_auto_pick_opt_in_nav_commands_residual_wave731,
-    honesty_host_cmd_auto_pick_opt_in_residual_pack_wave731,
-    honesty_host_cmd_auto_pick_opt_in_source_markers_residual_wave731,
-    residual_host_cmd_auto_pick_opt_in_last_action,
-    residual_host_cmd_auto_pick_opt_in_ok,
-    simulate_live_host_cmd_auto_pick_opt_in_honesty,
+pub use host_live_host_lifetime_expire_dual_peel_residual_wave768::{
+    honesty_host_lifetime_expire_dual_peel_method_names_residual_wave768,
+    honesty_host_lifetime_expire_dual_peel_nav_commands_residual_wave768,
+    honesty_host_lifetime_expire_dual_peel_residual_pack_wave768,
+    honesty_host_lifetime_expire_dual_peel_source_markers_residual_wave768,
+    residual_host_lifetime_expire_dual_peel_last_action,
+    residual_host_lifetime_expire_dual_peel_ok,
+    simulate_live_host_lifetime_expire_dual_peel_honesty,
 };
-pub use host_live_host_seed_start_presence_opt_in_residual_wave732::{
-    honesty_host_seed_start_presence_opt_in_method_names_residual_wave732,
-    honesty_host_seed_start_presence_opt_in_nav_commands_residual_wave732,
-    honesty_host_seed_start_presence_opt_in_residual_pack_wave732,
-    honesty_host_seed_start_presence_opt_in_source_markers_residual_wave732,
-    residual_host_seed_start_presence_opt_in_last_action,
-    residual_host_seed_start_presence_opt_in_ok,
-    simulate_live_host_seed_start_presence_opt_in_honesty,
+pub use host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745::{
+    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745,
+    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_residual_wave745,
+    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_residual_pack_wave745,
+    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_source_markers_residual_wave745,
+    residual_host_lifetime_kill_no_damage_auth_hp_stomp_last_action,
+    residual_host_lifetime_kill_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_lifetime_kill_no_damage_auth_hp_stomp_honesty,
 };
-pub use host_live_host_spawn_faction_base_opt_in_residual_wave733::{
-    honesty_host_spawn_faction_base_opt_in_method_names_residual_wave733,
-    honesty_host_spawn_faction_base_opt_in_nav_commands_residual_wave733,
-    honesty_host_spawn_faction_base_opt_in_residual_pack_wave733,
-    honesty_host_spawn_faction_base_opt_in_source_markers_residual_wave733,
-    residual_host_spawn_faction_base_opt_in_last_action,
-    residual_host_spawn_faction_base_opt_in_ok,
-    simulate_live_host_spawn_faction_base_opt_in_honesty,
+pub use host_live_host_money_crate_delete_dual_peel_residual_wave817::{
+    honesty_host_money_crate_delete_dual_peel_method_names_residual_wave817,
+    honesty_host_money_crate_delete_dual_peel_nav_commands_residual_wave817,
+    honesty_host_money_crate_delete_dual_peel_residual_pack_wave817,
+    honesty_host_money_crate_delete_dual_peel_source_markers_residual_wave817,
+    residual_host_money_crate_delete_dual_peel_last_action,
+    residual_host_money_crate_delete_dual_peel_ok,
+    simulate_host_money_crate_delete_dual_peel_collect_source,
+    simulate_host_money_crate_delete_dual_peel_dispatch_source,
+    simulate_live_host_money_crate_delete_dual_peel_honesty,
 };
-pub use host_live_host_seed_starting_building_opt_in_residual_wave734::{
-    honesty_host_seed_starting_building_opt_in_method_names_residual_wave734,
-    honesty_host_seed_starting_building_opt_in_nav_commands_residual_wave734,
-    honesty_host_seed_starting_building_opt_in_residual_pack_wave734,
-    honesty_host_seed_starting_building_opt_in_source_markers_residual_wave734,
-    residual_host_seed_starting_building_opt_in_last_action,
-    residual_host_seed_starting_building_opt_in_ok,
-    simulate_live_host_seed_starting_building_opt_in_honesty,
+pub use host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796::{
+    honesty_host_paradrop_cargo_flight_dual_peel_method_names_residual_wave796,
+    honesty_host_paradrop_cargo_flight_dual_peel_nav_commands_residual_wave796,
+    honesty_host_paradrop_cargo_flight_dual_peel_residual_pack_wave796,
+    honesty_host_paradrop_cargo_flight_dual_peel_source_markers_residual_wave796,
+    residual_host_paradrop_cargo_flight_dual_peel_last_action,
+    residual_host_paradrop_cargo_flight_dual_peel_ok,
+    simulate_host_paradrop_cargo_flight_dual_peel_collect_source,
+    simulate_host_paradrop_cargo_flight_dual_peel_dispatch_source,
+    simulate_live_host_paradrop_cargo_flight_dual_peel_honesty,
 };
-pub use host_live_host_production_ready_pose_authority_residual_wave735::{
-    honesty_host_production_ready_pose_authority_method_names_residual_wave735,
-    honesty_host_production_ready_pose_authority_nav_commands_residual_wave735,
-    honesty_host_production_ready_pose_authority_residual_pack_wave735,
-    honesty_host_production_ready_pose_authority_source_markers_residual_wave735,
-    residual_host_production_ready_pose_authority_last_action,
-    residual_host_production_ready_pose_authority_ok,
-    simulate_live_host_production_ready_pose_authority_honesty,
+pub use host_live_host_particle_laser_object_dual_peel_residual_wave808::{
+    honesty_host_particle_laser_object_dual_peel_method_names_residual_wave808,
+    honesty_host_particle_laser_object_dual_peel_nav_commands_residual_wave808,
+    honesty_host_particle_laser_object_dual_peel_residual_pack_wave808,
+    honesty_host_particle_laser_object_dual_peel_source_markers_residual_wave808,
+    residual_host_particle_laser_object_dual_peel_last_action,
+    residual_host_particle_laser_object_dual_peel_ok,
+    simulate_host_particle_laser_object_dual_peel_collect_source,
+    simulate_host_particle_laser_object_dual_peel_dispatch_source,
+    simulate_live_host_particle_laser_object_dual_peel_honesty,
 };
-pub use host_live_host_production_spawn_entity_first_residual_wave736::{
-    honesty_host_production_spawn_entity_first_method_names_residual_wave736,
-    honesty_host_production_spawn_entity_first_nav_commands_residual_wave736,
-    honesty_host_production_spawn_entity_first_residual_pack_wave736,
-    honesty_host_production_spawn_entity_first_source_markers_residual_wave736,
-    residual_host_production_spawn_entity_first_last_action,
-    residual_host_production_spawn_entity_first_ok,
-    simulate_live_host_production_spawn_entity_first_honesty,
+pub use host_live_host_player_alive_dual_peel_residual_wave816::{
+    honesty_host_player_alive_dual_peel_method_names_residual_wave816,
+    honesty_host_player_alive_dual_peel_nav_commands_residual_wave816,
+    honesty_host_player_alive_dual_peel_residual_pack_wave816,
+    honesty_host_player_alive_dual_peel_source_markers_residual_wave816,
+    residual_host_player_alive_dual_peel_last_action, residual_host_player_alive_dual_peel_ok,
+    simulate_host_player_alive_dual_peel_collect_source,
+    simulate_host_player_alive_dual_peel_dispatch_source,
+    simulate_live_host_player_alive_dual_peel_honesty,
+};
+pub use host_live_host_player_radar_dual_peel_residual_wave818::{
+    honesty_host_player_radar_dual_peel_method_names_residual_wave818,
+    honesty_host_player_radar_dual_peel_nav_commands_residual_wave818,
+    honesty_host_player_radar_dual_peel_residual_pack_wave818,
+    honesty_host_player_radar_dual_peel_source_markers_residual_wave818,
+    residual_host_player_radar_dual_peel_last_action, residual_host_player_radar_dual_peel_ok,
+    simulate_host_player_radar_dual_peel_collect_source,
+    simulate_host_player_radar_dual_peel_dispatch_source,
+    simulate_live_host_player_radar_dual_peel_honesty,
+};
+pub use host_live_host_poison_dot_dual_peel_residual_wave769::{
+    honesty_host_poison_dot_dual_peel_method_names_residual_wave769,
+    honesty_host_poison_dot_dual_peel_nav_commands_residual_wave769,
+    honesty_host_poison_dot_dual_peel_residual_pack_wave769,
+    honesty_host_poison_dot_dual_peel_source_markers_residual_wave769,
+    residual_host_poison_dot_dual_peel_last_action, residual_host_poison_dot_dual_peel_ok,
+    simulate_live_host_poison_dot_dual_peel_honesty,
+};
+pub use host_live_host_power_disabled_dual_peel_residual_wave811::{
+    honesty_host_power_disabled_dual_peel_method_names_residual_wave811,
+    honesty_host_power_disabled_dual_peel_nav_commands_residual_wave811,
+    honesty_host_power_disabled_dual_peel_residual_pack_wave811,
+    honesty_host_power_disabled_dual_peel_source_markers_residual_wave811,
+    residual_host_power_disabled_dual_peel_last_action, residual_host_power_disabled_dual_peel_ok,
+    simulate_host_power_disabled_dual_peel_collect_source,
+    simulate_host_power_disabled_dual_peel_dispatch_source,
+    simulate_live_host_power_disabled_dual_peel_honesty,
+};
+pub use host_live_host_power_plant_rods_dual_peel_residual_wave810::{
+    honesty_host_power_plant_rods_dual_peel_method_names_residual_wave810,
+    honesty_host_power_plant_rods_dual_peel_nav_commands_residual_wave810,
+    honesty_host_power_plant_rods_dual_peel_residual_pack_wave810,
+    honesty_host_power_plant_rods_dual_peel_source_markers_residual_wave810,
+    residual_host_power_plant_rods_dual_peel_last_action,
+    residual_host_power_plant_rods_dual_peel_ok,
+    simulate_host_power_plant_rods_dual_peel_collect_source,
+    simulate_host_power_plant_rods_dual_peel_dispatch_source,
+    simulate_live_host_power_plant_rods_dual_peel_honesty,
+};
+pub use host_live_host_production_door_sole_no_dual_tick_residual_wave743::{
+    honesty_host_production_door_sole_no_dual_tick_method_names_residual_wave743,
+    honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743,
+    honesty_host_production_door_sole_no_dual_tick_residual_pack_wave743,
+    honesty_host_production_door_sole_no_dual_tick_source_markers_residual_wave743,
+    residual_host_production_door_sole_no_dual_tick_last_action,
+    residual_host_production_door_sole_no_dual_tick_ok,
+    simulate_live_host_production_door_sole_no_dual_tick_honesty,
 };
 pub use host_live_host_production_object_id_prefers_gw_entity_residual_wave737::{
     honesty_host_production_object_id_prefers_gw_entity_method_names_residual_wave737,
@@ -3538,14 +3958,41 @@ pub use host_live_host_production_object_id_prefers_gw_entity_residual_wave737::
     residual_host_production_object_id_prefers_gw_entity_ok,
     simulate_live_host_production_object_id_prefers_gw_entity_honesty,
 };
-pub use host_live_host_production_spawn_requires_gw_bind_residual_wave738::{
-    honesty_host_production_spawn_requires_gw_bind_method_names_residual_wave738,
-    honesty_host_production_spawn_requires_gw_bind_nav_commands_residual_wave738,
-    honesty_host_production_spawn_requires_gw_bind_residual_pack_wave738,
-    honesty_host_production_spawn_requires_gw_bind_source_markers_residual_wave738,
-    residual_host_production_spawn_requires_gw_bind_last_action,
-    residual_host_production_spawn_requires_gw_bind_ok,
-    simulate_live_host_production_spawn_requires_gw_bind_honesty,
+pub use host_live_host_production_ready_no_empty_scan_residual_wave713::{
+    honesty_host_production_ready_no_empty_scan_method_names_residual_wave713,
+    honesty_host_production_ready_no_empty_scan_nav_commands_residual_wave713,
+    honesty_host_production_ready_no_empty_scan_residual_pack_wave713,
+    honesty_host_production_ready_no_empty_scan_source_markers_residual_wave713,
+    residual_host_production_ready_no_empty_scan_last_action,
+    residual_host_production_ready_no_empty_scan_ok,
+    simulate_live_host_production_ready_no_empty_scan_honesty,
+};
+pub use host_live_host_production_ready_pose_authority_residual_wave735::{
+    honesty_host_production_ready_pose_authority_method_names_residual_wave735,
+    honesty_host_production_ready_pose_authority_nav_commands_residual_wave735,
+    honesty_host_production_ready_pose_authority_residual_pack_wave735,
+    honesty_host_production_ready_pose_authority_source_markers_residual_wave735,
+    residual_host_production_ready_pose_authority_last_action,
+    residual_host_production_ready_pose_authority_ok,
+    simulate_live_host_production_ready_pose_authority_honesty,
+};
+pub use host_live_host_production_same_frame_ready_complete_residual_wave714::{
+    honesty_host_production_same_frame_ready_complete_method_names_residual_wave714,
+    honesty_host_production_same_frame_ready_complete_nav_commands_residual_wave714,
+    honesty_host_production_same_frame_ready_complete_residual_pack_wave714,
+    honesty_host_production_same_frame_ready_complete_source_markers_residual_wave714,
+    residual_host_production_same_frame_ready_complete_last_action,
+    residual_host_production_same_frame_ready_complete_ok,
+    simulate_live_host_production_same_frame_ready_complete_honesty,
+};
+pub use host_live_host_production_spawn_entity_first_residual_wave736::{
+    honesty_host_production_spawn_entity_first_method_names_residual_wave736,
+    honesty_host_production_spawn_entity_first_nav_commands_residual_wave736,
+    honesty_host_production_spawn_entity_first_residual_pack_wave736,
+    honesty_host_production_spawn_entity_first_source_markers_residual_wave736,
+    residual_host_production_spawn_entity_first_last_action,
+    residual_host_production_spawn_entity_first_ok,
+    simulate_live_host_production_spawn_entity_first_honesty,
 };
 pub use host_live_host_production_spawn_pose_no_rejitter_residual_wave739::{
     honesty_host_production_spawn_pose_no_rejitter_method_names_residual_wave739,
@@ -3555,6 +4002,49 @@ pub use host_live_host_production_spawn_pose_no_rejitter_residual_wave739::{
     residual_host_production_spawn_pose_no_rejitter_last_action,
     residual_host_production_spawn_pose_no_rejitter_ok,
     simulate_live_host_production_spawn_pose_no_rejitter_honesty,
+};
+pub use host_live_host_production_spawn_requires_gw_bind_residual_wave738::{
+    honesty_host_production_spawn_requires_gw_bind_method_names_residual_wave738,
+    honesty_host_production_spawn_requires_gw_bind_nav_commands_residual_wave738,
+    honesty_host_production_spawn_requires_gw_bind_residual_pack_wave738,
+    honesty_host_production_spawn_requires_gw_bind_source_markers_residual_wave738,
+    residual_host_production_spawn_requires_gw_bind_last_action,
+    residual_host_production_spawn_requires_gw_bind_ok,
+    simulate_live_host_production_spawn_requires_gw_bind_honesty,
+};
+pub use host_live_host_prone_update_dual_peel_residual_wave782::{
+    honesty_host_prone_update_dual_peel_method_names_residual_wave782,
+    honesty_host_prone_update_dual_peel_nav_commands_residual_wave782,
+    honesty_host_prone_update_dual_peel_residual_pack_wave782,
+    honesty_host_prone_update_dual_peel_source_markers_residual_wave782,
+    residual_host_prone_update_dual_peel_last_action, residual_host_prone_update_dual_peel_ok,
+    simulate_live_host_prone_update_dual_peel_honesty,
+};
+pub use host_live_host_radar_extend_no_dual_complete_residual_wave744::{
+    honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744,
+    honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744,
+    honesty_host_radar_extend_no_dual_complete_residual_pack_wave744,
+    honesty_host_radar_extend_no_dual_complete_source_markers_residual_wave744,
+    residual_host_radar_extend_no_dual_complete_last_action,
+    residual_host_radar_extend_no_dual_complete_ok,
+    simulate_live_host_radar_extend_no_dual_complete_honesty,
+};
+pub use host_live_host_radius_decal_dual_peel_residual_wave785::{
+    honesty_host_radius_decal_dual_peel_method_names_residual_wave785,
+    honesty_host_radius_decal_dual_peel_nav_commands_residual_wave785,
+    honesty_host_radius_decal_dual_peel_residual_pack_wave785,
+    honesty_host_radius_decal_dual_peel_source_markers_residual_wave785,
+    residual_host_radius_decal_dual_peel_last_action, residual_host_radius_decal_dual_peel_ok,
+    simulate_live_host_radius_decal_dual_peel_honesty,
+};
+pub use host_live_host_rebuild_hole_expose_entity_first_residual_wave742::{
+    honesty_host_rebuild_hole_expose_entity_first_method_names_residual_wave742,
+    honesty_host_rebuild_hole_expose_entity_first_nav_commands_residual_wave742,
+    honesty_host_rebuild_hole_expose_entity_first_residual_pack_wave742,
+    honesty_host_rebuild_hole_expose_entity_first_source_markers_residual_wave742,
+    residual_host_rebuild_hole_expose_entity_first_last_action,
+    residual_host_rebuild_hole_expose_entity_first_ok,
+    simulate_live_host_rebuild_hole_expose_entity_first_honesty,
 };
 pub use host_live_host_rebuild_spawn_entity_first_residual_wave740::{
     honesty_host_rebuild_spawn_entity_first_method_names_residual_wave740,
@@ -3574,77 +4064,94 @@ pub use host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741::{
     residual_host_rebuild_spawn_requires_gw_bind_ok,
     simulate_live_host_rebuild_spawn_requires_gw_bind_honesty,
 };
-pub use host_live_host_rebuild_hole_expose_entity_first_residual_wave742::{
-    honesty_host_rebuild_hole_expose_entity_first_method_names_residual_wave742,
-    honesty_host_rebuild_hole_expose_entity_first_nav_commands_residual_wave742,
-    honesty_host_rebuild_hole_expose_entity_first_residual_pack_wave742,
-    honesty_host_rebuild_hole_expose_entity_first_source_markers_residual_wave742,
-    residual_host_rebuild_hole_expose_entity_first_last_action,
-    residual_host_rebuild_hole_expose_entity_first_ok,
-    simulate_live_host_rebuild_hole_expose_entity_first_honesty,
+pub use host_live_host_scorpion_missile_dual_peel_residual_wave805::{
+    honesty_host_scorpion_missile_dual_peel_method_names_residual_wave805,
+    honesty_host_scorpion_missile_dual_peel_nav_commands_residual_wave805,
+    honesty_host_scorpion_missile_dual_peel_residual_pack_wave805,
+    honesty_host_scorpion_missile_dual_peel_source_markers_residual_wave805,
+    residual_host_scorpion_missile_dual_peel_last_action,
+    residual_host_scorpion_missile_dual_peel_ok,
+    simulate_host_scorpion_missile_dual_peel_collect_source,
+    simulate_host_scorpion_missile_dual_peel_dispatch_source,
+    simulate_live_host_scorpion_missile_dual_peel_honesty,
 };
-pub use host_live_host_production_door_sole_no_dual_tick_residual_wave743::{
-    honesty_host_production_door_sole_no_dual_tick_method_names_residual_wave743,
-    honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743,
-    honesty_host_production_door_sole_no_dual_tick_residual_pack_wave743,
-    honesty_host_production_door_sole_no_dual_tick_source_markers_residual_wave743,
-    residual_host_production_door_sole_no_dual_tick_last_action,
-    residual_host_production_door_sole_no_dual_tick_ok,
-    simulate_live_host_production_door_sole_no_dual_tick_honesty,
+pub use host_live_host_seed_start_presence_opt_in_residual_wave732::{
+    honesty_host_seed_start_presence_opt_in_method_names_residual_wave732,
+    honesty_host_seed_start_presence_opt_in_nav_commands_residual_wave732,
+    honesty_host_seed_start_presence_opt_in_residual_pack_wave732,
+    honesty_host_seed_start_presence_opt_in_source_markers_residual_wave732,
+    residual_host_seed_start_presence_opt_in_last_action,
+    residual_host_seed_start_presence_opt_in_ok,
+    simulate_live_host_seed_start_presence_opt_in_honesty,
 };
-pub use host_live_host_radar_extend_no_dual_complete_residual_wave744::{
-    honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744,
-    honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744,
-    honesty_host_radar_extend_no_dual_complete_residual_pack_wave744,
-    honesty_host_radar_extend_no_dual_complete_source_markers_residual_wave744,
-    residual_host_radar_extend_no_dual_complete_last_action,
-    residual_host_radar_extend_no_dual_complete_ok,
-    simulate_live_host_radar_extend_no_dual_complete_honesty,
+pub use host_live_host_seed_starting_building_opt_in_residual_wave734::{
+    honesty_host_seed_starting_building_opt_in_method_names_residual_wave734,
+    honesty_host_seed_starting_building_opt_in_nav_commands_residual_wave734,
+    honesty_host_seed_starting_building_opt_in_residual_pack_wave734,
+    honesty_host_seed_starting_building_opt_in_source_markers_residual_wave734,
+    residual_host_seed_starting_building_opt_in_last_action,
+    residual_host_seed_starting_building_opt_in_ok,
+    simulate_live_host_seed_starting_building_opt_in_honesty,
 };
-pub use host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745::{
-    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745,
-    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_residual_wave745,
-    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_residual_pack_wave745,
-    honesty_host_lifetime_kill_no_damage_auth_hp_stomp_source_markers_residual_wave745,
-    residual_host_lifetime_kill_no_damage_auth_hp_stomp_last_action,
-    residual_host_lifetime_kill_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_lifetime_kill_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_sell_auto_target_opt_in_residual_wave728::{
+    honesty_host_sell_auto_target_opt_in_method_names_residual_wave728,
+    honesty_host_sell_auto_target_opt_in_nav_commands_residual_wave728,
+    honesty_host_sell_auto_target_opt_in_residual_pack_wave728,
+    honesty_host_sell_auto_target_opt_in_source_markers_residual_wave728,
+    residual_host_sell_auto_target_opt_in_last_action, residual_host_sell_auto_target_opt_in_ok,
+    simulate_live_host_sell_auto_target_opt_in_honesty,
 };
-pub use host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746::{
-    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_method_names_residual_wave746,
-    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_nav_commands_residual_wave746,
-    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_residual_pack_wave746,
-    honesty_host_crush_failclosed_no_damage_auth_hp_stomp_source_markers_residual_wave746,
-    residual_host_crush_failclosed_no_damage_auth_hp_stomp_last_action,
-    residual_host_crush_failclosed_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_crush_failclosed_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_sell_same_frame_ready_complete_residual_wave716::{
+    honesty_host_sell_same_frame_ready_complete_method_names_residual_wave716,
+    honesty_host_sell_same_frame_ready_complete_nav_commands_residual_wave716,
+    honesty_host_sell_same_frame_ready_complete_residual_pack_wave716,
+    honesty_host_sell_same_frame_ready_complete_source_markers_residual_wave716,
+    residual_host_sell_same_frame_ready_complete_last_action,
+    residual_host_sell_same_frame_ready_complete_ok,
+    simulate_live_host_sell_same_frame_ready_complete_honesty,
 };
-pub use host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747::{
-    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_method_names_residual_wave747,
-    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_nav_commands_residual_wave747,
-    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_residual_pack_wave747,
-    honesty_host_evacuate_exit_no_damage_auth_hp_stomp_source_markers_residual_wave747,
-    residual_host_evacuate_exit_no_damage_auth_hp_stomp_last_action,
-    residual_host_evacuate_exit_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_evacuate_exit_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_shock_stun_dual_peel_residual_wave764::{
+    honesty_host_shock_stun_dual_peel_method_names_residual_wave764,
+    honesty_host_shock_stun_dual_peel_nav_commands_residual_wave764,
+    honesty_host_shock_stun_dual_peel_residual_pack_wave764,
+    honesty_host_shock_stun_dual_peel_source_markers_residual_wave764,
+    residual_host_shock_stun_dual_peel_last_action, residual_host_shock_stun_dual_peel_ok,
+    simulate_live_host_shock_stun_dual_peel_honesty,
 };
-pub use host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748::{
-    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_residual_wave748,
-    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_residual_wave748,
-    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_pack_wave748,
-    honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_source_markers_residual_wave748,
-    residual_host_hive_struct_damage_no_damage_auth_hp_stomp_last_action,
-    residual_host_hive_struct_damage_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_hive_struct_damage_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_slow_death_dual_peel_residual_wave774::{
+    honesty_host_slow_death_dual_peel_method_names_residual_wave774,
+    honesty_host_slow_death_dual_peel_nav_commands_residual_wave774,
+    honesty_host_slow_death_dual_peel_residual_pack_wave774,
+    honesty_host_slow_death_dual_peel_source_markers_residual_wave774,
+    residual_host_slow_death_dual_peel_last_action, residual_host_slow_death_dual_peel_ok,
+    simulate_live_host_slow_death_dual_peel_honesty,
 };
-pub use host_live_host_tensile_rubble_no_damage_auth_hp_stomp_residual_wave749::{
-    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_method_names_residual_wave749,
-    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_nav_commands_residual_wave749,
-    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_residual_pack_wave749,
-    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_source_markers_residual_wave749,
-    residual_host_tensile_rubble_no_damage_auth_hp_stomp_last_action,
-    residual_host_tensile_rubble_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_tensile_rubble_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_smart_bomb_homing_dual_peel_residual_wave787::{
+    honesty_host_smart_bomb_homing_dual_peel_method_names_residual_wave787,
+    honesty_host_smart_bomb_homing_dual_peel_nav_commands_residual_wave787,
+    honesty_host_smart_bomb_homing_dual_peel_residual_pack_wave787,
+    honesty_host_smart_bomb_homing_dual_peel_source_markers_residual_wave787,
+    residual_host_smart_bomb_homing_dual_peel_last_action,
+    residual_host_smart_bomb_homing_dual_peel_ok,
+    simulate_live_host_smart_bomb_homing_dual_peel_honesty,
+};
+pub use host_live_host_spawn_faction_base_opt_in_residual_wave733::{
+    honesty_host_spawn_faction_base_opt_in_method_names_residual_wave733,
+    honesty_host_spawn_faction_base_opt_in_nav_commands_residual_wave733,
+    honesty_host_spawn_faction_base_opt_in_residual_pack_wave733,
+    honesty_host_spawn_faction_base_opt_in_source_markers_residual_wave733,
+    residual_host_spawn_faction_base_opt_in_last_action,
+    residual_host_spawn_faction_base_opt_in_ok,
+    simulate_live_host_spawn_faction_base_opt_in_honesty,
+};
+pub use host_live_host_special_power_same_frame_ready_eva_residual_wave717::{
+    honesty_host_special_power_same_frame_ready_eva_method_names_residual_wave717,
+    honesty_host_special_power_same_frame_ready_eva_nav_commands_residual_wave717,
+    honesty_host_special_power_same_frame_ready_eva_residual_pack_wave717,
+    honesty_host_special_power_same_frame_ready_eva_source_markers_residual_wave717,
+    residual_host_special_power_same_frame_ready_eva_last_action,
+    residual_host_special_power_same_frame_ready_eva_ok,
+    simulate_live_host_special_power_same_frame_ready_eva_honesty,
 };
 pub use host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750::{
     honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_method_names_residual_wave750,
@@ -3655,59 +4162,115 @@ pub use host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave
     residual_host_spectre_prior_clear_no_damage_auth_hp_stomp_ok,
     simulate_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_honesty,
 };
-pub use host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751::{
-    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_method_names_residual_wave751,
-    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_nav_commands_residual_wave751,
-    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_pack_wave751,
-    honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_source_markers_residual_wave751,
-    residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_last_action,
-    residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_status_timer_dual_peel_residual_wave761::{
+    honesty_host_status_timer_dual_peel_method_names_residual_wave761,
+    honesty_host_status_timer_dual_peel_nav_commands_residual_wave761,
+    honesty_host_status_timer_dual_peel_residual_pack_wave761,
+    honesty_host_status_timer_dual_peel_source_markers_residual_wave761,
+    residual_host_status_timer_dual_peel_last_action, residual_host_status_timer_dual_peel_ok,
+    simulate_live_host_status_timer_dual_peel_honesty,
 };
-pub use host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752::{
-    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_method_names_residual_wave752,
-    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_nav_commands_residual_wave752,
-    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_pack_wave752,
-    honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_source_markers_residual_wave752,
-    residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_last_action,
-    residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_sticky_booby_attach_dual_peel_residual_wave807::{
+    honesty_host_sticky_booby_attach_dual_peel_method_names_residual_wave807,
+    honesty_host_sticky_booby_attach_dual_peel_nav_commands_residual_wave807,
+    honesty_host_sticky_booby_attach_dual_peel_residual_pack_wave807,
+    honesty_host_sticky_booby_attach_dual_peel_source_markers_residual_wave807,
+    residual_host_sticky_booby_attach_dual_peel_last_action,
+    residual_host_sticky_booby_attach_dual_peel_ok,
+    simulate_host_sticky_booby_attach_dual_peel_collect_source,
+    simulate_host_sticky_booby_attach_dual_peel_dispatch_source,
+    simulate_live_host_sticky_booby_attach_dual_peel_honesty,
 };
-pub use host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753::{
-    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_method_names_residual_wave753,
-    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_nav_commands_residual_wave753,
-    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_pack_wave753,
-    honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_source_markers_residual_wave753,
-    residual_host_dual_line_lethal_no_damage_auth_hp_stomp_last_action,
-    residual_host_dual_line_lethal_no_damage_auth_hp_stomp_ok,
-    simulate_live_host_dual_line_lethal_no_damage_auth_hp_stomp_honesty,
+pub use host_live_host_stinger_hive_dual_peel_residual_wave814::{
+    honesty_host_stinger_hive_dual_peel_method_names_residual_wave814,
+    honesty_host_stinger_hive_dual_peel_nav_commands_residual_wave814,
+    honesty_host_stinger_hive_dual_peel_residual_pack_wave814,
+    honesty_host_stinger_hive_dual_peel_source_markers_residual_wave814,
+    residual_host_stinger_hive_dual_peel_last_action, residual_host_stinger_hive_dual_peel_ok,
+    simulate_host_stinger_hive_dual_peel_collect_source,
+    simulate_host_stinger_hive_dual_peel_dispatch_source,
+    simulate_live_host_stinger_hive_dual_peel_honesty,
 };
-pub use host_live_host_eject_pilot_die_death_start_residual_wave754::{
-    honesty_host_eject_pilot_die_death_start_method_names_residual_wave754,
-    honesty_host_eject_pilot_die_death_start_nav_commands_residual_wave754,
-    honesty_host_eject_pilot_die_death_start_residual_pack_wave754,
-    honesty_host_eject_pilot_die_death_start_source_markers_residual_wave754,
-    residual_host_eject_pilot_die_death_start_last_action,
-    residual_host_eject_pilot_die_death_start_ok,
-    simulate_live_host_eject_pilot_die_death_start_honesty,
+pub use host_live_host_structure_collapse_dual_peel_residual_wave775::{
+    honesty_host_structure_collapse_dual_peel_method_names_residual_wave775,
+    honesty_host_structure_collapse_dual_peel_nav_commands_residual_wave775,
+    honesty_host_structure_collapse_dual_peel_residual_pack_wave775,
+    honesty_host_structure_collapse_dual_peel_source_markers_residual_wave775,
+    residual_host_structure_collapse_dual_peel_last_action,
+    residual_host_structure_collapse_dual_peel_ok,
+    simulate_live_host_structure_collapse_dual_peel_honesty,
 };
-pub use host_live_host_writeback_skip_pending_host_logs_residual_wave755::{
-    honesty_host_writeback_skip_pending_host_logs_method_names_residual_wave755,
-    honesty_host_writeback_skip_pending_host_logs_nav_commands_residual_wave755,
-    honesty_host_writeback_skip_pending_host_logs_residual_pack_wave755,
-    honesty_host_writeback_skip_pending_host_logs_source_markers_residual_wave755,
-    residual_host_writeback_skip_pending_host_logs_last_action,
-    residual_host_writeback_skip_pending_host_logs_ok,
-    simulate_live_host_writeback_skip_pending_host_logs_honesty,
+pub use host_live_host_structure_topple_crush_dual_peel_residual_wave777::{
+    honesty_host_structure_topple_crush_dual_peel_method_names_residual_wave777,
+    honesty_host_structure_topple_crush_dual_peel_nav_commands_residual_wave777,
+    honesty_host_structure_topple_crush_dual_peel_residual_pack_wave777,
+    honesty_host_structure_topple_crush_dual_peel_source_markers_residual_wave777,
+    residual_host_structure_topple_crush_dual_peel_last_action,
+    residual_host_structure_topple_crush_dual_peel_ok,
+    simulate_live_host_structure_topple_crush_dual_peel_honesty,
 };
-pub use host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756::{
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_method_names_residual_wave756,
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_nav_commands_residual_wave756,
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_residual_pack_wave756,
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_source_markers_residual_wave756,
-    residual_host_writeback_skip_pending_shock_disable_repulsor_last_action,
-    residual_host_writeback_skip_pending_shock_disable_repulsor_ok,
-    simulate_live_host_writeback_skip_pending_shock_disable_repulsor_honesty,
+pub use host_live_host_structure_topple_dual_peel_residual_wave776::{
+    honesty_host_structure_topple_dual_peel_method_names_residual_wave776,
+    honesty_host_structure_topple_dual_peel_nav_commands_residual_wave776,
+    honesty_host_structure_topple_dual_peel_residual_pack_wave776,
+    honesty_host_structure_topple_dual_peel_source_markers_residual_wave776,
+    residual_host_structure_topple_dual_peel_last_action,
+    residual_host_structure_topple_dual_peel_ok,
+    simulate_live_host_structure_topple_dual_peel_honesty,
+};
+pub use host_live_host_subdual_heal_dual_peel_residual_wave765::{
+    honesty_host_subdual_heal_dual_peel_method_names_residual_wave765,
+    honesty_host_subdual_heal_dual_peel_nav_commands_residual_wave765,
+    honesty_host_subdual_heal_dual_peel_residual_pack_wave765,
+    honesty_host_subdual_heal_dual_peel_source_markers_residual_wave765,
+    residual_host_subdual_heal_dual_peel_last_action, residual_host_subdual_heal_dual_peel_ok,
+    simulate_live_host_subdual_heal_dual_peel_honesty,
+};
+pub use host_live_host_tensile_rubble_no_damage_auth_hp_stomp_residual_wave749::{
+    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_method_names_residual_wave749,
+    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_nav_commands_residual_wave749,
+    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_residual_pack_wave749,
+    honesty_host_tensile_rubble_no_damage_auth_hp_stomp_source_markers_residual_wave749,
+    residual_host_tensile_rubble_no_damage_auth_hp_stomp_last_action,
+    residual_host_tensile_rubble_no_damage_auth_hp_stomp_ok,
+    simulate_live_host_tensile_rubble_no_damage_auth_hp_stomp_honesty,
+};
+pub use host_live_host_topple_fall_dual_peel_residual_wave770::{
+    honesty_host_topple_fall_dual_peel_method_names_residual_wave770,
+    honesty_host_topple_fall_dual_peel_nav_commands_residual_wave770,
+    honesty_host_topple_fall_dual_peel_residual_pack_wave770,
+    honesty_host_topple_fall_dual_peel_source_markers_residual_wave770,
+    residual_host_topple_fall_dual_peel_last_action, residual_host_topple_fall_dual_peel_ok,
+    simulate_live_host_topple_fall_dual_peel_honesty,
+};
+pub use host_live_host_toxin_stream_projectile_dual_peel_residual_wave798::{
+    honesty_host_toxin_stream_projectile_dual_peel_method_names_residual_wave798,
+    honesty_host_toxin_stream_projectile_dual_peel_nav_commands_residual_wave798,
+    honesty_host_toxin_stream_projectile_dual_peel_residual_pack_wave798,
+    honesty_host_toxin_stream_projectile_dual_peel_source_markers_residual_wave798,
+    residual_host_toxin_stream_projectile_dual_peel_last_action,
+    residual_host_toxin_stream_projectile_dual_peel_ok,
+    simulate_host_toxin_stream_projectile_dual_peel_collect_source,
+    simulate_host_toxin_stream_projectile_dual_peel_dispatch_source,
+    simulate_live_host_toxin_stream_projectile_dual_peel_honesty,
+};
+pub use host_live_host_train_force_complete_opt_in_residual_wave718::{
+    honesty_host_train_force_complete_opt_in_method_names_residual_wave718,
+    honesty_host_train_force_complete_opt_in_nav_commands_residual_wave718,
+    honesty_host_train_force_complete_opt_in_residual_pack_wave718,
+    honesty_host_train_force_complete_opt_in_source_markers_residual_wave718,
+    residual_host_train_force_complete_opt_in_last_action,
+    residual_host_train_force_complete_opt_in_ok,
+    simulate_live_host_train_force_complete_opt_in_honesty,
+};
+pub use host_live_host_train_try_names_golden_opt_in_residual_wave724::{
+    honesty_host_train_try_names_golden_opt_in_method_names_residual_wave724,
+    honesty_host_train_try_names_golden_opt_in_nav_commands_residual_wave724,
+    honesty_host_train_try_names_golden_opt_in_residual_pack_wave724,
+    honesty_host_train_try_names_golden_opt_in_source_markers_residual_wave724,
+    residual_host_train_try_names_golden_opt_in_last_action,
+    residual_host_train_try_names_golden_opt_in_ok,
+    simulate_live_host_train_try_names_golden_opt_in_honesty,
 };
 pub use host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757::{
     honesty_host_writeback_skip_pending_combat_movement_logs_method_names_residual_wave757,
@@ -3718,14 +4281,14 @@ pub use host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave
     residual_host_writeback_skip_pending_combat_movement_logs_ok,
     simulate_live_host_writeback_skip_pending_combat_movement_logs_honesty,
 };
-pub use host_live_host_writeback_skip_pending_remaining_logs_residual_wave758::{
-    honesty_host_writeback_skip_pending_remaining_logs_method_names_residual_wave758,
-    honesty_host_writeback_skip_pending_remaining_logs_nav_commands_residual_wave758,
-    honesty_host_writeback_skip_pending_remaining_logs_residual_pack_wave758,
-    honesty_host_writeback_skip_pending_remaining_logs_source_markers_residual_wave758,
-    residual_host_writeback_skip_pending_remaining_logs_last_action,
-    residual_host_writeback_skip_pending_remaining_logs_ok,
-    simulate_live_host_writeback_skip_pending_remaining_logs_honesty,
+pub use host_live_host_writeback_skip_pending_host_logs_residual_wave755::{
+    honesty_host_writeback_skip_pending_host_logs_method_names_residual_wave755,
+    honesty_host_writeback_skip_pending_host_logs_nav_commands_residual_wave755,
+    honesty_host_writeback_skip_pending_host_logs_residual_pack_wave755,
+    honesty_host_writeback_skip_pending_host_logs_source_markers_residual_wave755,
+    residual_host_writeback_skip_pending_host_logs_last_action,
+    residual_host_writeback_skip_pending_host_logs_ok,
+    simulate_live_host_writeback_skip_pending_host_logs_honesty,
 };
 pub use host_live_host_writeback_skip_pending_move_transform_logs_residual_wave759::{
     honesty_host_writeback_skip_pending_move_transform_logs_method_names_residual_wave759,
@@ -3745,659 +4308,24 @@ pub use host_live_host_writeback_skip_pending_player_projectile_logs_residual_wa
     residual_host_writeback_skip_pending_player_projectile_logs_ok,
     simulate_live_host_writeback_skip_pending_player_projectile_logs_honesty,
 };
-pub use host_live_host_status_timer_dual_peel_residual_wave761::{
-    honesty_host_status_timer_dual_peel_method_names_residual_wave761,
-    honesty_host_status_timer_dual_peel_nav_commands_residual_wave761,
-    honesty_host_status_timer_dual_peel_residual_pack_wave761,
-    honesty_host_status_timer_dual_peel_source_markers_residual_wave761,
-    residual_host_status_timer_dual_peel_last_action,
-    residual_host_status_timer_dual_peel_ok,
-    simulate_live_host_status_timer_dual_peel_honesty,
+pub use host_live_host_writeback_skip_pending_remaining_logs_residual_wave758::{
+    honesty_host_writeback_skip_pending_remaining_logs_method_names_residual_wave758,
+    honesty_host_writeback_skip_pending_remaining_logs_nav_commands_residual_wave758,
+    honesty_host_writeback_skip_pending_remaining_logs_residual_pack_wave758,
+    honesty_host_writeback_skip_pending_remaining_logs_source_markers_residual_wave758,
+    residual_host_writeback_skip_pending_remaining_logs_last_action,
+    residual_host_writeback_skip_pending_remaining_logs_ok,
+    simulate_live_host_writeback_skip_pending_remaining_logs_honesty,
 };
-pub use host_live_host_eject_invuln_dual_peel_residual_wave762::{
-    honesty_host_eject_invuln_dual_peel_method_names_residual_wave762,
-    honesty_host_eject_invuln_dual_peel_nav_commands_residual_wave762,
-    honesty_host_eject_invuln_dual_peel_residual_pack_wave762,
-    honesty_host_eject_invuln_dual_peel_source_markers_residual_wave762,
-    residual_host_eject_invuln_dual_peel_last_action,
-    residual_host_eject_invuln_dual_peel_ok,
-    simulate_live_host_eject_invuln_dual_peel_honesty,
+pub use host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756::{
+    honesty_host_writeback_skip_pending_shock_disable_repulsor_method_names_residual_wave756,
+    honesty_host_writeback_skip_pending_shock_disable_repulsor_nav_commands_residual_wave756,
+    honesty_host_writeback_skip_pending_shock_disable_repulsor_residual_pack_wave756,
+    honesty_host_writeback_skip_pending_shock_disable_repulsor_source_markers_residual_wave756,
+    residual_host_writeback_skip_pending_shock_disable_repulsor_last_action,
+    residual_host_writeback_skip_pending_shock_disable_repulsor_ok,
+    simulate_live_host_writeback_skip_pending_shock_disable_repulsor_honesty,
 };
-pub use host_live_host_force_reload_dual_peel_residual_wave763::{
-    honesty_host_force_reload_dual_peel_method_names_residual_wave763,
-    honesty_host_force_reload_dual_peel_nav_commands_residual_wave763,
-    honesty_host_force_reload_dual_peel_residual_pack_wave763,
-    honesty_host_force_reload_dual_peel_source_markers_residual_wave763,
-    residual_host_force_reload_dual_peel_last_action,
-    residual_host_force_reload_dual_peel_ok,
-    simulate_live_host_force_reload_dual_peel_honesty,
-};
-pub use host_live_host_shock_stun_dual_peel_residual_wave764::{
-    honesty_host_shock_stun_dual_peel_method_names_residual_wave764,
-    honesty_host_shock_stun_dual_peel_nav_commands_residual_wave764,
-    honesty_host_shock_stun_dual_peel_residual_pack_wave764,
-    honesty_host_shock_stun_dual_peel_source_markers_residual_wave764,
-    residual_host_shock_stun_dual_peel_last_action,
-    residual_host_shock_stun_dual_peel_ok,
-    simulate_live_host_shock_stun_dual_peel_honesty,
-};
-pub use host_live_host_subdual_heal_dual_peel_residual_wave765::{
-    honesty_host_subdual_heal_dual_peel_method_names_residual_wave765,
-    honesty_host_subdual_heal_dual_peel_nav_commands_residual_wave765,
-    honesty_host_subdual_heal_dual_peel_residual_pack_wave765,
-    honesty_host_subdual_heal_dual_peel_source_markers_residual_wave765,
-    residual_host_subdual_heal_dual_peel_last_action,
-    residual_host_subdual_heal_dual_peel_ok,
-    simulate_live_host_subdual_heal_dual_peel_honesty,
-};
-pub use host_live_host_defection_timer_dual_peel_residual_wave766::{
-    honesty_host_defection_timer_dual_peel_method_names_residual_wave766,
-    honesty_host_defection_timer_dual_peel_nav_commands_residual_wave766,
-    honesty_host_defection_timer_dual_peel_residual_pack_wave766,
-    honesty_host_defection_timer_dual_peel_source_markers_residual_wave766,
-    residual_host_defection_timer_dual_peel_last_action,
-    residual_host_defection_timer_dual_peel_ok,
-    simulate_live_host_defection_timer_dual_peel_honesty,
-};
-pub use host_live_host_fire_sound_loop_dual_peel_residual_wave767::{
-    honesty_host_fire_sound_loop_dual_peel_method_names_residual_wave767,
-    honesty_host_fire_sound_loop_dual_peel_nav_commands_residual_wave767,
-    honesty_host_fire_sound_loop_dual_peel_residual_pack_wave767,
-    honesty_host_fire_sound_loop_dual_peel_source_markers_residual_wave767,
-    residual_host_fire_sound_loop_dual_peel_last_action,
-    residual_host_fire_sound_loop_dual_peel_ok,
-    simulate_live_host_fire_sound_loop_dual_peel_honesty,
-};
-pub use host_live_host_lifetime_expire_dual_peel_residual_wave768::{
-    honesty_host_lifetime_expire_dual_peel_method_names_residual_wave768,
-    honesty_host_lifetime_expire_dual_peel_nav_commands_residual_wave768,
-    honesty_host_lifetime_expire_dual_peel_residual_pack_wave768,
-    honesty_host_lifetime_expire_dual_peel_source_markers_residual_wave768,
-    residual_host_lifetime_expire_dual_peel_last_action,
-    residual_host_lifetime_expire_dual_peel_ok,
-    simulate_live_host_lifetime_expire_dual_peel_honesty,
-};
-pub use host_live_host_poison_dot_dual_peel_residual_wave769::{
-    honesty_host_poison_dot_dual_peel_method_names_residual_wave769,
-    honesty_host_poison_dot_dual_peel_nav_commands_residual_wave769,
-    honesty_host_poison_dot_dual_peel_residual_pack_wave769,
-    honesty_host_poison_dot_dual_peel_source_markers_residual_wave769,
-    residual_host_poison_dot_dual_peel_last_action,
-    residual_host_poison_dot_dual_peel_ok,
-    simulate_live_host_poison_dot_dual_peel_honesty,
-};
-pub use host_live_host_topple_fall_dual_peel_residual_wave770::{
-    honesty_host_topple_fall_dual_peel_method_names_residual_wave770,
-    honesty_host_topple_fall_dual_peel_nav_commands_residual_wave770,
-    honesty_host_topple_fall_dual_peel_residual_pack_wave770,
-    honesty_host_topple_fall_dual_peel_source_markers_residual_wave770,
-    residual_host_topple_fall_dual_peel_last_action,
-    residual_host_topple_fall_dual_peel_ok,
-    simulate_live_host_topple_fall_dual_peel_honesty,
-};
-pub use host_live_host_height_die_dual_peel_residual_wave771::{
-    honesty_host_height_die_dual_peel_method_names_residual_wave771,
-    honesty_host_height_die_dual_peel_nav_commands_residual_wave771,
-    honesty_host_height_die_dual_peel_residual_pack_wave771,
-    honesty_host_height_die_dual_peel_source_markers_residual_wave771,
-    residual_host_height_die_dual_peel_last_action,
-    residual_host_height_die_dual_peel_ok,
-    simulate_live_host_height_die_dual_peel_honesty,
-};
-pub use host_live_host_jet_slow_death_dual_peel_residual_wave772::{
-    honesty_host_jet_slow_death_dual_peel_method_names_residual_wave772,
-    honesty_host_jet_slow_death_dual_peel_nav_commands_residual_wave772,
-    honesty_host_jet_slow_death_dual_peel_residual_pack_wave772,
-    honesty_host_jet_slow_death_dual_peel_source_markers_residual_wave772,
-    residual_host_jet_slow_death_dual_peel_last_action,
-    residual_host_jet_slow_death_dual_peel_ok,
-    simulate_live_host_jet_slow_death_dual_peel_honesty,
-};
-pub use host_live_host_heli_slow_death_dual_peel_residual_wave773::{
-    honesty_host_heli_slow_death_dual_peel_method_names_residual_wave773,
-    honesty_host_heli_slow_death_dual_peel_nav_commands_residual_wave773,
-    honesty_host_heli_slow_death_dual_peel_residual_pack_wave773,
-    honesty_host_heli_slow_death_dual_peel_source_markers_residual_wave773,
-    residual_host_heli_slow_death_dual_peel_last_action,
-    residual_host_heli_slow_death_dual_peel_ok,
-    simulate_live_host_heli_slow_death_dual_peel_honesty,
-};
-pub use host_live_host_slow_death_dual_peel_residual_wave774::{
-    honesty_host_slow_death_dual_peel_method_names_residual_wave774,
-    honesty_host_slow_death_dual_peel_nav_commands_residual_wave774,
-    honesty_host_slow_death_dual_peel_residual_pack_wave774,
-    honesty_host_slow_death_dual_peel_source_markers_residual_wave774,
-    residual_host_slow_death_dual_peel_last_action,
-    residual_host_slow_death_dual_peel_ok,
-    simulate_live_host_slow_death_dual_peel_honesty,
-};
-pub use host_live_host_structure_collapse_dual_peel_residual_wave775::{
-    honesty_host_structure_collapse_dual_peel_method_names_residual_wave775,
-    honesty_host_structure_collapse_dual_peel_nav_commands_residual_wave775,
-    honesty_host_structure_collapse_dual_peel_residual_pack_wave775,
-    honesty_host_structure_collapse_dual_peel_source_markers_residual_wave775,
-    residual_host_structure_collapse_dual_peel_last_action,
-    residual_host_structure_collapse_dual_peel_ok,
-    simulate_live_host_structure_collapse_dual_peel_honesty,
-};
-pub use host_live_host_structure_topple_dual_peel_residual_wave776::{
-    honesty_host_structure_topple_dual_peel_method_names_residual_wave776,
-    honesty_host_structure_topple_dual_peel_nav_commands_residual_wave776,
-    honesty_host_structure_topple_dual_peel_residual_pack_wave776,
-    honesty_host_structure_topple_dual_peel_source_markers_residual_wave776,
-    residual_host_structure_topple_dual_peel_last_action,
-    residual_host_structure_topple_dual_peel_ok,
-    simulate_live_host_structure_topple_dual_peel_honesty,
-};
-pub use host_live_host_structure_topple_crush_dual_peel_residual_wave777::{
-    honesty_host_structure_topple_crush_dual_peel_method_names_residual_wave777,
-    honesty_host_structure_topple_crush_dual_peel_nav_commands_residual_wave777,
-    honesty_host_structure_topple_crush_dual_peel_residual_pack_wave777,
-    honesty_host_structure_topple_crush_dual_peel_source_markers_residual_wave777,
-    residual_host_structure_topple_crush_dual_peel_last_action,
-    residual_host_structure_topple_crush_dual_peel_ok,
-    simulate_live_host_structure_topple_crush_dual_peel_honesty,
-};
-pub use host_live_host_fwwd_continuous_dual_peel_residual_wave778::{
-    honesty_host_fwwd_continuous_dual_peel_method_names_residual_wave778,
-    honesty_host_fwwd_continuous_dual_peel_nav_commands_residual_wave778,
-    honesty_host_fwwd_continuous_dual_peel_residual_pack_wave778,
-    honesty_host_fwwd_continuous_dual_peel_source_markers_residual_wave778,
-    residual_host_fwwd_continuous_dual_peel_last_action,
-    residual_host_fwwd_continuous_dual_peel_ok,
-    simulate_live_host_fwwd_continuous_dual_peel_honesty,
-};
-pub use host_live_host_fwwd_reaction_dual_peel_residual_wave779::{
-    honesty_host_fwwd_reaction_dual_peel_method_names_residual_wave779,
-    honesty_host_fwwd_reaction_dual_peel_nav_commands_residual_wave779,
-    honesty_host_fwwd_reaction_dual_peel_residual_pack_wave779,
-    honesty_host_fwwd_reaction_dual_peel_source_markers_residual_wave779,
-    residual_host_fwwd_reaction_dual_peel_last_action,
-    residual_host_fwwd_reaction_dual_peel_ok,
-    simulate_live_host_fwwd_reaction_dual_peel_honesty,
-};
-pub use host_live_host_base_regen_dual_peel_residual_wave780::{
-    honesty_host_base_regen_dual_peel_method_names_residual_wave780,
-    honesty_host_base_regen_dual_peel_nav_commands_residual_wave780,
-    honesty_host_base_regen_dual_peel_residual_pack_wave780,
-    honesty_host_base_regen_dual_peel_source_markers_residual_wave780,
-    residual_host_base_regen_dual_peel_last_action,
-    residual_host_base_regen_dual_peel_ok,
-    simulate_live_host_base_regen_dual_peel_honesty,
-};
-pub use host_live_host_enemy_near_dual_peel_residual_wave781::{
-    honesty_host_enemy_near_dual_peel_method_names_residual_wave781,
-    honesty_host_enemy_near_dual_peel_nav_commands_residual_wave781,
-    honesty_host_enemy_near_dual_peel_residual_pack_wave781,
-    honesty_host_enemy_near_dual_peel_source_markers_residual_wave781,
-    residual_host_enemy_near_dual_peel_last_action,
-    residual_host_enemy_near_dual_peel_ok,
-    simulate_live_host_enemy_near_dual_peel_honesty,
-};
-pub use host_live_host_prone_update_dual_peel_residual_wave782::{
-    honesty_host_prone_update_dual_peel_method_names_residual_wave782,
-    honesty_host_prone_update_dual_peel_nav_commands_residual_wave782,
-    honesty_host_prone_update_dual_peel_residual_pack_wave782,
-    honesty_host_prone_update_dual_peel_source_markers_residual_wave782,
-    residual_host_prone_update_dual_peel_last_action,
-    residual_host_prone_update_dual_peel_ok,
-    simulate_live_host_prone_update_dual_peel_honesty,
-};
-pub use host_live_host_float_update_dual_peel_residual_wave783::{
-    honesty_host_float_update_dual_peel_method_names_residual_wave783,
-    honesty_host_float_update_dual_peel_nav_commands_residual_wave783,
-    honesty_host_float_update_dual_peel_residual_pack_wave783,
-    honesty_host_float_update_dual_peel_source_markers_residual_wave783,
-    residual_host_float_update_dual_peel_last_action,
-    residual_host_float_update_dual_peel_ok,
-    simulate_live_host_float_update_dual_peel_honesty,
-};
-pub use host_live_host_anim_steer_dual_peel_residual_wave784::{
-    honesty_host_anim_steer_dual_peel_method_names_residual_wave784,
-    honesty_host_anim_steer_dual_peel_nav_commands_residual_wave784,
-    honesty_host_anim_steer_dual_peel_residual_pack_wave784,
-    honesty_host_anim_steer_dual_peel_source_markers_residual_wave784,
-    residual_host_anim_steer_dual_peel_last_action,
-    residual_host_anim_steer_dual_peel_ok,
-    simulate_live_host_anim_steer_dual_peel_honesty,
-};
-pub use host_live_host_radius_decal_dual_peel_residual_wave785::{
-    honesty_host_radius_decal_dual_peel_method_names_residual_wave785,
-    honesty_host_radius_decal_dual_peel_nav_commands_residual_wave785,
-    honesty_host_radius_decal_dual_peel_residual_pack_wave785,
-    honesty_host_radius_decal_dual_peel_source_markers_residual_wave785,
-    residual_host_radius_decal_dual_peel_last_action,
-    residual_host_radius_decal_dual_peel_ok,
-    simulate_live_host_radius_decal_dual_peel_honesty,
-};
-pub use host_live_host_checkpoint_dual_peel_residual_wave786::{
-    honesty_host_checkpoint_dual_peel_method_names_residual_wave786,
-    honesty_host_checkpoint_dual_peel_nav_commands_residual_wave786,
-    honesty_host_checkpoint_dual_peel_residual_pack_wave786,
-    honesty_host_checkpoint_dual_peel_source_markers_residual_wave786,
-    residual_host_checkpoint_dual_peel_last_action,
-    residual_host_checkpoint_dual_peel_ok,
-    simulate_live_host_checkpoint_dual_peel_honesty,
-};
-pub use host_live_host_smart_bomb_homing_dual_peel_residual_wave787::{
-    honesty_host_smart_bomb_homing_dual_peel_method_names_residual_wave787,
-    honesty_host_smart_bomb_homing_dual_peel_nav_commands_residual_wave787,
-    honesty_host_smart_bomb_homing_dual_peel_residual_pack_wave787,
-    honesty_host_smart_bomb_homing_dual_peel_source_markers_residual_wave787,
-    residual_host_smart_bomb_homing_dual_peel_last_action,
-    residual_host_smart_bomb_homing_dual_peel_ok,
-    simulate_live_host_smart_bomb_homing_dual_peel_honesty,
-};
-pub use host_live_host_daisy_cutter_flight_dual_peel_residual_wave788::{
-    honesty_host_daisy_cutter_flight_dual_peel_method_names_residual_wave788,
-    honesty_host_daisy_cutter_flight_dual_peel_nav_commands_residual_wave788,
-    honesty_host_daisy_cutter_flight_dual_peel_residual_pack_wave788,
-    honesty_host_daisy_cutter_flight_dual_peel_source_markers_residual_wave788,
-    residual_host_daisy_cutter_flight_dual_peel_last_action,
-    residual_host_daisy_cutter_flight_dual_peel_ok,
-    simulate_live_host_daisy_cutter_flight_dual_peel_honesty,
-};
-pub use host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789::{
-    residual_host_anthrax_bomb_flight_dual_peel_ok,
-    residual_host_anthrax_bomb_flight_dual_peel_last_action,
-    honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789,
-    honesty_host_anthrax_bomb_flight_dual_peel_source_markers_residual_wave789,
-    honesty_host_anthrax_bomb_flight_dual_peel_nav_commands_residual_wave789,
-    simulate_host_anthrax_bomb_flight_dual_peel_collect_source,
-    simulate_host_anthrax_bomb_flight_dual_peel_dispatch_source,
-    honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789,
-    simulate_live_host_anthrax_bomb_flight_dual_peel_honesty,
-};
-pub use host_live_host_cluster_mines_flight_dual_peel_residual_wave790::{
-    residual_host_cluster_mines_flight_dual_peel_ok,
-    residual_host_cluster_mines_flight_dual_peel_last_action,
-    honesty_host_cluster_mines_flight_dual_peel_method_names_residual_wave790,
-    honesty_host_cluster_mines_flight_dual_peel_source_markers_residual_wave790,
-    honesty_host_cluster_mines_flight_dual_peel_nav_commands_residual_wave790,
-    simulate_host_cluster_mines_flight_dual_peel_collect_source,
-    simulate_host_cluster_mines_flight_dual_peel_dispatch_source,
-    honesty_host_cluster_mines_flight_dual_peel_residual_pack_wave790,
-    simulate_live_host_cluster_mines_flight_dual_peel_honesty,
-};
-pub use host_live_host_emp_pulse_flight_dual_peel_residual_wave791::{
-    residual_host_emp_pulse_flight_dual_peel_ok,
-    residual_host_emp_pulse_flight_dual_peel_last_action,
-    honesty_host_emp_pulse_flight_dual_peel_method_names_residual_wave791,
-    honesty_host_emp_pulse_flight_dual_peel_source_markers_residual_wave791,
-    honesty_host_emp_pulse_flight_dual_peel_nav_commands_residual_wave791,
-    simulate_host_emp_pulse_flight_dual_peel_collect_source,
-    simulate_host_emp_pulse_flight_dual_peel_dispatch_source,
-    honesty_host_emp_pulse_flight_dual_peel_residual_pack_wave791,
-    simulate_live_host_emp_pulse_flight_dual_peel_honesty,
-};
-pub use host_live_host_a10_strike_flight_dual_peel_residual_wave792::{
-    residual_host_a10_strike_flight_dual_peel_ok,
-    residual_host_a10_strike_flight_dual_peel_last_action,
-    honesty_host_a10_strike_flight_dual_peel_method_names_residual_wave792,
-    honesty_host_a10_strike_flight_dual_peel_source_markers_residual_wave792,
-    honesty_host_a10_strike_flight_dual_peel_nav_commands_residual_wave792,
-    simulate_host_a10_strike_flight_dual_peel_collect_source,
-    simulate_host_a10_strike_flight_dual_peel_dispatch_source,
-    honesty_host_a10_strike_flight_dual_peel_residual_pack_wave792,
-    simulate_live_host_a10_strike_flight_dual_peel_honesty,
-};
-pub use host_live_host_artillery_barrage_flight_dual_peel_residual_wave793::{
-    residual_host_artillery_barrage_flight_dual_peel_ok,
-    residual_host_artillery_barrage_flight_dual_peel_last_action,
-    honesty_host_artillery_barrage_flight_dual_peel_method_names_residual_wave793,
-    honesty_host_artillery_barrage_flight_dual_peel_source_markers_residual_wave793,
-    honesty_host_artillery_barrage_flight_dual_peel_nav_commands_residual_wave793,
-    simulate_host_artillery_barrage_flight_dual_peel_collect_source,
-    simulate_host_artillery_barrage_flight_dual_peel_dispatch_source,
-    honesty_host_artillery_barrage_flight_dual_peel_residual_pack_wave793,
-    simulate_live_host_artillery_barrage_flight_dual_peel_honesty,
-};
-pub use host_live_host_carpet_bomb_flight_dual_peel_residual_wave794::{
-    residual_host_carpet_bomb_flight_dual_peel_ok,
-    residual_host_carpet_bomb_flight_dual_peel_last_action,
-    honesty_host_carpet_bomb_flight_dual_peel_method_names_residual_wave794,
-    honesty_host_carpet_bomb_flight_dual_peel_source_markers_residual_wave794,
-    honesty_host_carpet_bomb_flight_dual_peel_nav_commands_residual_wave794,
-    simulate_host_carpet_bomb_flight_dual_peel_collect_source,
-    simulate_host_carpet_bomb_flight_dual_peel_dispatch_source,
-    honesty_host_carpet_bomb_flight_dual_peel_residual_pack_wave794,
-    simulate_live_host_carpet_bomb_flight_dual_peel_honesty,
-};
-pub use host_live_host_leaflet_b52_flight_dual_peel_residual_wave795::{
-    residual_host_leaflet_b52_flight_dual_peel_ok,
-    residual_host_leaflet_b52_flight_dual_peel_last_action,
-    honesty_host_leaflet_b52_flight_dual_peel_method_names_residual_wave795,
-    honesty_host_leaflet_b52_flight_dual_peel_source_markers_residual_wave795,
-    honesty_host_leaflet_b52_flight_dual_peel_nav_commands_residual_wave795,
-    simulate_host_leaflet_b52_flight_dual_peel_collect_source,
-    simulate_host_leaflet_b52_flight_dual_peel_dispatch_source,
-    honesty_host_leaflet_b52_flight_dual_peel_residual_pack_wave795,
-    simulate_live_host_leaflet_b52_flight_dual_peel_honesty,
-};
-pub use host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796::{
-    residual_host_paradrop_cargo_flight_dual_peel_ok,
-    residual_host_paradrop_cargo_flight_dual_peel_last_action,
-    honesty_host_paradrop_cargo_flight_dual_peel_method_names_residual_wave796,
-    honesty_host_paradrop_cargo_flight_dual_peel_source_markers_residual_wave796,
-    honesty_host_paradrop_cargo_flight_dual_peel_nav_commands_residual_wave796,
-    simulate_host_paradrop_cargo_flight_dual_peel_collect_source,
-    simulate_host_paradrop_cargo_flight_dual_peel_dispatch_source,
-    honesty_host_paradrop_cargo_flight_dual_peel_residual_pack_wave796,
-    simulate_live_host_paradrop_cargo_flight_dual_peel_honesty,
-};
-pub use host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797::{
-    residual_host_aurora_bomb_projectile_dual_peel_ok,
-    residual_host_aurora_bomb_projectile_dual_peel_last_action,
-    honesty_host_aurora_bomb_projectile_dual_peel_method_names_residual_wave797,
-    honesty_host_aurora_bomb_projectile_dual_peel_source_markers_residual_wave797,
-    honesty_host_aurora_bomb_projectile_dual_peel_nav_commands_residual_wave797,
-    simulate_host_aurora_bomb_projectile_dual_peel_collect_source,
-    simulate_host_aurora_bomb_projectile_dual_peel_dispatch_source,
-    honesty_host_aurora_bomb_projectile_dual_peel_residual_pack_wave797,
-    simulate_live_host_aurora_bomb_projectile_dual_peel_honesty,
-};
-pub use host_live_host_toxin_stream_projectile_dual_peel_residual_wave798::{
-    residual_host_toxin_stream_projectile_dual_peel_ok,
-    residual_host_toxin_stream_projectile_dual_peel_last_action,
-    honesty_host_toxin_stream_projectile_dual_peel_method_names_residual_wave798,
-    honesty_host_toxin_stream_projectile_dual_peel_source_markers_residual_wave798,
-    honesty_host_toxin_stream_projectile_dual_peel_nav_commands_residual_wave798,
-    simulate_host_toxin_stream_projectile_dual_peel_collect_source,
-    simulate_host_toxin_stream_projectile_dual_peel_dispatch_source,
-    honesty_host_toxin_stream_projectile_dual_peel_residual_pack_wave798,
-    simulate_live_host_toxin_stream_projectile_dual_peel_honesty,
-};
-pub use host_live_host_angry_mob_projectile_dual_peel_residual_wave799::{
-    residual_host_angry_mob_projectile_dual_peel_ok,
-    residual_host_angry_mob_projectile_dual_peel_last_action,
-    honesty_host_angry_mob_projectile_dual_peel_method_names_residual_wave799,
-    honesty_host_angry_mob_projectile_dual_peel_source_markers_residual_wave799,
-    honesty_host_angry_mob_projectile_dual_peel_nav_commands_residual_wave799,
-    simulate_host_angry_mob_projectile_dual_peel_collect_source,
-    simulate_host_angry_mob_projectile_dual_peel_dispatch_source,
-    honesty_host_angry_mob_projectile_dual_peel_residual_pack_wave799,
-    simulate_live_host_angry_mob_projectile_dual_peel_honesty,
-};
-pub use host_live_host_cannon_shell_projectile_dual_peel_residual_wave800::{
-    residual_host_cannon_shell_projectile_dual_peel_ok,
-    residual_host_cannon_shell_projectile_dual_peel_last_action,
-    honesty_host_cannon_shell_projectile_dual_peel_method_names_residual_wave800,
-    honesty_host_cannon_shell_projectile_dual_peel_source_markers_residual_wave800,
-    honesty_host_cannon_shell_projectile_dual_peel_nav_commands_residual_wave800,
-    simulate_host_cannon_shell_projectile_dual_peel_collect_source,
-    simulate_host_cannon_shell_projectile_dual_peel_dispatch_source,
-    honesty_host_cannon_shell_projectile_dual_peel_residual_pack_wave800,
-    simulate_live_host_cannon_shell_projectile_dual_peel_honesty,
-};
-pub use host_live_host_angry_mob_member_follow_dual_peel_residual_wave801::{
-    honesty_host_angry_mob_member_follow_dual_peel_method_names_residual_wave801,
-    honesty_host_angry_mob_member_follow_dual_peel_nav_commands_residual_wave801,
-    honesty_host_angry_mob_member_follow_dual_peel_residual_pack_wave801,
-    honesty_host_angry_mob_member_follow_dual_peel_source_markers_residual_wave801,
-    residual_host_angry_mob_member_follow_dual_peel_last_action,
-    residual_host_angry_mob_member_follow_dual_peel_ok,
-    simulate_host_angry_mob_member_follow_dual_peel_collect_source,
-    simulate_host_angry_mob_member_follow_dual_peel_dispatch_source,
-    simulate_live_host_angry_mob_member_follow_dual_peel_honesty,
-};
-pub use host_live_host_field_object_expire_dual_peel_residual_wave802::{
-    honesty_host_field_object_expire_dual_peel_method_names_residual_wave802,
-    honesty_host_field_object_expire_dual_peel_nav_commands_residual_wave802,
-    honesty_host_field_object_expire_dual_peel_residual_pack_wave802,
-    honesty_host_field_object_expire_dual_peel_source_markers_residual_wave802,
-    residual_host_field_object_expire_dual_peel_last_action,
-    residual_host_field_object_expire_dual_peel_ok,
-    simulate_host_field_object_expire_dual_peel_collect_source,
-    simulate_host_field_object_expire_dual_peel_dispatch_source,
-    simulate_live_host_field_object_expire_dual_peel_honesty,
-};
-pub use host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803::{
-    honesty_host_inferno_shell_spy_ping_dual_peel_method_names_residual_wave803,
-    honesty_host_inferno_shell_spy_ping_dual_peel_nav_commands_residual_wave803,
-    honesty_host_inferno_shell_spy_ping_dual_peel_residual_pack_wave803,
-    honesty_host_inferno_shell_spy_ping_dual_peel_source_markers_residual_wave803,
-    residual_host_inferno_shell_spy_ping_dual_peel_last_action,
-    residual_host_inferno_shell_spy_ping_dual_peel_ok,
-    simulate_host_inferno_shell_spy_ping_dual_peel_collect_source,
-    simulate_host_inferno_shell_spy_ping_dual_peel_dispatch_source,
-    simulate_live_host_inferno_shell_spy_ping_dual_peel_honesty,
-};
-pub use host_live_host_flashbang_comanche_helix_dual_peel_residual_wave804::{
-    honesty_host_flashbang_comanche_helix_dual_peel_method_names_residual_wave804,
-    honesty_host_flashbang_comanche_helix_dual_peel_nav_commands_residual_wave804,
-    honesty_host_flashbang_comanche_helix_dual_peel_residual_pack_wave804,
-    honesty_host_flashbang_comanche_helix_dual_peel_source_markers_residual_wave804,
-    residual_host_flashbang_comanche_helix_dual_peel_last_action,
-    residual_host_flashbang_comanche_helix_dual_peel_ok,
-    simulate_host_flashbang_comanche_helix_dual_peel_collect_source,
-    simulate_host_flashbang_comanche_helix_dual_peel_dispatch_source,
-    simulate_live_host_flashbang_comanche_helix_dual_peel_honesty,
-};
-pub use host_live_host_scorpion_missile_dual_peel_residual_wave805::{
-    honesty_host_scorpion_missile_dual_peel_method_names_residual_wave805,
-    honesty_host_scorpion_missile_dual_peel_nav_commands_residual_wave805,
-    honesty_host_scorpion_missile_dual_peel_residual_pack_wave805,
-    honesty_host_scorpion_missile_dual_peel_source_markers_residual_wave805,
-    residual_host_scorpion_missile_dual_peel_last_action,
-    residual_host_scorpion_missile_dual_peel_ok,
-    simulate_host_scorpion_missile_dual_peel_collect_source,
-    simulate_host_scorpion_missile_dual_peel_dispatch_source,
-    simulate_live_host_scorpion_missile_dual_peel_honesty,
-};
-pub use host_live_host_beam_flare_shell_dual_peel_residual_wave806::{
-    honesty_host_beam_flare_shell_dual_peel_method_names_residual_wave806,
-    honesty_host_beam_flare_shell_dual_peel_nav_commands_residual_wave806,
-    honesty_host_beam_flare_shell_dual_peel_residual_pack_wave806,
-    honesty_host_beam_flare_shell_dual_peel_source_markers_residual_wave806,
-    residual_host_beam_flare_shell_dual_peel_last_action,
-    residual_host_beam_flare_shell_dual_peel_ok,
-    simulate_host_beam_flare_shell_dual_peel_collect_source,
-    simulate_host_beam_flare_shell_dual_peel_dispatch_source,
-    simulate_live_host_beam_flare_shell_dual_peel_honesty,
-};
-pub use host_live_host_sticky_booby_attach_dual_peel_residual_wave807::{
-    honesty_host_sticky_booby_attach_dual_peel_method_names_residual_wave807,
-    honesty_host_sticky_booby_attach_dual_peel_nav_commands_residual_wave807,
-    honesty_host_sticky_booby_attach_dual_peel_residual_pack_wave807,
-    honesty_host_sticky_booby_attach_dual_peel_source_markers_residual_wave807,
-    residual_host_sticky_booby_attach_dual_peel_last_action,
-    residual_host_sticky_booby_attach_dual_peel_ok,
-    simulate_host_sticky_booby_attach_dual_peel_collect_source,
-    simulate_host_sticky_booby_attach_dual_peel_dispatch_source,
-    simulate_live_host_sticky_booby_attach_dual_peel_honesty,
-};
-pub use host_live_host_particle_laser_object_dual_peel_residual_wave808::{
-    honesty_host_particle_laser_object_dual_peel_method_names_residual_wave808,
-    honesty_host_particle_laser_object_dual_peel_nav_commands_residual_wave808,
-    honesty_host_particle_laser_object_dual_peel_residual_pack_wave808,
-    honesty_host_particle_laser_object_dual_peel_source_markers_residual_wave808,
-    residual_host_particle_laser_object_dual_peel_last_action,
-    residual_host_particle_laser_object_dual_peel_ok,
-    simulate_host_particle_laser_object_dual_peel_collect_source,
-    simulate_host_particle_laser_object_dual_peel_dispatch_source,
-    simulate_live_host_particle_laser_object_dual_peel_honesty,
-};
-pub use host_live_host_firewall_radar_dual_peel_residual_wave809::{
-    honesty_host_firewall_radar_dual_peel_method_names_residual_wave809,
-    honesty_host_firewall_radar_dual_peel_nav_commands_residual_wave809,
-    honesty_host_firewall_radar_dual_peel_residual_pack_wave809,
-    honesty_host_firewall_radar_dual_peel_source_markers_residual_wave809,
-    residual_host_firewall_radar_dual_peel_last_action,
-    residual_host_firewall_radar_dual_peel_ok,
-    simulate_host_firewall_radar_dual_peel_collect_source,
-    simulate_host_firewall_radar_dual_peel_dispatch_source,
-    simulate_live_host_firewall_radar_dual_peel_honesty,
-};
-pub use host_live_host_power_plant_rods_dual_peel_residual_wave810::{
-    honesty_host_power_plant_rods_dual_peel_method_names_residual_wave810,
-    honesty_host_power_plant_rods_dual_peel_nav_commands_residual_wave810,
-    honesty_host_power_plant_rods_dual_peel_residual_pack_wave810,
-    honesty_host_power_plant_rods_dual_peel_source_markers_residual_wave810,
-    residual_host_power_plant_rods_dual_peel_last_action,
-    residual_host_power_plant_rods_dual_peel_ok,
-    simulate_host_power_plant_rods_dual_peel_collect_source,
-    simulate_host_power_plant_rods_dual_peel_dispatch_source,
-    simulate_live_host_power_plant_rods_dual_peel_honesty,
-};
-pub use host_live_host_power_disabled_dual_peel_residual_wave811::{
-    honesty_host_power_disabled_dual_peel_method_names_residual_wave811,
-    honesty_host_power_disabled_dual_peel_nav_commands_residual_wave811,
-    honesty_host_power_disabled_dual_peel_residual_pack_wave811,
-    honesty_host_power_disabled_dual_peel_source_markers_residual_wave811,
-    residual_host_power_disabled_dual_peel_last_action,
-    residual_host_power_disabled_dual_peel_ok,
-    simulate_host_power_disabled_dual_peel_collect_source,
-    simulate_host_power_disabled_dual_peel_dispatch_source,
-    simulate_live_host_power_disabled_dual_peel_honesty,
-};
-pub use host_live_host_battlemaster_horde_dual_peel_residual_wave812::{
-    honesty_host_battlemaster_horde_dual_peel_method_names_residual_wave812,
-    honesty_host_battlemaster_horde_dual_peel_nav_commands_residual_wave812,
-    honesty_host_battlemaster_horde_dual_peel_residual_pack_wave812,
-    honesty_host_battlemaster_horde_dual_peel_source_markers_residual_wave812,
-    residual_host_battlemaster_horde_dual_peel_last_action,
-    residual_host_battlemaster_horde_dual_peel_ok,
-    simulate_host_battlemaster_horde_dual_peel_collect_source,
-    simulate_host_battlemaster_horde_dual_peel_dispatch_source,
-    simulate_live_host_battlemaster_horde_dual_peel_honesty,
-};
-pub use host_live_host_china_infantry_horde_dual_peel_residual_wave813::{
-    honesty_host_china_infantry_horde_dual_peel_method_names_residual_wave813,
-    honesty_host_china_infantry_horde_dual_peel_nav_commands_residual_wave813,
-    honesty_host_china_infantry_horde_dual_peel_residual_pack_wave813,
-    honesty_host_china_infantry_horde_dual_peel_source_markers_residual_wave813,
-    residual_host_china_infantry_horde_dual_peel_last_action,
-    residual_host_china_infantry_horde_dual_peel_ok,
-    simulate_host_china_infantry_horde_dual_peel_collect_source,
-    simulate_host_china_infantry_horde_dual_peel_dispatch_source,
-    simulate_live_host_china_infantry_horde_dual_peel_honesty,
-};
-pub use host_live_host_stinger_hive_dual_peel_residual_wave814::{
-    honesty_host_stinger_hive_dual_peel_method_names_residual_wave814,
-    honesty_host_stinger_hive_dual_peel_nav_commands_residual_wave814,
-    honesty_host_stinger_hive_dual_peel_residual_pack_wave814,
-    honesty_host_stinger_hive_dual_peel_source_markers_residual_wave814,
-    residual_host_stinger_hive_dual_peel_last_action,
-    residual_host_stinger_hive_dual_peel_ok,
-    simulate_host_stinger_hive_dual_peel_collect_source,
-    simulate_host_stinger_hive_dual_peel_dispatch_source,
-    simulate_live_host_stinger_hive_dual_peel_honesty,
-};
-pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
-    honesty_host_actively_constructing_dual_peel_method_names_residual_wave815,
-    honesty_host_actively_constructing_dual_peel_nav_commands_residual_wave815,
-    honesty_host_actively_constructing_dual_peel_residual_pack_wave815,
-    honesty_host_actively_constructing_dual_peel_source_markers_residual_wave815,
-    residual_host_actively_constructing_dual_peel_last_action,
-    residual_host_actively_constructing_dual_peel_ok,
-    simulate_host_actively_constructing_dual_peel_collect_source,
-    simulate_host_actively_constructing_dual_peel_dispatch_source,
-    simulate_live_host_actively_constructing_dual_peel_honesty,
-};
-pub use host_live_host_player_alive_dual_peel_residual_wave816::{
-    honesty_host_player_alive_dual_peel_method_names_residual_wave816,
-    honesty_host_player_alive_dual_peel_nav_commands_residual_wave816,
-    honesty_host_player_alive_dual_peel_residual_pack_wave816,
-    honesty_host_player_alive_dual_peel_source_markers_residual_wave816,
-    residual_host_player_alive_dual_peel_last_action,
-    residual_host_player_alive_dual_peel_ok,
-    simulate_host_player_alive_dual_peel_collect_source,
-    simulate_host_player_alive_dual_peel_dispatch_source,
-    simulate_live_host_player_alive_dual_peel_honesty,
-};
-pub use host_live_host_money_crate_delete_dual_peel_residual_wave817::{
-    honesty_host_money_crate_delete_dual_peel_method_names_residual_wave817,
-    honesty_host_money_crate_delete_dual_peel_nav_commands_residual_wave817,
-    honesty_host_money_crate_delete_dual_peel_residual_pack_wave817,
-    honesty_host_money_crate_delete_dual_peel_source_markers_residual_wave817,
-    residual_host_money_crate_delete_dual_peel_last_action,
-    residual_host_money_crate_delete_dual_peel_ok,
-    simulate_host_money_crate_delete_dual_peel_collect_source,
-    simulate_host_money_crate_delete_dual_peel_dispatch_source,
-    simulate_live_host_money_crate_delete_dual_peel_honesty,
-};
-pub use host_live_host_player_radar_dual_peel_residual_wave818::{
-    honesty_host_player_radar_dual_peel_method_names_residual_wave818,
-    honesty_host_player_radar_dual_peel_nav_commands_residual_wave818,
-    honesty_host_player_radar_dual_peel_residual_pack_wave818,
-    honesty_host_player_radar_dual_peel_source_markers_residual_wave818,
-    residual_host_player_radar_dual_peel_last_action,
-    residual_host_player_radar_dual_peel_ok,
-    simulate_host_player_radar_dual_peel_collect_source,
-    simulate_host_player_radar_dual_peel_dispatch_source,
-    simulate_live_host_player_radar_dual_peel_honesty,
-};
-pub use host_live_host_dozer_bored_dual_peel_residual_wave819::{
-    honesty_host_dozer_bored_dual_peel_method_names_residual_wave819,
-    honesty_host_dozer_bored_dual_peel_nav_commands_residual_wave819,
-    honesty_host_dozer_bored_dual_peel_residual_pack_wave819,
-    honesty_host_dozer_bored_dual_peel_source_markers_residual_wave819,
-    residual_host_dozer_bored_dual_peel_last_action,
-    residual_host_dozer_bored_dual_peel_ok,
-    simulate_host_dozer_bored_dual_peel_collect_source,
-    simulate_host_dozer_bored_dual_peel_dispatch_source,
-    simulate_live_host_dozer_bored_dual_peel_honesty,
-};
-pub use host_live_host_fire_spread_dual_peel_residual_wave820::{
-    honesty_host_fire_spread_dual_peel_method_names_residual_wave820,
-    honesty_host_fire_spread_dual_peel_nav_commands_residual_wave820,
-    honesty_host_fire_spread_dual_peel_residual_pack_wave820,
-    honesty_host_fire_spread_dual_peel_source_markers_residual_wave820,
-    residual_host_fire_spread_dual_peel_last_action,
-    residual_host_fire_spread_dual_peel_ok,
-    simulate_host_fire_spread_dual_peel_collect_source,
-    simulate_host_fire_spread_dual_peel_dispatch_source,
-    simulate_live_host_fire_spread_dual_peel_honesty,
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub use host_live_host_eager_status_veterancy_helper_residual_wave689::{
     honesty_host_eager_status_veterancy_helper_method_names_residual_wave689,

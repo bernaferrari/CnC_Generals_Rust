@@ -1115,6 +1115,12 @@ pub struct Entity {
     pub fire_spread_enabled: bool,
     pub fire_spread_flame_damage_accum: f32,
     pub fire_spread_flame_damage_limit: f32,
+    /// Host black market AutoDeposit next frame residual.
+    pub black_market_building: bool,
+    pub black_market_next_deposit_frame: u32,
+    /// Host oil derrick AutoDeposit next frame residual.
+    pub oil_derrick_building: bool,
+    pub oil_derrick_next_deposit_frame: u32,
     /// Host hijacker residual `next_detection_scan_frame`.
     pub next_detection_scan_frame: u32,
     /// Host Object::stealth_allowed_frame residual.
@@ -2027,6 +2033,10 @@ impl EntityStore {
             fire_spread_enabled: false,
             fire_spread_flame_damage_accum: 0.0,
             fire_spread_flame_damage_limit: 0.0,
+            black_market_building: false,
+            black_market_next_deposit_frame: 0,
+            oil_derrick_building: false,
+            oil_derrick_next_deposit_frame: 0,
             next_detection_scan_frame: 0,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,

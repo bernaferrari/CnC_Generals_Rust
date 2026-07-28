@@ -3575,35 +3575,11 @@ use crate::game_logic::host_live_host_fire_spread_dual_peel_residual_wave820::{
     honesty_host_fire_spread_dual_peel_nav_commands_residual_wave820,
     simulate_live_host_fire_spread_dual_peel_honesty,
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+use crate::game_logic::host_live_host_auto_deposit_dual_peel_residual_wave821::{
+    honesty_host_auto_deposit_dual_peel_method_names_residual_wave821,
+    honesty_host_auto_deposit_dual_peel_nav_commands_residual_wave821,
+    simulate_live_host_auto_deposit_dual_peel_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7704,6 +7680,9 @@ pub struct ShellSmokeResult {
     pub host_fire_spread_dual_peel_method_names_wave820_ok: bool,
     pub host_fire_spread_dual_peel_nav_commands_wave820_ok: bool,
     pub host_fire_spread_dual_peel_live_wave820_ok: bool,
+    pub host_auto_deposit_dual_peel_method_names_wave821_ok: bool,
+    pub host_auto_deposit_dual_peel_nav_commands_wave821_ok: bool,
+    pub host_auto_deposit_dual_peel_live_wave821_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11815,8 +11794,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_auto_target_opt_in_method_names_residual_wave729();
     let host_auto_target_opt_in_nav_commands_wave729_ok =
         honesty_host_auto_target_opt_in_nav_commands_residual_wave729();
-    let host_auto_target_opt_in_live_wave729_ok =
-        simulate_live_host_auto_target_opt_in_honesty();
+    let host_auto_target_opt_in_live_wave729_ok = simulate_live_host_auto_target_opt_in_honesty();
     let host_cmd_auto_select_opt_in_method_names_wave730_ok =
         honesty_host_cmd_auto_select_opt_in_method_names_residual_wave730();
     let host_cmd_auto_select_opt_in_nav_commands_wave730_ok =
@@ -12363,6 +12341,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_fire_spread_dual_peel_nav_commands_residual_wave820();
     let host_fire_spread_dual_peel_live_wave820_ok =
         simulate_live_host_fire_spread_dual_peel_honesty();
+    let host_auto_deposit_dual_peel_method_names_wave821_ok =
+        honesty_host_auto_deposit_dual_peel_method_names_residual_wave821();
+    let host_auto_deposit_dual_peel_nav_commands_wave821_ok =
+        honesty_host_auto_deposit_dual_peel_nav_commands_residual_wave821();
+    let host_auto_deposit_dual_peel_live_wave821_ok =
+        simulate_live_host_auto_deposit_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -14812,6 +14796,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_fire_spread_dual_peel_method_names_wave820_ok,
         host_fire_spread_dual_peel_nav_commands_wave820_ok,
         host_fire_spread_dual_peel_live_wave820_ok,
+        host_auto_deposit_dual_peel_method_names_wave821_ok,
+        host_auto_deposit_dual_peel_nav_commands_wave821_ok,
+        host_auto_deposit_dual_peel_live_wave821_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

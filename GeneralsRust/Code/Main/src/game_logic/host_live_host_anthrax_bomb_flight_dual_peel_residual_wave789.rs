@@ -2,12 +2,12 @@
 //! under coupled dual-tick sole-ticks transport/bomb and logs drop/detonate;
 //! host peels `update_anthrax_bomb_flights`. playable_claim stays false.
 
-
-
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
 static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> { table.iter().position(|n| *n == name) }
+pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
+    table.iter().position(|n| *n == name)
+}
 pub const LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL_METHOD_NAMES_WAVE789: &[&str] = &[
     "anthrax_transport_active",
     "anthrax_bomb_payload",
@@ -32,29 +32,59 @@ pub const RUNTIME_HOST_LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL_CMD_NAMES_WAVE789
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidualHostAnthraxBombFlightDualPeelAction { None=0,MethodNames=1,SourceMarkers=2,NavCommands=3,CollectSource=4,DispatchSource=5,Composite=6 }
-impl ResidualHostAnthraxBombFlightDualPeelAction {
-    pub fn from_u8(v: u8) -> Self { match v { 1=>Self::MethodNames,2=>Self::SourceMarkers,3=>Self::NavCommands,4=>Self::CollectSource,5=>Self::DispatchSource,6=>Self::Composite,_=>Self::None } }
+pub enum ResidualHostAnthraxBombFlightDualPeelAction {
+    None = 0,
+    MethodNames = 1,
+    SourceMarkers = 2,
+    NavCommands = 3,
+    CollectSource = 4,
+    DispatchSource = 5,
+    Composite = 6,
 }
-fn residual_action_store(a: ResidualHostAnthraxBombFlightDualPeelAction) { RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst); }
-pub fn residual_host_anthrax_bomb_flight_dual_peel_ok() -> bool { RESIDUAL_OK.load(Ordering::SeqCst) }
-pub fn residual_host_anthrax_bomb_flight_dual_peel_last_action() -> ResidualHostAnthraxBombFlightDualPeelAction { ResidualHostAnthraxBombFlightDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst)) }
-fn sh_source() -> &'static str { include_str!("../gameworld_shadow.rs") }
-fn gl_source() -> &'static str { include_str!("game_logic.rs") }
+impl ResidualHostAnthraxBombFlightDualPeelAction {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::MethodNames,
+            2 => Self::SourceMarkers,
+            3 => Self::NavCommands,
+            4 => Self::CollectSource,
+            5 => Self::DispatchSource,
+            6 => Self::Composite,
+            _ => Self::None,
+        }
+    }
+}
+fn residual_action_store(a: ResidualHostAnthraxBombFlightDualPeelAction) {
+    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
+}
+pub fn residual_host_anthrax_bomb_flight_dual_peel_ok() -> bool {
+    RESIDUAL_OK.load(Ordering::SeqCst)
+}
+pub fn residual_host_anthrax_bomb_flight_dual_peel_last_action(
+) -> ResidualHostAnthraxBombFlightDualPeelAction {
+    ResidualHostAnthraxBombFlightDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
+}
+fn sh_source() -> &'static str {
+    include_str!("../gameworld_shadow.rs")
+}
+fn gl_source() -> &'static str {
+    include_str!("game_logic.rs")
+}
 pub fn honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789() -> bool {
-    let names=LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL_METHOD_NAMES_WAVE789;
-    let ok=residual_name_index(names,"anthrax_transport_active").is_some()
-        && residual_name_index(names,"anthrax_bomb_payload").is_some()
-        && residual_name_index(names,"host_anthrax_bomb_drop_log").is_some()
-        && residual_name_index(names,"update_anthrax_bomb_flights").is_some()
-        && residual_name_index(names,"Wave 789").is_some()
-        && residual_name_index(names,"playable_claim = false").is_some();
-    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::MethodNames); ok
+    let names = LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL_METHOD_NAMES_WAVE789;
+    let ok = residual_name_index(names, "anthrax_transport_active").is_some()
+        && residual_name_index(names, "anthrax_bomb_payload").is_some()
+        && residual_name_index(names, "host_anthrax_bomb_drop_log").is_some()
+        && residual_name_index(names, "update_anthrax_bomb_flights").is_some()
+        && residual_name_index(names, "Wave 789").is_some()
+        && residual_name_index(names, "playable_claim = false").is_some();
+    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::MethodNames);
+    ok
 }
 pub fn honesty_host_anthrax_bomb_flight_dual_peel_source_markers_residual_wave789() -> bool {
-    let sh=sh_source();
-    let gl=gl_source();
-    let ent=include_str!("../../../GameEngine/GameLogic/src/world/entities/mod.rs");
+    let sh = sh_source();
+    let gl = gl_source();
+    let ent = include_str!("../../../GameEngine/GameLogic/src/world/entities/mod.rs");
     let ok = ent.contains("anthrax_transport_active")
         && ent.contains("anthrax_bomb_payload")
         && sh.contains("Wave 789")
@@ -66,27 +96,30 @@ pub fn honesty_host_anthrax_bomb_flight_dual_peel_source_markers_residual_wave78
     ok
 }
 pub fn honesty_host_anthrax_bomb_flight_dual_peel_nav_commands_residual_wave789() -> bool {
-    let steps=LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL_NAV_STEPS_WAVE789;
-    let ok=residual_name_index(steps,"REQUIRE_ENTITY_ANTHRAX_FIELDS").is_some()
-        && residual_name_index(steps,"REQUIRE_GW_FLIGHT_TICK").is_some()
-        && residual_name_index(steps,"REQUIRE_HOST_PEEL").is_some()
-        && residual_name_index(steps,"REQUIRE_DROP_DETONATE_DRAIN").is_some()
-        && residual_name_index(steps,"LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL").is_some()
-        && residual_name_index(steps,"LIVE_PLAYABLE_CLAIM_FALSE").is_some();
-    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::NavCommands); ok
+    let steps = LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL_NAV_STEPS_WAVE789;
+    let ok = residual_name_index(steps, "REQUIRE_ENTITY_ANTHRAX_FIELDS").is_some()
+        && residual_name_index(steps, "REQUIRE_GW_FLIGHT_TICK").is_some()
+        && residual_name_index(steps, "REQUIRE_HOST_PEEL").is_some()
+        && residual_name_index(steps, "REQUIRE_DROP_DETONATE_DRAIN").is_some()
+        && residual_name_index(steps, "LIVE_HOST_ANTHRAX_BOMB_FLIGHT_DUAL_PEEL").is_some()
+        && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some();
+    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::NavCommands);
+    ok
 }
 pub fn simulate_host_anthrax_bomb_flight_dual_peel_collect_source() -> bool {
-    let ok=sh_source().contains("Wave 789")
+    let ok = sh_source().contains("Wave 789")
         && sh_source().contains("anthrax_transport_active")
         && gl_source().contains("Wave 789");
-    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::CollectSource); ok
+    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::CollectSource);
+    ok
 }
 pub fn simulate_host_anthrax_bomb_flight_dual_peel_dispatch_source() -> bool {
-    let ok=sh_source().contains("host_anthrax_bomb_drop_log::record_drop")
+    let ok = sh_source().contains("host_anthrax_bomb_drop_log::record_drop")
         && sh_source().contains("host_anthrax_bomb_drop_log::drain_drops")
         && gl_source().contains("update_anthrax_bomb_flights")
         && gl_source().contains("shadow_coupled_tick_active()");
-    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::DispatchSource); ok
+    residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::DispatchSource);
+    ok
 }
 pub fn honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789() -> bool {
     honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789()
@@ -96,18 +129,41 @@ pub fn honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789() -> boo
         && simulate_host_anthrax_bomb_flight_dual_peel_dispatch_source()
 }
 pub fn simulate_live_host_anthrax_bomb_flight_dual_peel_honesty() -> bool {
-    let ok=honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789();
-    if ok { RESIDUAL_OK.store(true, Ordering::SeqCst); residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::Composite); }
+    let ok = honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789();
+    if ok {
+        RESIDUAL_OK.store(true, Ordering::SeqCst);
+        residual_action_store(ResidualHostAnthraxBombFlightDualPeelAction::Composite);
+    }
     ok
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn method_names_residual() { assert!(honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789()); }
-    #[test] fn source_markers_residual() { assert!(honesty_host_anthrax_bomb_flight_dual_peel_source_markers_residual_wave789()); }
-    #[test] fn nav_commands_residual() { assert!(honesty_host_anthrax_bomb_flight_dual_peel_nav_commands_residual_wave789()); }
-    #[test] fn sources() { assert!(simulate_host_anthrax_bomb_flight_dual_peel_collect_source()); assert!(simulate_host_anthrax_bomb_flight_dual_peel_dispatch_source()); }
-    #[test] fn pack() { assert!(honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789()); }
-    #[test] fn live() { assert!(simulate_live_host_anthrax_bomb_flight_dual_peel_honesty()); assert!(residual_host_anthrax_bomb_flight_dual_peel_ok()); }
+    #[test]
+    fn method_names_residual() {
+        assert!(honesty_host_anthrax_bomb_flight_dual_peel_method_names_residual_wave789());
+    }
+    #[test]
+    fn source_markers_residual() {
+        assert!(honesty_host_anthrax_bomb_flight_dual_peel_source_markers_residual_wave789());
+    }
+    #[test]
+    fn nav_commands_residual() {
+        assert!(honesty_host_anthrax_bomb_flight_dual_peel_nav_commands_residual_wave789());
+    }
+    #[test]
+    fn sources() {
+        assert!(simulate_host_anthrax_bomb_flight_dual_peel_collect_source());
+        assert!(simulate_host_anthrax_bomb_flight_dual_peel_dispatch_source());
+    }
+    #[test]
+    fn pack() {
+        assert!(honesty_host_anthrax_bomb_flight_dual_peel_residual_pack_wave789());
+    }
+    #[test]
+    fn live() {
+        assert!(simulate_live_host_anthrax_bomb_flight_dual_peel_honesty());
+        assert!(residual_host_anthrax_bomb_flight_dual_peel_ok());
+    }
 }
