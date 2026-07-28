@@ -1247,7 +1247,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("stop_") {
                             stop_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["sell"]);
+                        let _ = write_control(&control_path, &["sell|auto_target=1"]);
                         gameplay_step = 9;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 9

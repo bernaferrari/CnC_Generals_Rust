@@ -10245,7 +10245,7 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = "sell_fail_no_player".into();
                         return;
                     };
-                    // Prefer selected structure; else newest friendly non-CC structure.
+                    // Prefer selected structure; newest non-CC only when auto_target opted in.
                     let mut targets: Vec<crate::game_logic::ObjectId> = self
                         .selected_objects
                         .iter()
@@ -10276,19 +10276,42 @@ impl CnCGameEngine {
                             }
                         })
                         .collect();
+                    // Wave 728: auto-pick newest sellable structure is opt-in only.
+                    // Default fail-closed: sell requires a selected structure.
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_SELL_AUTO_TARGET=1.
                     if targets.is_empty() {
-                        targets = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            // Newest id first (mirrors host reverse sort residual).
-                            frame
-                                .alive_sellable_friendly_structure_ids(team)
-                                .into_iter()
-                                .rev()
-                                .take(1)
-                                .collect()
-                        } else {
-                            // Presentation required (no live get_objects dual-read).
-                            Vec::new()
-                        };
+                        let allow_auto_target = args
+                            .get("auto_target")
+                            .or_else(|| args.get("pick_structure"))
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                            || std::env::var_os("GENERALS_RUNTIME_HOST_SELL_AUTO_TARGET")
+                                .is_some_and(|v| {
+                                    let s = v.to_string_lossy();
+                                    !(s.is_empty()
+                                        || s == "0"
+                                        || s.eq_ignore_ascii_case("false")
+                                        || s.eq_ignore_ascii_case("no"))
+                                });
+                        if allow_auto_target {
+                            targets = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                // Newest id first (mirrors host reverse sort residual).
+                                frame
+                                    .alive_sellable_friendly_structure_ids(team)
+                                    .into_iter()
+                                    .rev()
+                                    .take(1)
+                                    .collect()
+                            } else {
+                                // Presentation required (no live get_objects dual-read).
+                                Vec::new()
+                            };
+                        }
                     }
                     if targets.is_empty() {
                         self.runtime_host_last_gameplay_cmd = "sell_fail_no_structure".into();
@@ -10721,17 +10744,20 @@ impl CnCGameEngine {
                                     })
                                 })
                                 .filter(|n| !n.is_empty())
-                                .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
-                            while mobile_sel.len() < 2 {
-                                let n = mobile_sel.len() as f32 + 1.0;
-                                let pos = anchor + glam::Vec3::new(24.0 * n, 0.0, 0.0);
-                                let spawned =
-                                    self.host_create_object(&template, team, pos).or_else(|| {
-                                        self.host_create_object("AmericaInfantryRanger", team, pos)
-                                    });
-                                match spawned {
-                                    Some(id) => mobile_sel.push(id),
-                                    None => break,
+                                // Wave 728: no free AmericaInfantryRanger buddy template.
+                                // Buddy spawn already opt-in (Wave 720); template comes from
+                                // selected mobile only.
+                                .unwrap_or_default();
+                            if !template.is_empty() {
+                                while mobile_sel.len() < 2 {
+                                    let n = mobile_sel.len() as f32 + 1.0;
+                                    let pos = anchor + glam::Vec3::new(24.0 * n, 0.0, 0.0);
+                                    // Wave 728: no free AmericaInfantryRanger fallback template.
+                                    let spawned = self.host_create_object(&template, team, pos);
+                                    match spawned {
+                                        Some(id) => mobile_sel.push(id),
+                                        None => break,
+                                    }
                                 }
                             }
                         }
