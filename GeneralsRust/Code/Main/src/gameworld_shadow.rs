@@ -266,6 +266,10 @@ pub fn end_shadow_coupled_tick() {
             EARLY_DESTROY_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_CONTAIN_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_AI_DECISION_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_SPAWN_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_ATTACK_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_MOVE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_FIRE_SPAWN_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -369,9 +373,15 @@ pub fn eager_apply_host_fire_spawns_after_logic(
     {
         return 0;
     }
-    // Wave 682: post-logic fire-spawn materialize (exclusive shadow+logic borrows).
+    // Wave 682/712: post-logic fire-spawn materialize (exclusive shadow+logic borrows).
     let spawns = crate::game_logic::host_fire_spawn_log::drain();
-    shadow.apply_host_fire_spawn_events(logic, spawns)
+    if spawns.is_empty() {
+        EARLY_FIRE_SPAWN_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_fire_spawn_events(logic, spawns.clone());
+    EARLY_FIRE_SPAWN_BATCH.with(|c| *c.borrow_mut() = Some((spawns, true)));
+    n
 }
 /// Wave 683: immediately after the host logic frame on a coupled tick, drain
 /// `host_attack_log` / `host_move_log` into GameWorld attack/move targets.
@@ -387,7 +397,7 @@ pub fn eager_apply_host_move_attack_after_logic(
     if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
         return (0, 0);
     }
-    // Wave 683: post-logic move/attack materialize (exclusive shadow borrow).
+    // Wave 683/712: post-logic move/attack materialize (exclusive shadow borrow).
     let attack_events = crate::game_logic::host_attack_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();
     let mut attacks = 0usize;
@@ -408,6 +418,17 @@ pub fn eager_apply_host_move_attack_after_logic(
     }
     if attacks > 0 || moves > 0 {
         let _ = shadow.apply_pending();
+    }
+    // Wave 712: handoff batches so session does not re-queue.
+    if attack_events.is_empty() {
+        EARLY_ATTACK_BATCH.with(|c| *c.borrow_mut() = None);
+    } else {
+        EARLY_ATTACK_BATCH.with(|c| *c.borrow_mut() = Some((attack_events, true)));
+    }
+    if move_events.is_empty() {
+        EARLY_MOVE_BATCH.with(|c| *c.borrow_mut() = None);
+    } else {
+        EARLY_MOVE_BATCH.with(|c| *c.borrow_mut() = Some((move_events, true)));
     }
     (attacks, moves)
 }
@@ -2533,6 +2554,53 @@ pub fn eager_apply_host_ai_decision_after_logic(
     EARLY_AI_DECISION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
+// Wave 712: post-logic spawn batch handoff (complements mid-frame eager_map).
+thread_local! {
+    static EARLY_SPAWN_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_spawn_log::HostSpawnEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_ATTACK_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_attack_log::HostAttackEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_MOVE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_move_log::HostMoveEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_FIRE_SPAWN_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::combat::PendingProjectile>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_spawn_batch() -> Option<(Vec<crate::game_logic::host_spawn_log::HostSpawnEvent>, bool)> {
+    EARLY_SPAWN_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_attack_batch() -> Option<(Vec<crate::game_logic::host_attack_log::HostAttackEvent>, bool)> {
+    EARLY_ATTACK_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_move_batch() -> Option<(Vec<crate::game_logic::host_move_log::HostMoveEvent>, bool)> {
+    EARLY_MOVE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_fire_spawn_batch() -> Option<(Vec<crate::game_logic::combat::PendingProjectile>, bool)> {
+    EARLY_FIRE_SPAWN_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 712: post-logic drain remaining `host_spawn_log` into GameWorld (idempotent with mid-frame map).
+pub fn eager_apply_host_spawn_after_logic(
+    shadow: &mut GameWorldShadow,
+    logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 712: post-logic spawn materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_spawn_log::drain();
+    if events.is_empty() {
+        EARLY_SPAWN_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_spawn_events(&events, logic);
+    EARLY_SPAWN_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
 
 
 
@@ -10472,13 +10540,21 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_owner_log::drain(), false),
     };
-    let spawn_events = crate::game_logic::host_spawn_log::drain();
+    // Wave 712: prefer post-logic spawn batch (mid-frame map already idempotent).
+    let (spawn_events, early_spawn_applied) = match take_early_spawn_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_spawn_log::drain(), false),
+    };
     // Wave 711: prefer post-logic destroy batch.
     let (destroy_events, early_destroy_applied) = match take_early_destroy_batch() {
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_destroy_log::drain(), false),
     };
-    let attack_events = crate::game_logic::host_attack_log::drain();
+    // Wave 712: prefer post-logic attack batch (move_attack eager path).
+    let (attack_events, early_attack_applied) = match take_early_attack_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_attack_log::drain(), false),
+    };
     let _fire_loop_events = crate::game_logic::host_fire_sound_loop_log::drain();
     // Wave 689: prefer post-logic status / veterancy batches.
     let (status_events, early_status_applied) = match take_early_status_batch() {
@@ -10489,7 +10565,11 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_veterancy_log::drain(), false),
     };
-    let move_events = crate::game_logic::host_move_log::drain();
+    // Wave 712: prefer post-logic move batch (move_attack eager path).
+    let (move_events, early_move_applied) = match take_early_move_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_move_log::drain(), false),
+    };
     // Wave 709: prefer post-logic production / construction batches.
     let (production_events, early_production_applied) = match take_early_production_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -10557,7 +10637,12 @@ pub fn shadow_session_after_host_tick(
     let write_health = !(auth && (!events.is_empty() || !heal_events.is_empty()));
     shadow.sync_from_host_with(logic, write_health);
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
-    let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
+    // Wave 712: skip GW re-apply when post-logic eager path already ran.
+    let spawns_applied = if early_spawn_applied {
+        0
+    } else {
+        shadow.apply_host_spawn_events(&spawn_events, logic)
+    };
     // Wave 709: skip GW re-apply when post-logic eager path already ran.
     let _prod_applied = if early_production_applied {
         0
@@ -10761,8 +10846,16 @@ pub fn shadow_session_after_host_tick(
     // Fire-spawn authority: materialize deferred weapon discharges into CombatSystem
     // before projectile integrate authority steps flight.
     if gameworld_fire_spawn_authority_enabled() {
-        let spawns = crate::game_logic::host_fire_spawn_log::drain();
-        let _fs = shadow.apply_host_fire_spawn_events(logic, spawns);
+        // Wave 712: prefer post-logic fire-spawn batch.
+        let (spawns, early_fire_spawn_applied) = match take_early_fire_spawn_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_fire_spawn_log::drain(), false),
+        };
+        let _fs = if early_fire_spawn_applied {
+            0
+        } else {
+            shadow.apply_host_fire_spawn_events(logic, spawns)
+        };
     }
     if gameworld_projectile_authority_enabled() {
         let dt = 1.0_f32 / 30.0;
@@ -11132,11 +11225,16 @@ pub fn shadow_session_after_host_tick(
         // Ensure move destinations from host are present before step.
         let _move_tgts = shadow.apply_host_move_targets(logic);
     }
-    for ev in &attack_events {
-        let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
+    // Wave 712: skip re-queue when post-logic move/attack eager path already ran.
+    if !early_attack_applied {
+        for ev in &attack_events {
+            let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
+        }
     }
-    for ev in &move_events {
-        let _ = shadow.queue_set_move_target_for_host(ev.unit, ev.destination);
+    if !early_move_applied {
+        for ev in &move_events {
+            let _ = shadow.queue_set_move_target_for_host(ev.unit, ev.destination);
+        }
     }
     // Wave 689: skip GW re-apply when post-logic eager path already ran.
     if !early_status_applied {
