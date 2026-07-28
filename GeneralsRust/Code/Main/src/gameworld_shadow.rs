@@ -219,6 +219,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_CONTAIN_CAPACITY_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_HIVE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_OVERLORD_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_COMMAND_SET_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_DISGUISE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_VISION_CAMO_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1152,6 +1155,93 @@ pub fn eager_apply_host_overlord_after_logic(
     }
     let n = shadow.apply_host_overlord_events(&events);
     EARLY_OVERLORD_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 696: post-logic command-set / disguise / vision-camo batch handoff.
+thread_local! {
+    static EARLY_COMMAND_SET_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_command_set_log::HostCommandSetEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_DISGUISE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_disguise_log::HostDisguiseEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_VISION_CAMO_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_vision_camo_log::HostVisionCamoEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_command_set_batch() -> Option<(
+    Vec<crate::game_logic::host_command_set_log::HostCommandSetEvent>,
+    bool,
+)> {
+    EARLY_COMMAND_SET_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_disguise_batch() -> Option<(
+    Vec<crate::game_logic::host_disguise_log::HostDisguiseEvent>,
+    bool,
+)> {
+    EARLY_DISGUISE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_vision_camo_batch() -> Option<(
+    Vec<crate::game_logic::host_vision_camo_log::HostVisionCamoEvent>,
+    bool,
+)> {
+    EARLY_VISION_CAMO_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 696: post-logic drain `host_command_set_log` into GameWorld SetCommandSet.
+pub fn eager_apply_host_command_set_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 696: post-logic command-set materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_command_set_log::drain();
+    if events.is_empty() {
+        EARLY_COMMAND_SET_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_command_set_events(&events);
+    EARLY_COMMAND_SET_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 696: post-logic drain `host_disguise_log` into GameWorld SetDisguise.
+pub fn eager_apply_host_disguise_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 696: post-logic disguise materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_disguise_log::drain();
+    if events.is_empty() {
+        EARLY_DISGUISE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_disguise_events(&events);
+    EARLY_DISGUISE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 696: post-logic drain `host_vision_camo_log` into GameWorld SetVisionCamo.
+pub fn eager_apply_host_vision_camo_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 696: post-logic vision-camo materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_vision_camo_log::drain();
+    if events.is_empty() {
+        EARLY_VISION_CAMO_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_vision_camo_events(&events);
+    EARLY_VISION_CAMO_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8984,9 +9074,21 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_overlord_log::drain(), false),
     };
-    let command_set_events = crate::game_logic::host_command_set_log::drain();
-    let disguise_events = crate::game_logic::host_disguise_log::drain();
-    let vision_camo_events = crate::game_logic::host_vision_camo_log::drain();
+    // Wave 696: prefer post-logic command-set batch.
+    let (command_set_events, early_command_set_applied) = match take_early_command_set_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_command_set_log::drain(), false),
+    };
+    // Wave 696: prefer post-logic disguise batch.
+    let (disguise_events, early_disguise_applied) = match take_early_disguise_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_disguise_log::drain(), false),
+    };
+    // Wave 696: prefer post-logic vision-camo batch.
+    let (vision_camo_events, early_vision_camo_applied) = match take_early_vision_camo_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_vision_camo_log::drain(), false),
+    };
     let weapon_stats_events = crate::game_logic::host_weapon_stats_log::drain();
     // Wave 688: prefer post-logic movement batch.
     let (movement_events, early_movement_applied) = match take_early_movement_batch() {
@@ -9279,9 +9381,24 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_overlord_events(&overlord_events)
     };
-    let _cs_applied = shadow.apply_host_command_set_events(&command_set_events);
-    let _dg_applied = shadow.apply_host_disguise_events(&disguise_events);
-    let _vc_applied = shadow.apply_host_vision_camo_events(&vision_camo_events);
+    // Wave 696: skip GW re-apply when post-logic eager path already ran.
+    let _cs_applied = if early_command_set_applied {
+        0
+    } else {
+        shadow.apply_host_command_set_events(&command_set_events)
+    };
+    // Wave 696: skip GW re-apply when post-logic eager path already ran.
+    let _dg_applied = if early_disguise_applied {
+        0
+    } else {
+        shadow.apply_host_disguise_events(&disguise_events)
+    };
+    // Wave 696: skip GW re-apply when post-logic eager path already ran.
+    let _vc_applied = if early_vision_camo_applied {
+        0
+    } else {
+        shadow.apply_host_vision_camo_events(&vision_camo_events)
+    };
     let _ws_applied = shadow.apply_host_weapon_stats_events(&weapon_stats_events);
     let body_damage_events = crate::game_logic::host_body_damage_log::drain();
     let _bd_applied = shadow.apply_host_body_damage_events(&body_damage_events);
