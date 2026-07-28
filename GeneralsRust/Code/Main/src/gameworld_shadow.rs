@@ -237,6 +237,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_FAERIE_FIRE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_REPULSOR_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_DISABLE_TIMERS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_BODY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_DEATH_TYPE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_PHYSICS_MOTIVE_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1686,6 +1689,93 @@ pub fn eager_apply_host_disable_timers_after_logic(
     }
     let n = shadow.apply_host_disable_timers_events(&events);
     EARLY_DISABLE_TIMERS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 702: post-logic body-damage / death-type / physics-motive batch handoff.
+thread_local! {
+    static EARLY_BODY_DAMAGE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_body_damage_log::HostBodyDamageEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_DEATH_TYPE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_death_type_log::HostDeathTypeEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_PHYSICS_MOTIVE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_physics_motive_log::HostPhysicsMotiveEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_body_damage_batch() -> Option<(
+    Vec<crate::game_logic::host_body_damage_log::HostBodyDamageEvent>,
+    bool,
+)> {
+    EARLY_BODY_DAMAGE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_death_type_batch() -> Option<(
+    Vec<crate::game_logic::host_death_type_log::HostDeathTypeEvent>,
+    bool,
+)> {
+    EARLY_DEATH_TYPE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_physics_motive_batch() -> Option<(
+    Vec<crate::game_logic::host_physics_motive_log::HostPhysicsMotiveEvent>,
+    bool,
+)> {
+    EARLY_PHYSICS_MOTIVE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 702: post-logic drain `host_body_damage_log` into GameWorld SetBodyDamage.
+pub fn eager_apply_host_body_damage_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 702: post-logic body-damage materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_body_damage_log::drain();
+    if events.is_empty() {
+        EARLY_BODY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_body_damage_events(&events);
+    EARLY_BODY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 702: post-logic drain `host_death_type_log` into GameWorld SetDeathType.
+pub fn eager_apply_host_death_type_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 702: post-logic death-type materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_death_type_log::drain();
+    if events.is_empty() {
+        EARLY_DEATH_TYPE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_death_type_events(&events);
+    EARLY_DEATH_TYPE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 702: post-logic drain `host_physics_motive_log` into GameWorld SetPhysicsMotive.
+pub fn eager_apply_host_physics_motive_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 702: post-logic physics-motive materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_physics_motive_log::drain();
+    if events.is_empty() {
+        EARLY_PHYSICS_MOTIVE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_physics_motive_events(&events);
+    EARLY_PHYSICS_MOTIVE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9915,10 +10005,26 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_weapon_stats_events(&weapon_stats_events)
     };
-    let body_damage_events = crate::game_logic::host_body_damage_log::drain();
-    let _bd_applied = shadow.apply_host_body_damage_events(&body_damage_events);
-    let death_type_events = crate::game_logic::host_death_type_log::drain();
-    let _dt_applied = shadow.apply_host_death_type_events(&death_type_events);
+    // Wave 702: prefer post-logic body-damage batch.
+    let (body_damage_events, early_body_damage_applied) = match take_early_body_damage_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_body_damage_log::drain(), false),
+    };
+    let _bd_applied = if early_body_damage_applied {
+        0
+    } else {
+        shadow.apply_host_body_damage_events(&body_damage_events)
+    };
+    // Wave 702: prefer post-logic death-type batch.
+    let (death_type_events, early_death_type_applied) = match take_early_death_type_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_death_type_log::drain(), false),
+    };
+    let _dt_applied = if early_death_type_applied {
+        0
+    } else {
+        shadow.apply_host_death_type_events(&death_type_events)
+    };
     let radar_extend_events = crate::game_logic::host_radar_extend_log::drain();
     let _re_applied = shadow.apply_host_radar_extend_events(&radar_extend_events);
     let shock_stun_events = crate::game_logic::host_shock_stun_log::drain();
@@ -9933,8 +10039,17 @@ pub fn shadow_session_after_host_tick(
     } else {
         movement_events.len()
     };
-    let physics_motive_events = crate::game_logic::host_physics_motive_log::drain();
-    let _pm_applied = shadow.apply_host_physics_motive_events(&physics_motive_events);
+    // Wave 702: prefer post-logic physics-motive batch.
+    let (physics_motive_events, early_physics_motive_applied) =
+        match take_early_physics_motive_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_physics_motive_log::drain(), false),
+        };
+    let _pm_applied = if early_physics_motive_applied {
+        0
+    } else {
+        shadow.apply_host_physics_motive_events(&physics_motive_events)
+    };
     let loco_events = crate::game_logic::host_locomotor_log::drain();
     let _loco_applied = shadow.apply_host_locomotor_events(&loco_events);
     let bounce_land_events = crate::game_logic::host_bounce_land_log::drain();
