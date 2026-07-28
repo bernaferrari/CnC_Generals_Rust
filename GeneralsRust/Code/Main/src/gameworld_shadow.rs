@@ -10787,6 +10787,43 @@ for eid in eids {
                 n = n.saturating_add(1);
             }
         }
+        // Wave 816: player is_alive residual from living team entities.
+        {
+            let mut living_teams: std::collections::HashSet<u8> =
+                std::collections::HashSet::new();
+            let alive_eids: Vec<_> = self.host_to_entity.values().copied().collect();
+            for eid in &alive_eids {
+                let Some(e) = self.world.entity(*eid) else {
+                    continue;
+                };
+                if e.health > 0.0 && !e.destroyed {
+                    living_teams.insert(e.team_ordinal);
+                }
+            }
+            // Also Neutral-skip: host uses player.team match; team_ordinal 255 = Neutral
+            let player_ids: Vec<_> = self
+                .world
+                .world()
+                .active_players()
+                .map(|(pid, _)| pid)
+                .collect();
+            for pid in player_ids {
+                let Some(pd) = self.world.player_mut(pid) else {
+                    continue;
+                };
+                let alive = pd
+                    .team
+                    .map(|t| living_teams.contains(&t))
+                    .unwrap_or(false);
+                if pd.is_alive != alive {
+                    pd.is_alive = alive;
+                    n = n.saturating_add(1);
+                } else {
+                    pd.is_alive = alive;
+                }
+            }
+        }
+
         n
     }
 

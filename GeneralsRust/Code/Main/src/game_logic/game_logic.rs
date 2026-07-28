@@ -72740,7 +72740,12 @@ impl GameLogic {
     }
 
     pub fn evaluate_victory_condition(&mut self) -> Option<VictoryCondition> {
-        self.update_player_alive_state();
+        // Wave 816: under coupled shadow, player is_alive owned by GW expire + writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_player_alive_state();
+        }
         self.victory_conditions
             .evaluate(&self.players, &self.objects, self.frame)
     }
