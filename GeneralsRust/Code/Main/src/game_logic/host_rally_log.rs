@@ -31,3 +31,7 @@ pub fn clear() {
 pub fn snapshot() -> Vec<HostRallyEvent> {
     LOG.with(|log| log.borrow().clone())
 }
+
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}

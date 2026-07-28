@@ -36,3 +36,7 @@ pub fn drain() -> Vec<HostGuardEvent> {
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
 }
+
+pub fn len() -> usize {
+    LOG.with(|log| log.borrow().len())
+}

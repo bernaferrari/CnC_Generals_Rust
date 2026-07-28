@@ -18029,6 +18029,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 692: post-logic turret / guard / rally before full session.
+                let _tur = crate::gameworld_shadow::eager_apply_host_turret_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _grd = crate::gameworld_shadow::eager_apply_host_guard_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _rly = crate::gameworld_shadow::eager_apply_host_rally_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

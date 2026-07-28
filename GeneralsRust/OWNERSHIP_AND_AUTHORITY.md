@@ -169,6 +169,7 @@ Remaining engine residual after host update:
   - Eager status/veterancy: post-logic drain `host_status_log`/`host_veterancy_log` → GW (Wave 689; session handoff)
   - Eager weapon-bonus/slot: post-logic drain `host_weapon_bonus_log`/`host_weapon_slot_log` → GW (Wave 690; session handoff)
   - Eager weapon-set/entity-power: post-logic drain `host_weapon_set_log`/`host_entity_power_log` → GW (Wave 691; session handoff)
+  - Eager turret/guard/rally: post-logic drain `host_turret_log`/`host_guard_log`/`host_rally_log` → GW (Wave 692; session handoff)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
