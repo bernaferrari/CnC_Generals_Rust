@@ -278,6 +278,18 @@ pub struct Entity {
     pub poison_death_type: u8,
     /// Host PoisonedBehavior tint residual.
     pub poison_tint: bool,
+    /// Host ToppleUpdate state residual (0 upright, 1 falling, 2 down).
+    pub topple_state: u8,
+    pub topple_dir_x: f32,
+    pub topple_dir_y: f32,
+    pub topple_angular_velocity: f32,
+    pub topple_angular_acceleration: f32,
+    pub topple_angular_accumulation: f32,
+    pub topple_options: u32,
+    pub topple_kill_when_toppled: bool,
+    pub topple_lean_radians: f32,
+    /// True when entity has active topple residual data.
+    pub topple_active: bool,
     /// Host Object::status.is_carbomb residual.
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
@@ -971,6 +983,16 @@ impl EntityStore {
             poison_damage_amount: 0.0,
             poison_death_type: 0,
             poison_tint: false,
+            topple_state: 0,
+            topple_dir_x: 0.0,
+            topple_dir_y: 0.0,
+            topple_angular_velocity: 0.0,
+            topple_angular_acceleration: 0.0,
+            topple_angular_accumulation: 0.0,
+            topple_options: 0,
+            topple_kill_when_toppled: false,
+            topple_lean_radians: 0.0,
+            topple_active: false,
             is_carbomb: false,
             hijacked: false,
             ignoring_stealth: false,

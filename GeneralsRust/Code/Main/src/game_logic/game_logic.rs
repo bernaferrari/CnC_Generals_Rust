@@ -8324,8 +8324,14 @@ impl GameLogic {
                 if obj.tick_disguise_transition() {
                     self.bomb_truck_disguise.record_transition_halfpoint();
                 }
-                // C++ ToppleUpdate::update residual (trees / crushable props).
-                topple_kill = obj.tick_topple();
+                // Wave 770: under coupled shadow, ToppleUpdate fall is owned by
+                // GW tick_status_timer_expirations + host_topple_kill_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    // C++ ToppleUpdate::update residual (trees / crushable props).
+                    topple_kill = obj.tick_topple();
+                }
                 // C++ StructureToppleUpdate::update residual (buildings).
                 // C++ HeightDieUpdate residual (bombs/missiles).
                 if !topple_kill && obj.tick_height_die(self.frame, 0.0) {
