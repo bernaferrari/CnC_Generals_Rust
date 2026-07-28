@@ -268,6 +268,16 @@ pub struct Entity {
     pub lifetime_expire_at_frame: u32,
     /// Host LifetimeUpdate active residual.
     pub lifetime_active: bool,
+    /// Host PoisonedBehavior next DoT frame (0 = inactive).
+    pub poison_damage_frame: u32,
+    /// Host PoisonedBehavior overall stop frame (0 = inactive).
+    pub poison_overall_stop_frame: u32,
+    /// Host PoisonedBehavior retake damage amount.
+    pub poison_damage_amount: f32,
+    /// Host PoisonedBehavior death type ordinal residual.
+    pub poison_death_type: u8,
+    /// Host PoisonedBehavior tint residual.
+    pub poison_tint: bool,
     /// Host Object::status.is_carbomb residual.
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
@@ -956,6 +966,11 @@ impl EntityStore {
             fire_sound_loop_name: String::new(),
             lifetime_expire_at_frame: 0,
             lifetime_active: false,
+            poison_damage_frame: 0,
+            poison_overall_stop_frame: 0,
+            poison_damage_amount: 0.0,
+            poison_death_type: 0,
+            poison_tint: false,
             is_carbomb: false,
             hijacked: false,
             ignoring_stealth: false,

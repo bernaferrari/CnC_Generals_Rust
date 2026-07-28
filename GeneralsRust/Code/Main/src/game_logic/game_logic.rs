@@ -8260,16 +8260,22 @@ impl GameLogic {
                     .map(|d| d.drain_audio())
                     .unwrap_or_default();
                 // C++ PoisonedBehavior::update residual (DoT).
-                if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
-                    // Apply as UNRESISTABLE so it doesn't re-infect (C++).
-                    let killed = obj.take_damage_from_typed_death(
-                        dot,
-                        None,
-                        crate::game_logic::combat::DamageType::Unresistable,
-                        death_ty,
-                    );
-                    if killed {
-                        poison_kill = true;
+                // Wave 769: under coupled shadow, PoisonedBehavior DoT is owned by
+                // GW tick_status_timer_expirations + host_poison_dot_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
+                {
+                    if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
+                        // Apply as UNRESISTABLE so it doesn't re-infect (C++).
+                        let killed = obj.take_damage_from_typed_death(
+                            dot,
+                            None,
+                            crate::game_logic::combat::DamageType::Unresistable,
+                            death_ty,
+                        );
+                        if killed {
+                            poison_kill = true;
+                        }
                     }
                 }
                 if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
