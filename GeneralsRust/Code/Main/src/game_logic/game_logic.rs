@@ -6435,7 +6435,13 @@ impl GameLogic {
         {
             self.update_checkpoint_update();
         }
-        self.update_smart_bomb_target_homing();
+        // Wave 787: under coupled shadow, SmartBombTargetHomingUpdate is owned by
+        // GW tick_status_timer_expirations + transform writeback.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_smart_bomb_target_homing();
+        }
         self.update_fuel_air_gas_slow_death();
         self.update_neutron_missile_flights();
         self.update_scud_storm_missile_flights();
