@@ -18020,6 +18020,15 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 691: post-logic weapon-set / entity-power before full session.
+                let _wset = crate::gameworld_shadow::eager_apply_host_weapon_set_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _epow = crate::gameworld_shadow::eager_apply_host_entity_power_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

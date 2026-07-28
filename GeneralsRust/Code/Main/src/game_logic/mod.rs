@@ -123,6 +123,7 @@ pub mod host_live_host_eager_owner_movement_helper_residual_wave688;
 pub mod host_live_host_eager_spawn_map_helper_residual_wave680;
 pub mod host_live_host_eager_status_veterancy_helper_residual_wave689;
 pub mod host_live_host_eager_weapon_bonus_slot_helper_residual_wave690;
+pub mod host_live_host_eager_weapon_set_power_helper_residual_wave691;
 pub mod host_live_host_production_spawn_ready_log_helper_residual_wave679;
 pub mod host_live_host_projectiles_ready_log_helper_residual_wave678;
 pub mod host_locomotor_ready_log;
@@ -3008,6 +3009,15 @@ pub use host_live_host_eager_weapon_bonus_slot_helper_residual_wave690::{
     residual_host_eager_weapon_bonus_slot_helper_last_action,
     residual_host_eager_weapon_bonus_slot_helper_ok,
     simulate_live_host_eager_weapon_bonus_slot_helper_honesty,
+};
+pub use host_live_host_eager_weapon_set_power_helper_residual_wave691::{
+    honesty_host_eager_weapon_set_power_helper_method_names_residual_wave691,
+    honesty_host_eager_weapon_set_power_helper_nav_commands_residual_wave691,
+    honesty_host_eager_weapon_set_power_helper_residual_pack_wave691,
+    honesty_host_eager_weapon_set_power_helper_source_markers_residual_wave691,
+    residual_host_eager_weapon_set_power_helper_last_action,
+    residual_host_eager_weapon_set_power_helper_ok,
+    simulate_live_host_eager_weapon_set_power_helper_honesty,
 };
 pub use host_live_host_economy_ready_log_helper_residual_wave631::{
     honesty_host_economy_ready_log_helper_method_names_residual_wave631,

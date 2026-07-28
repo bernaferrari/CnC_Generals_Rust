@@ -203,6 +203,10 @@ pub fn end_shadow_coupled_tick() {
             EARLY_MOVEMENT_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_STATUS_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_VETERANCY_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_WEAPON_BONUS_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_WEAPON_SLOT_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_WEAPON_SET_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_ENTITY_POWER_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -736,6 +740,65 @@ pub fn eager_apply_host_weapon_slot_after_logic(
     }
     let n = shadow.apply_host_weapon_slot_events(&events);
     EARLY_WEAPON_SLOT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 691: post-logic weapon-set / entity-power batch handoff (avoid double-apply).
+thread_local! {
+    static EARLY_WEAPON_SET_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_weapon_set_log::HostWeaponSetEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_ENTITY_POWER_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_entity_power_log::HostEntityPowerEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_weapon_set_batch() -> Option<(
+    Vec<crate::game_logic::host_weapon_set_log::HostWeaponSetEvent>,
+    bool,
+)> {
+    EARLY_WEAPON_SET_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_entity_power_batch() -> Option<(
+    Vec<crate::game_logic::host_entity_power_log::HostEntityPowerEvent>,
+    bool,
+)> {
+    EARLY_ENTITY_POWER_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 691: post-logic drain `host_weapon_set_log` into GameWorld SetWeaponSetFlags.
+pub fn eager_apply_host_weapon_set_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 691: post-logic weapon-set materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_weapon_set_log::drain();
+    if events.is_empty() {
+        EARLY_WEAPON_SET_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_weapon_set_events(&events);
+    EARLY_WEAPON_SET_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 691: post-logic drain `host_entity_power_log` into GameWorld SetEntityPower.
+pub fn eager_apply_host_entity_power_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 691: post-logic entity-power materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_entity_power_log::drain();
+    if events.is_empty() {
+        EARLY_ENTITY_POWER_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_entity_power_events(&events);
+    EARLY_ENTITY_POWER_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8494,7 +8557,11 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_weapon_slot_log::drain(), false),
     };
-    let entity_power_events = crate::game_logic::host_entity_power_log::drain();
+    // Wave 691: prefer post-logic entity-power batch.
+    let (entity_power_events, early_entity_power_applied) = match take_early_entity_power_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_entity_power_log::drain(), false),
+    };
     let turret_events = crate::game_logic::host_turret_log::drain();
     let target_location_events = crate::game_logic::host_target_location_log::drain();
     let detector_events = crate::game_logic::host_detector_log::drain();
@@ -8502,7 +8569,11 @@ pub fn shadow_session_after_host_tick(
     let guard_events = crate::game_logic::host_guard_log::drain();
     let rally_events = crate::game_logic::host_rally_log::drain();
     let ai_attitude_events = crate::game_logic::host_ai_attitude_log::drain();
-    let weapon_set_events = crate::game_logic::host_weapon_set_log::drain();
+    // Wave 691: prefer post-logic weapon-set batch.
+    let (weapon_set_events, early_weapon_set_applied) = match take_early_weapon_set_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_weapon_set_log::drain(), false),
+    };
     let overcharge_events = crate::game_logic::host_overcharge_log::drain();
     let contain_capacity_events = crate::game_logic::host_contain_capacity_log::drain();
     let hive_events = crate::game_logic::host_hive_log::drain();
@@ -8647,7 +8718,12 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_weapon_slot_events(&weapon_slot_events)
     };
-    let _epow_applied = shadow.apply_host_entity_power_events(&entity_power_events);
+    // Wave 691: skip GW re-apply when post-logic eager path already ran.
+    let _epow_applied = if early_entity_power_applied {
+        0
+    } else {
+        shadow.apply_host_entity_power_events(&entity_power_events)
+    };
     let _tur_applied = shadow.apply_host_turret_events(&turret_events);
     let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
     let _det_applied = shadow.apply_host_detector_events(&detector_events);
@@ -8723,7 +8799,12 @@ pub fn shadow_session_after_host_tick(
         let _ =
             shadow.apply_host_ai_decision_events(&crate::game_logic::host_ai_decision_log::drain());
     }
-    let _wset_applied = shadow.apply_host_weapon_set_events(&weapon_set_events);
+    // Wave 691: skip GW re-apply when post-logic eager path already ran.
+    let _wset_applied = if early_weapon_set_applied {
+        0
+    } else {
+        shadow.apply_host_weapon_set_events(&weapon_set_events)
+    };
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
     let _hive_applied = shadow.apply_host_hive_events(&hive_events);
