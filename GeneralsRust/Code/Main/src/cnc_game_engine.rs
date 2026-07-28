@@ -11372,13 +11372,33 @@ impl CnCGameEngine {
                             Vec::new()
                         };
                     }
-                    // Host residual: if map has no dozer yet, spawn USA_Dozer/GoldenDozer at CC.
+                    // Wave 719: free dozer spawn is opt-in only (default fail-closed).
+                    // Retail construct requires an existing builder. Vertical-slice smoke
+                    // may set spawn_dozer=1 / GENERALS_RUNTIME_HOST_CONSTRUCT_SPAWN_DOZER=1.
                     // Wave 227: remember spawn pose so construct location needs no live get_object.
                     let mut spawned_builder_pose: Option<(
                         crate::game_logic::ObjectId,
                         glam::Vec3,
                     )> = None;
-                    if builders.is_empty() {
+                    let allow_spawn_dozer = args
+                        .get("spawn_dozer")
+                        .or_else(|| args.get("force_spawn_dozer"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_CONSTRUCT_SPAWN_DOZER")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if builders.is_empty() && allow_spawn_dozer {
                         let spawn_at = {
                             let cc = if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame.first_friendly_command_center_position(team)
