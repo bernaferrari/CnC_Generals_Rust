@@ -82,6 +82,10 @@ where
     }
 }
 
+pub fn has_pending(host_id: u32) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.host_id == host_id))
+}
+
 pub fn drain() -> Vec<HostProjectileEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

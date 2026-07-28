@@ -22,6 +22,10 @@ pub fn record(player_id: u32, cooldowns: Vec<(String, f32)>) {
     });
 }
 
+pub fn has_pending(player_id: u32) -> bool {
+    LOG.with(|log| log.borrow().iter().any(|e| e.player_id == player_id))
+}
+
 pub fn drain() -> Vec<HostPlayerCooldownEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

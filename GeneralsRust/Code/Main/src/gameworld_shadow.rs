@@ -4420,6 +4420,12 @@ impl GameWorldShadow {
             let Some(player) = logic.get_player_mut(hid) else {
                 continue;
             };
+            // Wave 760: under coupled tick, host economy log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_economy_log::has_pending(hid)
+            {
+                continue;
+            }
             let prev_supplies = player.resources.supplies;
             let prev_power = player.power_available;
             let prev_radar = player.radar_count;
@@ -4587,6 +4593,21 @@ impl GameWorldShadow {
             let Some(pd) = self.world.player(gw) else {
                 continue;
             };
+            // Wave 760: under coupled tick, host upgrade frame events own completion path.
+            if shadow_coupled_tick_active() {
+                let hu = logic.host_upgrades();
+                let host_busy = hu
+                    .completed_this_frame_snapshot()
+                    .iter()
+                    .any(|e| e.player_id == host_id)
+                    || hu
+                        .queued_this_frame_snapshot()
+                        .iter()
+                        .any(|e| e.player_id == host_id);
+                if host_busy {
+                    continue;
+                }
+            }
             if pd.completed_upgrades.is_empty() {
                 continue;
             }
@@ -6904,6 +6925,12 @@ impl GameWorldShadow {
             let Some(player) = logic.get_player_mut(hid) else {
                 continue;
             };
+            // Wave 760: under coupled tick, host cooldown log pending = mid-frame authority.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_player_cooldown_log::has_pending(hid)
+            {
+                continue;
+            }
             let mut next = std::collections::HashMap::new();
             for (hk, hv) in player.shared_special_power_cooldowns.iter() {
                 let key = format!("{hk:?}");
@@ -7569,6 +7596,12 @@ impl GameWorldShadow {
             .filter(|id| !gw_ids.contains(&id.0))
             .collect();
         for id in to_remove {
+            // Wave 760: under coupled tick, host projectile log pending owns flight.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_projectile_log::has_pending(id.0)
+            {
+                continue;
+            }
             if logic.combat_system.remove_projectile(id) {
                 // Wave 678: GameWorld projectiles last-write residual —
                 // host applies presentation bookkeeping from ready log.
@@ -7577,6 +7610,12 @@ impl GameWorldShadow {
             }
         }
         for (hid, res) in self.world.projectiles() {
+            // Wave 760: under coupled tick, host projectile log pending owns flight.
+            if shadow_coupled_tick_active()
+                && crate::game_logic::host_projectile_log::has_pending(*hid)
+            {
+                continue;
+            }
             let Some(p) = logic
                 .combat_system
                 .projectile_mut(crate::game_logic::ObjectId(*hid))
