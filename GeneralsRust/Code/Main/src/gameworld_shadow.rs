@@ -4513,6 +4513,28 @@ impl GameWorldShadow {
                         e.money_crate = false;
                         e.money_crate_expires_frame = 0;
                     }
+                    if let Some(fs) = obj.fire_spread.as_ref() {
+                        e.fire_spread_active = fs.active;
+                        e.fire_spread_state = match fs.state {
+                            crate::game_logic::host_fire_spread::HostFlammableState::Normal => 0,
+                            crate::game_logic::host_fire_spread::HostFlammableState::Aflame => 1,
+                            crate::game_logic::host_fire_spread::HostFlammableState::Burned => 2,
+                        };
+                        e.fire_spread_aflame_end_frame = fs.aflame_end_frame;
+                        e.fire_spread_burned_end_frame = fs.burned_end_frame;
+                        e.fire_spread_next_spread_frame = fs.next_spread_frame;
+                        e.fire_spread_min_delay = fs.min_spread_delay;
+                        e.fire_spread_max_delay = fs.max_spread_delay;
+                        e.fire_spread_try_range = fs.spread_try_range;
+                        e.fire_spread_aflame_duration = fs.aflame_duration;
+                        e.fire_spread_burned_delay = fs.burned_delay;
+                        e.fire_spread_enabled = fs.spread_enabled;
+                        e.fire_spread_flame_damage_accum = fs.flame_damage_accum;
+                        e.fire_spread_flame_damage_limit = fs.flame_damage_limit;
+                    } else {
+                        e.fire_spread_active = false;
+                        e.fire_spread_state = 0;
+                    }
                     e.turret_angle_deg = obj.turret_angle_deg;
                     e.turret_pitch_deg = obj.turret_pitch_deg;
                     e.turret_idle_scanning = obj.turret_idle_scanning;
@@ -4925,6 +4947,28 @@ impl GameWorldShadow {
                 } else {
                     e.money_crate = false;
                     e.money_crate_expires_frame = 0;
+                }
+                if let Some(fs) = obj.fire_spread.as_ref() {
+                    e.fire_spread_active = fs.active;
+                    e.fire_spread_state = match fs.state {
+                        crate::game_logic::host_fire_spread::HostFlammableState::Normal => 0,
+                        crate::game_logic::host_fire_spread::HostFlammableState::Aflame => 1,
+                        crate::game_logic::host_fire_spread::HostFlammableState::Burned => 2,
+                    };
+                    e.fire_spread_aflame_end_frame = fs.aflame_end_frame;
+                    e.fire_spread_burned_end_frame = fs.burned_end_frame;
+                    e.fire_spread_next_spread_frame = fs.next_spread_frame;
+                    e.fire_spread_min_delay = fs.min_spread_delay;
+                    e.fire_spread_max_delay = fs.max_spread_delay;
+                    e.fire_spread_try_range = fs.spread_try_range;
+                    e.fire_spread_aflame_duration = fs.aflame_duration;
+                    e.fire_spread_burned_delay = fs.burned_delay;
+                    e.fire_spread_enabled = fs.spread_enabled;
+                    e.fire_spread_flame_damage_accum = fs.flame_damage_accum;
+                    e.fire_spread_flame_damage_limit = fs.flame_damage_limit;
+                } else {
+                    e.fire_spread_active = false;
+                    e.fire_spread_state = 0;
                 }
                 e.turret_angle_deg = obj.turret_angle_deg;
                 e.turret_pitch_deg = obj.turret_pitch_deg;
@@ -7886,6 +7930,27 @@ impl GameWorldShadow {
             }
         }
 
+        // Wave 820: snapshot fire-spread candidates for ignition (borrow-safe).
+        let mut fire_spread_candidates: Vec<(u32, f32, f32, bool)> = Vec::new();
+        for eid in &eids {
+            let Some(e) = self.world.entity(*eid) else {
+                continue;
+            };
+            if !e.fire_spread_active {
+                continue;
+            }
+            let Some(&hid) = self.entity_to_host.get(&eid.get()) else {
+                continue;
+            };
+            let would = e.fire_spread_state == 0; // Normal can ignite
+            fire_spread_candidates.push((
+                hid,
+                e.transform.position.x,
+                e.transform.position.z,
+                would,
+            ));
+        }
+
 for eid in eids {
             let Some(e) = self.world.world_mut().entity_mut(eid) else {
                 continue;
@@ -10702,6 +10767,83 @@ for eid in eids {
                         changed = true;
                     }
                 }
+            }
+
+            // Wave 820: FireSpread/Flammable residual.
+            if e.fire_spread_active {
+                use crate::game_logic::host_fire_spread::HostFireSpreadData;
+                // Rebuild temp data, tick, write back fields.
+                let mut fs = HostFireSpreadData::tree_default();
+                fs.active = e.fire_spread_active;
+                fs.state = match e.fire_spread_state {
+                    1 => crate::game_logic::host_fire_spread::HostFlammableState::Aflame,
+                    2 => crate::game_logic::host_fire_spread::HostFlammableState::Burned,
+                    _ => crate::game_logic::host_fire_spread::HostFlammableState::Normal,
+                };
+                fs.aflame_end_frame = e.fire_spread_aflame_end_frame;
+                fs.burned_end_frame = e.fire_spread_burned_end_frame;
+                fs.next_spread_frame = e.fire_spread_next_spread_frame;
+                fs.min_spread_delay = e.fire_spread_min_delay;
+                fs.max_spread_delay = e.fire_spread_max_delay;
+                fs.spread_try_range = e.fire_spread_try_range;
+                fs.aflame_duration = e.fire_spread_aflame_duration;
+                fs.burned_delay = e.fire_spread_burned_delay;
+                fs.spread_enabled = e.fire_spread_enabled;
+                fs.flame_damage_accum = e.fire_spread_flame_damage_accum;
+                fs.flame_damage_limit = e.fire_spread_flame_damage_limit;
+                let fr = fs.tick_flammable(frame);
+                let sr = fs.tick_spread(frame);
+                e.fire_spread_state = match fs.state {
+                    crate::game_logic::host_fire_spread::HostFlammableState::Normal => 0,
+                    crate::game_logic::host_fire_spread::HostFlammableState::Aflame => 1,
+                    crate::game_logic::host_fire_spread::HostFlammableState::Burned => 2,
+                };
+                e.fire_spread_aflame_end_frame = fs.aflame_end_frame;
+                e.fire_spread_burned_end_frame = fs.burned_end_frame;
+                e.fire_spread_next_spread_frame = fs.next_spread_frame;
+                e.fire_spread_flame_damage_accum = fs.flame_damage_accum;
+                let mut ignite = None;
+                if sr.try_spread {
+                    let px = e.transform.position.x;
+                    let pz = e.transform.position.z;
+                    let range = e.fire_spread_try_range;
+                    let mut best: Option<(u32, f32)> = None;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        for &(oid, ox, oz, would) in &fire_spread_candidates {
+                            if oid == hid || !would {
+                                continue;
+                            }
+                            let dx = ox - px;
+                            let dz = oz - pz;
+                            let dist = (dx * dx + dz * dz).sqrt();
+                            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
+                                best = Some((oid, dist));
+                            }
+                        }
+                        ignite = best.map(|(oid, _)| crate::game_logic::ObjectId(oid));
+                    }
+                }
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    let pos = e.transform.position;
+                    crate::game_logic::host_fire_spread_log::record(
+                        crate::game_logic::host_fire_spread_log::FireSpreadTickEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            state: e.fire_spread_state,
+                            aflame_end_frame: e.fire_spread_aflame_end_frame,
+                            burned_end_frame: e.fire_spread_burned_end_frame,
+                            next_spread_frame: e.fire_spread_next_spread_frame,
+                            became_burned: fr.became_burned,
+                            aflame: fr.aflame,
+                            try_spread: sr.try_spread,
+                            spawn_embers: sr.spawn_embers,
+                            ignite_target: ignite,
+                            pos: glam::Vec3::new(pos.x, pos.y, pos.z),
+                            spread_try_range: e.fire_spread_try_range,
+                            flame_damage_accum: e.fire_spread_flame_damage_accum,
+                        },
+                    );
+                }
+                changed = true;
             }
 
             if changed {
@@ -18403,6 +18545,11 @@ pub fn shadow_session_after_host_tick(
                 );
             }
         }
+        // Wave 820: fire-spread tick residual.
+        for ev in crate::game_logic::host_fire_spread_log::drain() {
+            logic.apply_fire_spread_tick_event(ev);
+        }
+
 
         // Wave 815: ACTIVELY_CONSTRUCTING model bit residual.
         for ev in crate::game_logic::host_actively_constructing_log::drain() {

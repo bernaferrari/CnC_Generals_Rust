@@ -6508,7 +6508,12 @@ impl GameLogic {
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         self.update_scud_poison_zones();
         self.update_tensile_formations();
-        self.update_fire_spread();
+        // Wave 820: under coupled shadow, fire-spread owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_fire_spread();
+        }
         // Wave 780: under coupled/damage-auth, BaseRegenerateUpdate is owned by
         // GW tick_status_timer_expirations + host_heal_log drain.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -39078,6 +39083,49 @@ impl GameLogic {
         }
     }
 
+    pub(crate) fn apply_fire_spread_tick_event(
+        &mut self,
+        ev: crate::game_logic::host_fire_spread_log::FireSpreadTickEvent,
+    ) {
+        use crate::game_logic::host_fire_spread::{HostFireSpreadData, HostFlammableState, TREE_OCL_EMBERS};
+        if let Some(obj) = self.objects.get_mut(&ev.id) {
+            let mut fs = obj.fire_spread.clone().unwrap_or_else(HostFireSpreadData::tree_default);
+            fs.state = match ev.state {
+                1 => HostFlammableState::Aflame,
+                2 => HostFlammableState::Burned,
+                _ => HostFlammableState::Normal,
+            };
+            fs.aflame_end_frame = ev.aflame_end_frame;
+            fs.burned_end_frame = ev.burned_end_frame;
+            fs.next_spread_frame = ev.next_spread_frame;
+            fs.flame_damage_accum = ev.flame_damage_accum;
+            fs.spread_try_range = ev.spread_try_range;
+            fs.active = true;
+            obj.fire_spread = Some(fs);
+            if ev.became_burned {
+                self.fire_spread_reg.record_burned();
+                let _ = obj.apply_status_bits_upgrade_masks(&["BURNED"], &["AFLAME"]);
+            } else if ev.aflame {
+                let _ = obj.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+            }
+        }
+        if ev.spawn_embers {
+            self.fire_spread_reg.record_embers();
+            let _ = TREE_OCL_EMBERS;
+        }
+        if ev.try_spread {
+            self.fire_spread_reg.record_spread();
+        }
+        if let Some(tid) = ev.ignite_target {
+            if let Some(t) = self.objects.get_mut(&tid) {
+                if t.try_ignite_fire_spread(self.frame) {
+                    self.fire_spread_reg.record_ignition();
+                    let _ = t.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+                }
+            }
+        }
+    }
+
     fn update_fire_spread(&mut self) {
         use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
 
@@ -62499,7 +62547,12 @@ impl GameLogic {
 
         // NukeRadiationFieldWeapon Object residual (spawn + DeletionUpdate lifetime).
         self.spawn_nuke_radiation_field_objects_for_new_fields();
-        self.update_nuke_radiation_field_objects();
+        // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_nuke_radiation_field_objects();
+        }
         self.special_power_strikes.prune_expired_radiation(frame);
     }
 
@@ -62553,7 +62606,12 @@ impl GameLogic {
         }
 
         self.spawn_anthrax_toxin_field_objects_for_new_fields();
-        self.update_anthrax_toxin_field_objects();
+        // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_anthrax_toxin_field_objects();
+        }
         self.special_power_strikes.prune_expired_toxin(frame);
     }
 
