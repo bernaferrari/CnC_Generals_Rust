@@ -1181,7 +1181,7 @@ pub struct GameLogic {
     artillery_barrage_flight_reg:
         crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry,
     /// C++ A10Thunderbolt DeliverPayload residual counters.
-    a10_strike_flight_reg: crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
+    pub(crate) a10_strike_flight_reg: crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
     /// C++ DaisyCutter DeliverPayload residual counters.
     pub(crate) daisy_cutter_flight_reg:
         crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightRegistry,
@@ -6447,7 +6447,13 @@ impl GameLogic {
         self.update_scud_storm_missile_flights();
         self.update_carpet_bomb_flights();
         self.update_artillery_barrage_flights();
-        self.update_a10_strike_flights();
+        // Wave 792: under coupled shadow, A10 strike flight is owned by
+        // GW tick_status_timer_expirations + drop/detonate logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_a10_strike_flights();
+        }
         // Wave 788: under coupled shadow, DaisyCutter/MOAB flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()

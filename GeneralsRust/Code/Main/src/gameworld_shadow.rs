@@ -2995,6 +2995,8 @@ pub struct GameWorldShadow {
     construction_rate_by_host: HashMap<u32, f32>,
     /// Host isDisabled/pauseCountdown freeze residual for SP sole-tick.
     special_power_frozen_by_host: HashMap<u32, bool>,
+    /// Pending A10 missile drops (mirrored from host registry under dual-tick).
+    a10_pending_drops: Vec<crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop>,
 }
 
 impl GameWorldShadow {
@@ -3008,6 +3010,7 @@ impl GameWorldShadow {
             production_power_factor_by_host: HashMap::new(),
             construction_rate_by_host: HashMap::new(),
             special_power_frozen_by_host: HashMap::new(),
+            a10_pending_drops: Vec::new(),
         }
     }
 
@@ -4516,6 +4519,9 @@ impl GameWorldShadow {
                 e.battle_plan_sight_scalar_applied = obj.battle_plan_sight_scalar_applied;
             }
         }
+
+        // Wave 792: mirror A10 pending missile drops for GW sole-tick.
+        self.a10_pending_drops = logic.a10_strike_flight_reg.pending_drops.clone();
 
         // Align frame.
         let target = logic.get_frame() as u64;
@@ -8548,6 +8554,38 @@ impl GameWorldShadow {
             }
             if changed {
                 n += 1;
+            }
+        }
+
+        // Wave 792 pending A10 missile drops (registry sole-tick).
+        {
+            let mut due = Vec::new();
+            let mut keep = Vec::new();
+            for p in self.a10_pending_drops.drain(..) {
+                if p.drop_frame <= frame {
+                    due.push(p);
+                } else {
+                    keep.push(p);
+                }
+            }
+            self.a10_pending_drops = keep;
+            for p in due {
+                let team = if let Some(&eid) = self.host_to_entity.get(&p.source_id) {
+                    self.world
+                        .entity(eid)
+                        .map(|e| Self::entity_team_from_ordinal(e.team_ordinal))
+                        .unwrap_or(crate::game_logic::Team::Neutral)
+                } else {
+                    crate::game_logic::Team::Neutral
+                };
+                crate::game_logic::host_a10_strike_drop_log::record_drop(
+                    crate::game_logic::host_a10_strike_drop_log::A10DropEvent {
+                        team,
+                        target: p.target,
+                        producer: crate::game_logic::ObjectId(p.source_id),
+                    },
+                );
+                n = n.saturating_add(1);
             }
         }
         n
@@ -13132,6 +13170,41 @@ impl GameWorldShadow {
                     None
                 };
             }
+            {
+                if ent.a10_strike_transport_active {
+                    use crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData;
+                    use crate::game_logic::special_power_strikes::A10StrikeScienceTier;
+                    let tier = match ent.a10_strike_transport_tier {
+                        1 => A10StrikeScienceTier::Level2,
+                        2 => A10StrikeScienceTier::Level3,
+                        _ => A10StrikeScienceTier::Level1,
+                    };
+                    let d = obj.a10_strike_transport.get_or_insert_with(|| {
+                        HostA10StrikeFlightData::start(
+                            glam::Vec3::ZERO,
+                            glam::Vec3::ZERO,
+                            tier,
+                        )
+                    });
+                    d.tier = tier;
+                    d.target = glam::Vec3::new(
+                        ent.a10_strike_transport_target_x,
+                        ent.a10_strike_transport_target_y,
+                        ent.a10_strike_transport_target_z,
+                    );
+                    d.launch = glam::Vec3::new(
+                        ent.a10_strike_transport_launch_x,
+                        ent.a10_strike_transport_launch_y,
+                        ent.a10_strike_transport_launch_z,
+                    );
+                } else {
+                    obj.a10_strike_transport = None;
+                }
+                obj.a10_strike_missile = ent.a10_strike_missile;
+                if ent.a10_strike_missile {
+                    obj.movement.velocity.y = ent.a10_strike_missile_vel_y;
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -14894,6 +14967,50 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(ev.id, None);
         }
+        // Wave 792: A10 drop + detonate (no dual flight).
+        // Keep host pending registry in sync with GW-consumed drops.
+        logic.a10_strike_flight_reg.pending_drops = shadow.a10_pending_drops.clone();
+        for ev in crate::game_logic::host_a10_strike_drop_log::drain_drops() {
+            use crate::game_logic::special_power_strikes::A10_PAYLOAD_TEMPLATE;
+            use crate::game_logic::{KindOf, ThingTemplate};
+            if !logic.templates.contains_key(A10_PAYLOAD_TEMPLATE) {
+                let mut t = ThingTemplate::new(A10_PAYLOAD_TEMPLATE);
+                t.set_health(40.0).add_kind_of(KindOf::Projectile);
+                logic.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
+            }
+            let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
+            if let Some(mid) = logic.create_object(A10_PAYLOAD_TEMPLATE, ev.team, drop_pos) {
+                if let Some(o) = logic.get_objects_mut().get_mut(&mid) {
+                    o.producer_id = Some(ev.producer);
+                    o.a10_strike_missile = true;
+                    o.movement.velocity = glam::Vec3::new(0.0, -20.0, 0.0);
+                    let _ = o.set_smart_bomb_target(ev.target);
+                }
+                logic.a10_strike_flight_reg.record_drop();
+            }
+        }
+        for ev in crate::game_logic::host_a10_strike_drop_log::drain_dets() {
+            use crate::game_logic::combat::DamageType;
+            use crate::game_logic::special_power_strikes::{
+                A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS,
+            };
+            logic.apply_fuel_air_radius_damage(
+                ev.missile,
+                ev.producer,
+                ev.team,
+                ev.pos,
+                A10_MISSILE_PRIMARY_DAMAGE,
+                A10_MISSILE_PRIMARY_RADIUS,
+                DamageType::Explosive,
+            );
+            logic.a10_strike_flight_reg.record_impact();
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.missile) {
+                o.health.current = 0.0;
+                o.status.destroyed = true;
+            }
+            logic.mark_object_for_destruction(ev.missile, None);
+        }
+
 
 
 
