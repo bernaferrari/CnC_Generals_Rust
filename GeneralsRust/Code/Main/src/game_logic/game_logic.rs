@@ -1192,7 +1192,7 @@ pub struct GameLogic {
     pub(crate) cluster_mines_flight_reg:
         crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry,
     /// C++ EMPPulse DeliverPayload residual counters.
-    emp_pulse_flight_reg: crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
+    pub(crate) emp_pulse_flight_reg: crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -6469,8 +6469,14 @@ impl GameLogic {
         {
             self.update_cluster_mines_flights();
         }
-        self.update_emp_pulse_spheroids();
-        self.update_emp_pulse_flights();
+        // Wave 791: under coupled shadow, EMP Pulse flight + spheroid is owned by
+        // GW tick_status_timer_expirations + drop/detonate/expire logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_emp_pulse_spheroids();
+            self.update_emp_pulse_flights();
+        }
         self.update_frenzy_invisible_markers();
         self.update_gps_scrambler_grow();
         self.update_spy_drone_grow();

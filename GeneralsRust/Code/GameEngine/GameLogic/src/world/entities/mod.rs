@@ -726,6 +726,22 @@ pub struct Entity {
     /// Host ClusterMinesBomb residual.
     pub cluster_mines_bomb: bool,
     pub cluster_mines_bomb_vel_y: f32,
+    /// Host EMP Pulse transport residual.
+    pub emp_pulse_transport_active: bool,
+    pub emp_pulse_transport_player_id: u32,
+    pub emp_pulse_transport_caster_id: u32,
+    pub emp_pulse_transport_target_x: f32,
+    pub emp_pulse_transport_target_y: f32,
+    pub emp_pulse_transport_target_z: f32,
+    pub emp_pulse_transport_launch_x: f32,
+    pub emp_pulse_transport_launch_y: f32,
+    pub emp_pulse_transport_launch_z: f32,
+    /// Host EMPPulseBomb residual.
+    pub emp_pulse_bomb: bool,
+    pub emp_pulse_bomb_vel_y: f32,
+    /// Host EMPPulseEffectSpheroid residual.
+    pub emp_pulse_spheroid: bool,
+    pub emp_pulse_spheroid_expires_frame: u32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1454,6 +1470,19 @@ impl EntityStore {
             cluster_mines_transport_launch_z: 0.0,
             cluster_mines_bomb: false,
             cluster_mines_bomb_vel_y: 0.0,
+            emp_pulse_transport_active: false,
+            emp_pulse_transport_player_id: 0,
+            emp_pulse_transport_caster_id: 0,
+            emp_pulse_transport_target_x: 0.0,
+            emp_pulse_transport_target_y: 0.0,
+            emp_pulse_transport_target_z: 0.0,
+            emp_pulse_transport_launch_x: 0.0,
+            emp_pulse_transport_launch_y: 0.0,
+            emp_pulse_transport_launch_z: 0.0,
+            emp_pulse_bomb: false,
+            emp_pulse_bomb_vel_y: 0.0,
+            emp_pulse_spheroid: false,
+            emp_pulse_spheroid_expires_frame: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
