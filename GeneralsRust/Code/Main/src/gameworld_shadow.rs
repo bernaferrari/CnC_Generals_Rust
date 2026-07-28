@@ -10665,6 +10665,45 @@ for eid in eids {
                 changed = true;
             }
 
+            // Wave 819: Dozer/worker bored idle timer residual.
+            {
+                const WORKER_BIT: u32 = 1u32 << 9;
+                const STRUCTURE_BIT: u32 = 1u32 << 0;
+                let alive = e.health > 0.0 && !e.destroyed;
+                let name = e.template_name();
+                let is_worker = (e.kind_of_bits & WORKER_BIT) != 0
+                    || name.contains("Dozer")
+                    || name.contains("Worker")
+                    || name.contains("dozer")
+                    || name.contains("worker");
+                let can_repair = is_worker && (e.kind_of_bits & STRUCTURE_BIT) == 0;
+                if alive && can_repair {
+                    if e.ai_state_ordinal == 0 {
+                        // Idle
+                        if e.idle_since_frame == 0 {
+                            e.idle_since_frame = frame.max(1);
+                            changed = true;
+                        }
+                        let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
+                        if frame.saturating_sub(e.idle_since_frame) >= bored {
+                            // Match host: reset stamp then attempt service acquire on host drain.
+                            e.idle_since_frame = frame.max(1);
+                            if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                                crate::game_logic::host_dozer_bored_log::record(
+                                    crate::game_logic::host_dozer_bored_log::DozerBoredEvent {
+                                        id: crate::game_logic::ObjectId(hid),
+                                    },
+                                );
+                            }
+                            changed = true;
+                        }
+                    } else if e.idle_since_frame != 0 {
+                        e.idle_since_frame = 0;
+                        changed = true;
+                    }
+                }
+            }
+
             if changed {
                 n += 1;
             }
@@ -18377,6 +18416,11 @@ pub fn shadow_session_after_host_tick(
                 }
             }
         }
+        // Wave 819: dozer bored service acquire residual.
+        for ev in crate::game_logic::host_dozer_bored_log::drain() {
+            logic.process_dozer_bored_event(ev.id);
+        }
+
 
 
 

@@ -6226,7 +6226,12 @@ impl GameLogic {
         // C++ BuildAssistant::update sell list residual (multi-frame sell).
         self.update_sell_list();
         // C++ DozerPrimaryIdleState bored auto-repair residual.
-        self.update_dozer_bored_repair();
+        // Wave 819: under coupled shadow, idle timer owned by GW; host applies acquire via logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_dozer_bored_repair();
+        }
         // C++ RebuildHoleBehavior update residual.
         self.update_rebuild_holes();
         self.update_movement(&object_ids, dt);
@@ -71198,7 +71203,41 @@ impl GameLogic {
     }
 
     /// C++ DozerPrimaryIdleState bored residual: repair, else mine-clear.
-    pub fn update_dozer_bored_repair(&mut self) {
+    pub(crate) fn process_dozer_bored_event(&mut self, id: ObjectId) {
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        if !obj.is_alive() || !obj.can_repair() {
+            return;
+        }
+        // Idle stamp already advanced on GW; attempt service residual once.
+        if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.target = Some(target_id);
+                obj.set_actively_constructing(true);
+                obj.idle_since_frame = 0;
+            }
+            self.set_ai_state_decision_aware(id, AIState::Repairing);
+            self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
+            return;
+        }
+        if let Some(mine_id) = self.find_dozer_bored_mine_target(id) {
+            let mine_pos = self
+                .objects
+                .get(&mine_id)
+                .map(|m| m.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.idle_since_frame = 0;
+            }
+            self.apply_engagement_decision_aware(id, mine_id);
+            self.path_approach_with_state(id, mine_pos, AIState::Attacking);
+            self.dozer_bored_mine_clear_events =
+                self.dozer_bored_mine_clear_events.saturating_add(1);
+        }
+    }
+
+    fn update_dozer_bored_repair(&mut self) {
         let now = self.frame;
         let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
