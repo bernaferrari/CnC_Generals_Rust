@@ -18055,6 +18055,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 694: post-logic AI-attitude / overcharge / stealth-flags.
+                let _att = crate::gameworld_shadow::eager_apply_host_ai_attitude_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _oc = crate::gameworld_shadow::eager_apply_host_overcharge_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _stf = crate::gameworld_shadow::eager_apply_host_stealth_flags_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
