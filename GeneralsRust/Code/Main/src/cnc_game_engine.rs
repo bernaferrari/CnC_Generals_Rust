@@ -18146,6 +18146,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 701: post-logic faerie-fire / repulsor / disable-timers.
+                let _ff = crate::gameworld_shadow::eager_apply_host_faerie_fire_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _rep = crate::gameworld_shadow::eager_apply_host_repulsor_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _dtim = crate::gameworld_shadow::eager_apply_host_disable_timers_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
