@@ -187,6 +187,7 @@ Remaining engine residual after host update:
   - Eager special-power/radar/player-progress: post-logic drain residual logs → GW (Wave 707; session handoff)
   - Eager player-meta/player-cooldown/production-door: post-logic drain residual logs → GW (Wave 708; session handoff)
   - Eager production/construction residual: post-logic drain residual logs → GW (Wave 709; session handoff)
+  - Eager combat-attack/projectile residual: post-logic drain residual logs → GW (Wave 710; session handoff)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
