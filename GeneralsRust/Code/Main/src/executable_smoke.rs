@@ -1263,7 +1263,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("sell_") {
                             sell_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["guard|x=120|y=0|z=120"]);
+                        let _ = write_control(&control_path, &["guard|x=120|y=0|z=120|auto_target=1"]);
                         gameplay_step = 10;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 10
@@ -1279,7 +1279,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("guard_") {
                             guard_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["attack_move|x=150|y=0|z=150"]);
+                        let _ = write_control(&control_path, &["attack_move|x=150|y=0|z=150|auto_target=1"]);
                         gameplay_step = 11;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 11
@@ -1295,7 +1295,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("attack_move_") {
                             attack_move_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["scatter"]);
+                        let _ = write_control(&control_path, &["scatter|auto_target=1"]);
                         gameplay_step = 12;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 12
@@ -1599,7 +1599,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("combat_drop_") {
                             combat_drop_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["toggle_overcharge"]);
+                        let _ = write_control(&control_path, &["toggle_overcharge|auto_target=1"]);
                         gameplay_step = 31;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 31
