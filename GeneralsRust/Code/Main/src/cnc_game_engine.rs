@@ -18172,6 +18172,15 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 703: post-logic locomotor / bounce-land.
+                let _loco = crate::gameworld_shadow::eager_apply_host_locomotor_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _bl = crate::gameworld_shadow::eager_apply_host_bounce_land_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

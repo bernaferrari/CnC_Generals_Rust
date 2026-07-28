@@ -240,6 +240,8 @@ pub fn end_shadow_coupled_tick() {
             EARLY_BODY_DAMAGE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_DEATH_TYPE_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_PHYSICS_MOTIVE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_LOCOMOTOR_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_BOUNCE_LAND_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1776,6 +1778,65 @@ pub fn eager_apply_host_physics_motive_after_logic(
     }
     let n = shadow.apply_host_physics_motive_events(&events);
     EARLY_PHYSICS_MOTIVE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 703: post-logic locomotor / bounce-land batch handoff.
+thread_local! {
+    static EARLY_LOCOMOTOR_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_locomotor_log::HostLocomotorEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_BOUNCE_LAND_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_bounce_land_log::HostBounceLandEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_locomotor_batch() -> Option<(
+    Vec<crate::game_logic::host_locomotor_log::HostLocomotorEvent>,
+    bool,
+)> {
+    EARLY_LOCOMOTOR_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_bounce_land_batch() -> Option<(
+    Vec<crate::game_logic::host_bounce_land_log::HostBounceLandEvent>,
+    bool,
+)> {
+    EARLY_BOUNCE_LAND_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 703: post-logic drain `host_locomotor_log` into GameWorld SetLocomotor.
+pub fn eager_apply_host_locomotor_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 703: post-logic locomotor materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_locomotor_log::drain();
+    if events.is_empty() {
+        EARLY_LOCOMOTOR_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_locomotor_events(&events);
+    EARLY_LOCOMOTOR_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 703: post-logic drain `host_bounce_land_log` into GameWorld SetBounceLand.
+pub fn eager_apply_host_bounce_land_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 703: post-logic bounce-land materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_bounce_land_log::drain();
+    if events.is_empty() {
+        EARLY_BOUNCE_LAND_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_bounce_land_events(&events);
+    EARLY_BOUNCE_LAND_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -10050,10 +10111,26 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_physics_motive_events(&physics_motive_events)
     };
-    let loco_events = crate::game_logic::host_locomotor_log::drain();
-    let _loco_applied = shadow.apply_host_locomotor_events(&loco_events);
-    let bounce_land_events = crate::game_logic::host_bounce_land_log::drain();
-    let _bl_applied = shadow.apply_host_bounce_land_events(&bounce_land_events);
+    // Wave 703: prefer post-logic locomotor batch.
+    let (loco_events, early_locomotor_applied) = match take_early_locomotor_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_locomotor_log::drain(), false),
+    };
+    let _loco_applied = if early_locomotor_applied {
+        0
+    } else {
+        shadow.apply_host_locomotor_events(&loco_events)
+    };
+    // Wave 703: prefer post-logic bounce-land batch.
+    let (bounce_land_events, early_bounce_land_applied) = match take_early_bounce_land_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_bounce_land_log::drain(), false),
+    };
+    let _bl_applied = if early_bounce_land_applied {
+        0
+    } else {
+        shadow.apply_host_bounce_land_events(&bounce_land_events)
+    };
 
     // Wave 697: skip GW re-apply when post-logic eager path already ran.
     let _sr_applied = if early_selection_radius_applied {
