@@ -3750,6 +3750,29 @@ impl GameWorldShadow {
                         e.radius_decal_opacity = 0.0;
                         e.radius_decal_birth_frame = 0;
                     }
+                    if let Some(cp) = obj.checkpoint_update.as_ref() {
+                        e.checkpoint_active = true;
+                        e.checkpoint_enemy_near = cp.enemy_near;
+                        e.checkpoint_ally_near = cp.ally_near;
+                        e.checkpoint_scan_delay = cp.scan_delay;
+                        e.checkpoint_scan_delay_time = cp.scan_delay_time;
+                        e.checkpoint_max_minor_radius = cp.max_minor_radius;
+                        e.checkpoint_path_radius = cp.path_radius;
+                        e.checkpoint_door_anim = cp.door_anim as u8;
+                        e.checkpoint_open = cp.open;
+                        e.checkpoint_vision_range = cp.vision_range.max(obj.vision_range);
+                    } else {
+                        e.checkpoint_active = false;
+                        e.checkpoint_enemy_near = false;
+                        e.checkpoint_ally_near = false;
+                        e.checkpoint_scan_delay = 0;
+                        e.checkpoint_scan_delay_time = 30;
+                        e.checkpoint_max_minor_radius = 10.0;
+                        e.checkpoint_path_radius = 10.0;
+                        e.checkpoint_door_anim = 0;
+                        e.checkpoint_open = false;
+                        e.checkpoint_vision_range = 150.0;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -8006,6 +8029,57 @@ impl GameWorldShadow {
                     };
                     e.radius_decal_opacity = e.radius_decal_opacity_min
                         + (e.radius_decal_opacity_max - e.radius_decal_opacity_min) * t;
+                    changed = true;
+                }
+            }
+            // Wave 786: CheckpointUpdate residual (gate open/close + path radius).
+            if e.checkpoint_active {
+                use crate::game_logic::host_checkpoint_update::CHECKPOINT_RADIUS_STEP;
+                if e.checkpoint_scan_delay == 0 {
+                    let delay_time = e.checkpoint_scan_delay_time.max(1);
+                    let sx = e.transform.position.x;
+                    let sz = e.transform.position.z;
+                    let vision = e.checkpoint_vision_range.max(e.vision_range);
+                    let my_team = e.team_ordinal;
+                    drop(e);
+                    let (enemy, ally) =
+                        self.scan_checkpoint_near(eid, sx, sz, vision, my_team);
+                    if let Some(e2) = self.world.world_mut().entity_mut(eid) {
+                        e2.checkpoint_scan_delay = delay_time;
+                        let change = e2.checkpoint_enemy_near != enemy
+                            || e2.checkpoint_ally_near != ally;
+                        e2.checkpoint_enemy_near = enemy;
+                        e2.checkpoint_ally_near = ally;
+                        let open = ally && !enemy;
+                        if change {
+                            e2.checkpoint_open = open;
+                            e2.checkpoint_door_anim = if open { 1 } else { 2 };
+                        }
+                        if e2.checkpoint_open {
+                            if e2.checkpoint_path_radius > 0.0 {
+                                e2.checkpoint_path_radius =
+                                    (e2.checkpoint_path_radius - CHECKPOINT_RADIUS_STEP).max(0.0);
+                            }
+                        } else if e2.checkpoint_path_radius < e2.checkpoint_max_minor_radius {
+                            e2.checkpoint_path_radius = (e2.checkpoint_path_radius
+                                + CHECKPOINT_RADIUS_STEP)
+                                .min(e2.checkpoint_max_minor_radius);
+                        }
+                    }
+                    n += 1;
+                    continue;
+                } else {
+                    e.checkpoint_scan_delay = e.checkpoint_scan_delay.saturating_sub(1);
+                    if e.checkpoint_open {
+                        if e.checkpoint_path_radius > 0.0 {
+                            e.checkpoint_path_radius =
+                                (e.checkpoint_path_radius - CHECKPOINT_RADIUS_STEP).max(0.0);
+                        }
+                    } else if e.checkpoint_path_radius < e.checkpoint_max_minor_radius {
+                        e.checkpoint_path_radius = (e.checkpoint_path_radius
+                            + CHECKPOINT_RADIUS_STEP)
+                            .min(e.checkpoint_max_minor_radius);
+                    }
                     changed = true;
                 }
             }
@@ -12420,6 +12494,31 @@ impl GameWorldShadow {
                     obj.radius_decal_update = None;
                 }
             }
+            {
+                if ent.checkpoint_active {
+                    use crate::game_logic::host_checkpoint_update::{
+                        CheckpointDoorAnim, HostCheckpointUpdateData,
+                    };
+                    let cp = obj
+                        .checkpoint_update
+                        .get_or_insert_with(HostCheckpointUpdateData::default);
+                    cp.enemy_near = ent.checkpoint_enemy_near;
+                    cp.ally_near = ent.checkpoint_ally_near;
+                    cp.scan_delay = ent.checkpoint_scan_delay;
+                    cp.scan_delay_time = ent.checkpoint_scan_delay_time;
+                    cp.max_minor_radius = ent.checkpoint_max_minor_radius;
+                    cp.path_radius = ent.checkpoint_path_radius;
+                    cp.door_anim = match ent.checkpoint_door_anim {
+                        1 => CheckpointDoorAnim::Opening,
+                        2 => CheckpointDoorAnim::Closing,
+                        _ => CheckpointDoorAnim::None,
+                    };
+                    cp.open = ent.checkpoint_open;
+                    cp.vision_range = ent.checkpoint_vision_range;
+                } else if obj.checkpoint_update.is_some() {
+                    obj.checkpoint_update = None;
+                }
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -12473,6 +12572,57 @@ impl GameWorldShadow {
     }
 
 
+
+
+    /// Wave 786: Checkpoint residual ally/enemy presence scan on GW entities.
+    fn scan_checkpoint_near(
+        &self,
+        scanner: EntityId,
+        sx: f32,
+        sz: f32,
+        vision: f32,
+        my_team: u8,
+    ) -> (bool, bool) {
+        if vision <= 0.0 {
+            return (false, false);
+        }
+        let v2 = vision * vision;
+        let mut hosts: Vec<u32> = self.host_to_entity.keys().copied().collect();
+        hosts.sort_unstable();
+        let mut enemy = false;
+        let mut ally = false;
+        for hid in hosts {
+            let Some(eid) = self.host_to_entity.get(&hid).copied() else {
+                continue;
+            };
+            if eid == scanner {
+                continue;
+            }
+            let Some(o) = self.world.world().entity(eid) else {
+                continue;
+            };
+            if o.health <= 0.0 {
+                continue;
+            }
+            let dx = o.transform.position.x - sx;
+            let dz = o.transform.position.z - sz;
+            if dx * dx + dz * dz > v2 {
+                continue;
+            }
+            if my_team == 255 || o.team_ordinal == 255 {
+                continue;
+            }
+            if o.team_ordinal == my_team {
+                ally = true;
+            } else {
+                enemy = true;
+            }
+            if enemy && ally {
+                break;
+            }
+        }
+        (enemy, ally)
+    }
 
     /// Wave 781: residual EnemyNear enemy-present scan on GW entities.
     fn scan_enemy_near_present(
