@@ -10821,7 +10821,69 @@ for eid in eids {
                 n = n.saturating_add(1);
             }
         }
-        // Wave 816: player is_alive residual from living team entities.
+        
+        // Wave 818: player radar provider count residual.
+        {
+            use crate::game_logic::host_radar::is_legal_radar_provider;
+            const COMMAND_CENTER_BIT: u32 = 1u32 << 8;
+            let mut providers_by_team: std::collections::HashMap<u8, u32> =
+                std::collections::HashMap::new();
+            let eids: Vec<_> = self.host_to_entity.values().copied().collect();
+            for eid in &eids {
+                let Some(e) = self.world.entity(*eid) else {
+                    continue;
+                };
+                let alive = e.health > 0.0 && !e.destroyed;
+                let constructed =
+                    !e.under_construction && e.construction_percent + 0.001 >= 1.0;
+                let is_cc = (e.kind_of_bits & COMMAND_CENTER_BIT) != 0;
+                let name = e.template_name();
+                if !is_legal_radar_provider(alive, constructed, is_cc, name) {
+                    continue;
+                }
+                if e.team_ordinal == 255 {
+                    continue; // Neutral
+                }
+                *providers_by_team.entry(e.team_ordinal).or_insert(0) += 1;
+            }
+            let player_ids: Vec<_> = self
+                .world
+                .world()
+                .active_players()
+                .map(|(pid, _)| pid)
+                .collect();
+            for pid in player_ids {
+                let Some(pd) = self.world.player_mut(pid) else {
+                    continue;
+                };
+                let count = pd
+                    .team
+                    .and_then(|t| providers_by_team.get(&t).copied())
+                    .unwrap_or(0) as i32;
+                let had = pd.radar_count > 0 && !pd.radar_disabled;
+                let prev = pd.radar_count;
+                pd.radar_count = count;
+                let has_now = pd.radar_count > 0 && !pd.radar_disabled;
+                if prev != count || had != has_now {
+                    let host_pid = self
+                        .host_player_to_gw
+                        .iter()
+                        .find(|(_, gw)| **gw == pid)
+                        .map(|(h, _)| *h)
+                        .unwrap_or(u32::from(pid.get()));
+                    crate::game_logic::host_player_radar_log::record(
+                        crate::game_logic::host_player_radar_log::PlayerRadarEvent {
+                            player_id: host_pid,
+                            radar_count: pd.radar_count,
+                            had_radar: had,
+                            has_radar: has_now,
+                        },
+                    );
+                    n = n.saturating_add(1);
+                }
+            }
+        }
+// Wave 816: player is_alive residual from living team entities.
         {
             let mut living_teams: std::collections::HashSet<u8> =
                 std::collections::HashSet::new();
@@ -18281,6 +18343,28 @@ pub fn shadow_session_after_host_tick(
                 .stinger_hive_residual_respawns
                 .saturating_add(1);
         }
+        // Wave 818: player radar transitions residual.
+        for ev in crate::game_logic::host_player_radar_log::drain() {
+            use crate::game_logic::host_radar::{RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO};
+            if let Some(p) = logic.get_player_mut(ev.player_id) {
+                p.set_radar_state(ev.radar_count, p.radar_disabled);
+            }
+            let (came_online, went_offline) = logic.host_radar.record_player_radar(
+                ev.radar_count.max(0) as u32,
+                ev.had_radar,
+                ev.has_radar,
+            );
+            if came_online {
+                logic.queue_audio_event(
+                    crate::game_logic::game_logic::AudioEventRequest::new(RADAR_ONLINE_AUDIO).with_priority(130),
+                );
+            } else if went_offline {
+                logic.queue_audio_event(
+                    crate::game_logic::game_logic::AudioEventRequest::new(RADAR_OFFLINE_AUDIO).with_priority(130),
+                );
+            }
+        }
+
         // Wave 815: ACTIVELY_CONSTRUCTING model bit residual.
         for ev in crate::game_logic::host_actively_constructing_log::drain() {
             if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
