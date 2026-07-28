@@ -2956,6 +2956,11 @@ use crate::game_logic::host_live_host_eager_spawn_move_attack_helper_residual_wa
     honesty_host_eager_spawn_move_attack_helper_nav_commands_residual_wave712,
     simulate_live_host_eager_spawn_move_attack_helper_honesty,
 };
+use crate::game_logic::host_live_host_production_ready_no_empty_scan_residual_wave713::{
+    honesty_host_production_ready_no_empty_scan_method_names_residual_wave713,
+    honesty_host_production_ready_no_empty_scan_nav_commands_residual_wave713,
+    simulate_live_host_production_ready_no_empty_scan_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6810,6 +6815,9 @@ pub struct ShellSmokeResult {
     pub host_eager_spawn_move_attack_helper_method_names_wave712_ok: bool,
     pub host_eager_spawn_move_attack_helper_nav_commands_wave712_ok: bool,
     pub host_eager_spawn_move_attack_helper_live_wave712_ok: bool,
+    pub host_production_ready_no_empty_scan_method_names_wave713_ok: bool,
+    pub host_production_ready_no_empty_scan_nav_commands_wave713_ok: bool,
+    pub host_production_ready_no_empty_scan_live_wave713_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10821,6 +10829,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_eager_spawn_move_attack_helper_nav_commands_residual_wave712();
     let host_eager_spawn_move_attack_helper_live_wave712_ok =
         simulate_live_host_eager_spawn_move_attack_helper_honesty();
+    let host_production_ready_no_empty_scan_method_names_wave713_ok =
+        honesty_host_production_ready_no_empty_scan_method_names_residual_wave713();
+    let host_production_ready_no_empty_scan_nav_commands_wave713_ok =
+        honesty_host_production_ready_no_empty_scan_nav_commands_residual_wave713();
+    let host_production_ready_no_empty_scan_live_wave713_ok =
+        simulate_live_host_production_ready_no_empty_scan_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -12946,6 +12960,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_spawn_move_attack_helper_method_names_wave712_ok,
         host_eager_spawn_move_attack_helper_nav_commands_wave712_ok,
         host_eager_spawn_move_attack_helper_live_wave712_ok,
+        host_production_ready_no_empty_scan_method_names_wave713_ok,
+        host_production_ready_no_empty_scan_nav_commands_wave713_ok,
+        host_production_ready_no_empty_scan_live_wave713_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -23896,6 +23913,21 @@ mod tests {
         assert!(
             r.host_eager_spawn_move_attack_helper_live_wave712_ok,
             "host eager_spawn_move_attack helper live residual wave712: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_ready_no_empty_scan_method_names_wave713_ok,
+            "host production_ready_no_empty_scan method names residual pack wave713: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_ready_no_empty_scan_nav_commands_wave713_ok,
+            "host production_ready_no_empty_scan nav commands residual pack wave713: {}",
+            r.detail
+        );
+        assert!(
+            r.host_production_ready_no_empty_scan_live_wave713_ok,
+            "host production_ready_no_empty_scan live residual wave713: {}",
             r.detail
         );
         assert!(

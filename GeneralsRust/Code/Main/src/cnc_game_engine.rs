@@ -18251,18 +18251,20 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
-                let _pprog = crate::gameworld_shadow::eager_apply_host_production_progress_after_logic(
-                    shadow,
-                    &self.game_logic,
-                );
+                let _pprog =
+                    crate::gameworld_shadow::eager_apply_host_production_progress_after_logic(
+                        shadow,
+                        &self.game_logic,
+                    );
                 let _con = crate::gameworld_shadow::eager_apply_host_construction_after_logic(
                     shadow,
                     &self.game_logic,
                 );
-                let _cprog = crate::gameworld_shadow::eager_apply_host_construction_progress_after_logic(
-                    shadow,
-                    &self.game_logic,
-                );
+                let _cprog =
+                    crate::gameworld_shadow::eager_apply_host_construction_progress_after_logic(
+                        shadow,
+                        &self.game_logic,
+                    );
                 // Wave 710: post-logic combat-attack / projectile residual apply.
                 let _ca = crate::gameworld_shadow::eager_apply_host_combat_attack_after_logic(
                     shadow,

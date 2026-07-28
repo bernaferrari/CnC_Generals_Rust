@@ -5,7 +5,9 @@
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
 static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> { table.iter().position(|n| *n == name) }
+pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
+    table.iter().position(|n| *n == name)
+}
 pub const LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_METHOD_NAMES_WAVE709: &[&str] = &[
     "eager_apply_host_production_after_logic",
     "eager_apply_host_production_progress_after_logic",
@@ -33,30 +35,62 @@ pub const RUNTIME_HOST_LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_CMD_NAMES_WAVE70
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidualHostEagerProdConstructionHelperAction { None=0,MethodNames=1,SourceMarkers=2,NavCommands=3,CollectSource=4,DispatchSource=5,Composite=6 }
-impl ResidualHostEagerProdConstructionHelperAction {
-    pub fn from_u8(v: u8) -> Self { match v { 1=>Self::MethodNames,2=>Self::SourceMarkers,3=>Self::NavCommands,4=>Self::CollectSource,5=>Self::DispatchSource,6=>Self::Composite,_=>Self::None } }
+pub enum ResidualHostEagerProdConstructionHelperAction {
+    None = 0,
+    MethodNames = 1,
+    SourceMarkers = 2,
+    NavCommands = 3,
+    CollectSource = 4,
+    DispatchSource = 5,
+    Composite = 6,
 }
-fn residual_action_store(a: ResidualHostEagerProdConstructionHelperAction) { RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst); }
-pub fn residual_host_eager_prod_construction_helper_ok() -> bool { RESIDUAL_OK.load(Ordering::SeqCst) }
-pub fn residual_host_eager_prod_construction_helper_last_action() -> ResidualHostEagerProdConstructionHelperAction { ResidualHostEagerProdConstructionHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst)) }
-fn eng_source() -> &'static str { include_str!("../cnc_game_engine.rs") }
-fn shadow_source() -> &'static str { include_str!("../gameworld_shadow.rs") }
+impl ResidualHostEagerProdConstructionHelperAction {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::MethodNames,
+            2 => Self::SourceMarkers,
+            3 => Self::NavCommands,
+            4 => Self::CollectSource,
+            5 => Self::DispatchSource,
+            6 => Self::Composite,
+            _ => Self::None,
+        }
+    }
+}
+fn residual_action_store(a: ResidualHostEagerProdConstructionHelperAction) {
+    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
+}
+pub fn residual_host_eager_prod_construction_helper_ok() -> bool {
+    RESIDUAL_OK.load(Ordering::SeqCst)
+}
+pub fn residual_host_eager_prod_construction_helper_last_action(
+) -> ResidualHostEagerProdConstructionHelperAction {
+    ResidualHostEagerProdConstructionHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
+}
+fn eng_source() -> &'static str {
+    include_str!("../cnc_game_engine.rs")
+}
+fn shadow_source() -> &'static str {
+    include_str!("../gameworld_shadow.rs")
+}
 pub fn honesty_host_eager_prod_construction_helper_method_names_residual_wave709() -> bool {
-    let names=LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_METHOD_NAMES_WAVE709;
-    let ok=residual_name_index(names,"eager_apply_host_production_after_logic").is_some()
-        && residual_name_index(names,"eager_apply_host_production_progress_after_logic").is_some()
-        && residual_name_index(names,"eager_apply_host_construction_after_logic").is_some()
-        && residual_name_index(names,"eager_apply_host_construction_progress_after_logic").is_some()
-        && residual_name_index(names,"host_production_log").is_some()
-        && residual_name_index(names,"host_construction_log").is_some()
-        && residual_name_index(names,"Wave 709").is_some()
-        && residual_name_index(names,"playable_claim = false").is_some();
-    residual_action_store(ResidualHostEagerProdConstructionHelperAction::MethodNames); ok
+    let names = LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_METHOD_NAMES_WAVE709;
+    let ok = residual_name_index(names, "eager_apply_host_production_after_logic").is_some()
+        && residual_name_index(names, "eager_apply_host_production_progress_after_logic").is_some()
+        && residual_name_index(names, "eager_apply_host_construction_after_logic").is_some()
+        && residual_name_index(names, "eager_apply_host_construction_progress_after_logic")
+            .is_some()
+        && residual_name_index(names, "host_production_log").is_some()
+        && residual_name_index(names, "host_construction_log").is_some()
+        && residual_name_index(names, "Wave 709").is_some()
+        && residual_name_index(names, "playable_claim = false").is_some();
+    residual_action_store(ResidualHostEagerProdConstructionHelperAction::MethodNames);
+    ok
 }
 pub fn honesty_host_eager_prod_construction_helper_source_markers_residual_wave709() -> bool {
-    let eng=eng_source(); let sh=shadow_source();
-    let api_ok=sh.contains("pub fn eager_apply_host_production_after_logic")
+    let eng = eng_source();
+    let sh = shadow_source();
+    let api_ok = sh.contains("pub fn eager_apply_host_production_after_logic")
         && sh.contains("pub fn eager_apply_host_production_progress_after_logic")
         && sh.contains("pub fn eager_apply_host_construction_after_logic")
         && sh.contains("pub fn eager_apply_host_construction_progress_after_logic")
@@ -65,37 +99,41 @@ pub fn honesty_host_eager_prod_construction_helper_source_markers_residual_wave7
         && sh.contains("take_early_construction_batch")
         && sh.contains("early_production_applied")
         && sh.contains("early_construction_progress_applied");
-    let eng_ok=eng.contains("eager_apply_host_production_after_logic")
+    let eng_ok = eng.contains("eager_apply_host_production_after_logic")
         && eng.contains("eager_apply_host_construction_after_logic")
         && eng.contains("Wave 709: post-logic production");
-    let ok=api_ok&&eng_ok&&!eng.contains("playable_claim = true");
-    residual_action_store(ResidualHostEagerProdConstructionHelperAction::SourceMarkers); ok
+    let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
+    residual_action_store(ResidualHostEagerProdConstructionHelperAction::SourceMarkers);
+    ok
 }
 pub fn honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709() -> bool {
-    let steps=LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_NAV_STEPS_WAVE709;
-    let cmds=RUNTIME_HOST_LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_CMD_NAMES_WAVE709;
-    let ok=residual_name_index(steps,"REQUIRE_EAGER_PROD_CONSTRUCTION_API").is_some()
-        && residual_name_index(steps,"REQUIRE_ENGINE_POST_LOGIC_DRAIN").is_some()
-        && residual_name_index(steps,"REQUIRE_SESSION_HANDOFF").is_some()
-        && residual_name_index(steps,"REQUIRE_NO_DOUBLE_APPLY").is_some()
-        && residual_name_index(steps,"LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER").is_some()
-        && residual_name_index(steps,"LIVE_PLAYABLE_CLAIM_FALSE").is_some()
-        && residual_name_index(cmds,"host_eager_prod_construction_helper").is_some()
-        && residual_name_index(cmds,"engine_post_logic_drain").is_some()
-        && residual_name_index(cmds,"session_handoff").is_some()
-        && residual_name_index(cmds,"no_double_apply").is_some()
-        && residual_name_index(cmds,"eager_prod_construction_residual").is_some();
-    residual_action_store(ResidualHostEagerProdConstructionHelperAction::NavCommands); ok
+    let steps = LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_NAV_STEPS_WAVE709;
+    let cmds = RUNTIME_HOST_LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_CMD_NAMES_WAVE709;
+    let ok = residual_name_index(steps, "REQUIRE_EAGER_PROD_CONSTRUCTION_API").is_some()
+        && residual_name_index(steps, "REQUIRE_ENGINE_POST_LOGIC_DRAIN").is_some()
+        && residual_name_index(steps, "REQUIRE_SESSION_HANDOFF").is_some()
+        && residual_name_index(steps, "REQUIRE_NO_DOUBLE_APPLY").is_some()
+        && residual_name_index(steps, "LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER").is_some()
+        && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
+        && residual_name_index(cmds, "host_eager_prod_construction_helper").is_some()
+        && residual_name_index(cmds, "engine_post_logic_drain").is_some()
+        && residual_name_index(cmds, "session_handoff").is_some()
+        && residual_name_index(cmds, "no_double_apply").is_some()
+        && residual_name_index(cmds, "eager_prod_construction_residual").is_some();
+    residual_action_store(ResidualHostEagerProdConstructionHelperAction::NavCommands);
+    ok
 }
 pub fn simulate_host_eager_prod_construction_helper_collect_source() -> bool {
-    let ok=shadow_source().contains("eager_apply_host_production_after_logic")
+    let ok = shadow_source().contains("eager_apply_host_production_after_logic")
         && shadow_source().contains("eager_apply_host_construction_after_logic")
         && eng_source().contains("eager_apply_host_production_after_logic");
-    residual_action_store(ResidualHostEagerProdConstructionHelperAction::CollectSource); ok
+    residual_action_store(ResidualHostEagerProdConstructionHelperAction::CollectSource);
+    ok
 }
 pub fn simulate_host_eager_prod_construction_helper_dispatch_source() -> bool {
-    let ok=eng_source().contains("Wave 709") && shadow_source().contains("Wave 709");
-    residual_action_store(ResidualHostEagerProdConstructionHelperAction::DispatchSource); ok
+    let ok = eng_source().contains("Wave 709") && shadow_source().contains("Wave 709");
+    residual_action_store(ResidualHostEagerProdConstructionHelperAction::DispatchSource);
+    ok
 }
 pub fn honesty_host_eager_prod_construction_helper_residual_pack_wave709() -> bool {
     honesty_host_eager_prod_construction_helper_method_names_residual_wave709()
@@ -105,8 +143,11 @@ pub fn honesty_host_eager_prod_construction_helper_residual_pack_wave709() -> bo
         && simulate_host_eager_prod_construction_helper_dispatch_source()
 }
 pub fn simulate_live_host_eager_prod_construction_helper_honesty() -> bool {
-    let ok=honesty_host_eager_prod_construction_helper_residual_pack_wave709();
-    if ok { RESIDUAL_OK.store(true, Ordering::SeqCst); residual_action_store(ResidualHostEagerProdConstructionHelperAction::Composite); }
+    let ok = honesty_host_eager_prod_construction_helper_residual_pack_wave709();
+    if ok {
+        RESIDUAL_OK.store(true, Ordering::SeqCst);
+        residual_action_store(ResidualHostEagerProdConstructionHelperAction::Composite);
+    }
     ok
 }
 
@@ -120,7 +161,8 @@ mod tests {
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
         begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
-        eager_apply_host_construction_after_logic, eager_apply_host_construction_progress_after_logic,
+        eager_apply_host_construction_after_logic,
+        eager_apply_host_construction_progress_after_logic,
         eager_apply_host_production_after_logic, eager_apply_host_production_progress_after_logic,
         eager_map_host_spawn_if_coupled, end_shadow_coupled_tick,
         install_active_shadow_for_coupled_tick, shadow_session_after_host_tick, GameWorldShadow,
@@ -135,12 +177,32 @@ mod tests {
         logic.templates.insert(name.into(), t);
     }
 
-    #[test] fn method_names_residual() { assert!(honesty_host_eager_prod_construction_helper_method_names_residual_wave709()); }
-    #[test] fn source_markers_residual() { assert!(honesty_host_eager_prod_construction_helper_source_markers_residual_wave709()); }
-    #[test] fn nav_commands_residual() { assert!(honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709()); }
-    #[test] fn sources() { assert!(simulate_host_eager_prod_construction_helper_collect_source()); assert!(simulate_host_eager_prod_construction_helper_dispatch_source()); }
-    #[test] fn pack() { assert!(honesty_host_eager_prod_construction_helper_residual_pack_wave709()); }
-    #[test] fn live() { assert!(simulate_live_host_eager_prod_construction_helper_honesty()); assert!(residual_host_eager_prod_construction_helper_ok()); }
+    #[test]
+    fn method_names_residual() {
+        assert!(honesty_host_eager_prod_construction_helper_method_names_residual_wave709());
+    }
+    #[test]
+    fn source_markers_residual() {
+        assert!(honesty_host_eager_prod_construction_helper_source_markers_residual_wave709());
+    }
+    #[test]
+    fn nav_commands_residual() {
+        assert!(honesty_host_eager_prod_construction_helper_nav_commands_residual_wave709());
+    }
+    #[test]
+    fn sources() {
+        assert!(simulate_host_eager_prod_construction_helper_collect_source());
+        assert!(simulate_host_eager_prod_construction_helper_dispatch_source());
+    }
+    #[test]
+    fn pack() {
+        assert!(honesty_host_eager_prod_construction_helper_residual_pack_wave709());
+    }
+    #[test]
+    fn live() {
+        assert!(simulate_live_host_eager_prod_construction_helper_honesty());
+        assert!(residual_host_eager_prod_construction_helper_ok());
+    }
 
     #[test]
     fn post_logic_prod_construction_apply_once_through_session() {
