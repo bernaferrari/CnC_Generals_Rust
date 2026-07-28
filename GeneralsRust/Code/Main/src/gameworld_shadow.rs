@@ -679,6 +679,65 @@ pub fn eager_apply_host_veterancy_after_logic(
     EARLY_VETERANCY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
+// Wave 690: post-logic weapon-bonus / weapon-slot batch handoff (avoid double-apply).
+thread_local! {
+    static EARLY_WEAPON_BONUS_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_weapon_bonus_log::HostWeaponBonusEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_WEAPON_SLOT_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_weapon_slot_log::HostWeaponSlotEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_weapon_bonus_batch() -> Option<(
+    Vec<crate::game_logic::host_weapon_bonus_log::HostWeaponBonusEvent>,
+    bool,
+)> {
+    EARLY_WEAPON_BONUS_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_weapon_slot_batch() -> Option<(
+    Vec<crate::game_logic::host_weapon_slot_log::HostWeaponSlotEvent>,
+    bool,
+)> {
+    EARLY_WEAPON_SLOT_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 690: post-logic drain `host_weapon_bonus_log` into GameWorld SetWeaponBonus.
+pub fn eager_apply_host_weapon_bonus_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 690: post-logic weapon-bonus materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_weapon_bonus_log::drain();
+    if events.is_empty() {
+        EARLY_WEAPON_BONUS_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_weapon_bonus_events(&events);
+    EARLY_WEAPON_BONUS_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 690: post-logic drain `host_weapon_slot_log` into GameWorld SetActiveWeaponSlot.
+pub fn eager_apply_host_weapon_slot_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 690: post-logic weapon-slot materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_weapon_slot_log::drain();
+    if events.is_empty() {
+        EARLY_WEAPON_SLOT_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_weapon_slot_events(&events);
+    EARLY_WEAPON_SLOT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
 
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
 #[cfg(test)]
@@ -8426,8 +8485,15 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_experience_log::drain(), false),
     };
-    let weapon_bonus_events = crate::game_logic::host_weapon_bonus_log::drain();
-    let weapon_slot_events = crate::game_logic::host_weapon_slot_log::drain();
+    // Wave 690: prefer post-logic weapon-bonus / weapon-slot batches.
+    let (weapon_bonus_events, early_weapon_bonus_applied) = match take_early_weapon_bonus_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_weapon_bonus_log::drain(), false),
+    };
+    let (weapon_slot_events, early_weapon_slot_applied) = match take_early_weapon_slot_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_weapon_slot_log::drain(), false),
+    };
     let entity_power_events = crate::game_logic::host_entity_power_log::drain();
     let turret_events = crate::game_logic::host_turret_log::drain();
     let target_location_events = crate::game_logic::host_target_location_log::drain();
@@ -8570,8 +8636,17 @@ pub fn shadow_session_after_host_tick(
     } else {
         experience_events.len()
     };
-    let _wb_applied = shadow.apply_host_weapon_bonus_events(&weapon_bonus_events);
-    let _wslot_applied = shadow.apply_host_weapon_slot_events(&weapon_slot_events);
+    // Wave 690: skip GW re-apply when post-logic eager path already ran.
+    let _wb_applied = if early_weapon_bonus_applied {
+        0
+    } else {
+        shadow.apply_host_weapon_bonus_events(&weapon_bonus_events)
+    };
+    let _wslot_applied = if early_weapon_slot_applied {
+        0
+    } else {
+        shadow.apply_host_weapon_slot_events(&weapon_slot_events)
+    };
     let _epow_applied = shadow.apply_host_entity_power_events(&entity_power_events);
     let _tur_applied = shadow.apply_host_turret_events(&turret_events);
     let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
