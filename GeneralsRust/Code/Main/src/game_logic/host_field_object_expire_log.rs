@@ -1,6 +1,8 @@
-//! Frame-local field-object lifetime expire logs for GW shadow parity.
+//! Frame-local field/beam/shell lifetime expire logs for GW shadow parity.
 //!
-//! Covers NukeRadiationField / AnthraxToxinField / InfernoFireField object residuals.
+//! Covers NukeRadiationField / AnthraxToxinField / InfernoFireField object
+//! residuals plus Wave 806 Spectre howitzer shell, countermeasure flare, and
+//! laser-beam object lifetimes.
 
 use super::{ObjectId, Team};
 use std::cell::RefCell;
@@ -10,6 +12,10 @@ pub enum FieldObjectKind {
     NukeRadiation,
     AnthraxToxin,
     InfernoFire,
+    SpectreHowitzerShell,
+    CountermeasureFlare,
+    PointDefenseLaserBeam,
+    WeaponLaserBeam,
 }
 
 #[derive(Debug, Clone)]
@@ -17,6 +23,8 @@ pub struct FieldObjectExpireEvent {
     pub id: ObjectId,
     pub team: Option<Team>,
     pub kind: FieldObjectKind,
+    /// Countermeasure flare producer for note_flare_expired residual.
+    pub producer: Option<ObjectId>,
 }
 
 thread_local! {

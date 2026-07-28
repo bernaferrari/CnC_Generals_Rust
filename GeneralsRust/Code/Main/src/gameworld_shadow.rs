@@ -4205,6 +4205,18 @@ impl GameWorldShadow {
                     e.scorpion_missile_fuel_expires_frame =
                         obj.scorpion_missile_fuel_expires_frame.unwrap_or(0);
                     e.scorpion_missile_slot = obj.scorpion_missile_slot;
+                    e.spectre_howitzer_shell = obj.spectre_howitzer_shell;
+                    e.spectre_howitzer_shell_expires_frame =
+                        obj.spectre_howitzer_shell_expires_frame.unwrap_or(0);
+                    e.countermeasure_flare = obj.countermeasure_flare;
+                    e.countermeasure_flare_expires_frame =
+                        obj.countermeasure_flare_expires_frame.unwrap_or(0);
+                    e.point_defense_laser_beam = obj.point_defense_laser_beam;
+                    e.point_defense_laser_beam_expires_frame =
+                        obj.point_defense_laser_beam_expires_frame.unwrap_or(0);
+                    e.weapon_laser_beam = obj.weapon_laser_beam;
+                    e.weapon_laser_beam_expires_frame =
+                        obj.weapon_laser_beam_expires_frame.unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -9638,7 +9650,7 @@ for eid in eids {
                             id: crate::game_logic::ObjectId(hid),
                             team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
                             kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::NukeRadiation,
-                        },
+                         producer: None, },
                     );
                 }
                 changed = true;
@@ -9655,7 +9667,7 @@ for eid in eids {
                             id: crate::game_logic::ObjectId(hid),
                             team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
                             kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::AnthraxToxin,
-                        },
+                         producer: None, },
                     );
                 }
                 changed = true;
@@ -9672,7 +9684,7 @@ for eid in eids {
                             id: crate::game_logic::ObjectId(hid),
                             team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
                             kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::InfernoFire,
-                        },
+                         producer: None, },
                     );
                 }
                 changed = true;
@@ -9911,6 +9923,82 @@ for eid in eids {
                             },
                         );
                     }
+                }
+                changed = true;
+            }
+
+            // Wave 806: Spectre howitzer shell / flare / laser-beam lifetimes.
+            if e.spectre_howitzer_shell {
+                let height_die = e.transform.position.y <= 1.0;
+                let timed = e.spectre_howitzer_shell_expires_frame > 0
+                    && frame >= e.spectre_howitzer_shell_expires_frame;
+                if height_die || timed {
+                    e.spectre_howitzer_shell = false;
+                    e.spectre_howitzer_shell_expires_frame = 0;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        crate::game_logic::host_field_object_expire_log::record(
+                            crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                                kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::SpectreHowitzerShell,
+                                producer: None,
+                            },
+                        );
+                    }
+                    changed = true;
+                }
+            }
+            if e.countermeasure_flare
+                && e.countermeasure_flare_expires_frame > 0
+                && frame >= e.countermeasure_flare_expires_frame
+            {
+                e.countermeasure_flare = false;
+                e.countermeasure_flare_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::CountermeasureFlare,
+                            producer: e.producer_id.map(crate::game_logic::ObjectId),
+                        },
+                    );
+                }
+                changed = true;
+            }
+            if e.point_defense_laser_beam
+                && e.point_defense_laser_beam_expires_frame > 0
+                && frame >= e.point_defense_laser_beam_expires_frame
+            {
+                e.point_defense_laser_beam = false;
+                e.point_defense_laser_beam_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::PointDefenseLaserBeam,
+                            producer: None,
+                        },
+                    );
+                }
+                changed = true;
+            }
+            if e.weapon_laser_beam
+                && e.weapon_laser_beam_expires_frame > 0
+                && frame >= e.weapon_laser_beam_expires_frame
+            {
+                e.weapon_laser_beam = false;
+                e.weapon_laser_beam_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::WeaponLaserBeam,
+                            producer: None,
+                        },
+                    );
                 }
                 changed = true;
             }
@@ -15090,6 +15178,37 @@ for eid in eids {
                         None
                     };
                 obj.scorpion_missile_slot = ent.scorpion_missile_slot;
+                obj.spectre_howitzer_shell = ent.spectre_howitzer_shell;
+                obj.spectre_howitzer_shell_expires_frame =
+                    if ent.spectre_howitzer_shell && ent.spectre_howitzer_shell_expires_frame > 0 {
+                        Some(ent.spectre_howitzer_shell_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.countermeasure_flare = ent.countermeasure_flare;
+                obj.countermeasure_flare_expires_frame =
+                    if ent.countermeasure_flare && ent.countermeasure_flare_expires_frame > 0 {
+                        Some(ent.countermeasure_flare_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.point_defense_laser_beam = ent.point_defense_laser_beam;
+                obj.point_defense_laser_beam_expires_frame =
+                    if ent.point_defense_laser_beam
+                        && ent.point_defense_laser_beam_expires_frame > 0
+                    {
+                        Some(ent.point_defense_laser_beam_expires_frame)
+                    } else {
+                        None
+                    };
+                obj.weapon_laser_beam = ent.weapon_laser_beam;
+                obj.weapon_laser_beam_expires_frame = if ent.weapon_laser_beam
+                    && ent.weapon_laser_beam_expires_frame > 0
+                {
+                    Some(ent.weapon_laser_beam_expires_frame)
+                } else {
+                    None
+                };
             }
 
             set_flag!(obj.status.masked, ent.masked);
@@ -17178,6 +17297,18 @@ pub fn shadow_session_after_host_tick(
                     FieldObjectKind::NukeRadiation => o.nuke_radiation_field = false,
                     FieldObjectKind::AnthraxToxin => o.anthrax_toxin_field = false,
                     FieldObjectKind::InfernoFire => o.inferno_fire_field = false,
+                    FieldObjectKind::SpectreHowitzerShell => o.spectre_howitzer_shell = false,
+                    FieldObjectKind::CountermeasureFlare => o.countermeasure_flare = false,
+                    FieldObjectKind::PointDefenseLaserBeam => {
+                        o.point_defense_laser_beam = false
+                    }
+                    FieldObjectKind::WeaponLaserBeam => o.weapon_laser_beam = false,
+                }
+            }
+            // Wave 806: countermeasure flare producer bookkeeping.
+            if matches!(ev.kind, FieldObjectKind::CountermeasureFlare) {
+                if let Some(pid) = ev.producer {
+                    logic.countermeasures.note_flare_expired(pid);
                 }
             }
             logic.mark_object_for_destruction(ev.id, ev.team);

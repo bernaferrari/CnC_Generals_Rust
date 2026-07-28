@@ -927,6 +927,18 @@ pub struct Entity {
     pub scorpion_missile_travelled: f32,
     pub scorpion_missile_fuel_expires_frame: u32,
     pub scorpion_missile_slot: u8,
+    /// Host Spectre gunship howitzer shell residual.
+    pub spectre_howitzer_shell: bool,
+    pub spectre_howitzer_shell_expires_frame: u32,
+    /// Host countermeasure flare residual.
+    pub countermeasure_flare: bool,
+    pub countermeasure_flare_expires_frame: u32,
+    /// Host point-defense laser beam residual.
+    pub point_defense_laser_beam: bool,
+    pub point_defense_laser_beam_expires_frame: u32,
+    /// Host weapon laser beam residual.
+    pub weapon_laser_beam: bool,
+    pub weapon_laser_beam_expires_frame: u32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1827,6 +1839,14 @@ impl EntityStore {
             scorpion_missile_travelled: 0.0,
             scorpion_missile_fuel_expires_frame: 0,
             scorpion_missile_slot: 0,
+            spectre_howitzer_shell: false,
+            spectre_howitzer_shell_expires_frame: 0,
+            countermeasure_flare: false,
+            countermeasure_flare_expires_frame: 0,
+            point_defense_laser_beam: false,
+            point_defense_laser_beam_expires_frame: 0,
+            weapon_laser_beam: false,
+            weapon_laser_beam_expires_frame: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
