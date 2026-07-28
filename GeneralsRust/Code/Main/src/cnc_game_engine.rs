@@ -17993,6 +17993,15 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 688: post-logic owner / movement residual before full session.
+                let _own = crate::gameworld_shadow::eager_apply_host_owner_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _mvr = crate::gameworld_shadow::eager_apply_host_movement_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
