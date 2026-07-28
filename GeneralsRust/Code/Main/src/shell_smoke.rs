@@ -3280,6 +3280,12 @@ use crate::game_logic::host_live_host_status_timer_dual_peel_residual_wave761::{
     honesty_host_status_timer_dual_peel_nav_commands_residual_wave761,
     simulate_live_host_status_timer_dual_peel_honesty,
 };
+use crate::game_logic::host_live_host_eject_invuln_dual_peel_residual_wave762::{
+    honesty_host_eject_invuln_dual_peel_method_names_residual_wave762,
+    honesty_host_eject_invuln_dual_peel_nav_commands_residual_wave762,
+    simulate_live_host_eject_invuln_dual_peel_honesty,
+};
+
 
 
 
@@ -7205,6 +7211,9 @@ pub struct ShellSmokeResult {
     pub host_status_timer_dual_peel_method_names_wave761_ok: bool,
     pub host_status_timer_dual_peel_nav_commands_wave761_ok: bool,
     pub host_status_timer_dual_peel_live_wave761_ok: bool,
+    pub host_eject_invuln_dual_peel_method_names_wave762_ok: bool,
+    pub host_eject_invuln_dual_peel_nav_commands_wave762_ok: bool,
+    pub host_eject_invuln_dual_peel_live_wave762_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11510,6 +11519,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_status_timer_dual_peel_nav_commands_residual_wave761();
     let host_status_timer_dual_peel_live_wave761_ok =
         simulate_live_host_status_timer_dual_peel_honesty();
+    let host_eject_invuln_dual_peel_method_names_wave762_ok =
+        honesty_host_eject_invuln_dual_peel_method_names_residual_wave762();
+    let host_eject_invuln_dual_peel_nav_commands_wave762_ok =
+        honesty_host_eject_invuln_dual_peel_nav_commands_residual_wave762();
+    let host_eject_invuln_dual_peel_live_wave762_ok =
+        simulate_live_host_eject_invuln_dual_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13782,6 +13797,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_status_timer_dual_peel_method_names_wave761_ok,
         host_status_timer_dual_peel_nav_commands_wave761_ok,
         host_status_timer_dual_peel_live_wave761_ok,
+        host_eject_invuln_dual_peel_method_names_wave762_ok,
+        host_eject_invuln_dual_peel_nav_commands_wave762_ok,
+        host_eject_invuln_dual_peel_live_wave762_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -25467,6 +25485,21 @@ mod tests {
         assert!(
             r.host_status_timer_dual_peel_live_wave761_ok,
             "host status_timer_dual_peel live residual wave761: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eject_invuln_dual_peel_method_names_wave762_ok,
+            "host eject_invuln_dual_peel method names residual pack wave762: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eject_invuln_dual_peel_nav_commands_wave762_ok,
+            "host eject_invuln_dual_peel nav commands residual pack wave762: {}",
+            r.detail
+        );
+        assert!(
+            r.host_eject_invuln_dual_peel_live_wave762_ok,
+            "host eject_invuln_dual_peel live residual wave762: {}",
             r.detail
         );
         assert!(
