@@ -4767,6 +4767,7 @@ impl GameWorldShadow {
             return 0;
         }
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, bool)> = Vec::new();
         let gw_ids: std::collections::HashSet<u32> =
             self.world.projectiles().keys().copied().collect();
         let to_remove: Vec<crate::game_logic::ObjectId> = logic
@@ -4778,6 +4779,9 @@ impl GameWorldShadow {
             .collect();
         for id in to_remove {
             if logic.combat_system.remove_projectile(id) {
+                // Wave 678: GameWorld projectiles last-write residual —
+                // host applies presentation bookkeeping from ready log.
+                ready.push((id, true));
                 updated += 1;
             }
         }
@@ -4812,7 +4816,13 @@ impl GameWorldShadow {
             p.speed = res.speed;
             p.is_homing = res.is_homing;
             p.damage = res.damage;
+            // Wave 678: GameWorld projectiles last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push((ObjectId(*hid), false));
             updated += 1;
+        }
+        for (oid, removed) in ready {
+            crate::game_logic::host_projectiles_ready_log::record(oid, removed);
         }
         updated
     }
@@ -8057,6 +8067,8 @@ pub fn shadow_session_after_host_tick(
         };
         let _ = stepped;
         let _pw = shadow.writeback_projectiles_to_host(logic);
+        // Wave 678: drain projectiles ready log after GW writeback.
+        let _w678_ready = logic.host_apply_projectiles_ready_completions();
         // Hit resolution at GameWorld-integrated poses (dt=0 keeps pose stable).
         let hits = logic.resolve_projectiles_hits_only();
         let _ = hits;
@@ -17571,6 +17583,7 @@ mod tests {
             "projectile should advance along +X (before={before} after={after})"
         );
         let n = shadow.writeback_projectiles_to_host(&mut logic);
+        let _ = crate::game_logic::host_projectiles_ready_log::drain();
         assert!(n >= 1);
         let p = logic
             .combat_system
