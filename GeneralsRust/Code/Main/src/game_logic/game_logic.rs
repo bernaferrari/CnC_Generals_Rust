@@ -6334,7 +6334,12 @@ impl GameLogic {
         self.update_point_defense_intercept();
         self.update_point_defense_laser_beam_objects();
         self.update_weapon_laser_beam_objects();
-        self.update_comanche_rocket_pod_projectiles();
+        // Wave 804: under coupled shadow, residual owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_comanche_rocket_pod_projectiles();
+        }
         self.update_stealth_jet_missile_projectiles();
         // Wave 800: under coupled shadow, cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
@@ -6377,7 +6382,12 @@ impl GameLogic {
         self.update_fire_base_shell_projectiles();
         self.update_raptor_missile_projectiles();
         self.update_mig_missile_projectiles();
-        self.update_flashbang_grenade_projectiles();
+        // Wave 804: under coupled shadow, residual owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_flashbang_grenade_projectiles();
+        }
         self.update_humvee_tow_missile_projectiles();
         self.update_dragon_flame_projectiles();
         // Wave 798: under coupled shadow, ToxinStream projectile flight is owned by
@@ -6436,7 +6446,12 @@ impl GameLogic {
         // Host China Helix NapalmBomb residual: tick FirestormSmall DoT at drop zones.
         // Fail-closed vs full SpecialObject NapalmBomb fall / expand animation.
         self.update_helix_napalm_firestorms();
-        self.update_helix_napalm_bomb_projectiles();
+        // Wave 804: under coupled shadow, residual owned by GW expire + logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_helix_napalm_bomb_projectiles();
+        }
 
         // Host GLA Bomb Truck BioBomb residual: tick MediumPoisonField DoT.
         // Fail-closed vs full FireWeaponWhenDead exclusive effect matrix.
