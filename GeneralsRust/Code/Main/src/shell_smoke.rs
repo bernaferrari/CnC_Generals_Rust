@@ -3175,6 +3175,11 @@ use crate::game_logic::host_live_host_rebuild_spawn_entity_first_residual_wave74
     honesty_host_rebuild_spawn_entity_first_nav_commands_residual_wave740,
     simulate_live_host_rebuild_spawn_entity_first_honesty,
 };
+use crate::game_logic::host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741::{
+    honesty_host_rebuild_spawn_requires_gw_bind_method_names_residual_wave741,
+    honesty_host_rebuild_spawn_requires_gw_bind_nav_commands_residual_wave741,
+    simulate_live_host_rebuild_spawn_requires_gw_bind_honesty,
+};
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_stages_residual_wave135,
@@ -7034,6 +7039,9 @@ pub struct ShellSmokeResult {
     pub host_rebuild_spawn_entity_first_method_names_wave740_ok: bool,
     pub host_rebuild_spawn_entity_first_nav_commands_wave740_ok: bool,
     pub host_rebuild_spawn_entity_first_live_wave740_ok: bool,
+    pub host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok: bool,
+    pub host_rebuild_spawn_requires_gw_bind_nav_commands_wave741_ok: bool,
+    pub host_rebuild_spawn_requires_gw_bind_live_wave741_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -11213,6 +11221,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_rebuild_spawn_entity_first_nav_commands_residual_wave740();
     let host_rebuild_spawn_entity_first_live_wave740_ok =
         simulate_live_host_rebuild_spawn_entity_first_honesty();
+    let host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok =
+        honesty_host_rebuild_spawn_requires_gw_bind_method_names_residual_wave741();
+    let host_rebuild_spawn_requires_gw_bind_nav_commands_wave741_ok =
+        honesty_host_rebuild_spawn_requires_gw_bind_nav_commands_residual_wave741();
+    let host_rebuild_spawn_requires_gw_bind_live_wave741_ok =
+        simulate_live_host_rebuild_spawn_requires_gw_bind_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13422,6 +13436,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_rebuild_spawn_entity_first_method_names_wave740_ok,
         host_rebuild_spawn_entity_first_nav_commands_wave740_ok,
         host_rebuild_spawn_entity_first_live_wave740_ok,
+        host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok,
+        host_rebuild_spawn_requires_gw_bind_nav_commands_wave741_ok,
+        host_rebuild_spawn_requires_gw_bind_live_wave741_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24792,6 +24809,21 @@ mod tests {
         assert!(
             r.host_rebuild_spawn_entity_first_live_wave740_ok,
             "host rebuild_spawn_entity_first live residual wave740: {}",
+            r.detail
+        );
+        assert!(
+            r.host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok,
+            "host rebuild_spawn_requires_gw_bind method names residual pack wave741: {}",
+            r.detail
+        );
+        assert!(
+            r.host_rebuild_spawn_requires_gw_bind_nav_commands_wave741_ok,
+            "host rebuild_spawn_requires_gw_bind nav commands residual pack wave741: {}",
+            r.detail
+        );
+        assert!(
+            r.host_rebuild_spawn_requires_gw_bind_live_wave741_ok,
+            "host rebuild_spawn_requires_gw_bind live residual wave741: {}",
             r.detail
         );
         assert!(

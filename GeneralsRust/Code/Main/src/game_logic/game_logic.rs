@@ -7310,8 +7310,11 @@ impl GameLogic {
 
     /// Wave 740: rebuild-hole worker/structure spawn with optional GW entity bind.
     /// Under construction sole-tick, prefers free GW entity raw as ObjectId and
-    /// binds without a second Spawn. Missing raw falls back to create_object
-    /// (host allocate) — hole may still start when writeback only recorded readiness.
+    /// binds without a second Spawn.
+    /// Wave 741: missing GW entity raw under construction sole-tick is fail-closed
+    /// (default). Incomplete harnesses may set
+    /// GENERALS_RUNTIME_HOST_REBUILD_SPAWN_WITHOUT_GW_BIND=1.
+    /// playable_claim stays false.
     fn host_spawn_rebuild_bound_object(
         &mut self,
         template: &str,
@@ -7336,6 +7339,22 @@ impl GameLogic {
                 }
                 // Bind present: allocate host id and map to pre-spawned entity.
                 return self.create_object(template, team, spawn_pos);
+            }
+            let allow_without_bind = std::env::var_os(
+                "GENERALS_RUNTIME_HOST_REBUILD_SPAWN_WITHOUT_GW_BIND",
+            )
+            .is_some_and(|v| {
+                let s = v.to_string_lossy();
+                !(s.is_empty()
+                    || s == "0"
+                    || s.eq_ignore_ascii_case("false")
+                    || s.eq_ignore_ascii_case("no"))
+            });
+            if !allow_without_bind {
+                log::debug!(
+                    "Wave 741: construction sole-tick rebuild spawn denied without GW entity bind (template={template})"
+                );
+                return None;
             }
         }
         self.create_object(template, team, spawn_pos)
