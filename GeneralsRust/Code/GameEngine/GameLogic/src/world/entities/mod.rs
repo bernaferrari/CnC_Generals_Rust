@@ -947,6 +947,13 @@ pub struct Entity {
     pub booby_trap_special: bool,
     pub booby_trap_attached_to: u32,
     pub booby_trap_has_attached: bool,
+    /// Host ParticleUplink residual objects.
+    pub particle_trail_remnant: bool,
+    pub particle_trail_remnant_expires_frame: u32,
+    pub particle_orbital_laser: bool,
+    pub particle_orbital_laser_expires_frame: u32,
+    pub particle_connector_laser: bool,
+    pub particle_connector_laser_expires_frame: u32,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1861,6 +1868,12 @@ impl EntityStore {
             booby_trap_special: false,
             booby_trap_attached_to: 0,
             booby_trap_has_attached: false,
+            particle_trail_remnant: false,
+            particle_trail_remnant_expires_frame: 0,
+            particle_orbital_laser: false,
+            particle_orbital_laser_expires_frame: 0,
+            particle_connector_laser: false,
+            particle_connector_laser_expires_frame: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
