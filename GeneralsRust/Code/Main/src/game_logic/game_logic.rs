@@ -8343,15 +8343,21 @@ impl GameLogic {
                         topple_kill = true;
                     }
                 }
-                // C++ JetSlowDeathBehavior residual.
-                if !topple_kill
-                    && obj
-                        .jet_slow_death
-                        .as_ref()
-                        .map(|j| j.is_active())
-                        .unwrap_or(false)
+                // Wave 772: under coupled shadow, JetSlowDeathBehavior is owned by
+                // GW tick_status_timer_expirations + host_jet_slow_death_kill_log drain.
+                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
-                    topple_kill = obj.tick_jet_slow_death(self.frame, 0.0);
+                    // C++ JetSlowDeathBehavior residual.
+                    if !topple_kill
+                        && obj
+                            .jet_slow_death
+                            .as_ref()
+                            .map(|j| j.is_active())
+                            .unwrap_or(false)
+                    {
+                        topple_kill = obj.tick_jet_slow_death(self.frame, 0.0);
+                    }
                 }
                 // C++ HelicopterSlowDeathBehavior residual.
                 if !topple_kill
