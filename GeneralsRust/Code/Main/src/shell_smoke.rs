@@ -3006,6 +3006,11 @@ use crate::game_logic::host_live_host_golden_ranger_template_opt_in_residual_wav
     honesty_host_golden_ranger_template_opt_in_nav_commands_residual_wave722,
     simulate_live_host_golden_ranger_template_opt_in_honesty,
 };
+use crate::game_logic::host_live_host_ensure_barracks_opt_in_residual_wave723::{
+    honesty_host_ensure_barracks_opt_in_method_names_residual_wave723,
+    honesty_host_ensure_barracks_opt_in_nav_commands_residual_wave723,
+    simulate_live_host_ensure_barracks_opt_in_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6890,6 +6895,9 @@ pub struct ShellSmokeResult {
     pub host_golden_ranger_template_opt_in_method_names_wave722_ok: bool,
     pub host_golden_ranger_template_opt_in_nav_commands_wave722_ok: bool,
     pub host_golden_ranger_template_opt_in_live_wave722_ok: bool,
+    pub host_ensure_barracks_opt_in_method_names_wave723_ok: bool,
+    pub host_ensure_barracks_opt_in_nav_commands_wave723_ok: bool,
+    pub host_ensure_barracks_opt_in_live_wave723_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -10961,6 +10969,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_golden_ranger_template_opt_in_nav_commands_residual_wave722();
     let host_golden_ranger_template_opt_in_live_wave722_ok =
         simulate_live_host_golden_ranger_template_opt_in_honesty();
+    let host_ensure_barracks_opt_in_method_names_wave723_ok =
+        honesty_host_ensure_barracks_opt_in_method_names_residual_wave723();
+    let host_ensure_barracks_opt_in_nav_commands_wave723_ok =
+        honesty_host_ensure_barracks_opt_in_nav_commands_residual_wave723();
+    let host_ensure_barracks_opt_in_live_wave723_ok =
+        simulate_live_host_ensure_barracks_opt_in_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -13116,6 +13130,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_golden_ranger_template_opt_in_method_names_wave722_ok,
         host_golden_ranger_template_opt_in_nav_commands_wave722_ok,
         host_golden_ranger_template_opt_in_live_wave722_ok,
+        host_ensure_barracks_opt_in_method_names_wave723_ok,
+        host_ensure_barracks_opt_in_nav_commands_wave723_ok,
+        host_ensure_barracks_opt_in_live_wave723_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -24216,6 +24233,21 @@ mod tests {
         assert!(
             r.host_golden_ranger_template_opt_in_live_wave722_ok,
             "host golden_ranger_template_opt_in live residual wave722: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ensure_barracks_opt_in_method_names_wave723_ok,
+            "host ensure_barracks_opt_in method names residual pack wave723: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ensure_barracks_opt_in_nav_commands_wave723_ok,
+            "host ensure_barracks_opt_in nav commands residual pack wave723: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ensure_barracks_opt_in_live_wave723_ok,
+            "host ensure_barracks_opt_in live residual wave723: {}",
             r.detail
         );
         assert!(
