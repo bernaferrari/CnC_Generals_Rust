@@ -201,6 +201,7 @@ Remaining engine residual after host update:
   - train/upgrade free min-supplies floor is opt-in only (Wave 721; smoke sets grant_supplies=1)
   - train synthetic GoldenRanger template insert is opt-in only (Wave 722)
   - train Barracks building_data stamp is opt-in only (Wave 723; force_complete implies)
+  - train enqueue try_names GoldenRanger fallback is opt-in only (Wave 724)
   - AI attack recheck + production chain honesty: `ATTACK_RECHECK_SECONDS=60` + ready-log→collect→spawn (Wave 616)
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
