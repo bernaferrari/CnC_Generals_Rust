@@ -2651,6 +2651,21 @@ use crate::game_logic::host_live_host_stealth_delay_ready_log_helper_residual_wa
     honesty_host_stealth_delay_ready_log_helper_nav_commands_residual_wave651,
     simulate_live_host_stealth_delay_ready_log_helper_honesty,
 };
+use crate::game_logic::host_live_host_stealth_flags_ready_log_helper_residual_wave652::{
+    honesty_host_stealth_flags_ready_log_helper_method_names_residual_wave652,
+    honesty_host_stealth_flags_ready_log_helper_nav_commands_residual_wave652,
+    simulate_live_host_stealth_flags_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_disguise_ready_log_helper_residual_wave653::{
+    honesty_host_disguise_ready_log_helper_method_names_residual_wave653,
+    honesty_host_disguise_ready_log_helper_nav_commands_residual_wave653,
+    simulate_live_host_disguise_ready_log_helper_honesty,
+};
+use crate::game_logic::host_live_host_vision_camo_ready_log_helper_residual_wave654::{
+    honesty_host_vision_camo_ready_log_helper_method_names_residual_wave654,
+    honesty_host_vision_camo_ready_log_helper_nav_commands_residual_wave654,
+    simulate_live_host_vision_camo_ready_log_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6322,6 +6337,15 @@ pub struct ShellSmokeResult {
     pub host_stealth_delay_ready_log_helper_method_names_wave651_ok: bool,
     pub host_stealth_delay_ready_log_helper_nav_commands_wave651_ok: bool,
     pub host_stealth_delay_ready_log_helper_live_wave651_ok: bool,
+    pub host_stealth_flags_ready_log_helper_method_names_wave652_ok: bool,
+    pub host_stealth_flags_ready_log_helper_nav_commands_wave652_ok: bool,
+    pub host_stealth_flags_ready_log_helper_live_wave652_ok: bool,
+    pub host_disguise_ready_log_helper_method_names_wave653_ok: bool,
+    pub host_disguise_ready_log_helper_nav_commands_wave653_ok: bool,
+    pub host_disguise_ready_log_helper_live_wave653_ok: bool,
+    pub host_vision_camo_ready_log_helper_method_names_wave654_ok: bool,
+    pub host_vision_camo_ready_log_helper_nav_commands_wave654_ok: bool,
+    pub host_vision_camo_ready_log_helper_live_wave654_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9969,6 +9993,24 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_stealth_delay_ready_log_helper_nav_commands_residual_wave651();
     let host_stealth_delay_ready_log_helper_live_wave651_ok =
         simulate_live_host_stealth_delay_ready_log_helper_honesty();
+    let host_stealth_flags_ready_log_helper_method_names_wave652_ok =
+        honesty_host_stealth_flags_ready_log_helper_method_names_residual_wave652();
+    let host_stealth_flags_ready_log_helper_nav_commands_wave652_ok =
+        honesty_host_stealth_flags_ready_log_helper_nav_commands_residual_wave652();
+    let host_stealth_flags_ready_log_helper_live_wave652_ok =
+        simulate_live_host_stealth_flags_ready_log_helper_honesty();
+    let host_disguise_ready_log_helper_method_names_wave653_ok =
+        honesty_host_disguise_ready_log_helper_method_names_residual_wave653();
+    let host_disguise_ready_log_helper_nav_commands_wave653_ok =
+        honesty_host_disguise_ready_log_helper_nav_commands_residual_wave653();
+    let host_disguise_ready_log_helper_live_wave653_ok =
+        simulate_live_host_disguise_ready_log_helper_honesty();
+    let host_vision_camo_ready_log_helper_method_names_wave654_ok =
+        honesty_host_vision_camo_ready_log_helper_method_names_residual_wave654();
+    let host_vision_camo_ready_log_helper_nav_commands_wave654_ok =
+        honesty_host_vision_camo_ready_log_helper_nav_commands_residual_wave654();
+    let host_vision_camo_ready_log_helper_live_wave654_ok =
+        simulate_live_host_vision_camo_ready_log_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11911,6 +11953,15 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_stealth_delay_ready_log_helper_method_names_wave651_ok,
         host_stealth_delay_ready_log_helper_nav_commands_wave651_ok,
         host_stealth_delay_ready_log_helper_live_wave651_ok,
+        host_stealth_flags_ready_log_helper_method_names_wave652_ok,
+        host_stealth_flags_ready_log_helper_nav_commands_wave652_ok,
+        host_stealth_flags_ready_log_helper_live_wave652_ok,
+        host_disguise_ready_log_helper_method_names_wave653_ok,
+        host_disguise_ready_log_helper_nav_commands_wave653_ok,
+        host_disguise_ready_log_helper_live_wave653_ok,
+        host_vision_camo_ready_log_helper_method_names_wave654_ok,
+        host_vision_camo_ready_log_helper_nav_commands_wave654_ok,
+        host_vision_camo_ready_log_helper_live_wave654_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -21946,6 +21997,51 @@ mod tests {
         assert!(
             r.host_stealth_delay_ready_log_helper_live_wave651_ok,
             "host stealth_delay ready log helper live residual wave651: {}",
+            r.detail
+        );
+        assert!(
+            r.host_stealth_flags_ready_log_helper_method_names_wave652_ok,
+            "host stealth_flags ready log helper method names residual pack wave652: {}",
+            r.detail
+        );
+        assert!(
+            r.host_stealth_flags_ready_log_helper_nav_commands_wave652_ok,
+            "host stealth_flags ready log helper nav commands residual pack wave652: {}",
+            r.detail
+        );
+        assert!(
+            r.host_stealth_flags_ready_log_helper_live_wave652_ok,
+            "host stealth_flags ready log helper live residual wave652: {}",
+            r.detail
+        );
+        assert!(
+            r.host_disguise_ready_log_helper_method_names_wave653_ok,
+            "host disguise ready log helper method names residual pack wave653: {}",
+            r.detail
+        );
+        assert!(
+            r.host_disguise_ready_log_helper_nav_commands_wave653_ok,
+            "host disguise ready log helper nav commands residual pack wave653: {}",
+            r.detail
+        );
+        assert!(
+            r.host_disguise_ready_log_helper_live_wave653_ok,
+            "host disguise ready log helper live residual wave653: {}",
+            r.detail
+        );
+        assert!(
+            r.host_vision_camo_ready_log_helper_method_names_wave654_ok,
+            "host vision_camo ready log helper method names residual pack wave654: {}",
+            r.detail
+        );
+        assert!(
+            r.host_vision_camo_ready_log_helper_nav_commands_wave654_ok,
+            "host vision_camo ready log helper nav commands residual pack wave654: {}",
+            r.detail
+        );
+        assert!(
+            r.host_vision_camo_ready_log_helper_live_wave654_ok,
+            "host vision_camo ready log helper live residual wave654: {}",
             r.detail
         );
         assert!(

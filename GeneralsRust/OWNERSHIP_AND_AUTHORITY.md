@@ -192,6 +192,9 @@ Remaining engine residual after host update:
   - Physics Motive ready log: GW writeback → `host_physics_motive_ready_log` → host physics motive presentation (Wave 649)
   - Bounce Land ready log: GW writeback → `host_bounce_land_ready_log` → host bounce land presentation (Wave 650)
   - Stealth Delay ready log: GW writeback → `host_stealth_delay_ready_log` → host stealth delay presentation (Wave 651)
+  - Vision Camo ready log: GW writeback → `host_vision_camo_ready_log` → host vision camo presentation (Wave 654)
+  - Disguise ready log: GW writeback → `host_disguise_ready_log` → host disguise presentation (Wave 653)
+  - Stealth Flags ready log: GW writeback → `host_stealth_flags_ready_log` → host stealth flags presentation (Wave 652)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

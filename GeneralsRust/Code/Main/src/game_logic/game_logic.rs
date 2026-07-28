@@ -26173,6 +26173,57 @@ impl GameLogic {
 
     /// Wave 651: GameWorld stealth delay writeback records dirty objects; host
     /// applies presentation bookkeeping residual via record_host_stealth_delay.
+    /// Wave 652: GameWorld stealth flags writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_stealth_flags.
+    pub fn host_apply_stealth_flags_ready_completions(&mut self) -> usize {
+        // Wave 652: GameWorld stealth flags writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_stealth_flags.
+        let events = crate::game_logic::host_stealth_flags_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_stealth_flags();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 653: GameWorld disguise writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_disguise.
+    pub fn host_apply_disguise_ready_completions(&mut self) -> usize {
+        // Wave 653: GameWorld disguise writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_disguise.
+        let events = crate::game_logic::host_disguise_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_disguise();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
+    /// Wave 654: GameWorld vision camo writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_vision_camo.
+    pub fn host_apply_vision_camo_ready_completions(&mut self) -> usize {
+        // Wave 654: GameWorld vision camo writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_vision_camo.
+        let events = crate::game_logic::host_vision_camo_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_vision_camo();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_stealth_delay_ready_completions(&mut self) -> usize {
         // Wave 651: GameWorld stealth delay writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_stealth_delay.
