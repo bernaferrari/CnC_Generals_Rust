@@ -238,6 +238,14 @@ pub struct Entity {
     pub disguised: bool,
     /// Host Object::status.disabled_subdued residual.
     pub disabled_subdued: bool,
+    /// Host Object::subdual_damage residual.
+    pub subdual_damage: f32,
+    /// Host Object::subdual_heal_amount residual.
+    pub subdual_heal_amount: f32,
+    /// Host Object::subdual_heal_rate_frames residual.
+    pub subdual_heal_rate_frames: u32,
+    /// Host Object::subdual_heal_countdown residual.
+    pub subdual_heal_countdown: u32,
     /// Host Object::status.is_carbomb residual.
     pub is_carbomb: bool,
     /// Host Object::status.hijacked residual.
@@ -911,6 +919,10 @@ impl EntityStore {
             masked: false,
             disguised: false,
             disabled_subdued: false,
+            subdual_damage: 0.0,
+            subdual_heal_amount: 0.0,
+            subdual_heal_rate_frames: 0,
+            subdual_heal_countdown: 0,
             is_carbomb: false,
             hijacked: false,
             ignoring_stealth: false,

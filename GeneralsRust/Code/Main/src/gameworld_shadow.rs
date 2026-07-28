@@ -3269,6 +3269,10 @@ impl GameWorldShadow {
                     e.masked = obj.status.masked;
                     e.disguised = obj.status.disguised;
                     e.disabled_subdued = obj.status.disabled_subdued;
+                    e.subdual_damage = obj.subdual_damage;
+                    e.subdual_heal_amount = obj.subdual_heal_amount;
+                    e.subdual_heal_rate_frames = obj.subdual_heal_rate_frames;
+                    e.subdual_heal_countdown = obj.subdual_heal_countdown;
                     e.is_carbomb = obj.status.is_carbomb;
                     e.hijacked = obj.status.hijacked;
                     e.ignoring_stealth = obj.status.ignoring_stealth;
@@ -3776,6 +3780,10 @@ impl GameWorldShadow {
                 e.masked = obj.status.masked;
                 e.disguised = obj.status.disguised;
                 e.disabled_subdued = obj.status.disabled_subdued;
+                    e.subdual_damage = obj.subdual_damage;
+                    e.subdual_heal_amount = obj.subdual_heal_amount;
+                    e.subdual_heal_rate_frames = obj.subdual_heal_rate_frames;
+                    e.subdual_heal_countdown = obj.subdual_heal_countdown;
                 e.is_carbomb = obj.status.is_carbomb;
                 e.hijacked = obj.status.hijacked;
                 e.ignoring_stealth = obj.status.ignoring_stealth;
@@ -6915,6 +6923,25 @@ impl GameWorldShadow {
             if e.shock_stun_frames > 0 {
                 e.shock_stun_frames = e.shock_stun_frames.saturating_sub(1);
                 changed = true;
+            }
+            // Wave 765: subdual damage heal residual (C++ SubdualDamageHeal*).
+            if e.subdual_damage > 0.0
+                && e.subdual_heal_rate_frames > 0
+                && e.subdual_heal_amount > 0.0
+            {
+                if e.subdual_heal_countdown > 0 {
+                    e.subdual_heal_countdown -= 1;
+                    changed = true;
+                } else {
+                    let was = e.max_health > 0.0 && e.subdual_damage + 1e-3 >= e.max_health;
+                    e.subdual_damage = (e.subdual_damage - e.subdual_heal_amount).max(0.0);
+                    e.subdual_heal_countdown = e.subdual_heal_rate_frames;
+                    let now = e.max_health > 0.0 && e.subdual_damage + 1e-3 >= e.max_health;
+                    if was && !now {
+                        e.disabled_subdued = false;
+                    }
+                    changed = true;
+                }
             }
             if changed {
                 n += 1;
@@ -10729,6 +10756,16 @@ impl GameWorldShadow {
             set_flag!(obj.status.disabled_unmanned, ent.disabled_unmanned);
             set_flag!(obj.status.disabled_paralyzed, ent.disabled_paralyzed);
             set_flag!(obj.status.disabled_subdued, ent.disabled_subdued);
+            if (obj.subdual_damage - ent.subdual_damage).abs() > f32::EPSILON
+                || (obj.subdual_heal_amount - ent.subdual_heal_amount).abs() > f32::EPSILON
+                || obj.subdual_heal_rate_frames != ent.subdual_heal_rate_frames
+                || obj.subdual_heal_countdown != ent.subdual_heal_countdown
+            {
+                obj.subdual_damage = ent.subdual_damage;
+                obj.subdual_heal_amount = ent.subdual_heal_amount;
+                obj.subdual_heal_rate_frames = ent.subdual_heal_rate_frames;
+                obj.subdual_heal_countdown = ent.subdual_heal_countdown;
+            }
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
             set_flag!(obj.status.no_collisions, ent.no_collisions);
