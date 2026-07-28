@@ -10562,7 +10562,27 @@ impl CnCGameEngine {
                     let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                    if self.selected_objects.is_empty() {
+                    // Wave 731: empty-selection auto-pick is opt-in only (default fail-closed).
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if self.selected_objects.is_empty() && allow_auto_target {
                         // pick local mobile (presentation when available)
                         // Wave 220: team via presentation-first local_team_for_ui.
                         let team = Some(self.local_team_for_ui());
@@ -10599,7 +10619,27 @@ impl CnCGameEngine {
                     let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(100.0);
                     let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(100.0);
-                    if self.selected_objects.is_empty() {
+                    // Wave 731: empty-selection auto-pick is opt-in only (default fail-closed).
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
                         let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
@@ -10633,7 +10673,27 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "scatter_fail_not_ingame".into();
                 } else {
-                    if self.selected_objects.is_empty() {
+                    // Wave 731: empty-selection auto-pick is opt-in only (default fail-closed).
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
                         let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
@@ -11114,8 +11174,28 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "overcharge_fail_not_ingame".into();
                 } else {
-                    // Prefer power plant selection.
-                    if self.selected_objects.is_empty() {
+                    // Wave 731: empty-selection auto-pick is opt-in only (default fail-closed).
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    // Prefer power plant selection only when auto_target opted in.
+                    if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
                         let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
@@ -11608,8 +11688,28 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd =
                         "cancel_production_fail_not_ingame".into();
                 } else {
-                    // Prefer structure selection with a production queue.
-                    if self.selected_objects.is_empty() {
+                    // Wave 731: empty-selection auto-pick is opt-in only (default fail-closed).
+                    // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_AUTO_TARGET=1.
+                    let allow_auto_target = args
+                        .get("auto_target")
+                        .or_else(|| args.get("pick_any"))
+                        .map(|v| {
+                            let s = v.trim();
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(false)
+                        || std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_TARGET")
+                            .is_some_and(|v| {
+                                let s = v.to_string_lossy();
+                                !(s.is_empty()
+                                    || s == "0"
+                                    || s.eq_ignore_ascii_case("false")
+                                    || s.eq_ignore_ascii_case("no"))
+                            });
+                    // Prefer structure with production queue only when auto_target opted in.
+                    if self.selected_objects.is_empty() && allow_auto_target {
                         // Wave 220: team via presentation-first local_team_for_ui.
                         let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
