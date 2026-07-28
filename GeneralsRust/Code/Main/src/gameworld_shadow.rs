@@ -210,6 +210,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_TURRET_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_GUARD_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_RALLY_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_TARGET_LOCATION_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_DETECTOR_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_CONTINUOUS_FIRE_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -885,6 +888,93 @@ pub fn eager_apply_host_rally_after_logic(
     }
     let n = shadow.apply_host_rally_events(&events);
     EARLY_RALLY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 693: post-logic target-location / detector / continuous-fire batch handoff.
+thread_local! {
+    static EARLY_TARGET_LOCATION_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_target_location_log::HostTargetLocationEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_DETECTOR_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_detector_log::HostDetectorEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_CONTINUOUS_FIRE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_continuous_fire_log::HostContinuousFireEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_target_location_batch() -> Option<(
+    Vec<crate::game_logic::host_target_location_log::HostTargetLocationEvent>,
+    bool,
+)> {
+    EARLY_TARGET_LOCATION_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_detector_batch() -> Option<(
+    Vec<crate::game_logic::host_detector_log::HostDetectorEvent>,
+    bool,
+)> {
+    EARLY_DETECTOR_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_continuous_fire_batch() -> Option<(
+    Vec<crate::game_logic::host_continuous_fire_log::HostContinuousFireEvent>,
+    bool,
+)> {
+    EARLY_CONTINUOUS_FIRE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 693: post-logic drain `host_target_location_log` into GameWorld SetTargetLocation.
+pub fn eager_apply_host_target_location_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 693: post-logic target-location materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_target_location_log::drain();
+    if events.is_empty() {
+        EARLY_TARGET_LOCATION_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_target_location_events(&events);
+    EARLY_TARGET_LOCATION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 693: post-logic drain `host_detector_log` into GameWorld SetDetector.
+pub fn eager_apply_host_detector_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 693: post-logic detector materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_detector_log::drain();
+    if events.is_empty() {
+        EARLY_DETECTOR_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_detector_events(&events);
+    EARLY_DETECTOR_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 693: post-logic drain `host_continuous_fire_log` into GameWorld SetContinuousFire.
+pub fn eager_apply_host_continuous_fire_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 693: post-logic continuous-fire materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_continuous_fire_log::drain();
+    if events.is_empty() {
+        EARLY_CONTINUOUS_FIRE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_continuous_fire_events(&events);
+    EARLY_CONTINUOUS_FIRE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -8653,9 +8743,23 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_turret_log::drain(), false),
     };
-    let target_location_events = crate::game_logic::host_target_location_log::drain();
-    let detector_events = crate::game_logic::host_detector_log::drain();
-    let continuous_fire_events = crate::game_logic::host_continuous_fire_log::drain();
+    // Wave 693: prefer post-logic target-location batch.
+    let (target_location_events, early_target_location_applied) =
+        match take_early_target_location_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_target_location_log::drain(), false),
+        };
+    // Wave 693: prefer post-logic detector batch.
+    let (detector_events, early_detector_applied) = match take_early_detector_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_detector_log::drain(), false),
+    };
+    // Wave 693: prefer post-logic continuous-fire batch.
+    let (continuous_fire_events, early_continuous_fire_applied) =
+        match take_early_continuous_fire_batch() {
+            Some((ev, applied)) => (ev, applied),
+            None => (crate::game_logic::host_continuous_fire_log::drain(), false),
+        };
     // Wave 692: prefer post-logic guard batch.
     let (guard_events, early_guard_applied) = match take_early_guard_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -8828,9 +8932,24 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_turret_events(&turret_events)
     };
-    let _tloc_applied = shadow.apply_host_target_location_events(&target_location_events);
-    let _det_applied = shadow.apply_host_detector_events(&detector_events);
-    let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
+    // Wave 693: skip GW re-apply when post-logic eager path already ran.
+    let _tloc_applied = if early_target_location_applied {
+        0
+    } else {
+        shadow.apply_host_target_location_events(&target_location_events)
+    };
+    // Wave 693: skip GW re-apply when post-logic eager path already ran.
+    let _det_applied = if early_detector_applied {
+        0
+    } else {
+        shadow.apply_host_detector_events(&detector_events)
+    };
+    // Wave 693: skip GW re-apply when post-logic eager path already ran.
+    let _cf_applied = if early_continuous_fire_applied {
+        0
+    } else {
+        shadow.apply_host_continuous_fire_events(&continuous_fire_events)
+    };
     let combat_attack_events = crate::game_logic::host_combat_attack_log::drain();
     let _ca_applied = shadow.apply_host_combat_attack_events(&combat_attack_events);
     // Wave 687: prefer post-logic fire-intent batch.
