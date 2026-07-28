@@ -187,6 +187,7 @@ Remaining engine residual after host update:
   - Command-set ready log: GW writeback → `host_command_set_ready_log` → host command-set presentation (Wave 644)
   - AI-mood ready log: GW writeback → `host_ai_mood_ready_log` → host AI-mood presentation (Wave 645)
   - Locomotor ready log: GW writeback → `host_locomotor_ready_log` → host locomotor presentation (Wave 646)
+  - Hijacker ready log: GW writeback → `host_hijacker_ready_log` → host hijacker presentation (Wave 647)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

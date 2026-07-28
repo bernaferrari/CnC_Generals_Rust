@@ -93,6 +93,7 @@ pub mod host_fire_intent_ready_log;
 pub mod host_formation_log;
 pub mod host_fow_log;
 pub mod host_ground_height_log;
+pub mod host_hijacker_ready_log;
 pub mod host_identity_log;
 pub mod host_kind_of_log;
 pub mod host_locomotor_ready_log;
@@ -425,6 +426,7 @@ pub mod host_live_host_game_client_device_tick_helper_residual_wave587;
 pub mod host_live_host_game_client_menu_shell_helper_residual_wave588;
 pub mod host_live_host_game_client_shell_tick_helper_residual_wave586;
 pub mod host_live_host_gameworld_shadow_session_helper_residual_wave597;
+pub mod host_live_host_hijacker_ready_log_helper_residual_wave647;
 pub mod host_live_host_ingame_hud_helper_residual_wave598;
 pub mod host_live_host_ingame_logic_shell_helper_residual_wave602;
 pub mod host_live_host_loading_sfx_helper_residual_wave604;
@@ -2808,6 +2810,15 @@ pub use host_live_host_gameworld_shadow_session_helper_residual_wave597::{
     residual_host_gameworld_shadow_session_helper_last_action,
     residual_host_gameworld_shadow_session_helper_ok,
     simulate_live_host_gameworld_shadow_session_helper_honesty,
+};
+pub use host_live_host_hijacker_ready_log_helper_residual_wave647::{
+    honesty_host_hijacker_ready_log_helper_method_names_residual_wave647,
+    honesty_host_hijacker_ready_log_helper_nav_commands_residual_wave647,
+    honesty_host_hijacker_ready_log_helper_residual_pack_wave647,
+    honesty_host_hijacker_ready_log_helper_source_markers_residual_wave647,
+    residual_host_hijacker_ready_log_helper_last_action,
+    residual_host_hijacker_ready_log_helper_ok,
+    simulate_live_host_hijacker_ready_log_helper_honesty,
 };
 pub use host_live_host_ingame_hud_helper_residual_wave598::{
     honesty_host_ingame_hud_helper_method_names_residual_wave598,
