@@ -228,6 +228,9 @@ pub fn end_shadow_coupled_tick() {
             EARLY_DEMO_MINE_CHEER_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_FORMATION_BATCH.with(|c| *c.borrow_mut() = None);
             EARLY_CRUSH_VISION_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_BUILDING_TYPE_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_IDENTITY_BATCH.with(|c| *c.borrow_mut() = None);
+            EARLY_GROUND_HEIGHT_BATCH.with(|c| *c.borrow_mut() = None);
         }
     });
 }
@@ -1422,6 +1425,93 @@ pub fn eager_apply_host_crush_vision_after_logic(
     }
     let n = shadow.apply_host_crush_vision_events(&events);
     EARLY_CRUSH_VISION_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+// Wave 699: post-logic building-type / identity / ground-height batch handoff.
+thread_local! {
+    static EARLY_BUILDING_TYPE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_building_type_log::HostBuildingTypeEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_IDENTITY_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_identity_log::HostIdentityEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+    static EARLY_GROUND_HEIGHT_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ground_height_log::HostGroundHeightEvent>, bool)>> =
+        std::cell::RefCell::new(None);
+}
+
+fn take_early_building_type_batch() -> Option<(
+    Vec<crate::game_logic::host_building_type_log::HostBuildingTypeEvent>,
+    bool,
+)> {
+    EARLY_BUILDING_TYPE_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_identity_batch() -> Option<(
+    Vec<crate::game_logic::host_identity_log::HostIdentityEvent>,
+    bool,
+)> {
+    EARLY_IDENTITY_BATCH.with(|c| c.borrow_mut().take())
+}
+
+fn take_early_ground_height_batch() -> Option<(
+    Vec<crate::game_logic::host_ground_height_log::HostGroundHeightEvent>,
+    bool,
+)> {
+    EARLY_GROUND_HEIGHT_BATCH.with(|c| c.borrow_mut().take())
+}
+
+/// Wave 699: post-logic drain `host_building_type_log` into GameWorld SetBuildingType.
+pub fn eager_apply_host_building_type_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 699: post-logic building-type materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_building_type_log::drain();
+    if events.is_empty() {
+        EARLY_BUILDING_TYPE_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_building_type_events(&events);
+    EARLY_BUILDING_TYPE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 699: post-logic drain `host_identity_log` into GameWorld SetIdentity.
+pub fn eager_apply_host_identity_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 699: post-logic identity materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_identity_log::drain();
+    if events.is_empty() {
+        EARLY_IDENTITY_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_identity_events(&events);
+    EARLY_IDENTITY_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
+    n
+}
+
+/// Wave 699: post-logic drain `host_ground_height_log` into GameWorld SetGroundHeight.
+pub fn eager_apply_host_ground_height_after_logic(
+    shadow: &mut GameWorldShadow,
+    _logic: &GameLogic,
+) -> usize {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return 0;
+    }
+    // Wave 699: post-logic ground-height materialize (exclusive shadow borrow).
+    let events = crate::game_logic::host_ground_height_log::drain();
+    if events.is_empty() {
+        EARLY_GROUND_HEIGHT_BATCH.with(|c| *c.borrow_mut() = None);
+        return 0;
+    }
+    let n = shadow.apply_host_ground_height_events(&events);
+    EARLY_GROUND_HEIGHT_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
     n
 }
 
@@ -9307,9 +9397,23 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_crush_vision_log::drain(), false),
     };
-    let building_type_events = crate::game_logic::host_building_type_log::drain();
-    let identity_events = crate::game_logic::host_identity_log::drain();
-    let ground_height_events = crate::game_logic::host_ground_height_log::drain();
+    // Wave 699: prefer post-logic building-type batch.
+    let (building_type_events, early_building_type_applied) = match take_early_building_type_batch()
+    {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_building_type_log::drain(), false),
+    };
+    // Wave 699: prefer post-logic identity batch.
+    let (identity_events, early_identity_applied) = match take_early_identity_batch() {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_identity_log::drain(), false),
+    };
+    // Wave 699: prefer post-logic ground-height batch.
+    let (ground_height_events, early_ground_height_applied) = match take_early_ground_height_batch()
+    {
+        Some((ev, applied)) => (ev, applied),
+        None => (crate::game_logic::host_ground_height_log::drain(), false),
+    };
     let model_mesh_events = crate::game_logic::host_model_mesh_log::drain();
     let fow_events = crate::game_logic::host_fow_log::drain();
     let kind_of_events = crate::game_logic::host_kind_of_log::drain();
@@ -9667,9 +9771,24 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_crush_vision_events(&crush_vision_events)
     };
-    let _bt_applied = shadow.apply_host_building_type_events(&building_type_events);
-    let _id_applied = shadow.apply_host_identity_events(&identity_events);
-    let _gh_applied = shadow.apply_host_ground_height_events(&ground_height_events);
+    // Wave 699: skip GW re-apply when post-logic eager path already ran.
+    let _bt_applied = if early_building_type_applied {
+        0
+    } else {
+        shadow.apply_host_building_type_events(&building_type_events)
+    };
+    // Wave 699: skip GW re-apply when post-logic eager path already ran.
+    let _id_applied = if early_identity_applied {
+        0
+    } else {
+        shadow.apply_host_identity_events(&identity_events)
+    };
+    // Wave 699: skip GW re-apply when post-logic eager path already ran.
+    let _gh_applied = if early_ground_height_applied {
+        0
+    } else {
+        shadow.apply_host_ground_height_events(&ground_height_events)
+    };
     let _mm_applied = shadow.apply_host_model_mesh_events(&model_mesh_events);
     let _fow_applied = shadow.apply_host_fow_events(&fow_events);
     let _ko_applied = shadow.apply_host_kind_of_events(&kind_of_events);
