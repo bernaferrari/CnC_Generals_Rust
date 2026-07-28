@@ -247,6 +247,28 @@ pub fn eager_map_host_spawn_if_coupled(
     })
 }
 
+/// Wave 681: if a coupled shadow tick is live, queue GameWorld Destroy for this
+/// host ObjectId now (unmap after apply_pending).
+///
+/// Idempotent with end-of-tick `host_destroy_log` drain. Fail-closed when no
+/// active shadow pointer or host id is unmapped.
+pub fn eager_unmap_host_destroy_if_coupled(host: ObjectId) -> bool {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return false;
+    }
+    ACTIVE_SHADOW_PTR.with(|c| {
+        let Some(ptr) = c.get() else {
+            return false;
+        };
+        // SAFETY: same coupled-tick install contract as eager_map_host_spawn_if_coupled.
+        let shadow = unsafe { &mut *ptr.as_ptr() };
+        let (queued, applied) = shadow.apply_host_destroy_events(&[
+            crate::game_logic::host_destroy_log::HostDestroyEvent { id: host },
+        ]);
+        queued > 0 || applied > 0
+    })
+}
+
 /// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
 #[cfg(test)]
 pub(crate) fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
