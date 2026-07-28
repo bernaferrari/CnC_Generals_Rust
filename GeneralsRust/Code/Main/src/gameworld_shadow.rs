@@ -4117,6 +4117,15 @@ impl GameWorldShadow {
                         e.angry_mob_has_nexus = false;
                         e.angry_mob_nexus_id = 0;
                     }
+                    e.nuke_radiation_field = obj.nuke_radiation_field;
+                    e.nuke_radiation_field_expires_frame =
+                        obj.nuke_radiation_field_expires_frame.unwrap_or(0);
+                    e.anthrax_toxin_field = obj.anthrax_toxin_field;
+                    e.anthrax_toxin_field_expires_frame =
+                        obj.anthrax_toxin_field_expires_frame.unwrap_or(0);
+                    e.inferno_fire_field = obj.inferno_fire_field;
+                    e.inferno_fire_field_expires_frame =
+                        obj.inferno_fire_field_expires_frame.unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -9514,6 +9523,59 @@ impl GameWorldShadow {
             }
 
             
+            // Wave 802: Nuke / Anthrax / Inferno field-object lifetime residual.
+            if e.nuke_radiation_field
+                && e.nuke_radiation_field_expires_frame > 0
+                && frame >= e.nuke_radiation_field_expires_frame
+            {
+                e.nuke_radiation_field = false;
+                e.nuke_radiation_field_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::NukeRadiation,
+                        },
+                    );
+                }
+                changed = true;
+            }
+            if e.anthrax_toxin_field
+                && e.anthrax_toxin_field_expires_frame > 0
+                && frame >= e.anthrax_toxin_field_expires_frame
+            {
+                e.anthrax_toxin_field = false;
+                e.anthrax_toxin_field_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::AnthraxToxin,
+                        },
+                    );
+                }
+                changed = true;
+            }
+            if e.inferno_fire_field
+                && e.inferno_fire_field_expires_frame > 0
+                && frame >= e.inferno_fire_field_expires_frame
+            {
+                e.inferno_fire_field = false;
+                e.inferno_fire_field_expires_frame = 0;
+                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                    crate::game_logic::host_field_object_expire_log::record(
+                        crate::game_logic::host_field_object_expire_log::FieldObjectExpireEvent {
+                            id: crate::game_logic::ObjectId(hid),
+                            team: Some(Self::entity_team_from_ordinal(e.team_ordinal)),
+                            kind: crate::game_logic::host_field_object_expire_log::FieldObjectKind::InfernoFire,
+                        },
+                    );
+                }
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -14552,6 +14614,32 @@ impl GameWorldShadow {
                     None
                 };
             }
+            {
+                obj.nuke_radiation_field = ent.nuke_radiation_field;
+                obj.nuke_radiation_field_expires_frame = if ent.nuke_radiation_field
+                    && ent.nuke_radiation_field_expires_frame > 0
+                {
+                    Some(ent.nuke_radiation_field_expires_frame)
+                } else {
+                    None
+                };
+                obj.anthrax_toxin_field = ent.anthrax_toxin_field;
+                obj.anthrax_toxin_field_expires_frame = if ent.anthrax_toxin_field
+                    && ent.anthrax_toxin_field_expires_frame > 0
+                {
+                    Some(ent.anthrax_toxin_field_expires_frame)
+                } else {
+                    None
+                };
+                obj.inferno_fire_field = ent.inferno_fire_field;
+                obj.inferno_fire_field_expires_frame = if ent.inferno_fire_field
+                    && ent.inferno_fire_field_expires_frame > 0
+                {
+                    Some(ent.inferno_fire_field_expires_frame)
+                } else {
+                    None
+                };
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -16622,6 +16710,28 @@ pub fn shadow_session_after_host_tick(
             }
             logic.mark_object_for_destruction(id, None);
         }
+        // Wave 802: field-object lifetime expire (no dual timer).
+        for ev in crate::game_logic::host_field_object_expire_log::drain() {
+            use crate::game_logic::host_field_object_expire_log::FieldObjectKind;
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                match ev.kind {
+                    FieldObjectKind::NukeRadiation => o.nuke_radiation_field = false,
+                    FieldObjectKind::AnthraxToxin => o.anthrax_toxin_field = false,
+                    FieldObjectKind::InfernoFire => o.inferno_fire_field = false,
+                }
+            }
+            logic.mark_object_for_destruction(ev.id, ev.team);
+        }
+
 
 
 
