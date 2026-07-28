@@ -6534,7 +6534,13 @@ impl GameLogic {
         // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
         // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.
         self.update_angry_mobs();
-        self.update_angry_mob_projectiles();
+        // Wave 799: under coupled shadow, AngryMob projectile flight is owned by
+        // GW tick_status_timer_expirations + impact logs.
+        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active())
+        {
+            self.update_angry_mob_projectiles();
+        }
 
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules

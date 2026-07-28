@@ -4027,6 +4027,33 @@ impl GameWorldShadow {
                     } else {
                         e.toxin_stream_has_shooter = false;
                     }
+                    e.angry_mob_projectile = obj.angry_mob_projectile;
+                    e.angry_mob_projectile_kind = obj.angry_mob_projectile_kind;
+                    if let Some(a) = obj.angry_mob_projectile_from {
+                        e.angry_mob_projectile_has_from = true;
+                        e.angry_mob_projectile_from_x = a[0];
+                        e.angry_mob_projectile_from_y = a[1];
+                        e.angry_mob_projectile_from_z = a[2];
+                    } else {
+                        e.angry_mob_projectile_has_from = false;
+                    }
+                    if let Some(a) = obj.angry_mob_projectile_aim {
+                        e.angry_mob_projectile_has_aim = true;
+                        e.angry_mob_projectile_aim_x = a[0];
+                        e.angry_mob_projectile_aim_y = a[1];
+                        e.angry_mob_projectile_aim_z = a[2];
+                    } else {
+                        e.angry_mob_projectile_has_aim = false;
+                    }
+                    e.angry_mob_projectile_launch_frame =
+                        obj.angry_mob_projectile_launch_frame.unwrap_or(0);
+                    e.angry_mob_projectile_flight_frames = obj.angry_mob_projectile_flight_frames;
+                    if let Some(i) = obj.angry_mob_projectile_intended {
+                        e.angry_mob_projectile_has_intended = true;
+                        e.angry_mob_projectile_intended = i;
+                    } else {
+                        e.angry_mob_projectile_has_intended = false;
+                    }
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
@@ -9153,6 +9180,62 @@ impl GameWorldShadow {
                 changed = true;
             }
 
+            // Wave 799: AngryMob projectile residual.
+            if e.angry_mob_projectile {
+                use crate::game_logic::host_angry_mob::{
+                    angry_mob_projectile_bezier_point, AngryMobProjectileKind,
+                };
+                let pos = e.transform.position;
+                let from = if e.angry_mob_projectile_has_from {
+                    glam::Vec3::new(
+                        e.angry_mob_projectile_from_x,
+                        e.angry_mob_projectile_from_y,
+                        e.angry_mob_projectile_from_z,
+                    )
+                } else {
+                    glam::Vec3::new(pos.x, pos.y, pos.z)
+                };
+                let aim = if e.angry_mob_projectile_has_aim {
+                    glam::Vec3::new(
+                        e.angry_mob_projectile_aim_x,
+                        e.angry_mob_projectile_aim_y,
+                        e.angry_mob_projectile_aim_z,
+                    )
+                } else {
+                    from
+                };
+                let launch = e.angry_mob_projectile_launch_frame;
+                let flight = e.angry_mob_projectile_flight_frames.max(1);
+                let kind = AngryMobProjectileKind::from_u8(e.angry_mob_projectile_kind);
+                let elapsed = frame.saturating_sub(launch);
+                let t = (elapsed as f32 / flight as f32).clamp(0.0, 1.0);
+                let new_pos = angry_mob_projectile_bezier_point(from, aim, t, kind);
+                e.transform.position.x = new_pos.x;
+                e.transform.position.y = new_pos.y;
+                e.transform.position.z = new_pos.z;
+                if elapsed >= flight {
+                    e.angry_mob_projectile = false;
+                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                        let source = e.producer_id.map(crate::game_logic::ObjectId);
+                        let intended = if e.angry_mob_projectile_has_intended {
+                            Some(crate::game_logic::ObjectId(e.angry_mob_projectile_intended))
+                        } else {
+                            None
+                        };
+                        crate::game_logic::host_angry_mob_projectile_log::record_impact(
+                            crate::game_logic::host_angry_mob_projectile_log::AngryMobProjectileImpactEvent {
+                                id: crate::game_logic::ObjectId(hid),
+                                source,
+                                intended,
+                                pos: aim,
+                                kind: e.angry_mob_projectile_kind,
+                            },
+                        );
+                    }
+                }
+                changed = true;
+            }
+
             if changed {
                 n += 1;
             }
@@ -14020,6 +14103,40 @@ impl GameWorldShadow {
                     None
                 };
             }
+            {
+                obj.angry_mob_projectile = ent.angry_mob_projectile;
+                obj.angry_mob_projectile_kind = ent.angry_mob_projectile_kind;
+                if ent.angry_mob_projectile_has_from {
+                    obj.angry_mob_projectile_from = Some([
+                        ent.angry_mob_projectile_from_x,
+                        ent.angry_mob_projectile_from_y,
+                        ent.angry_mob_projectile_from_z,
+                    ]);
+                } else {
+                    obj.angry_mob_projectile_from = None;
+                }
+                if ent.angry_mob_projectile_has_aim {
+                    obj.angry_mob_projectile_aim = Some([
+                        ent.angry_mob_projectile_aim_x,
+                        ent.angry_mob_projectile_aim_y,
+                        ent.angry_mob_projectile_aim_z,
+                    ]);
+                } else {
+                    obj.angry_mob_projectile_aim = None;
+                }
+                obj.angry_mob_projectile_launch_frame =
+                    if ent.angry_mob_projectile_launch_frame > 0 || ent.angry_mob_projectile {
+                        Some(ent.angry_mob_projectile_launch_frame)
+                    } else {
+                        None
+                    };
+                obj.angry_mob_projectile_flight_frames = ent.angry_mob_projectile_flight_frames;
+                obj.angry_mob_projectile_intended = if ent.angry_mob_projectile_has_intended {
+                    Some(ent.angry_mob_projectile_intended)
+                } else {
+                    None
+                };
+            }
 
             set_flag!(obj.status.masked, ent.masked);
             set_flag!(obj.status.disguised, ent.disguised);
@@ -16018,6 +16135,28 @@ pub fn shadow_session_after_host_tick(
             );
             logic.mark_object_for_destruction(ev.id, Some(ev.team));
         }
+        // Wave 799: AngryMob projectile impact (no dual flight).
+        for ev in crate::game_logic::host_angry_mob_projectile_log::drain_impacts() {
+            use crate::game_logic::host_angry_mob::AngryMobProjectileKind;
+            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
+            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.angry_mob_projectile = false;
+                o.set_position(ev.pos);
+            }
+            let kind = AngryMobProjectileKind::from_u8(ev.kind);
+            let _ = logic.apply_angry_mob_projectile_at(ev.pos, ev.source, ev.intended, kind);
+            logic.mark_object_for_destruction(ev.id, team);
+        }
+
 
 
 
