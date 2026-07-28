@@ -95,6 +95,7 @@ pub mod host_fow_log;
 pub mod host_ground_height_log;
 pub mod host_identity_log;
 pub mod host_kind_of_log;
+pub mod host_locomotor_ready_log;
 pub mod host_model_condition_log;
 pub mod host_model_condition_ready_log;
 pub mod host_model_mesh_log;
@@ -427,6 +428,7 @@ pub mod host_live_host_gameworld_shadow_session_helper_residual_wave597;
 pub mod host_live_host_ingame_hud_helper_residual_wave598;
 pub mod host_live_host_ingame_logic_shell_helper_residual_wave602;
 pub mod host_live_host_loading_sfx_helper_residual_wave604;
+pub mod host_live_host_locomotor_ready_log_helper_residual_wave646;
 pub mod host_live_host_match_outcome_helper_residual_wave599;
 pub mod host_live_host_menu_client_helper_residual_wave605;
 pub mod host_live_host_minimap_bounds_repair_helper_residual_wave594;
@@ -2831,6 +2833,15 @@ pub use host_live_host_loading_sfx_helper_residual_wave604::{
     honesty_host_loading_sfx_helper_source_markers_residual_wave604,
     residual_host_loading_sfx_helper_last_action, residual_host_loading_sfx_helper_ok,
     simulate_live_host_loading_sfx_helper_honesty,
+};
+pub use host_live_host_locomotor_ready_log_helper_residual_wave646::{
+    honesty_host_locomotor_ready_log_helper_method_names_residual_wave646,
+    honesty_host_locomotor_ready_log_helper_nav_commands_residual_wave646,
+    honesty_host_locomotor_ready_log_helper_residual_pack_wave646,
+    honesty_host_locomotor_ready_log_helper_source_markers_residual_wave646,
+    residual_host_locomotor_ready_log_helper_last_action,
+    residual_host_locomotor_ready_log_helper_ok,
+    simulate_live_host_locomotor_ready_log_helper_honesty,
 };
 pub use host_live_host_match_outcome_helper_residual_wave599::{
     honesty_host_match_outcome_helper_method_names_residual_wave599,
