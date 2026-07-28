@@ -216,6 +216,7 @@ Remaining engine residual after host update:
   - Building Type ready log: GW writeback → `host_building_type_ready_log` → host building type presentation (Wave 675)
   - Faerie Fire ready log: GW writeback → `host_faerie_fire_ready_log` → host faerie fire presentation (Wave 676)
   - Disable Timers ready log: GW writeback → `host_disable_timers_ready_log` → host disable timers presentation (Wave 677)
+  - Projectiles ready log: GW writeback → `host_projectiles_ready_log` → host projectile presentation (Wave 678)
   - Disguise ready log: GW writeback → `host_disguise_ready_log` → host disguise presentation (Wave 653)
   - Stealth Flags ready log: GW writeback → `host_stealth_flags_ready_log` → host stealth flags presentation (Wave 652)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)

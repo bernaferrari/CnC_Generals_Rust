@@ -26538,6 +26538,59 @@ impl GameLogic {
     /// applies presentation bookkeeping residual via record_host_building_type.
     /// Wave 676: GameWorld faerie-fire writeback records dirty objects; host
     /// applies presentation bookkeeping residual via host_faerie_fire_log.
+    /// Wave 678: GameWorld projectiles writeback records dirty combat projectiles;
+    /// host applies presentation bookkeeping residual via host_projectile_log.
+    pub fn host_apply_projectiles_ready_completions(&mut self) -> usize {
+        // Wave 678: GameWorld projectiles writeback records dirty combat projectiles;
+        // host applies presentation bookkeeping residual via host_projectile_log.
+        let events = crate::game_logic::host_projectiles_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            if ev.removed {
+                // Removal already applied during writeback; residual log marks inactive.
+                crate::game_logic::host_projectile_log::record(
+                    ev.object.0,
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0],
+                    0.0,
+                    0,
+                    0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    false,
+                    false,
+                );
+                n = n.saturating_add(1);
+                continue;
+            }
+            let Some(p) = self.combat_system.get_projectiles().get(&ev.object) else {
+                continue;
+            };
+            crate::game_logic::host_projectile_log::record(
+                p.id.0,
+                [p.position.x, p.position.y, p.position.z],
+                [p.velocity.x, p.velocity.y, p.velocity.z],
+                [
+                    p.target_position.x,
+                    p.target_position.y,
+                    p.target_position.z,
+                ],
+                p.damage,
+                p.shooter_id.0,
+                p.target_id.map(|t| t.0).unwrap_or(0),
+                p.speed,
+                p.lifetime,
+                p.max_lifetime,
+                p.is_homing,
+                true,
+            );
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_faerie_fire_ready_completions(&mut self) -> usize {
         // Wave 676: GameWorld faerie-fire writeback records dirty objects; host
         // applies presentation bookkeeping residual via host_faerie_fire_log.
