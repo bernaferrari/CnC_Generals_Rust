@@ -18159,6 +18159,19 @@ impl CnCGameEngine {
                     shadow,
                     &self.game_logic,
                 );
+                // Wave 702: post-logic body-damage / death-type / physics-motive.
+                let _bd = crate::gameworld_shadow::eager_apply_host_body_damage_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _dth = crate::gameworld_shadow::eager_apply_host_death_type_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
+                let _pm = crate::gameworld_shadow::eager_apply_host_physics_motive_after_logic(
+                    shadow,
+                    &self.game_logic,
+                );
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).

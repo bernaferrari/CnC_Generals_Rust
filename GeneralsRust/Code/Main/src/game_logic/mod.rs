@@ -114,6 +114,7 @@ pub mod host_identity_ready_log;
 pub mod host_kind_of_log;
 pub mod host_live_host_eager_ai_fire_intent_helper_residual_wave687;
 pub mod host_live_host_eager_attitude_overcharge_stealth_helper_residual_wave694;
+pub mod host_live_host_eager_body_death_physics_helper_residual_wave702;
 pub mod host_live_host_eager_btype_identity_ground_helper_residual_wave699;
 pub mod host_live_host_eager_cmdset_disguise_camo_helper_residual_wave696;
 pub mod host_live_host_eager_contain_hive_overlord_helper_residual_wave695;
@@ -2943,6 +2944,15 @@ pub use host_live_host_eager_attitude_overcharge_stealth_helper_residual_wave694
     residual_host_eager_attitude_overcharge_stealth_helper_last_action,
     residual_host_eager_attitude_overcharge_stealth_helper_ok,
     simulate_live_host_eager_attitude_overcharge_stealth_helper_honesty,
+};
+pub use host_live_host_eager_body_death_physics_helper_residual_wave702::{
+    honesty_host_eager_body_death_physics_helper_method_names_residual_wave702,
+    honesty_host_eager_body_death_physics_helper_nav_commands_residual_wave702,
+    honesty_host_eager_body_death_physics_helper_residual_pack_wave702,
+    honesty_host_eager_body_death_physics_helper_source_markers_residual_wave702,
+    residual_host_eager_body_death_physics_helper_last_action,
+    residual_host_eager_body_death_physics_helper_ok,
+    simulate_live_host_eager_body_death_physics_helper_honesty,
 };
 pub use host_live_host_eager_btype_identity_ground_helper_residual_wave699::{
     honesty_host_eager_btype_identity_ground_helper_method_names_residual_wave699,
