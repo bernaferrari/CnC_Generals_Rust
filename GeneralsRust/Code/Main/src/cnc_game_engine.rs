@@ -1490,6 +1490,8 @@ pub struct CnCGameEngine {
     /// Wave 858: host-owned script camera default residuals.
     host_match_script_camera_max_height: Option<f32>,
     host_match_script_camera_pitch: Option<f32>,
+    /// Wave 861: host-owned multiplayer residual (presentation dual-read peel).
+    host_match_in_multiplayer: Option<bool>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14413,6 +14415,7 @@ impl CnCGameEngine {
             host_match_boot_victory_condition: None,
             host_match_script_camera_max_height: None,
             host_match_script_camera_pitch: None,
+            host_match_in_multiplayer: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19478,10 +19481,13 @@ impl CnCGameEngine {
             self.host_match_script_camera_pitch =
                 Some(self.game_logic.script_default_camera_pitch());
         }
+        // Wave 861: stamp multiplayer residual (skirmish host is never multiplayer).
+        self.host_match_in_multiplayer = Some(self.game_logic.isInMultiplayerGame());
         // Wave 855: boot victory residual is frame-local — clear before restamping.
         self.host_match_boot_victory_condition = None;
         self.host_match_script_camera_max_height = None;
         self.host_match_script_camera_pitch = None;
+        self.host_match_in_multiplayer = None;
         // Wave 849: stamp match outcome residuals from freeze (or clear when none).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_over = Some(pres.match_over);
@@ -20651,7 +20657,11 @@ impl CnCGameEngine {
     /// Wave 584: host multiplayer gate residual (network frame-data readiness).
     #[inline]
     fn host_is_in_multiplayer_game(&self) -> bool {
-        // Wave 584: host multiplayer residual.
+        // Wave 584/861: prefer host_match_in_multiplayer residual after stamp.
+        if let Some(v) = self.host_match_in_multiplayer {
+            return v;
+        }
+        // Boot residual only.
         self.game_logic.isInMultiplayerGame()
     }
 
@@ -20717,12 +20727,14 @@ impl CnCGameEngine {
     /// Wave 584: host science purchase capability residual (boot-only).
     #[inline]
     fn host_player_can_purchase_science(&self, player_id: u32, name: &str) -> bool {
-        // Wave 584/852: prefer host-stamped purchasable residual before live probe.
+        // Wave 584/852/861: warm purchasable residual is fail-closed (no live dual-read).
         if let Some(map) = self.host_match_purchasable_sciences.as_ref() {
-            if let Some(set) = map.get(&player_id) {
-                return set.iter().any(|s| s.eq_ignore_ascii_case(name));
-            }
+            return map
+                .get(&player_id)
+                .map(|set| set.iter().any(|s| s.eq_ignore_ascii_case(name)))
+                .unwrap_or(false);
         }
+        // Boot residual only (residual never stamped).
         self.game_logic.player_can_purchase_science(player_id, name)
     }
 
