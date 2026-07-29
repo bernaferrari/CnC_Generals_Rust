@@ -279,6 +279,7 @@ pub mod host_live_host_topple_fall_dual_peel_residual_wave770;
 pub mod host_live_host_toxin_stream_projectile_dual_peel_residual_wave798;
 pub mod host_live_host_train_auto_target_host_fallback_residual_wave834;
 pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
+pub mod host_live_host_train_producer_residual_wave848;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
@@ -2924,6 +2925,13 @@ pub use host_live_host_match_camera_follow_residuals_wave847::{
     honesty_host_match_camera_follow_residuals_residual_pack_wave847,
     simulate_live_host_match_camera_follow_residuals_honesty,
 };
+pub use host_live_host_train_producer_residual_wave848::{
+    honesty_host_train_producer_residual_method_names_residual_wave848,
+    honesty_host_train_producer_residual_nav_commands_residual_wave848,
+    honesty_host_train_producer_residual_pack_wave848,
+    simulate_live_host_train_producer_residual_honesty,
+};
+
 pub use host_live_host_match_diplomacy_template_residuals_wave846::{
     honesty_host_match_diplomacy_template_residuals_method_names_residual_wave846,
     honesty_host_match_diplomacy_template_residuals_nav_commands_residual_wave846,

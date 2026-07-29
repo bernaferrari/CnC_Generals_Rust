@@ -1464,6 +1464,11 @@ pub struct CnCGameEngine {
     /// Wave 847: host-owned camera-follow residuals for presentation_or_boot peels.
     host_match_camera_follow_active: Option<bool>,
     host_match_camera_follow_position: Option<[f32; 3]>,
+    /// Wave 848: host-owned local train producers residual (barracks / other).
+    host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    host_match_local_unfinished_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    host_match_local_team_sample_pos: Option<[f32; 3]>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -10076,78 +10081,51 @@ impl CnCGameEngine {
                         } else {
                             // Presentation required (no live get_objects dual-read).
                         }
-                        // Wave 834: when auto_target + force_complete are opt-in and the
+                        // Wave 834/848: when auto_target + force_complete are opt-in and the
                         // presentation freeze still lacks the just-built barracks (construct
-                        // → train same control drain), fall back to host GameLogic producers
-                        // for the local team. Default path stays presentation-only.
+                        // → train same control drain), fall back to host-stamped producer
+                        // residuals (refreshed if cold). Default path stays presentation-only.
                         if allow_auto_target && barracks.is_empty() && any.is_empty() {
-                            // Force-complete unfinished local barracks on the host first.
+                            // Ensure residuals are warm (single stamp dual-read if needed).
+                            if self.host_match_local_barracks_ids.is_none()
+                                && self.host_match_local_producer_ids.is_none()
+                            {
+                                self.host_refresh_local_train_producer_residuals();
+                            }
+                            // Force-complete unfinished local producers from residual.
                             if allow_force_complete {
-                                let mut unfinished: Vec<crate::game_logic::ObjectId> = self
-                                    .game_logic
-                                    .get_objects()
-                                    .iter()
-                                    .filter_map(|(id, o)| {
-                                        if o.team != team || !o.is_alive() {
-                                            return None;
-                                        }
-                                        if !o.status.under_construction {
-                                            return None;
-                                        }
-                                        let name = o.template_name.to_ascii_lowercase();
-                                        let is_prod = name.contains("barracks")
-                                            || name.contains("warfactory")
-                                            || name.contains("airfield")
-                                            || name.contains("helipad");
-                                        is_prod.then_some(*id)
-                                    })
-                                    .collect();
-                                unfinished.sort_by_key(|id| id.0);
+                                let unfinished = self
+                                    .host_match_local_unfinished_producer_ids
+                                    .clone()
+                                    .unwrap_or_default();
                                 for id in unfinished.into_iter().take(4) {
                                     if self.host_force_complete_construction(id) {
                                         force_completed.push(id);
                                     }
                                 }
-                            }
-                            let mut host_barracks: Vec<crate::game_logic::ObjectId> = Vec::new();
-                            let mut host_any: Vec<crate::game_logic::ObjectId> = Vec::new();
-                            for (id, o) in self.game_logic.get_objects() {
-                                if o.team != team || !o.is_alive() {
-                                    continue;
-                                }
-                                if o.status.under_construction && !force_completed.contains(id) {
-                                    continue;
-                                }
-                                let name = o.template_name.to_ascii_lowercase();
-                                let is_barracks = name.contains("barracks");
-                                let is_producer = is_barracks
-                                    || name.contains("warfactory")
-                                    || name.contains("airfield")
-                                    || name.contains("helipad");
-                                if !is_producer {
-                                    continue;
-                                }
-                                if is_barracks {
-                                    if !host_barracks.contains(id) {
-                                        host_barracks.push(*id);
-                                    }
-                                } else if !host_any.contains(id) {
-                                    host_any.push(*id);
+                                if !force_completed.is_empty() {
+                                    self.host_refresh_local_train_producer_residuals();
                                 }
                             }
-                            host_barracks.sort_by_key(|id| id.0);
-                            host_any.sort_by_key(|id| id.0);
-                            for id in host_barracks {
+                            for id in self
+                                .host_match_local_barracks_ids
+                                .clone()
+                                .unwrap_or_default()
+                            {
                                 if !barracks.contains(&id) {
                                     barracks.push(id);
                                 }
                             }
-                            for id in host_any {
+                            for id in self
+                                .host_match_local_producer_ids
+                                .clone()
+                                .unwrap_or_default()
+                            {
                                 if !any.contains(&id) {
                                     any.push(id);
                                 }
                             }
-                            // Wave 834: if still no local barracks, spawn + complete one at a
+                            // Wave 834/848: if still no local barracks, spawn + complete one at a
                             // team sample position so auto_target train can enqueue honestly.
                             if barracks.is_empty() && allow_force_complete {
                                 let spawn_at = self
@@ -10159,9 +10137,8 @@ impl CnCGameEngine {
                                         })
                                     })
                                     .or_else(|| {
-                                        self.game_logic.get_objects().values().find_map(|o| {
-                                            (o.team == team && o.is_alive()).then_some(o.position)
-                                        })
+                                        self.host_match_local_team_sample_pos
+                                            .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
                                     })
                                     .unwrap_or(glam::Vec3::new(500.0, 0.0, 500.0))
                                     + glam::Vec3::new(120.0, 0.0, 40.0);
@@ -10172,6 +10149,7 @@ impl CnCGameEngine {
                                         let _ = self.host_force_complete_construction(id);
                                         let _ = self.host_ensure_barracks_building_data(id);
                                         barracks.push(id);
+                                        self.host_refresh_local_train_producer_residuals();
                                         break;
                                     }
                                 }
@@ -14376,6 +14354,10 @@ impl CnCGameEngine {
             host_match_unlocked_sciences: None,
             host_match_camera_follow_active: None,
             host_match_camera_follow_position: None,
+            host_match_local_barracks_ids: None,
+            host_match_local_producer_ids: None,
+            host_match_local_unfinished_producer_ids: None,
+            host_match_local_team_sample_pos: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19247,6 +19229,59 @@ impl CnCGameEngine {
     /// Called after match load and each presentation finalize (stamp only — consumers
     /// prefer freeze, then these residuals, then boot live probes).
     #[inline]
+
+    /// Wave 848: collect local-team train producers into host residuals (stamp phase).
+    /// Used by refresh and train auto_target peels so mid-command avoids ad-hoc
+    /// `get_objects` dual-reads when residuals are warm.
+    fn host_refresh_local_train_producer_residuals(&mut self) {
+        let team = self
+            .host_match_local_team
+            .or_else(|| {
+                self.last_presentation_frame
+                    .as_ref()
+                    .map(|f| f.local_team())
+            })
+            .unwrap_or(crate::game_logic::Team::USA);
+        let mut barracks = Vec::new();
+        let mut any = Vec::new();
+        let mut unfinished = Vec::new();
+        let mut sample = None;
+        for (id, o) in self.game_logic.get_objects() {
+            if o.team != team || !o.is_alive() {
+                continue;
+            }
+            if sample.is_none() {
+                let p = o.position;
+                sample = Some([p.x, p.y, p.z]);
+            }
+            let name = o.template_name.to_ascii_lowercase();
+            let is_barracks = name.contains("barracks");
+            let is_producer = is_barracks
+                || name.contains("warfactory")
+                || name.contains("airfield")
+                || name.contains("helipad");
+            if !is_producer {
+                continue;
+            }
+            if o.status.under_construction {
+                unfinished.push(*id);
+                continue;
+            }
+            if is_barracks {
+                barracks.push(*id);
+            } else {
+                any.push(*id);
+            }
+        }
+        barracks.sort_by_key(|id| id.0);
+        any.sort_by_key(|id| id.0);
+        unfinished.sort_by_key(|id| id.0);
+        self.host_match_local_barracks_ids = Some(barracks);
+        self.host_match_local_producer_ids = Some(any);
+        self.host_match_local_unfinished_producer_ids = Some(unfinished);
+        self.host_match_local_team_sample_pos = sample;
+    }
+
     fn host_refresh_match_sim_residuals_from_logic(&mut self) {
         self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
         self.host_match_time_frozen = Some(self.game_logic.is_time_frozen_for_simulation());
@@ -19309,6 +19344,8 @@ impl CnCGameEngine {
                 .camera_follow_target_position()
                 .map(|v| [v.x, v.y, v.z]);
         }
+        // Wave 848: stamp local train producers after other match residuals.
+        self.host_refresh_local_train_producer_residuals();
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {
@@ -21063,6 +21100,10 @@ impl CnCGameEngine {
         self.host_match_unlocked_sciences = None;
         self.host_match_camera_follow_active = None;
         self.host_match_camera_follow_position = None;
+        self.host_match_local_barracks_ids = None;
+        self.host_match_local_producer_ids = None;
+        self.host_match_local_unfinished_producer_ids = None;
+        self.host_match_local_team_sample_pos = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
