@@ -3700,6 +3700,11 @@ use crate::game_logic::host_live_host_match_diplomacy_template_residuals_wave846
     honesty_host_match_diplomacy_template_residuals_nav_commands_residual_wave846,
     simulate_live_host_match_diplomacy_template_residuals_honesty,
 };
+use crate::game_logic::host_live_host_match_camera_follow_residuals_wave847::{
+    honesty_host_match_camera_follow_residuals_method_names_residual_wave847,
+    honesty_host_match_camera_follow_residuals_nav_commands_residual_wave847,
+    simulate_live_host_match_camera_follow_residuals_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7875,6 +7880,9 @@ pub struct ShellSmokeResult {
     pub host_match_diplomacy_template_residuals_method_names_wave846_ok: bool,
     pub host_match_diplomacy_template_residuals_nav_commands_wave846_ok: bool,
     pub host_match_diplomacy_template_residuals_live_wave846_ok: bool,
+    pub host_match_camera_follow_residuals_method_names_wave847_ok: bool,
+    pub host_match_camera_follow_residuals_nav_commands_wave847_ok: bool,
+    pub host_match_camera_follow_residuals_live_wave847_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12679,6 +12687,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_match_diplomacy_template_residuals_nav_commands_residual_wave846();
     let host_match_diplomacy_template_residuals_live_wave846_ok =
         simulate_live_host_match_diplomacy_template_residuals_honesty();
+    let host_match_camera_follow_residuals_method_names_wave847_ok =
+        honesty_host_match_camera_follow_residuals_method_names_residual_wave847();
+    let host_match_camera_follow_residuals_nav_commands_wave847_ok =
+        honesty_host_match_camera_follow_residuals_nav_commands_residual_wave847();
+    let host_match_camera_follow_residuals_live_wave847_ok =
+        simulate_live_host_match_camera_follow_residuals_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15203,6 +15217,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_match_diplomacy_template_residuals_method_names_wave846_ok,
         host_match_diplomacy_template_residuals_nav_commands_wave846_ok,
         host_match_diplomacy_template_residuals_live_wave846_ok,
+        host_match_camera_follow_residuals_method_names_wave847_ok,
+        host_match_camera_follow_residuals_nav_commands_wave847_ok,
+        host_match_camera_follow_residuals_live_wave847_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

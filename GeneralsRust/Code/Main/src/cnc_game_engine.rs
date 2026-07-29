@@ -1461,6 +1461,9 @@ pub struct CnCGameEngine {
     host_match_diplomacy_players: Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
     host_match_known_template_names: Option<Vec<String>>,
     host_match_unlocked_sciences: Option<std::collections::HashMap<u32, Vec<String>>>,
+    /// Wave 847: host-owned camera-follow residuals for presentation_or_boot peels.
+    host_match_camera_follow_active: Option<bool>,
+    host_match_camera_follow_position: Option<[f32; 3]>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14371,6 +14374,8 @@ impl CnCGameEngine {
             host_match_diplomacy_players: None,
             host_match_known_template_names: None,
             host_match_unlocked_sciences: None,
+            host_match_camera_follow_active: None,
+            host_match_camera_follow_position: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -18290,7 +18295,12 @@ impl CnCGameEngine {
             self.center_camera_on(focus);
         }
 
-        if let Some(focus) = self.game_logic.camera_follow_target_position() {
+        // Wave 847: prefer host_match camera-follow residual over live dual-read.
+        if let Some(focus) = self
+            .host_match_camera_follow_position
+            .map(|p| glam::Vec3::from(p))
+            .or_else(|| self.game_logic.camera_follow_target_position())
+        {
             self.center_camera_on(focus);
         }
 
@@ -19286,6 +19296,18 @@ impl CnCGameEngine {
                 sciences.insert(id, self.game_logic.player_unlocked_sciences(id));
             }
             self.host_match_unlocked_sciences = Some(sciences);
+        }
+        // Wave 847: camera-follow host residual (prefer freeze when present).
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_camera_follow_active = Some(pres.camera_follow_position.is_some());
+            self.host_match_camera_follow_position = pres.camera_follow_position;
+        } else {
+            self.host_match_camera_follow_active =
+                Some(self.game_logic.camera_follow_object_id().is_some());
+            self.host_match_camera_follow_position = self
+                .game_logic
+                .camera_follow_target_position()
+                .map(|v| [v.x, v.y, v.z]);
         }
     }
 
@@ -20537,19 +20559,31 @@ impl CnCGameEngine {
     /// Wave 583: host camera-follow write residual.
     #[inline]
     fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
-        // Wave 583: host camera follow residual.
+        // Wave 583/847: host follow command residual + stamp presentation peels.
         self.game_logic.set_camera_follow_object(id);
+        self.host_match_camera_follow_active = Some(id.is_some());
+        self.host_match_camera_follow_position = if id.is_some() {
+            self.game_logic
+                .camera_follow_target_position()
+                .map(|v| [v.x, v.y, v.z])
+        } else {
+            None
+        };
     }
 
     /// Wave 583: presentation freeze owns follow-active residual when installed.
     /// Boot residual without freeze uses host camera_follow_object_id probe.
     #[inline]
     fn presentation_or_boot_camera_follow_active(&self) -> bool {
-        // Wave 583: presentation freeze owns follow-active residual when installed.
-        match self.last_presentation_frame.as_ref() {
-            Some(pres) => pres.camera_follow_position.is_some(),
-            None => self.game_logic.camera_follow_object_id().is_some(),
+        // Wave 583/847: presentation freeze owns follow-active residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.camera_follow_position.is_some();
         }
+        if let Some(v) = self.host_match_camera_follow_active {
+            return v;
+        }
+        // Boot residual only.
+        self.game_logic.camera_follow_object_id().is_some()
     }
 
     /// Wave 583: boot residual EVA counter bundle (no presentation freeze).
@@ -21027,6 +21061,8 @@ impl CnCGameEngine {
         self.host_match_diplomacy_players = None;
         self.host_match_known_template_names = None;
         self.host_match_unlocked_sciences = None;
+        self.host_match_camera_follow_active = None;
+        self.host_match_camera_follow_position = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
