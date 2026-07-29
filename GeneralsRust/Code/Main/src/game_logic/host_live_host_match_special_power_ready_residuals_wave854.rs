@@ -67,7 +67,8 @@ pub fn honesty_host_match_special_power_ready_residuals_residual_pack_wave854() 
     let cnc = cnc_source();
     let ok = cnc
         .contains("host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>")
-        && cnc.contains("Wave 854: stamp special-power-ready object residual")
+        && (cnc.contains("Wave 854: stamp special-power-ready object residual")
+            || cnc.contains("Wave 854/857: special-power-ready residual stamped inside"))
         && cnc.contains("Wave 584/854")
         && cnc.contains("if let Some(ready) = self.host_match_special_power_ready_ids.as_ref()")
         && cnc.contains("if !ready.contains(&id.0)")

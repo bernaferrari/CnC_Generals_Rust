@@ -1482,7 +1482,7 @@ pub struct CnCGameEngine {
     /// Wave 852: host-owned purchasable science residual per player.
     host_match_purchasable_sciences:
         Option<std::collections::HashMap<u32, std::collections::HashSet<String>>>,
-    /// Wave 854: host-owned special-power-ready object residual (boot dual-read peel).
+    /// Wave 854/857: host-owned special-power-ready object residual (unified scan stamp).
     host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
     /// Wave 855: boot victory condition residual (single evaluate stamp).
     /// None = not stamped; Some(None) = no winner yet; Some(Some(cond)) = outcome.
@@ -19288,9 +19288,10 @@ impl CnCGameEngine {
     /// prefer freeze, then these residuals, then boot live probes).
     #[inline]
 
-    /// Wave 848/853: single stamp-phase object scan for alive-set + local train
-    /// producers. Prefer presentation freeze when installed (no host dual-read);
-    /// otherwise one `get_objects` pass fills both residual families.
+    /// Wave 848/853/857: single stamp-phase object scan for alive-set, local train
+    /// producers, and special-power-ready ids. Prefer presentation freeze when
+    /// installed (no host dual-read); otherwise one `get_objects` pass fills all
+    /// residual families.
     fn host_refresh_local_train_producer_residuals(&mut self) {
         let team = self
             .host_match_local_team
@@ -19305,11 +19306,15 @@ impl CnCGameEngine {
         let mut unfinished = Vec::new();
         let mut sample = None;
         let mut alive = std::collections::HashSet::new();
+        let mut special_ready = std::collections::HashSet::new();
 
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             for o in &pres.objects {
                 if !o.destroyed && o.health_current > 0.0 {
                     alive.insert(o.id.0);
+                    if o.special_power_ready {
+                        special_ready.insert(o.id.0);
+                    }
                 }
                 if o.team != team || o.destroyed || o.health_current <= 0.0 {
                     continue;
@@ -19341,12 +19346,15 @@ impl CnCGameEngine {
                 }
             }
         } else {
-            // Wave 853: single host scan for alive + producers (stamp phase only).
+            // Wave 853/857: single host scan for alive + producers + special-power ready.
             for (id, o) in self.game_logic.get_objects() {
                 if !o.is_alive() {
                     continue;
                 }
                 alive.insert(id.0);
+                if o.special_power_ready {
+                    special_ready.insert(id.0);
+                }
                 if o.team != team {
                     continue;
                 }
@@ -19382,6 +19390,7 @@ impl CnCGameEngine {
         self.host_match_local_unfinished_producer_ids = Some(unfinished);
         self.host_match_local_team_sample_pos = sample;
         self.host_match_alive_object_ids = Some(alive);
+        self.host_match_special_power_ready_ids = Some(special_ready);
     }
 
     fn host_refresh_match_sim_residuals_from_logic(&mut self) {
@@ -19510,28 +19519,8 @@ impl CnCGameEngine {
             }
             self.host_match_purchasable_sciences = Some(map);
         }
-        // Wave 854: stamp special-power-ready object residual.
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            let ready: std::collections::HashSet<u32> = pres
-                .objects
-                .iter()
-                .filter(|o| !o.destroyed && o.special_power_ready)
-                .map(|o| o.id.0)
-                .collect();
-            self.host_match_special_power_ready_ids = Some(ready);
-        } else if let Some(alive) = self.host_match_alive_object_ids.as_ref() {
-            // Boot residual: mark alive host objects with special_power_ready flag.
-            let mut ready = std::collections::HashSet::new();
-            for id_raw in alive {
-                let id = crate::game_logic::ObjectId(*id_raw);
-                if let Some(obj) = self.game_logic.get_object(id) {
-                    if obj.special_power_ready {
-                        ready.insert(*id_raw);
-                    }
-                }
-            }
-            self.host_match_special_power_ready_ids = Some(ready);
-        }
+        // Wave 854/857: special-power-ready residual stamped inside
+        // host_refresh_local_train_producer_residuals (single freeze/host scan).
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {

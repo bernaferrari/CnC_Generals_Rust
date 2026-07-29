@@ -272,6 +272,7 @@ pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
+pub mod host_live_host_special_power_scan_unify_residual_wave857;
 pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
 pub mod host_live_host_starting_units_table_residual_wave832;
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
@@ -2914,6 +2915,12 @@ pub use host_live_host_sell_auto_target_residual_wave856::{
     honesty_host_sell_auto_target_residual_nav_commands_residual_wave856,
     honesty_host_sell_auto_target_residual_pack_wave856,
     simulate_live_host_sell_auto_target_residual_honesty,
+};
+pub use host_live_host_special_power_scan_unify_residual_wave857::{
+    honesty_host_special_power_scan_unify_method_names_residual_wave857,
+    honesty_host_special_power_scan_unify_nav_commands_residual_wave857,
+    honesty_host_special_power_scan_unify_residual_pack_wave857,
+    simulate_live_host_special_power_scan_unify_honesty,
 };
 
 pub use host_live_host_build_edge_margin_residual_wave829::{
