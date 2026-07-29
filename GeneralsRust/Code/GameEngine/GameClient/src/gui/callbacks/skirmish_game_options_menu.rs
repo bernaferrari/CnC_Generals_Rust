@@ -1232,11 +1232,34 @@ fn ensure_map_meta_registered(map_name: &str) {
 
 fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     ensure_default_slots();
+    // Wave 837: prefer options/map-select residual over a stale shell/default map.
+    // Previously only filled when empty, so ShellMapMD blocked Lone Eagle start.
     let map_name = {
         let mut setup = get_skirmish_setup();
+        // Resolve preferred map before taking nested mutable GameInfo borrow.
+        let options_selected = state
+            .selected_map
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let setup_selected = {
+            let s = setup.selected_map().trim().to_string();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
+        };
         let info = setup.game_info_mut().game_info_mut();
-        if info.get_map().is_empty() {
-            if let Some(selected) = state.selected_map.as_ref() {
+        if let Some(selected) = options_selected.as_ref() {
+            info.set_map(selected.clone());
+        }
+        let current = info.get_map().to_string();
+        // If setup still holds shell residual, prefer skirmish setup.selected_map.
+        let shellish = current.to_ascii_lowercase().contains("shellmap")
+            || current.trim().is_empty();
+        if shellish {
+            if let Some(selected) = setup_selected.as_ref() {
                 info.set_map(selected.clone());
             }
         }
@@ -1663,20 +1686,20 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
             return true;
         }
     }
-    // Wave 835: no live window (layout not pushed) — still run ButtonStart residual
+    // Wave 835/837: no live window (layout not pushed) — run ButtonStart residual
     // through start_skirmish_game so NewGame posts when map/slots are latched.
-    // Avoids create_layout stall while preserving gadget-path honesty.
+    // Return true only when button stays pushed (start_skirmish_game clears it on fail).
     set_skirmish_button_pushed(false);
-    let started = with_state(|state| {
+    with_state(|state| {
         if state.button_pushed || skirmish_button_pushed() {
-            return false;
+            return;
         }
         state.button_pushed = true;
         set_skirmish_button_pushed(true);
         start_skirmish_game(state);
-        true
     });
-    started || skirmish_button_pushed()
+    // start_skirmish_game clears button_pushed on map-missing / too-many-players fail.
+    skirmish_button_pushed()
 }
 
 /// Retail skirmish player-combo AI labels residual (ComboBoxPlayer entries).
