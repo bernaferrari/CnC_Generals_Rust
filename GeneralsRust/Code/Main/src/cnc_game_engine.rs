@@ -1475,6 +1475,8 @@ pub struct CnCGameEngine {
     /// Meaningful when `host_match_over == Some(true)`: None=draw, Some(id)=winner.
     host_match_victory_winner: Option<Option<u32>>,
     host_match_victory_summary: Option<crate::game_logic::VictorySummary>,
+    /// Wave 850: host-owned selection residual (peels player_selected_objects boot dual-read).
+    host_match_selected_ids: Option<Vec<crate::game_logic::ObjectId>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14368,6 +14370,7 @@ impl CnCGameEngine {
             host_match_victory_label: None,
             host_match_victory_winner: None,
             host_match_victory_summary: None,
+            host_match_selected_ids: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -17484,7 +17487,7 @@ impl CnCGameEngine {
     }
 
     fn host_ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
-        // Wave 609: host UI/presentation residual helper.
+        // Wave 609/850: host UI/presentation residual helper.
         // Wave 215/544: prefer engine selection residual, then presentation freeze.
         // When a presentation freeze is installed, empty selection seed fails closed
         // (no host player_selected_objects dual-read mid-frame).
@@ -17500,6 +17503,10 @@ impl CnCGameEngine {
             }
             // Wave 544: presentation freeze owns selection seed residual — even if empty.
             return None;
+        }
+        // Wave 850: host-stamped selection residual before live boot probe.
+        if let Some(ids) = self.host_match_selected_ids.as_ref() {
+            return ids.first().copied();
         }
         // Wave 240: boot residual via player_selected_objects probe (no freeze yet).
         self.game_logic
@@ -17639,7 +17646,7 @@ impl CnCGameEngine {
     }
 
     fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
-        // Wave 610: host residual helper.
+        // Wave 610/850: host residual helper.
         // Wave 215/543: prefer engine selection residual, then presentation freeze.
         // When a presentation freeze is installed, empty selection fails closed
         // (no host player_selected_objects dual-read mid-frame).
@@ -17658,6 +17665,10 @@ impl CnCGameEngine {
                 .collect();
             // Wave 543: presentation freeze owns selection residual — even if empty.
             return from_objs;
+        }
+        // Wave 850: host-stamped selection residual before live boot probe.
+        if let Some(ids) = self.host_match_selected_ids.as_ref() {
+            return ids.clone();
         }
         // Wave 240: boot residual via player_selected_objects probe (no freeze yet).
         self.game_logic.player_selected_objects(player_id)
@@ -19365,6 +19376,22 @@ impl CnCGameEngine {
                 self.host_match_victory_winner = Some(pres.victory_winner_id());
             } else {
                 self.host_match_victory_winner = None;
+            }
+        }
+        // Wave 850: stamp selection residual (engine first, then freeze).
+        if !self.selected_objects.is_empty() {
+            self.host_match_selected_ids = Some(self.selected_objects.clone());
+        } else if let Some(pres) = self.last_presentation_frame.as_ref() {
+            if !pres.selected.is_empty() {
+                self.host_match_selected_ids = Some(pres.selected.clone());
+            } else {
+                let from_objs: Vec<_> = pres
+                    .objects
+                    .iter()
+                    .filter(|o| o.selected && !o.destroyed && o.health_current > 0.0)
+                    .map(|o| o.id)
+                    .collect();
+                self.host_match_selected_ids = Some(from_objs);
             }
         }
     }
@@ -21139,6 +21166,7 @@ impl CnCGameEngine {
         self.host_match_victory_label = None;
         self.host_match_victory_winner = None;
         self.host_match_victory_summary = None;
+        self.host_match_selected_ids = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
