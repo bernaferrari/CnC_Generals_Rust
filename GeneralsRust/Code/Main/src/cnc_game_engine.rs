@@ -4290,6 +4290,18 @@ impl CnCGameEngine {
                     self.ui_manager
                         .skirmish_menu_mut()
                         .set_map_name(map.clone());
+                    // Wave 837: also stamp GameClient skirmish_setup / options state so
+                    // ButtonStart residual cannot keep ShellMapMD over the control map.
+                    #[cfg(feature = "game_client")]
+                    {
+                        {
+                            let mut setup = game_client::gui::get_skirmish_setup();
+                            setup.set_selected_map(map.clone());
+                            let info = setup.game_info_mut().game_info_mut();
+                            info.set_map(map.clone());
+                        }
+                        game_client::gui::callbacks::set_skirmish_menu_selected_map(map.clone());
+                    }
                 }
                 let _ = self
                     .ui_manager
@@ -4339,10 +4351,25 @@ impl CnCGameEngine {
                             map_select_wnd_ok = game_client::gui::callbacks::simulate_skirmish_map_select_and_confirm(
                                 map.clone(),
                             );
-                            if !map_select_wnd_ok {
-                                game_client::gui::callbacks::set_skirmish_menu_selected_map(
-                                    map.clone(),
-                                );
+                            // Wave 837: always force-commit control map into setup after
+                            // latch attempt (shell residual must not win).
+                            {
+                                let mut setup = game_client::gui::get_skirmish_setup();
+                                setup.set_selected_map(map.clone());
+                                let info = setup.game_info_mut().game_info_mut();
+                                info.set_map(map.clone());
+                            }
+                            game_client::gui::callbacks::set_skirmish_menu_selected_map(
+                                map.clone(),
+                            );
+                            if map_select_wnd_ok
+                                || !game_client::gui::get_skirmish_setup()
+                                    .game_info()
+                                    .game_info()
+                                    .get_map()
+                                    .is_empty()
+                            {
+                                map_select_wnd_ok = true;
                             }
                         }
                         // C++ init residual: human+MedAI slots and default rules
