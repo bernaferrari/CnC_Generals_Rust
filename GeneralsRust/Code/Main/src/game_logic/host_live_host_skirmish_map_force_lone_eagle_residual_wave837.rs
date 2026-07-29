@@ -73,7 +73,8 @@ pub fn honesty_host_skirmish_map_force_lone_eagle_nav_commands_residual_wave837(
 pub fn honesty_host_skirmish_map_force_lone_eagle_residual_pack_wave837() -> bool {
     let cnc = cnc_source();
     let sm = skirmish_menu_source();
-    let ok = sm.contains("Wave 837: prefer options/map-select residual over a stale shell/default map")
+    let ok = sm
+        .contains("Wave 837: prefer options/map-select residual over a stale shell/default map")
         && sm.contains("shellish")
         && sm.contains("Wave 835/837: no live window")
         && cnc.contains("Wave 837: also stamp GameClient skirmish_setup")

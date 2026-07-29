@@ -4228,9 +4228,10 @@ impl CnCGameEngine {
                             if !top_l.contains("skirmish") {
                                 // Push only the options menu; MainMenu already active.
                                 // create_layout may still be heavy — gate behind explicit env.
-                                let allow_heavy = std::env::var("GENERALS_RUNTIME_HOST_SKIRMISH_WND")
-                                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                                    .unwrap_or(false);
+                                let allow_heavy =
+                                    std::env::var("GENERALS_RUNTIME_HOST_SKIRMISH_WND")
+                                        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                                        .unwrap_or(false);
                                 if allow_heavy {
                                     let _ = game_client::gui::get_shell()
                                         .push("Menus/SkirmishGameOptionsMenu.wnd", false);
@@ -10008,10 +10009,7 @@ impl CnCGameEngine {
                         // presentation freeze still lacks the just-built barracks (construct
                         // → train same control drain), fall back to host GameLogic producers
                         // for the local team. Default path stays presentation-only.
-                        if allow_auto_target
-                            && barracks.is_empty()
-                            && any.is_empty()
-                        {
+                        if allow_auto_target && barracks.is_empty() && any.is_empty() {
                             // Force-complete unfinished local barracks on the host first.
                             if allow_force_complete {
                                 let mut unfinished: Vec<crate::game_logic::ObjectId> = self
@@ -10046,9 +10044,7 @@ impl CnCGameEngine {
                                 if o.team != team || !o.is_alive() {
                                     continue;
                                 }
-                                if o.status.under_construction
-                                    && !force_completed.contains(id)
-                                {
+                                if o.status.under_construction && !force_completed.contains(id) {
                                     continue;
                                 }
                                 let name = o.template_name.to_ascii_lowercase();
@@ -10098,13 +10094,9 @@ impl CnCGameEngine {
                                     })
                                     .unwrap_or(glam::Vec3::new(500.0, 0.0, 500.0))
                                     + glam::Vec3::new(120.0, 0.0, 40.0);
-                                for bname in [
-                                    "AmericaBarracks",
-                                    "USA_Barracks",
-                                    "AmericaBarracks",
-                                ] {
-                                    if let Some(id) =
-                                        self.host_create_object(bname, team, spawn_at)
+                                for bname in ["AmericaBarracks", "USA_Barracks", "AmericaBarracks"]
+                                {
+                                    if let Some(id) = self.host_create_object(bname, team, spawn_at)
                                     {
                                         let _ = self.host_force_complete_construction(id);
                                         let _ = self.host_ensure_barracks_building_data(id);
@@ -12160,7 +12152,13 @@ impl CnCGameEngine {
                         let mut found = None;
                         // Wave 834: widen LBC recovery (Lone Eagle yards are tight).
                         'scan: for step in [15.0_f32, 25.0, 40.0] {
-                            let extent = if step <= 15.0 { 8 } else if step <= 25.0 { 10 } else { 12 };
+                            let extent = if step <= 15.0 {
+                                8
+                            } else if step <= 25.0 {
+                                10
+                            } else {
+                                12
+                            };
                             for dx in -extent..=extent {
                                 for dz in -extent..=extent {
                                     if dx == 0 && dz == 0 {
