@@ -1479,6 +1479,9 @@ pub struct CnCGameEngine {
     host_match_selected_ids: Option<Vec<crate::game_logic::ObjectId>>,
     /// Wave 851: host-owned alive-object residual (peels object_is_alive boot dual-read).
     host_match_alive_object_ids: Option<std::collections::HashSet<u32>>,
+    /// Wave 852: host-owned purchasable science residual per player.
+    host_match_purchasable_sciences:
+        Option<std::collections::HashMap<u32, std::collections::HashSet<String>>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14374,6 +14377,7 @@ impl CnCGameEngine {
             host_match_victory_summary: None,
             host_match_selected_ids: None,
             host_match_alive_object_ids: None,
+            host_match_purchasable_sciences: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19415,6 +19419,37 @@ impl CnCGameEngine {
                 .collect();
             self.host_match_alive_object_ids = Some(alive);
         }
+        // Wave 852: stamp purchasable science residual (boot-path science UI peel).
+        {
+            const CANDIDATES: &[&str] = &[
+                "SCIENCE_RedGuardTraining",
+                "SCIENCE_BattlemasterTraining",
+                "SCIENCE_ArtilleryTraining",
+                "SCIENCE_NukeCannon",
+                "SCIENCE_CashBounty1",
+                "SCIENCE_RebelAmbush1",
+                "SCIENCE_SneakAttack",
+                "SCIENCE_AnthraxBomb",
+                "SCIENCE_ScudLauncher",
+                "SCIENCE_PaladinTank",
+                "SCIENCE_StealthFighter",
+                "SCIENCE_Pathfinder",
+                "SCIENCE_A10ThunderboltMissileStrike1",
+                "SCIENCE_EmergencyRepair1",
+                "SCIENCE_SpyDrone",
+            ];
+            let mut map = std::collections::HashMap::new();
+            for id in self.game_logic.player_ids() {
+                let mut set = std::collections::HashSet::new();
+                for name in CANDIDATES {
+                    if self.game_logic.player_can_purchase_science(id, name) {
+                        set.insert((*name).to_string());
+                    }
+                }
+                map.insert(id, set);
+            }
+            self.host_match_purchasable_sciences = Some(map);
+        }
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {
@@ -20571,7 +20606,12 @@ impl CnCGameEngine {
     /// Wave 584: host science purchase capability residual (boot-only).
     #[inline]
     fn host_player_can_purchase_science(&self, player_id: u32, name: &str) -> bool {
-        // Wave 584: host science capability residual.
+        // Wave 584/852: prefer host-stamped purchasable residual before live probe.
+        if let Some(map) = self.host_match_purchasable_sciences.as_ref() {
+            if let Some(set) = map.get(&player_id) {
+                return set.iter().any(|s| s.eq_ignore_ascii_case(name));
+            }
+        }
         self.game_logic.player_can_purchase_science(player_id, name)
     }
 
@@ -21196,6 +21236,7 @@ impl CnCGameEngine {
         self.host_match_victory_summary = None;
         self.host_match_selected_ids = None;
         self.host_match_alive_object_ids = None;
+        self.host_match_purchasable_sciences = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
