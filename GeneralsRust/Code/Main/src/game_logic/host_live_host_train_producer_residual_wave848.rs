@@ -91,7 +91,8 @@ pub fn honesty_host_train_producer_residual_pack_wave848() -> bool {
         )
         && cnc.contains("host_match_local_team_sample_pos: Option<[f32; 3]>")
         && (cnc.contains("Wave 848: stamp local train producers after other match residuals")
-            || cnc.contains("Wave 848/853: single stamp-phase object scan"))
+            || (cnc.contains("Wave 848/853: single stamp-phase object scan")
+                || cnc.contains("Wave 848/853/857: single stamp-phase object scan")))
         && auto_ok;
     residual_action_store(ResidualHostTrainProducerAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
