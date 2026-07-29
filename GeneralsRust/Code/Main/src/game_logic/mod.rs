@@ -219,6 +219,7 @@ pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
 pub mod host_live_host_map_primary_enemy_residual_wave830;
 pub mod host_live_host_map_start_army_spawn_residual_wave831;
+pub mod host_live_host_match_diplomacy_template_residuals_wave846;
 pub mod host_live_host_match_game_mode_residual_wave842;
 pub mod host_live_host_match_presentation_residuals_wave843;
 pub mod host_live_host_match_shell_team_residuals_wave845;
@@ -2916,6 +2917,12 @@ pub use host_live_host_map_start_army_spawn_residual_wave831::{
     honesty_host_map_start_army_spawn_residual_pack_wave831,
     simulate_live_host_map_start_army_spawn_honesty,
 };
+pub use host_live_host_match_diplomacy_template_residuals_wave846::{
+    honesty_host_match_diplomacy_template_residuals_method_names_residual_wave846,
+    honesty_host_match_diplomacy_template_residuals_nav_commands_residual_wave846,
+    honesty_host_match_diplomacy_template_residuals_residual_pack_wave846,
+    simulate_live_host_match_diplomacy_template_residuals_honesty,
+};
 pub use host_live_host_match_game_mode_residual_wave842::{
     honesty_host_match_game_mode_method_names_residual_wave842,
     honesty_host_match_game_mode_nav_commands_residual_wave842,
@@ -2933,6 +2940,7 @@ pub use host_live_host_match_shell_team_residuals_wave845::{
     honesty_host_match_shell_team_residuals_residual_pack_wave845,
     simulate_live_host_match_shell_team_residuals_honesty,
 };
+
 pub use host_live_host_match_sim_timing_residuals_wave844::{
     honesty_host_match_sim_timing_residuals_method_names_residual_wave844,
     honesty_host_match_sim_timing_residuals_nav_commands_residual_wave844,
