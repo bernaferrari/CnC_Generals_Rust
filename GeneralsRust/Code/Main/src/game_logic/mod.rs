@@ -225,6 +225,7 @@ pub mod host_live_host_match_diplomacy_template_residuals_wave846;
 pub mod host_live_host_match_game_mode_residual_wave842;
 pub mod host_live_host_match_outcome_residuals_wave849;
 pub mod host_live_host_match_presentation_residuals_wave843;
+pub mod host_live_host_match_purchasable_science_residuals_wave852;
 pub mod host_live_host_match_selection_residuals_wave850;
 pub mod host_live_host_match_shell_team_residuals_wave845;
 pub mod host_live_host_match_sim_timing_residuals_wave844;
@@ -2928,6 +2929,13 @@ pub use host_live_host_match_alive_object_residuals_wave851::{
     honesty_host_match_alive_object_residuals_residual_pack_wave851,
     simulate_live_host_match_alive_object_residuals_honesty,
 };
+pub use host_live_host_match_purchasable_science_residuals_wave852::{
+    honesty_host_match_purchasable_science_residuals_method_names_residual_wave852,
+    honesty_host_match_purchasable_science_residuals_nav_commands_residual_wave852,
+    honesty_host_match_purchasable_science_residuals_residual_pack_wave852,
+    simulate_live_host_match_purchasable_science_residuals_honesty,
+};
+
 pub use host_live_host_match_camera_follow_residuals_wave847::{
     honesty_host_match_camera_follow_residuals_method_names_residual_wave847,
     honesty_host_match_camera_follow_residuals_nav_commands_residual_wave847,
