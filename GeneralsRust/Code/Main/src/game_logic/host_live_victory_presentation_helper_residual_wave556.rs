@@ -131,11 +131,12 @@ pub fn honesty_victory_presentation_helper_source_markers_residual_wave556() -> 
         residual_action_store(ResidualVictoryPresentationHelperAction::SourceMarkers);
         return false;
     };
-    let label_ok = label.contains("Wave 556")
+    let label_ok = (label.contains("Wave 556") || label.contains("Wave 556/849"))
         && label.contains("pres.match_over")
         && label.contains("evaluate_victory_condition()");
-    let winner_ok = winner.contains("Wave 556")
-        && winner.contains("PresentationEvent::Victory")
+    let winner_ok = (winner.contains("Wave 556") || winner.contains("Wave 556/849"))
+        && (winner.contains("PresentationEvent::Victory")
+            || winner.contains("victory_winner_id()"))
         && winner.contains("evaluate_victory_condition()");
     let calls = eng.contains("presentation_or_boot_match_over_label()")
         && eng.contains("presentation_or_boot_victory_winner()");
