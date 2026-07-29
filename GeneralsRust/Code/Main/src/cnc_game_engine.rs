@@ -10562,9 +10562,32 @@ impl CnCGameEngine {
                                     .take(1)
                                     .collect()
                             } else {
-                                // Presentation required (no live get_objects dual-read).
                                 Vec::new()
                             };
+                            // Wave 856: when freeze has no sellable structure (kind/selectability
+                            // residual lag after construct), fall back to host-stamped local
+                            // barracks/producer residuals (no live get_objects dual-read).
+                            if targets.is_empty() {
+                                if self.host_match_local_barracks_ids.is_none()
+                                    && self.host_match_local_producer_ids.is_none()
+                                {
+                                    self.host_refresh_local_train_producer_residuals();
+                                }
+                                let mut candidates = self
+                                    .host_match_local_barracks_ids
+                                    .clone()
+                                    .unwrap_or_default();
+                                candidates.extend(
+                                    self.host_match_local_producer_ids
+                                        .clone()
+                                        .unwrap_or_default(),
+                                );
+                                // Prefer newest residual producer (non-CC path already filtered).
+                                candidates.sort_by_key(|id| id.0);
+                                if let Some(id) = candidates.into_iter().rev().next() {
+                                    targets.push(id);
+                                }
+                            }
                         }
                     }
                     if targets.is_empty() {
