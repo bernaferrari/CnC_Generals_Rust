@@ -1494,6 +1494,8 @@ pub struct CnCGameEngine {
     host_match_in_multiplayer: Option<bool>,
     /// Wave 862: host-owned world bounds residual (min, max).
     host_match_world_bounds: Option<(glam::Vec3, glam::Vec3)>,
+    /// Wave 863: host-owned first-opponent residual (debug victory hotkey peel).
+    host_match_first_opponent_id: Option<Option<u32>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14419,6 +14421,7 @@ impl CnCGameEngine {
             host_match_script_camera_pitch: None,
             host_match_in_multiplayer: None,
             host_match_world_bounds: None,
+            host_match_first_opponent_id: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19492,12 +19495,26 @@ impl CnCGameEngine {
         } else {
             self.host_match_world_bounds = Some(self.game_logic.world_bounds());
         }
+        // Wave 863: stamp first-opponent residual from diplomacy / host players.
+        let local = self
+            .host_match_local_player_id
+            .unwrap_or(self.current_player_id);
+        if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+            self.host_match_first_opponent_id =
+                Some(players.iter().find(|p| p.id != local).map(|p| p.id));
+        } else if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_first_opponent_id =
+                Some(pres.players.iter().find(|p| p.id != local).map(|p| p.id));
+        } else {
+            self.host_match_first_opponent_id = Some(self.game_logic.first_opponent_id(local));
+        }
         // Wave 855: boot victory residual is frame-local — clear before restamping.
         self.host_match_boot_victory_condition = None;
         self.host_match_script_camera_max_height = None;
         self.host_match_script_camera_pitch = None;
         self.host_match_in_multiplayer = None;
         self.host_match_world_bounds = None;
+        self.host_match_first_opponent_id = None;
         // Wave 849: stamp match outcome residuals from freeze (or clear when none).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_over = Some(pres.match_over);
@@ -20621,7 +20638,26 @@ impl CnCGameEngine {
     /// Wave 585: host first-opponent residual (debug victory hotkey).
     #[inline]
     fn host_first_opponent_id(&self, player_id: u32) -> Option<u32> {
-        // Wave 585: host first_opponent_id residual.
+        // Wave 585/863: prefer host residual when stamped for local player.
+        if player_id
+            == self
+                .host_match_local_player_id
+                .unwrap_or(self.current_player_id)
+        {
+            if let Some(cached) = self.host_match_first_opponent_id {
+                return cached;
+            }
+        } else if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+            // Warm diplomacy residual: fail-closed opponent lookup without live dual-read.
+            return players.iter().find(|p| p.id != player_id).map(|p| p.id);
+        } else if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres
+                .players
+                .iter()
+                .find(|p| p.id != player_id)
+                .map(|p| p.id);
+        }
+        // Boot residual only.
         self.game_logic.first_opponent_id(player_id)
     }
 
