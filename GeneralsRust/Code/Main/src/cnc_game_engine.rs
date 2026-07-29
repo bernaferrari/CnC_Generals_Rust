@@ -1482,6 +1482,8 @@ pub struct CnCGameEngine {
     /// Wave 852: host-owned purchasable science residual per player.
     host_match_purchasable_sciences:
         Option<std::collections::HashMap<u32, std::collections::HashSet<String>>>,
+    /// Wave 854: host-owned special-power-ready object residual (boot dual-read peel).
+    host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14378,6 +14380,7 @@ impl CnCGameEngine {
             host_match_selected_ids: None,
             host_match_alive_object_ids: None,
             host_match_purchasable_sciences: None,
+            host_match_special_power_ready_ids: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19478,6 +19481,28 @@ impl CnCGameEngine {
             }
             self.host_match_purchasable_sciences = Some(map);
         }
+        // Wave 854: stamp special-power-ready object residual.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            let ready: std::collections::HashSet<u32> = pres
+                .objects
+                .iter()
+                .filter(|o| !o.destroyed && o.special_power_ready)
+                .map(|o| o.id.0)
+                .collect();
+            self.host_match_special_power_ready_ids = Some(ready);
+        } else if let Some(alive) = self.host_match_alive_object_ids.as_ref() {
+            // Boot residual: mark alive host objects with special_power_ready flag.
+            let mut ready = std::collections::HashSet::new();
+            for id_raw in alive {
+                let id = crate::game_logic::ObjectId(*id_raw);
+                if let Some(obj) = self.game_logic.get_object(id) {
+                    if obj.special_power_ready {
+                        ready.insert(*id_raw);
+                    }
+                }
+            }
+            self.host_match_special_power_ready_ids = Some(ready);
+        }
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {
@@ -20591,7 +20616,14 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         power: &crate::command_system::SpecialPowerType,
     ) -> bool {
-        // Wave 584: host special-power ready residual.
+        // Wave 584/854: host-stamped ready-set peels obvious negatives before live probe.
+        // If residual is warm and object is not in the ready set, fail closed without
+        // dual-reading GameLogic. Positive residual still defers to live type/cooldown.
+        if let Some(ready) = self.host_match_special_power_ready_ids.as_ref() {
+            if !ready.contains(&id.0) {
+                return false;
+            }
+        }
         self.game_logic.is_special_power_ready_for(id, power)
     }
 
@@ -21265,6 +21297,7 @@ impl CnCGameEngine {
         self.host_match_selected_ids = None;
         self.host_match_alive_object_ids = None;
         self.host_match_purchasable_sciences = None;
+        self.host_match_special_power_ready_ids = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
