@@ -19833,19 +19833,17 @@ impl CnCGameEngine {
     /// (train + construct). Boot residual without freeze uses host `templates.contains_key`.
     #[inline]
     fn presentation_or_boot_has_template(&self, name: &str) -> bool {
-        // Wave 563/846: presentation freeze owns template-name residual when installed.
+        // Wave 563/846/859: presentation freeze owns template-name residual when installed.
         // Wave 565: construct residual shares this helper with train.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.has_template_name(name);
         }
+        // Wave 859: warm host residual is fail-closed (no live dual-read on miss).
         if let Some(names) = self.host_match_known_template_names.as_ref() {
-            if names.binary_search(&name.to_string()).is_ok()
-                || names.iter().any(|n| n.eq_ignore_ascii_case(name))
-            {
-                return true;
-            }
+            return names.binary_search(&name.to_string()).is_ok()
+                || names.iter().any(|n| n.eq_ignore_ascii_case(name));
         }
-        // Boot residual only.
+        // Boot residual only (residual never stamped).
         self.game_logic.templates.contains_key(name)
     }
 
@@ -19880,20 +19878,24 @@ impl CnCGameEngine {
     /// (inserts after last PresentationFrame). Boot without freeze uses host only.
     #[inline]
     fn host_presentation_or_live_has_template(&self, name: &str) -> bool {
-        // Wave 610/846: host residual helper.
+        // Wave 610/846/859: host residual helper.
         // Wave 581: freeze known names OR host residual OR live host insert residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             if pres.has_template_name(name) {
                 return true;
             }
-        } else if let Some(names) = self.host_match_known_template_names.as_ref() {
+            // Mid-command insert residual (freeze lag) — live probe only when freeze installed.
+            return self.game_logic.templates.contains_key(name);
+        }
+        if let Some(names) = self.host_match_known_template_names.as_ref() {
             if names.binary_search(&name.to_string()).is_ok()
                 || names.iter().any(|n| n.eq_ignore_ascii_case(name))
             {
                 return true;
             }
+            // Residual warm + miss: still allow live mid-command insert residual.
         }
-        // Mid-command host insert residual (not yet frozen) / boot residual.
+        // Mid-command host insert residual / cold boot residual.
         self.game_logic.templates.contains_key(name)
     }
 
@@ -20675,7 +20677,7 @@ impl CnCGameEngine {
         &self,
         winner: Option<u32>,
     ) -> crate::game_logic::VictorySummary {
-        // Wave 584/849: presentation freeze owns victory summary residual when installed.
+        // Wave 584/849/859: presentation freeze owns victory summary residual when installed.
         if let Some(summary) = self
             .last_presentation_frame
             .as_ref()
@@ -20683,10 +20685,15 @@ impl CnCGameEngine {
         {
             return summary;
         }
+        // Wave 859: warm host residual is fail-closed (even empty summary).
         if let Some(summary) = self.host_match_victory_summary.clone() {
             return summary;
         }
-        // Boot residual only.
+        // Boot residual only when match outcome residual was never stamped.
+        // Prefer host_match_over stamp path: if match not over and residual cold, empty.
+        if self.host_match_over.is_some() {
+            return crate::game_logic::VictorySummary::default();
+        }
         self.game_logic.build_victory_summary(winner)
     }
 
@@ -20904,17 +20911,16 @@ impl CnCGameEngine {
     }
 
     fn presentation_or_boot_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
-        // Wave 555/846: presentation freeze owns unlocked-sciences residual when installed.
+        // Wave 555/846/859: presentation freeze owns unlocked-sciences residual when installed.
         // Freeze keeps C++ residual of local sciences for any probe while freeze is live.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_unlocked_sciences.clone();
         }
+        // Wave 859: warm host residual is fail-closed (empty vec on player miss).
         if let Some(map) = self.host_match_unlocked_sciences.as_ref() {
-            if let Some(v) = map.get(&player_id) {
-                return v.clone();
-            }
+            return map.get(&player_id).cloned().unwrap_or_default();
         }
-        // Boot residual only.
+        // Boot residual only (residual never stamped).
         self.game_logic.player_unlocked_sciences(player_id)
     }
 
