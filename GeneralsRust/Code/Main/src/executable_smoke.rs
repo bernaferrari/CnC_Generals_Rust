@@ -2609,8 +2609,21 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
     let _ = fs::remove_dir_all(&tmp);
 
-    // Never flip retail claim from this harness.
-    result.playable_claim = false;
+    // Wave 835: playable_claim is honest residual, not a marketing bit.
+    // Requires shell WND residual + skirmish latch chain (map/slots/rules + Start
+    // gadget residual) + InGame + construct/train/gameplay. Still NOT a full
+    // interactive human WND click path (layout parse may be latch-only headless).
+    result.playable_claim = result.shell_wnd_ok
+        && result.main_menu_skirmish_wnd_ok
+        && result.skirmish_map_select_wnd_ok
+        && result.skirmish_slot_config_wnd_ok
+        && result.skirmish_rules_wnd_ok
+        && result.skirmish_start_wnd_ok
+        && result.reached_ingame
+        && result.gameplay_cmd_ok
+        && result.construct_cmd_ok
+        && result.train_cmd_ok
+        && result.executable_host_ok;
     // Vertical slice honesty (not playable_claim): WND start + InGame + core cmds.
     // Wave 176: InGame vertical slice also requires presentation-owned frame
     // with zero live GameLogic dual-reads (immutable presentation boundary).

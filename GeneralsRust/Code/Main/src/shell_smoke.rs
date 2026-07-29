@@ -3645,6 +3645,11 @@ use crate::game_logic::host_live_host_train_auto_target_host_fallback_residual_w
     honesty_host_train_auto_target_host_fallback_nav_commands_residual_wave834,
     simulate_live_host_train_auto_target_host_fallback_honesty,
 };
+use crate::game_logic::host_live_host_skirmish_wnd_latch_peels_residual_wave835::{
+    honesty_host_skirmish_wnd_latch_peels_method_names_residual_wave835,
+    honesty_host_skirmish_wnd_latch_peels_nav_commands_residual_wave835,
+    simulate_live_host_skirmish_wnd_latch_peels_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7787,6 +7792,9 @@ pub struct ShellSmokeResult {
     pub host_train_auto_target_host_fallback_method_names_wave834_ok: bool,
     pub host_train_auto_target_host_fallback_nav_commands_wave834_ok: bool,
     pub host_train_auto_target_host_fallback_live_wave834_ok: bool,
+    pub host_skirmish_wnd_latch_peels_method_names_wave835_ok: bool,
+    pub host_skirmish_wnd_latch_peels_nav_commands_wave835_ok: bool,
+    pub host_skirmish_wnd_latch_peels_live_wave835_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12526,6 +12534,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_train_auto_target_host_fallback_nav_commands_residual_wave834();
     let host_train_auto_target_host_fallback_live_wave834_ok =
         simulate_live_host_train_auto_target_host_fallback_honesty();
+    let host_skirmish_wnd_latch_peels_method_names_wave835_ok =
+        honesty_host_skirmish_wnd_latch_peels_method_names_residual_wave835();
+    let host_skirmish_wnd_latch_peels_nav_commands_wave835_ok =
+        honesty_host_skirmish_wnd_latch_peels_nav_commands_residual_wave835();
+    let host_skirmish_wnd_latch_peels_live_wave835_ok =
+        simulate_live_host_skirmish_wnd_latch_peels_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15017,6 +15031,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_train_auto_target_host_fallback_method_names_wave834_ok,
         host_train_auto_target_host_fallback_nav_commands_wave834_ok,
         host_train_auto_target_host_fallback_live_wave834_ok,
+        host_skirmish_wnd_latch_peels_method_names_wave835_ok,
+        host_skirmish_wnd_latch_peels_nav_commands_wave835_ok,
+        host_skirmish_wnd_latch_peels_live_wave835_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

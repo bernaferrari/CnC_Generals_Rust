@@ -1663,11 +1663,20 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
             return true;
         }
     }
-    // No live window (layout not pushed yet): still mark button pushed residual so
-    // host can observe WND path attempt honesty without panicking headless.
-    // Full NewGame post still requires layout/init; latch is the headless residual.
-    set_skirmish_button_pushed(true);
-    skirmish_button_pushed()
+    // Wave 835: no live window (layout not pushed) — still run ButtonStart residual
+    // through start_skirmish_game so NewGame posts when map/slots are latched.
+    // Avoids create_layout stall while preserving gadget-path honesty.
+    set_skirmish_button_pushed(false);
+    let started = with_state(|state| {
+        if state.button_pushed || skirmish_button_pushed() {
+            return false;
+        }
+        state.button_pushed = true;
+        set_skirmish_button_pushed(true);
+        start_skirmish_game(state);
+        true
+    });
+    started || skirmish_button_pushed()
 }
 
 /// Retail skirmish player-combo AI labels residual (ComboBoxPlayer entries).
