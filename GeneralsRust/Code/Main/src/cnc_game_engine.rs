@@ -1457,6 +1457,10 @@ pub struct CnCGameEngine {
     /// Wave 845: host-owned shell/team residuals for presentation_or_boot peels.
     host_match_in_shell: Option<bool>,
     host_match_local_team: Option<crate::game_logic::Team>,
+    /// Wave 846: host-owned diplomacy / template / sciences residuals.
+    host_match_diplomacy_players: Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
+    host_match_known_template_names: Option<Vec<String>>,
+    host_match_unlocked_sciences: Option<std::collections::HashMap<u32, Vec<String>>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14364,6 +14368,9 @@ impl CnCGameEngine {
             host_match_in_replay: None,
             host_match_in_shell: None,
             host_match_local_team: None,
+            host_match_diplomacy_players: None,
+            host_match_known_template_names: None,
+            host_match_unlocked_sciences: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -17379,10 +17386,13 @@ impl CnCGameEngine {
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
-        // Wave 607: host UI residual helper.
+        // Wave 607/846: host UI residual helper.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             // Wave 549: presentation freeze owns player roster residual — even if miss.
             return frame.player_info(player_id).cloned();
+        }
+        if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+            return players.iter().find(|p| p.id == player_id).cloned();
         }
         // Wave 573: boot residual via shared host probe helper.
         self.boot_player_info_from_host(player_id)
@@ -19247,6 +19257,36 @@ impl CnCGameEngine {
                 .player_team(self.current_player_id)
                 .unwrap_or(crate::game_logic::Team::USA),
         );
+        // Wave 846: diplomacy / template / sciences host residuals.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_diplomacy_players = Some(pres.players.clone());
+            self.host_match_known_template_names = Some(pres.known_template_names.clone());
+            let mut sciences = std::collections::HashMap::new();
+            // Local sciences from freeze; other players from host stamp.
+            sciences.insert(pres.local_player_id, pres.local_unlocked_sciences.clone());
+            for p in &pres.players {
+                sciences
+                    .entry(p.id)
+                    .or_insert_with(|| self.game_logic.player_unlocked_sciences(p.id));
+            }
+            self.host_match_unlocked_sciences = Some(sciences);
+        } else {
+            let mut players = Vec::new();
+            for id in self.game_logic.player_ids() {
+                if let Some(info) = self.boot_player_info_from_host(id) {
+                    players.push(info);
+                }
+            }
+            self.host_match_diplomacy_players = Some(players);
+            let mut names: Vec<String> = self.game_logic.templates.keys().cloned().collect();
+            names.sort();
+            self.host_match_known_template_names = Some(names);
+            let mut sciences = std::collections::HashMap::new();
+            for id in self.game_logic.player_ids() {
+                sciences.insert(id, self.game_logic.player_unlocked_sciences(id));
+            }
+            self.host_match_unlocked_sciences = Some(sciences);
+        }
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {
@@ -19472,9 +19512,12 @@ impl CnCGameEngine {
     fn presentation_or_boot_diplomacy_players(
         &self,
     ) -> Vec<crate::presentation_frame::PresentationPlayerInfo> {
-        // Wave 558: presentation freeze owns diplomacy roster residual when installed.
+        // Wave 558/846: presentation freeze owns diplomacy roster residual when installed.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.players.clone();
+        }
+        if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+            return players.clone();
         }
         // Wave 573: boot residual via shared host probe helper.
         let mut out = Vec::new();
@@ -19533,10 +19576,17 @@ impl CnCGameEngine {
     /// (train + construct). Boot residual without freeze uses host `templates.contains_key`.
     #[inline]
     fn presentation_or_boot_has_template(&self, name: &str) -> bool {
-        // Wave 563: presentation freeze owns template-name residual when installed.
+        // Wave 563/846: presentation freeze owns template-name residual when installed.
         // Wave 565: construct residual shares this helper with train.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.has_template_name(name);
+        }
+        if let Some(names) = self.host_match_known_template_names.as_ref() {
+            if names.binary_search(&name.to_string()).is_ok()
+                || names.iter().any(|n| n.eq_ignore_ascii_case(name))
+            {
+                return true;
+            }
         }
         // Boot residual only.
         self.game_logic.templates.contains_key(name)
@@ -19573,16 +19623,20 @@ impl CnCGameEngine {
     /// (inserts after last PresentationFrame). Boot without freeze uses host only.
     #[inline]
     fn host_presentation_or_live_has_template(&self, name: &str) -> bool {
-        // Wave 610: host residual helper.
-        // Wave 581: freeze known names OR live host insert residual.
+        // Wave 610/846: host residual helper.
+        // Wave 581: freeze known names OR host residual OR live host insert residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             if pres.has_template_name(name) {
                 return true;
             }
-            // Mid-command host insert residual (not yet frozen).
-            return self.game_logic.templates.contains_key(name);
+        } else if let Some(names) = self.host_match_known_template_names.as_ref() {
+            if names.binary_search(&name.to_string()).is_ok()
+                || names.iter().any(|n| n.eq_ignore_ascii_case(name))
+            {
+                return true;
+            }
         }
-        // Boot residual only.
+        // Mid-command host insert residual (not yet frozen) / boot residual.
         self.game_logic.templates.contains_key(name)
     }
 
@@ -20559,9 +20613,15 @@ impl CnCGameEngine {
     }
 
     fn presentation_or_boot_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
-        // Wave 555: presentation freeze owns unlocked-sciences residual when installed.
+        // Wave 555/846: presentation freeze owns unlocked-sciences residual when installed.
+        // Freeze keeps C++ residual of local sciences for any probe while freeze is live.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_unlocked_sciences.clone();
+        }
+        if let Some(map) = self.host_match_unlocked_sciences.as_ref() {
+            if let Some(v) = map.get(&player_id) {
+                return v.clone();
+            }
         }
         // Boot residual only.
         self.game_logic.player_unlocked_sciences(player_id)
@@ -20964,6 +21024,9 @@ impl CnCGameEngine {
         self.host_match_in_replay = None;
         self.host_match_in_shell = None;
         self.host_match_local_team = None;
+        self.host_match_diplomacy_players = None;
+        self.host_match_known_template_names = None;
+        self.host_match_unlocked_sciences = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
