@@ -222,6 +222,7 @@ pub mod host_live_host_map_start_army_spawn_residual_wave831;
 pub mod host_live_host_match_camera_follow_residuals_wave847;
 pub mod host_live_host_match_diplomacy_template_residuals_wave846;
 pub mod host_live_host_match_game_mode_residual_wave842;
+pub mod host_live_host_match_outcome_residuals_wave849;
 pub mod host_live_host_match_presentation_residuals_wave843;
 pub mod host_live_host_match_shell_team_residuals_wave845;
 pub mod host_live_host_match_sim_timing_residuals_wave844;
@@ -2924,6 +2925,12 @@ pub use host_live_host_match_camera_follow_residuals_wave847::{
     honesty_host_match_camera_follow_residuals_nav_commands_residual_wave847,
     honesty_host_match_camera_follow_residuals_residual_pack_wave847,
     simulate_live_host_match_camera_follow_residuals_honesty,
+};
+pub use host_live_host_match_outcome_residuals_wave849::{
+    honesty_host_match_outcome_residuals_method_names_residual_wave849,
+    honesty_host_match_outcome_residuals_nav_commands_residual_wave849,
+    honesty_host_match_outcome_residuals_residual_pack_wave849,
+    simulate_live_host_match_outcome_residuals_honesty,
 };
 pub use host_live_host_train_producer_residual_wave848::{
     honesty_host_train_producer_residual_method_names_residual_wave848,

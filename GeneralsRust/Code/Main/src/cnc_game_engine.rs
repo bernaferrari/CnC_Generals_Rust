@@ -1469,6 +1469,12 @@ pub struct CnCGameEngine {
     host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
     host_match_local_unfinished_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
     host_match_local_team_sample_pos: Option<[f32; 3]>,
+    /// Wave 849: host-owned match outcome residuals (victory peels).
+    host_match_over: Option<bool>,
+    host_match_victory_label: Option<String>,
+    /// Meaningful when `host_match_over == Some(true)`: None=draw, Some(id)=winner.
+    host_match_victory_winner: Option<Option<u32>>,
+    host_match_victory_summary: Option<crate::game_logic::VictorySummary>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14358,6 +14364,10 @@ impl CnCGameEngine {
             host_match_local_producer_ids: None,
             host_match_local_unfinished_producer_ids: None,
             host_match_local_team_sample_pos: None,
+            host_match_over: None,
+            host_match_victory_label: None,
+            host_match_victory_winner: None,
+            host_match_victory_summary: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19346,6 +19356,17 @@ impl CnCGameEngine {
         }
         // Wave 848: stamp local train producers after other match residuals.
         self.host_refresh_local_train_producer_residuals();
+        // Wave 849: stamp match outcome residuals from freeze (or clear when none).
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_over = Some(pres.match_over);
+            self.host_match_victory_label = pres.victory_label.clone();
+            self.host_match_victory_summary = pres.victory_summary.clone();
+            if pres.match_over {
+                self.host_match_victory_winner = Some(pres.victory_winner_id());
+            } else {
+                self.host_match_victory_winner = None;
+            }
+        }
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {
@@ -20463,12 +20484,15 @@ impl CnCGameEngine {
         &self,
         winner: Option<u32>,
     ) -> crate::game_logic::VictorySummary {
-        // Wave 584: presentation freeze owns victory summary residual when installed.
+        // Wave 584/849: presentation freeze owns victory summary residual when installed.
         if let Some(summary) = self
             .last_presentation_frame
             .as_ref()
             .and_then(|f| f.victory_summary.clone())
         {
+            return summary;
+        }
+        if let Some(summary) = self.host_match_victory_summary.clone() {
             return summary;
         }
         // Boot residual only.
@@ -20703,11 +20727,17 @@ impl CnCGameEngine {
     /// host `evaluate_victory_condition`.
     #[inline]
     fn presentation_or_boot_match_over_label(&mut self) -> (bool, String) {
-        // Wave 556: presentation freeze owns match-over / victory-label residual.
+        // Wave 556/849: presentation freeze owns match-over / victory-label residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return (
                 pres.match_over,
                 pres.victory_label.clone().unwrap_or_default(),
+            );
+        }
+        if let Some(over) = self.host_match_over {
+            return (
+                over,
+                self.host_match_victory_label.clone().unwrap_or_default(),
             );
         }
         // Boot residual only.
@@ -20723,18 +20753,19 @@ impl CnCGameEngine {
     /// Returns `Some(winner)` when a victory screen should show (`None` winner = draw).
     #[inline]
     fn presentation_or_boot_victory_winner(&mut self) -> Option<Option<u32>> {
-        // Wave 556: presentation freeze owns victory winner residual when installed.
+        // Wave 556/849: presentation freeze owns victory winner residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             if !pres.match_over {
                 return None;
             }
-            let winner = pres.events.iter().find_map(|ev| match ev {
-                crate::presentation_frame::PresentationEvent::Victory { winner_player } => {
-                    *winner_player
-                }
-                _ => None,
-            });
-            return Some(winner);
+            return Some(pres.victory_winner_id());
+        }
+        if let Some(over) = self.host_match_over {
+            if !over {
+                return None;
+            }
+            // Stamped winner residual: None draw / Some(id) winner.
+            return Some(self.host_match_victory_winner.unwrap_or(None));
         }
         // Boot residual only.
         match self.game_logic.evaluate_victory_condition() {
@@ -21104,6 +21135,10 @@ impl CnCGameEngine {
         self.host_match_local_producer_ids = None;
         self.host_match_local_unfinished_producer_ids = None;
         self.host_match_local_team_sample_pos = None;
+        self.host_match_over = None;
+        self.host_match_victory_label = None;
+        self.host_match_victory_winner = None;
+        self.host_match_victory_summary = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
