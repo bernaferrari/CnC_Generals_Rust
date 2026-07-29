@@ -141,6 +141,7 @@ pub mod host_live_host_beam_flare_shell_dual_peel_residual_wave806;
 pub mod host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751;
 pub mod host_live_host_boot_victory_condition_residual_wave855;
 pub mod host_live_host_build_edge_margin_residual_wave829;
+pub mod host_live_host_camera_drain_freeze_skip_residual_wave865;
 pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
 pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
 pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
@@ -2891,6 +2892,13 @@ pub use host_live_exec_smoke_early_combat_residual_wave864::{
     honesty_exec_smoke_early_combat_residual_pack_wave864,
     simulate_live_exec_smoke_early_combat_honesty,
 };
+pub use host_live_host_camera_drain_freeze_skip_residual_wave865::{
+    honesty_host_camera_drain_freeze_skip_method_names_residual_wave865,
+    honesty_host_camera_drain_freeze_skip_nav_commands_residual_wave865,
+    honesty_host_camera_drain_freeze_skip_residual_pack_wave865,
+    simulate_live_host_camera_drain_freeze_skip_honesty,
+};
+
 pub use host_live_fixed_step_diag_presentation_helper_residual_wave564::{
     honesty_fixed_step_diag_presentation_helper_method_names_residual_wave564,
     honesty_fixed_step_diag_presentation_helper_nav_commands_residual_wave564,
