@@ -259,6 +259,7 @@ pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
 pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
+pub mod host_live_host_script_camera_residuals_wave858;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
 pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
 pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
@@ -2909,6 +2910,12 @@ pub use host_live_host_boot_victory_condition_residual_wave855::{
     honesty_host_boot_victory_condition_residual_nav_commands_residual_wave855,
     honesty_host_boot_victory_condition_residual_pack_wave855,
     simulate_live_host_boot_victory_condition_residual_honesty,
+};
+pub use host_live_host_script_camera_residuals_wave858::{
+    honesty_host_script_camera_residuals_method_names_residual_wave858,
+    honesty_host_script_camera_residuals_nav_commands_residual_wave858,
+    honesty_host_script_camera_residuals_residual_pack_wave858,
+    simulate_live_host_script_camera_residuals_honesty,
 };
 pub use host_live_host_sell_auto_target_residual_wave856::{
     honesty_host_sell_auto_target_residual_method_names_residual_wave856,
