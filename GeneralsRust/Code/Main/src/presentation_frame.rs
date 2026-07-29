@@ -7835,7 +7835,15 @@ impl PresentationFrame {
             f.events.clear();
             f
         };
-        let _ = frame.rebuild_objects_from_gameworld(shadow);
+        let host_n = frame.objects.len();
+        let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+        // Wave 838: keep host objects when shadow yields nothing.
+        if gw_n == 0 && host_n > 0 {
+            if let Some(logic) = host {
+                frame = Self::build_from_logic(logic, local_player_id);
+                let _ = frame.overlay_gameworld_shadow(shadow);
+            }
+        }
         // Wave 498: host FX residual survives GameWorld object rebuild.
         if let Some(logic) = host {
             let _ = frame.overlay_host_fx_residual(logic);
@@ -7887,7 +7895,14 @@ impl PresentationFrame {
         let mut frame = Self::build_with_victory(logic, local_player_id);
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
-                let _ = frame.rebuild_objects_from_gameworld(shadow);
+                let host_n = frame.objects.len();
+                let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+                // Wave 838: empty GameWorld shadow must not erase a non-empty host
+                // roster (construct/train/map objects) or unit mesh collect stays 0.
+                if gw_n == 0 && host_n > 0 {
+                    frame = Self::build_with_victory(logic, local_player_id);
+                    let _ = frame.overlay_gameworld_shadow(shadow);
+                }
                 // Wave 498: host FX residual after GW object rebuild.
                 let _ = frame.overlay_host_fx_residual(logic);
                 // Wave 500: object FX residual names → particle list.

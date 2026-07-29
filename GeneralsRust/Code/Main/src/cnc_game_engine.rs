@@ -19971,6 +19971,11 @@ impl CnCGameEngine {
     fn host_finalize_presentation_after_logic(&mut self) {
         // Wave 589: presentation finalize residual.
         let local_id = self.current_player_id;
+        // Wave 838: full host→shadow sync before GW presentation rebuild so map
+        // objects / construct/train spawns are not wiped by an empty shadow.
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            shadow.sync_from_host(&self.game_logic);
+        }
         // Include victory residual in the snapshot (single evaluate; no dual-read later).
         let mut pres = crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
             &mut self.game_logic,
