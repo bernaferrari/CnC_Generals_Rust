@@ -283,6 +283,7 @@ pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
 pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
 pub mod host_live_host_zone_damage_dual_peel_residual_wave825;
 pub mod host_live_presentation_empty_shadow_failopen_residual_wave838;
+pub mod host_live_presentation_mouse_ingame_failclosed_residual_wave841;
 pub mod host_locomotor_ready_log;
 pub mod host_model_condition_log;
 pub mod host_model_condition_ready_log;
@@ -2923,6 +2924,13 @@ pub use host_live_host_skirmish_map_reject_shell_residual_wave840::{
     honesty_host_skirmish_map_reject_shell_residual_pack_wave840,
     simulate_live_host_skirmish_map_reject_shell_honesty,
 };
+pub use host_live_presentation_mouse_ingame_failclosed_residual_wave841::{
+    honesty_presentation_mouse_ingame_failclosed_method_names_residual_wave841,
+    honesty_presentation_mouse_ingame_failclosed_nav_commands_residual_wave841,
+    honesty_presentation_mouse_ingame_failclosed_residual_pack_wave841,
+    simulate_live_presentation_mouse_ingame_failclosed_honesty,
+};
+
 pub use host_live_host_skirmish_wnd_latch_peels_residual_wave835::{
     honesty_host_skirmish_wnd_latch_peels_method_names_residual_wave835,
     honesty_host_skirmish_wnd_latch_peels_nav_commands_residual_wave835,

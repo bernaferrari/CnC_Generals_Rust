@@ -3670,6 +3670,11 @@ use crate::game_logic::host_live_host_skirmish_map_reject_shell_residual_wave840
     honesty_host_skirmish_map_reject_shell_nav_commands_residual_wave840,
     simulate_live_host_skirmish_map_reject_shell_honesty,
 };
+use crate::game_logic::host_live_presentation_mouse_ingame_failclosed_residual_wave841::{
+    honesty_presentation_mouse_ingame_failclosed_method_names_residual_wave841,
+    honesty_presentation_mouse_ingame_failclosed_nav_commands_residual_wave841,
+    simulate_live_presentation_mouse_ingame_failclosed_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7827,6 +7832,9 @@ pub struct ShellSmokeResult {
     pub host_skirmish_map_reject_shell_method_names_wave840_ok: bool,
     pub host_skirmish_map_reject_shell_nav_commands_wave840_ok: bool,
     pub host_skirmish_map_reject_shell_live_wave840_ok: bool,
+    pub presentation_mouse_ingame_failclosed_method_names_wave841_ok: bool,
+    pub presentation_mouse_ingame_failclosed_nav_commands_wave841_ok: bool,
+    pub presentation_mouse_ingame_failclosed_live_wave841_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12596,6 +12604,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_skirmish_map_reject_shell_nav_commands_residual_wave840();
     let host_skirmish_map_reject_shell_live_wave840_ok =
         simulate_live_host_skirmish_map_reject_shell_honesty();
+    let presentation_mouse_ingame_failclosed_method_names_wave841_ok =
+        honesty_presentation_mouse_ingame_failclosed_method_names_residual_wave841();
+    let presentation_mouse_ingame_failclosed_nav_commands_wave841_ok =
+        honesty_presentation_mouse_ingame_failclosed_nav_commands_residual_wave841();
+    let presentation_mouse_ingame_failclosed_live_wave841_ok =
+        simulate_live_presentation_mouse_ingame_failclosed_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15102,6 +15116,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_skirmish_map_reject_shell_method_names_wave840_ok,
         host_skirmish_map_reject_shell_nav_commands_wave840_ok,
         host_skirmish_map_reject_shell_live_wave840_ok,
+        presentation_mouse_ingame_failclosed_method_names_wave841_ok,
+        presentation_mouse_ingame_failclosed_nav_commands_wave841_ok,
+        presentation_mouse_ingame_failclosed_live_wave841_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
