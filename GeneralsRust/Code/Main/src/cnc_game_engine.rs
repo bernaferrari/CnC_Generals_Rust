@@ -1487,6 +1487,9 @@ pub struct CnCGameEngine {
     /// Wave 855: boot victory condition residual (single evaluate stamp).
     /// None = not stamped; Some(None) = no winner yet; Some(Some(cond)) = outcome.
     host_match_boot_victory_condition: Option<Option<crate::game_logic::VictoryCondition>>,
+    /// Wave 858: host-owned script camera default residuals.
+    host_match_script_camera_max_height: Option<f32>,
+    host_match_script_camera_pitch: Option<f32>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14408,6 +14411,8 @@ impl CnCGameEngine {
             host_match_purchasable_sciences: None,
             host_match_special_power_ready_ids: None,
             host_match_boot_victory_condition: None,
+            host_match_script_camera_max_height: None,
+            host_match_script_camera_pitch: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -17492,10 +17497,13 @@ impl CnCGameEngine {
     /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
     /// Wave 252: script default camera residuals via presentation freeze.
     fn host_ui_script_default_camera_max_height(&self) -> f32 {
-        // Wave 607: host UI residual helper.
+        // Wave 607/858: host UI residual helper.
         // Wave 252: presentation freeze first.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.script_default_camera_max_height;
+        }
+        if let Some(v) = self.host_match_script_camera_max_height {
+            return v;
         }
         // Boot residual only.
         self.game_logic.script_default_camera_max_height()
@@ -17508,10 +17516,13 @@ impl CnCGameEngine {
     }
 
     fn host_ui_script_default_camera_pitch(&self) -> f32 {
-        // Wave 609: host UI/presentation residual helper.
+        // Wave 609/858: host UI/presentation residual helper.
         // Wave 252: presentation freeze first.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.script_default_camera_pitch;
+        }
+        if let Some(v) = self.host_match_script_camera_pitch {
+            return v;
         }
         // Boot residual only.
         self.game_logic.script_default_camera_pitch()
@@ -19457,8 +19468,20 @@ impl CnCGameEngine {
         }
         // Wave 848: stamp local train producers after other match residuals.
         self.host_refresh_local_train_producer_residuals();
+        // Wave 858: stamp script camera defaults (freeze first, else host).
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_script_camera_max_height = Some(pres.script_default_camera_max_height);
+            self.host_match_script_camera_pitch = Some(pres.script_default_camera_pitch);
+        } else {
+            self.host_match_script_camera_max_height =
+                Some(self.game_logic.script_default_camera_max_height());
+            self.host_match_script_camera_pitch =
+                Some(self.game_logic.script_default_camera_pitch());
+        }
         // Wave 855: boot victory residual is frame-local — clear before restamping.
         self.host_match_boot_victory_condition = None;
+        self.host_match_script_camera_max_height = None;
+        self.host_match_script_camera_pitch = None;
         // Wave 849: stamp match outcome residuals from freeze (or clear when none).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_over = Some(pres.match_over);
