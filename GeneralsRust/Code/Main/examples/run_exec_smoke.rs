@@ -8,7 +8,10 @@ fn main() {
         std::time::Duration::from_secs(secs),
         new_game,
     );
-    println!("{}", generals_main::executable_smoke::format_executable_smoke_report(&r));
+    println!(
+        "{}",
+        generals_main::executable_smoke::format_executable_smoke_report(&r)
+    );
     println!("detail={}", r.detail);
     println!(
         "flags menu={} ingame={} shell_wnd={} map={:?}",

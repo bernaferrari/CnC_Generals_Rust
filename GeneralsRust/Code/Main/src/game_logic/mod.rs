@@ -194,6 +194,7 @@ pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
 pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
 pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
 pub mod host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747;
+pub mod host_live_host_exec_smoke_release_prefer_residual_wave833;
 pub mod host_live_host_field_object_expire_dual_peel_residual_wave802;
 pub mod host_live_host_fire_sound_loop_dual_peel_residual_wave767;
 pub mod host_live_host_fire_spread_dual_peel_residual_wave820;
@@ -250,17 +251,14 @@ pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
 pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
+pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
+pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
 pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
 pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
 pub mod host_live_host_starting_units_table_residual_wave832;
-pub mod host_live_host_exec_smoke_release_prefer_residual_wave833;
-pub mod host_live_host_train_auto_target_host_fallback_residual_wave834;
-pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
-pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
-pub mod host_live_presentation_empty_shadow_failopen_residual_wave838;
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
 pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
@@ -272,8 +270,10 @@ pub mod host_live_host_systems_dual_peel_residual_wave827;
 pub mod host_live_host_tensile_rubble_no_damage_auth_hp_stomp_residual_wave749;
 pub mod host_live_host_topple_fall_dual_peel_residual_wave770;
 pub mod host_live_host_toxin_stream_projectile_dual_peel_residual_wave798;
+pub mod host_live_host_train_auto_target_host_fallback_residual_wave834;
 pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
+pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
 pub mod host_live_host_writeback_skip_pending_host_logs_residual_wave755;
 pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave759;
@@ -281,6 +281,7 @@ pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wa
 pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
 pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
 pub mod host_live_host_zone_damage_dual_peel_residual_wave825;
+pub mod host_live_presentation_empty_shadow_failopen_residual_wave838;
 pub mod host_locomotor_ready_log;
 pub mod host_model_condition_log;
 pub mod host_model_condition_ready_log;
@@ -2891,6 +2892,12 @@ pub use host_live_host_build_edge_margin_residual_wave829::{
     honesty_host_build_edge_margin_residual_pack_wave829,
     simulate_live_host_build_edge_margin_honesty,
 };
+pub use host_live_host_exec_smoke_release_prefer_residual_wave833::{
+    honesty_host_exec_smoke_release_prefer_method_names_residual_wave833,
+    honesty_host_exec_smoke_release_prefer_nav_commands_residual_wave833,
+    honesty_host_exec_smoke_release_prefer_residual_pack_wave833,
+    simulate_live_host_exec_smoke_release_prefer_honesty,
+};
 pub use host_live_host_map_primary_enemy_residual_wave830::{
     honesty_host_map_primary_enemy_method_names_residual_wave830,
     honesty_host_map_primary_enemy_nav_commands_residual_wave830,
@@ -2903,23 +2910,11 @@ pub use host_live_host_map_start_army_spawn_residual_wave831::{
     honesty_host_map_start_army_spawn_residual_pack_wave831,
     simulate_live_host_map_start_army_spawn_honesty,
 };
-pub use host_live_host_starting_units_table_residual_wave832::{
-    honesty_host_starting_units_table_method_names_residual_wave832,
-    honesty_host_starting_units_table_nav_commands_residual_wave832,
-    honesty_host_starting_units_table_residual_pack_wave832,
-    simulate_live_host_starting_units_table_honesty,
-};
-pub use host_live_host_exec_smoke_release_prefer_residual_wave833::{
-    honesty_host_exec_smoke_release_prefer_method_names_residual_wave833,
-    honesty_host_exec_smoke_release_prefer_nav_commands_residual_wave833,
-    honesty_host_exec_smoke_release_prefer_residual_pack_wave833,
-    simulate_live_host_exec_smoke_release_prefer_honesty,
-};
-pub use host_live_host_train_auto_target_host_fallback_residual_wave834::{
-    honesty_host_train_auto_target_host_fallback_method_names_residual_wave834,
-    honesty_host_train_auto_target_host_fallback_nav_commands_residual_wave834,
-    honesty_host_train_auto_target_host_fallback_residual_pack_wave834,
-    simulate_live_host_train_auto_target_host_fallback_honesty,
+pub use host_live_host_skirmish_map_force_lone_eagle_residual_wave837::{
+    honesty_host_skirmish_map_force_lone_eagle_method_names_residual_wave837,
+    honesty_host_skirmish_map_force_lone_eagle_nav_commands_residual_wave837,
+    honesty_host_skirmish_map_force_lone_eagle_residual_pack_wave837,
+    simulate_live_host_skirmish_map_force_lone_eagle_honesty,
 };
 pub use host_live_host_skirmish_wnd_latch_peels_residual_wave835::{
     honesty_host_skirmish_wnd_latch_peels_method_names_residual_wave835,
@@ -2927,11 +2922,23 @@ pub use host_live_host_skirmish_wnd_latch_peels_residual_wave835::{
     honesty_host_skirmish_wnd_latch_peels_residual_pack_wave835,
     simulate_live_host_skirmish_wnd_latch_peels_honesty,
 };
-pub use host_live_host_skirmish_map_force_lone_eagle_residual_wave837::{
-    honesty_host_skirmish_map_force_lone_eagle_method_names_residual_wave837,
-    honesty_host_skirmish_map_force_lone_eagle_nav_commands_residual_wave837,
-    honesty_host_skirmish_map_force_lone_eagle_residual_pack_wave837,
-    simulate_live_host_skirmish_map_force_lone_eagle_honesty,
+pub use host_live_host_starting_units_table_residual_wave832::{
+    honesty_host_starting_units_table_method_names_residual_wave832,
+    honesty_host_starting_units_table_nav_commands_residual_wave832,
+    honesty_host_starting_units_table_residual_pack_wave832,
+    simulate_live_host_starting_units_table_honesty,
+};
+pub use host_live_host_train_auto_target_host_fallback_residual_wave834::{
+    honesty_host_train_auto_target_host_fallback_method_names_residual_wave834,
+    honesty_host_train_auto_target_host_fallback_nav_commands_residual_wave834,
+    honesty_host_train_auto_target_host_fallback_residual_pack_wave834,
+    simulate_live_host_train_auto_target_host_fallback_honesty,
+};
+pub use host_live_host_vertical_render_mesh_gate_residual_wave839::{
+    honesty_host_vertical_render_mesh_gate_method_names_residual_wave839,
+    honesty_host_vertical_render_mesh_gate_nav_commands_residual_wave839,
+    honesty_host_vertical_render_mesh_gate_residual_pack_wave839,
+    simulate_live_host_vertical_render_mesh_gate_honesty,
 };
 pub use host_live_presentation_empty_shadow_failopen_residual_wave838::{
     honesty_presentation_empty_shadow_failopen_method_names_residual_wave838,
@@ -2939,11 +2946,6 @@ pub use host_live_presentation_empty_shadow_failopen_residual_wave838::{
     honesty_presentation_empty_shadow_failopen_residual_pack_wave838,
     simulate_live_presentation_empty_shadow_failopen_honesty,
 };
-
-
-
-
-
 
 pub use host_live_host_actively_constructing_dual_peel_residual_wave815::{
     honesty_host_actively_constructing_dual_peel_method_names_residual_wave815,

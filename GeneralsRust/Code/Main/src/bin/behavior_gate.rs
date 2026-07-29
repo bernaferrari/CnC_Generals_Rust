@@ -217,12 +217,9 @@ fn main() {
                 }
                 // Wave 836: when the host fully succeeds, require the strengthened
                 // vertical slice (WND latch peels + construct/train + presentation).
-                if exec.executable_host_ok
-                    && exec.reached_ingame
-                    && !exec.host_vertical_slice_ok
-                {
+                if exec.executable_host_ok && exec.reached_ingame && !exec.host_vertical_slice_ok {
                     failed.push(format!(
-                        "executable_smoke host_vertical_slice_ok=false (expected true on success; shell={} map={} slots={} rules={} start_wnd={} construct={} train={} gameplay={})",
+                        "executable_smoke host_vertical_slice_ok=false (expected true on success; shell={} map={} slots={} rules={} start_wnd={} construct={} train={} gameplay={} render_alive={} render_items={} render_stable={} live_fallback={})",
                         exec.shell_wnd_ok,
                         exec.skirmish_map_select_wnd_ok,
                         exec.skirmish_slot_config_wnd_ok,
@@ -230,7 +227,11 @@ fn main() {
                         exec.skirmish_start_wnd_ok,
                         exec.construct_cmd_ok,
                         exec.train_cmd_ok,
-                        exec.gameplay_cmd_ok
+                        exec.gameplay_cmd_ok,
+                        exec.max_render_alive_objects,
+                        exec.max_render_item_count,
+                        exec.render_items_stable_ok,
+                        exec.presentation_live_fallback_ok
                     ));
                 }
             }

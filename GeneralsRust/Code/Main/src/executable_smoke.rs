@@ -11,8 +11,8 @@
 //!   (`behavior_gate` enforces `playable_claim=false`).
 //! - `host_vertical_slice_ok` is the strengthened headless claim: shell WND + skirmish
 //!   latch chain (map/slots/rules/start) + InGame + construct/train/gameplay +
-//!   presentation boundary (no live GameLogic dual-read). Still not full retail
-//!   `playable_claim`.
+//!   presentation boundary with non-zero stable render items (no live GameLogic
+//!   dual-read). Still not full retail `playable_claim`.
 //! - `executable_host_ok` is the limited claim: process boots, reaches Menu or
 //!   InGame via runtime host commands, and exits cleanly.
 //! - If display/GPU/window creation fails in the environment, status is
@@ -43,8 +43,8 @@ pub struct ExecutableSmokeResult {
     pub playable_claim: bool,
     /// Honest headless vertical slice: shell WND + skirmish latch chain
     /// (map/slots/rules/start) + InGame + select/move + construct + train +
-    /// presentation-owned frame (no live GameLogic dual-read).
-    /// Still not full retail WND playable_claim.
+    /// presentation-owned frame with non-zero stable render items
+    /// (no live GameLogic dual-read). Still not full retail WND playable_claim.
     pub host_vertical_slice_ok: bool,
     /// Limited: process reached InGame (or Menu+start attempted) and exited 0.
     pub executable_host_ok: bool,
@@ -818,10 +818,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                 );
             } else {
                 result.shell_wnd_ok = saw_shell_wnd_ok;
-                result.executable_host_ok = executable_host_ok_from_residuals(
-                    result.reached_menu,
-                    result.shell_wnd_ok,
-                );
+                result.executable_host_ok =
+                    executable_host_ok_from_residuals(result.reached_menu, result.shell_wnd_ok);
                 result.status = "timeout".into();
                 result.detail = format!(
                     "timeout after {:?} last_state={} menu={} ingame={} frames={} phase={} shell_wnd={}",
@@ -2594,9 +2592,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             result.status = "exit_hang".into();
                             result.detail = format!(
                                 "exit command did not stop process; shell_wnd={} menu={} frames={}",
-                                saw_shell_wnd_ok,
-                                result.reached_menu,
-                                result.frames_observed
+                                saw_shell_wnd_ok, result.reached_menu, result.frames_observed
                             );
                         }
                         result.shell_wnd_ok = saw_shell_wnd_ok;
@@ -2620,6 +2616,16 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // Headless latch peels are not full interactive retail WND + GPU playthrough.
     // Keep the literal assignment so residual source gates keep matching.
     result.playable_claim = false;
+    // Wave 839: ensure presentation honesty counters are latched before vertical gate.
+    result.presentation_frame_ok = result.presentation_frame_ok || saw_presentation_frame_ok;
+    result.presentation_live_fallback_ok =
+        result.presentation_live_fallback_ok || saw_presentation_live_fallback_ok;
+    result.max_render_item_count = result.max_render_item_count.max(max_render_item_count);
+    result.max_render_alive_objects = result
+        .max_render_alive_objects
+        .max(max_render_alive_objects);
+    result.render_items_stable_ok = result.render_items_stable_ok
+        || (result.reached_ingame && max_render_item_count > 0 && render_items_nonzero_polls >= 3);
     // Vertical slice honesty (not playable_claim): presentation boundary + core cmds.
     // Wave 176: InGame vertical slice also requires presentation-owned frame
     // with zero live GameLogic dual-reads (immutable presentation boundary).
@@ -2640,8 +2646,14 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // Wave 196: when GW entities observed on default-on rebuild path, require rebuilt>0.
     let gameworld_rebuilt_boundary_ok =
         !result.gameworld_presentation_entities_ok || result.gameworld_rebuilt_ok;
-    // Wave 836: host vertical slice absorbs Wave 835 skirmish latch peels +
-    // restored construct/train/presentation gates. playable_claim stays always false.
+    // Wave 836/839: host vertical slice absorbs Wave 835 skirmish latch peels +
+    // construct/train/presentation gates + non-zero stable world render residual.
+    // playable_claim stays always false.
+    let render_mesh_boundary_ok = !result.reached_ingame
+        || (result.max_render_alive_objects > 0
+            && result.max_render_item_count > 0
+            && result.render_items_stable_ok
+            && result.presentation_live_fallback_ok);
     result.host_vertical_slice_ok = result.shell_wnd_ok
         && result.main_menu_skirmish_wnd_ok
         && result.skirmish_map_select_wnd_ok
@@ -2656,10 +2668,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         && presentation_boundary_ok
         && gameworld_presentation_boundary_ok
         && gameworld_overlay_boundary_ok
-        && gameworld_rebuilt_boundary_ok;
+        && gameworld_rebuilt_boundary_ok
+        && render_mesh_boundary_ok;
     result
 }
-
 
 fn runtime_host_wnd_enabled() -> bool {
     !matches!(
