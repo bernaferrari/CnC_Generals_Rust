@@ -219,6 +219,7 @@ pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
 pub mod host_live_host_map_primary_enemy_residual_wave830;
 pub mod host_live_host_map_start_army_spawn_residual_wave831;
+pub mod host_live_host_match_game_mode_residual_wave842;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
@@ -2911,6 +2912,11 @@ pub use host_live_host_map_start_army_spawn_residual_wave831::{
     honesty_host_map_start_army_spawn_nav_commands_residual_wave831,
     honesty_host_map_start_army_spawn_residual_pack_wave831,
     simulate_live_host_map_start_army_spawn_honesty,
+};
+pub use host_live_host_match_game_mode_residual_wave842::{
+    honesty_host_match_game_mode_method_names_residual_wave842,
+    honesty_host_match_game_mode_nav_commands_residual_wave842,
+    honesty_host_match_game_mode_residual_pack_wave842, simulate_live_host_match_game_mode_honesty,
 };
 pub use host_live_host_skirmish_map_force_lone_eagle_residual_wave837::{
     honesty_host_skirmish_map_force_lone_eagle_method_names_residual_wave837,
