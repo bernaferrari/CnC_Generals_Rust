@@ -1447,6 +1447,13 @@ pub struct CnCGameEngine {
     host_match_map_name: Option<String>,
     host_match_local_player_id: Option<u32>,
     host_match_ai_difficulty: Option<crate::ai::AIDifficulty>,
+    /// Wave 844: host-owned sim timing residuals (prefer over live GameLogic probes).
+    host_match_visual_speed: Option<f32>,
+    host_match_time_frozen: Option<bool>,
+    host_match_total_play_time: Option<f32>,
+    host_match_logic_frame: Option<u32>,
+    host_match_logic_steps: Option<(u32, bool, f32)>,
+    host_match_in_replay: Option<bool>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14344,6 +14351,12 @@ impl CnCGameEngine {
             host_match_map_name: None,
             host_match_local_player_id: None,
             host_match_ai_difficulty: None,
+            host_match_visual_speed: None,
+            host_match_time_frozen: None,
+            host_match_total_play_time: None,
+            host_match_logic_frame: None,
+            host_match_logic_steps: None,
+            host_match_in_replay: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19202,10 +19215,33 @@ impl CnCGameEngine {
     /// Wave 550: presentation freeze owns visual speed residual when installed.
     /// Boot residual without freeze uses host GameLogic probe.
     #[inline]
+
+    /// Wave 844: refresh host-owned sim timing residuals from Main GameLogic.
+    /// Called after match load and each presentation finalize (stamp only — consumers
+    /// prefer freeze, then these residuals, then boot live probes).
+    #[inline]
+    fn host_refresh_match_sim_residuals_from_logic(&mut self) {
+        self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
+        self.host_match_time_frozen = Some(self.game_logic.is_time_frozen_for_simulation());
+        self.host_match_total_play_time = Some(self.game_logic.get_total_play_time());
+        self.host_match_logic_frame = Some(self.game_logic.get_frame());
+        {
+            let d = self.game_logic.fixed_step_diagnostics();
+            self.host_match_logic_steps =
+                Some((d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds));
+        }
+        self.host_match_in_replay = Some(self.game_logic.isInReplayGame());
+        // Keep player residual aligned with current host selection.
+        self.host_match_local_player_id = Some(self.current_player_id);
+    }
+
     fn presentation_or_boot_visual_speed(&self) -> f32 {
-        // Wave 550: presentation freeze owns visual speed residual when installed.
+        // Wave 550/844: presentation freeze owns visual speed residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.visual_speed_multiplier;
+        }
+        if let Some(v) = self.host_match_visual_speed {
+            return v;
         }
         // Boot residual only.
         self.game_logic.visual_speed_multiplier()
@@ -19215,9 +19251,12 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host GameLogic probe.
     #[inline]
     fn presentation_or_boot_time_frozen(&self) -> bool {
-        // Wave 551: presentation freeze owns time-frozen residual when installed.
+        // Wave 551/844: presentation freeze owns time-frozen residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.time_frozen_for_simulation;
+        }
+        if let Some(v) = self.host_match_time_frozen {
+            return v;
         }
         // Boot residual only.
         self.game_logic.is_time_frozen_for_simulation()
@@ -19241,13 +19280,16 @@ impl CnCGameEngine {
     /// uses host `get_total_play_time`.
     #[inline]
     fn presentation_or_boot_total_play_time(&self) -> f32 {
-        // Wave 553: presentation freeze owns total play-time residual when installed.
+        // Wave 553/844: presentation freeze owns total play-time residual when installed.
         if let Some(pres) = self
             .render_pipeline
             .presentation_frame()
             .or(self.last_presentation_frame.as_ref())
         {
             return pres.total_play_time_seconds;
+        }
+        if let Some(v) = self.host_match_total_play_time {
+            return v;
         }
         // Boot residual only.
         self.game_logic.get_total_play_time()
@@ -19395,9 +19437,12 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host `isInReplayGame`.
     #[inline]
     fn presentation_or_boot_in_replay_game(&self) -> bool {
-        // Wave 557: presentation freeze owns replay-mode residual when installed.
+        // Wave 557/844: presentation freeze owns replay-mode residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.in_replay_game;
+        }
+        if let Some(v) = self.host_match_in_replay {
+            return v;
         }
         // Boot residual only.
         self.game_logic.isInReplayGame()
@@ -19428,9 +19473,12 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host `get_frame`.
     #[inline]
     fn presentation_or_boot_logic_frame(&self) -> u32 {
-        // Wave 560: presentation freeze owns logic-frame residual when installed.
+        // Wave 560/844: presentation freeze owns logic-frame residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.frame.0;
+        }
+        if let Some(v) = self.host_match_logic_frame {
+            return v;
         }
         // Boot residual only.
         self.game_logic.get_frame()
@@ -19448,13 +19496,16 @@ impl CnCGameEngine {
     /// without freeze uses host `fixed_step_diagnostics`.
     #[inline]
     fn presentation_or_boot_fixed_step_diagnostics(&self) -> (u32, bool, f32) {
-        // Wave 564: presentation freeze owns fixed-step diagnostics residual when installed.
+        // Wave 564/844: presentation freeze owns fixed-step diagnostics residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return (
                 pres.logic_steps_run,
                 pres.logic_steps_budget_hit,
                 pres.logic_steps_accumulated_seconds,
             );
+        }
+        if let Some(v) = self.host_match_logic_steps {
+            return v;
         }
         // Boot residual only.
         let d = self.game_logic.fixed_step_diagnostics();
@@ -19769,6 +19820,8 @@ impl CnCGameEngine {
         pres.apply_to_ui_state(&mut ui);
         self.last_ui_state = Some(ui);
         self.last_presentation_frame = Some(pres);
+        // Wave 844: stamp host sim residuals after match-start seed.
+        self.host_refresh_match_sim_residuals_from_logic();
     }
 
     /// Wave 590: boot/render residual — freeze a PresentationFrame if none installed.
@@ -20089,6 +20142,8 @@ impl CnCGameEngine {
             log::trace!("presentation particle client mirrors: {fx_n}");
         }
         self.last_presentation_frame = Some(pres);
+        // Wave 844: keep host sim residuals current for freeze-miss peels.
+        self.host_refresh_match_sim_residuals_from_logic();
 
         // Wave 568: InGame script FPS residual via helper.
         self.apply_ingame_script_fps_limit_residual();
@@ -20873,10 +20928,16 @@ impl CnCGameEngine {
         self.transition_to_state(GameState::Loading);
         // Wave 842: stamp host-owned match mode before map load / presentation seed.
         self.host_match_game_mode = Some(mode);
-        // Wave 843: clear prior match residuals until load completes.
+        // Wave 843/844: clear prior match residuals until load completes.
         self.host_match_map_name = None;
         self.host_match_local_player_id = None;
         self.host_match_ai_difficulty = None;
+        self.host_match_visual_speed = None;
+        self.host_match_time_frozen = None;
+        self.host_match_total_play_time = None;
+        self.host_match_logic_frame = None;
+        self.host_match_logic_steps = None;
+        self.host_match_in_replay = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
@@ -20919,10 +20980,11 @@ impl CnCGameEngine {
         // Wave 840: drop shell presentation freeze so match seed cannot keep ShellMapMD.
         self.render_pipeline.set_presentation_frame(None);
         self.last_presentation_frame = None;
-        // Wave 843: host-owned match residuals for presentation_or_boot peels.
+        // Wave 843/844: host-owned match residuals for presentation_or_boot peels.
         self.host_match_map_name = Some(map_name.clone());
         self.host_match_local_player_id = Some(self.current_player_id);
         self.host_match_ai_difficulty = Some(self.game_logic.get_difficulty());
+        self.host_refresh_match_sim_residuals_from_logic();
 
         // Reset transient state.
         self.host_set_paused(false);
