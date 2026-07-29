@@ -3780,6 +3780,11 @@ use crate::game_logic::host_live_host_world_bounds_ui_residual_wave862::{
     honesty_host_world_bounds_ui_residual_nav_commands_residual_wave862,
     simulate_live_host_world_bounds_ui_residual_honesty,
 };
+use crate::game_logic::host_live_host_first_opponent_residual_wave863::{
+    honesty_host_first_opponent_residual_method_names_residual_wave863,
+    honesty_host_first_opponent_residual_nav_commands_residual_wave863,
+    simulate_live_host_first_opponent_residual_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8003,6 +8008,9 @@ pub struct ShellSmokeResult {
     pub host_world_bounds_ui_residual_method_names_wave862_ok: bool,
     pub host_world_bounds_ui_residual_nav_commands_wave862_ok: bool,
     pub host_world_bounds_ui_residual_live_wave862_ok: bool,
+    pub host_first_opponent_residual_method_names_wave863_ok: bool,
+    pub host_first_opponent_residual_nav_commands_wave863_ok: bool,
+    pub host_first_opponent_residual_live_wave863_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12901,6 +12909,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_world_bounds_ui_residual_nav_commands_residual_wave862();
     let host_world_bounds_ui_residual_live_wave862_ok =
         simulate_live_host_world_bounds_ui_residual_honesty();
+    let host_first_opponent_residual_method_names_wave863_ok =
+        honesty_host_first_opponent_residual_method_names_residual_wave863();
+    let host_first_opponent_residual_nav_commands_wave863_ok =
+        honesty_host_first_opponent_residual_nav_commands_residual_wave863();
+    let host_first_opponent_residual_live_wave863_ok =
+        simulate_live_host_first_opponent_residual_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15473,6 +15487,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_world_bounds_ui_residual_method_names_wave862_ok,
         host_world_bounds_ui_residual_nav_commands_wave862_ok,
         host_world_bounds_ui_residual_live_wave862_ok,
+        host_first_opponent_residual_method_names_wave863_ok,
+        host_first_opponent_residual_nav_commands_wave863_ok,
+        host_first_opponent_residual_live_wave863_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
