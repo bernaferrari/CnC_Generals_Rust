@@ -19258,9 +19258,9 @@ impl CnCGameEngine {
     /// prefer freeze, then these residuals, then boot live probes).
     #[inline]
 
-    /// Wave 848: collect local-team train producers into host residuals (stamp phase).
-    /// Used by refresh and train auto_target peels so mid-command avoids ad-hoc
-    /// `get_objects` dual-reads when residuals are warm.
+    /// Wave 848/853: single stamp-phase object scan for alive-set + local train
+    /// producers. Prefer presentation freeze when installed (no host dual-read);
+    /// otherwise one `get_objects` pass fills both residual families.
     fn host_refresh_local_train_producer_residuals(&mut self) {
         let team = self
             .host_match_local_team
@@ -19274,31 +19274,74 @@ impl CnCGameEngine {
         let mut any = Vec::new();
         let mut unfinished = Vec::new();
         let mut sample = None;
-        for (id, o) in self.game_logic.get_objects() {
-            if o.team != team || !o.is_alive() {
-                continue;
+        let mut alive = std::collections::HashSet::new();
+
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            for o in &pres.objects {
+                if !o.destroyed && o.health_current > 0.0 {
+                    alive.insert(o.id.0);
+                }
+                if o.team != team || o.destroyed || o.health_current <= 0.0 {
+                    continue;
+                }
+                if sample.is_none() {
+                    let p = o.position;
+                    sample = Some([p.x, p.y, p.z]);
+                }
+                let name = o.template_name.to_ascii_lowercase();
+                let is_barracks = name.contains("barracks")
+                    || o.building_type
+                        == Some(crate::presentation_frame::PresentationBuildingType::Barracks);
+                let is_producer = o.can_produce
+                    || is_barracks
+                    || name.contains("warfactory")
+                    || name.contains("airfield")
+                    || name.contains("helipad");
+                if !is_producer {
+                    continue;
+                }
+                if o.under_construction {
+                    unfinished.push(o.id);
+                    continue;
+                }
+                if is_barracks {
+                    barracks.push(o.id);
+                } else {
+                    any.push(o.id);
+                }
             }
-            if sample.is_none() {
-                let p = o.position;
-                sample = Some([p.x, p.y, p.z]);
-            }
-            let name = o.template_name.to_ascii_lowercase();
-            let is_barracks = name.contains("barracks");
-            let is_producer = is_barracks
-                || name.contains("warfactory")
-                || name.contains("airfield")
-                || name.contains("helipad");
-            if !is_producer {
-                continue;
-            }
-            if o.status.under_construction {
-                unfinished.push(*id);
-                continue;
-            }
-            if is_barracks {
-                barracks.push(*id);
-            } else {
-                any.push(*id);
+        } else {
+            // Wave 853: single host scan for alive + producers (stamp phase only).
+            for (id, o) in self.game_logic.get_objects() {
+                if !o.is_alive() {
+                    continue;
+                }
+                alive.insert(id.0);
+                if o.team != team {
+                    continue;
+                }
+                if sample.is_none() {
+                    let p = o.position;
+                    sample = Some([p.x, p.y, p.z]);
+                }
+                let name = o.template_name.to_ascii_lowercase();
+                let is_barracks = name.contains("barracks");
+                let is_producer = is_barracks
+                    || name.contains("warfactory")
+                    || name.contains("airfield")
+                    || name.contains("helipad");
+                if !is_producer {
+                    continue;
+                }
+                if o.status.under_construction {
+                    unfinished.push(*id);
+                    continue;
+                }
+                if is_barracks {
+                    barracks.push(*id);
+                } else {
+                    any.push(*id);
+                }
             }
         }
         barracks.sort_by_key(|id| id.0);
@@ -19308,6 +19351,7 @@ impl CnCGameEngine {
         self.host_match_local_producer_ids = Some(any);
         self.host_match_local_unfinished_producer_ids = Some(unfinished);
         self.host_match_local_team_sample_pos = sample;
+        self.host_match_alive_object_ids = Some(alive);
     }
 
     fn host_refresh_match_sim_residuals_from_logic(&mut self) {
@@ -19401,24 +19445,8 @@ impl CnCGameEngine {
                 self.host_match_selected_ids = Some(from_objs);
             }
         }
-        // Wave 851: stamp alive-object residual from freeze, else host scan (stamp phase).
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            let alive: std::collections::HashSet<u32> = pres
-                .objects
-                .iter()
-                .filter(|o| !o.destroyed && o.health_current > 0.0)
-                .map(|o| o.id.0)
-                .collect();
-            self.host_match_alive_object_ids = Some(alive);
-        } else {
-            let alive: std::collections::HashSet<u32> = self
-                .game_logic
-                .get_objects()
-                .iter()
-                .filter_map(|(id, o)| o.is_alive().then_some(id.0))
-                .collect();
-            self.host_match_alive_object_ids = Some(alive);
-        }
+        // Wave 851/853: alive residual stamped inside host_refresh_local_train_producer_residuals
+        // (single freeze walk or single host get_objects scan).
         // Wave 852: stamp purchasable science residual (boot-path science UI peel).
         {
             const CANDIDATES: &[&str] = &[

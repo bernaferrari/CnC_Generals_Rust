@@ -230,6 +230,7 @@ pub mod host_live_host_match_selection_residuals_wave850;
 pub mod host_live_host_match_shell_team_residuals_wave845;
 pub mod host_live_host_match_sim_timing_residuals_wave844;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
+pub mod host_live_host_object_scan_unify_residual_wave853;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
 pub mod host_live_host_patriot_laser_dual_peel_residual_wave823;
@@ -2934,6 +2935,12 @@ pub use host_live_host_match_purchasable_science_residuals_wave852::{
     honesty_host_match_purchasable_science_residuals_nav_commands_residual_wave852,
     honesty_host_match_purchasable_science_residuals_residual_pack_wave852,
     simulate_live_host_match_purchasable_science_residuals_honesty,
+};
+pub use host_live_host_object_scan_unify_residual_wave853::{
+    honesty_host_object_scan_unify_method_names_residual_wave853,
+    honesty_host_object_scan_unify_nav_commands_residual_wave853,
+    honesty_host_object_scan_unify_residual_pack_wave853,
+    simulate_live_host_object_scan_unify_honesty,
 };
 
 pub use host_live_host_match_camera_follow_residuals_wave847::{

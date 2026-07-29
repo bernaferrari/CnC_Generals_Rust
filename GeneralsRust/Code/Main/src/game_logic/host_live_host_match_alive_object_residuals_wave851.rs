@@ -67,7 +67,8 @@ pub fn honesty_host_match_alive_object_residuals_nav_commands_residual_wave851()
 pub fn honesty_host_match_alive_object_residuals_residual_pack_wave851() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_alive_object_ids: Option<std::collections::HashSet<u32>>")
-        && cnc.contains("Wave 851: stamp alive-object residual")
+        && (cnc.contains("Wave 851: stamp alive-object residual")
+            || cnc.contains("Wave 851/853: alive residual stamped inside"))
         && cnc.contains("Wave 584/851")
         && cnc.contains("if let Some(alive) = self.host_match_alive_object_ids.as_ref()")
         && cnc.matches("alive.contains(&id.0)").count() >= 2
