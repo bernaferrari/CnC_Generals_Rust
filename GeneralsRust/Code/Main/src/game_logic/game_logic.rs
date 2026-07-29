@@ -66064,12 +66064,26 @@ impl GameLogic {
                 .unwrap_or(true);
         let name_ok = obj.template_name.to_ascii_lowercase().contains("barracks")
             || obj.is_kind_of(KindOf::FSBarracks);
+        // Wave 834: also accept force-complete residual producers that already
+        // look like infantry factories (Barracks building_type stamp only).
         if need_bd && name_ok {
             // Mirror engine residual: stamp Barracks building_data when missing/mismatched.
             obj.building_data = Some(BuildingData::new(BuildingType::Barracks));
             return true;
         }
         false
+    }
+
+    /// Wave 834: force-stamp Barracks building_data for auto_target train residual
+    /// when the producer is already known (host spawn / force-complete path).
+    pub fn force_ensure_barracks_building_data(&mut self, id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        obj.building_data = Some(BuildingData::new(BuildingType::Barracks));
+        obj.status.under_construction = false;
+        obj.construction_percent = 1.0;
+        true
     }
 
     /// Wave 225: clear movement path / target on a unit (host residual).

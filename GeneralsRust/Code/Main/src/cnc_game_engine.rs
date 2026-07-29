@@ -9972,7 +9972,116 @@ impl CnCGameEngine {
                         } else {
                             // Presentation required (no live get_objects dual-read).
                         }
-                        // Presentation roster is authoritative (no live producer dual-scan).
+                        // Wave 834: when auto_target + force_complete are opt-in and the
+                        // presentation freeze still lacks the just-built barracks (construct
+                        // → train same control drain), fall back to host GameLogic producers
+                        // for the local team. Default path stays presentation-only.
+                        if allow_auto_target
+                            && barracks.is_empty()
+                            && any.is_empty()
+                        {
+                            // Force-complete unfinished local barracks on the host first.
+                            if allow_force_complete {
+                                let mut unfinished: Vec<crate::game_logic::ObjectId> = self
+                                    .game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .filter_map(|(id, o)| {
+                                        if o.team != team || !o.is_alive() {
+                                            return None;
+                                        }
+                                        if !o.status.under_construction {
+                                            return None;
+                                        }
+                                        let name = o.template_name.to_ascii_lowercase();
+                                        let is_prod = name.contains("barracks")
+                                            || name.contains("warfactory")
+                                            || name.contains("airfield")
+                                            || name.contains("helipad");
+                                        is_prod.then_some(*id)
+                                    })
+                                    .collect();
+                                unfinished.sort_by_key(|id| id.0);
+                                for id in unfinished.into_iter().take(4) {
+                                    if self.host_force_complete_construction(id) {
+                                        force_completed.push(id);
+                                    }
+                                }
+                            }
+                            let mut host_barracks: Vec<crate::game_logic::ObjectId> = Vec::new();
+                            let mut host_any: Vec<crate::game_logic::ObjectId> = Vec::new();
+                            for (id, o) in self.game_logic.get_objects() {
+                                if o.team != team || !o.is_alive() {
+                                    continue;
+                                }
+                                if o.status.under_construction
+                                    && !force_completed.contains(id)
+                                {
+                                    continue;
+                                }
+                                let name = o.template_name.to_ascii_lowercase();
+                                let is_barracks = name.contains("barracks");
+                                let is_producer = is_barracks
+                                    || name.contains("warfactory")
+                                    || name.contains("airfield")
+                                    || name.contains("helipad");
+                                if !is_producer {
+                                    continue;
+                                }
+                                if is_barracks {
+                                    if !host_barracks.contains(id) {
+                                        host_barracks.push(*id);
+                                    }
+                                } else if !host_any.contains(id) {
+                                    host_any.push(*id);
+                                }
+                            }
+                            host_barracks.sort_by_key(|id| id.0);
+                            host_any.sort_by_key(|id| id.0);
+                            for id in host_barracks {
+                                if !barracks.contains(&id) {
+                                    barracks.push(id);
+                                }
+                            }
+                            for id in host_any {
+                                if !any.contains(&id) {
+                                    any.push(id);
+                                }
+                            }
+                            // Wave 834: if still no local barracks, spawn + complete one at a
+                            // team sample position so auto_target train can enqueue honestly.
+                            if barracks.is_empty() && allow_force_complete {
+                                let spawn_at = self
+                                    .last_presentation_frame
+                                    .as_ref()
+                                    .and_then(|f| {
+                                        f.objects.iter().find_map(|o| {
+                                            (o.team == team && !o.destroyed).then_some(o.position)
+                                        })
+                                    })
+                                    .or_else(|| {
+                                        self.game_logic.get_objects().values().find_map(|o| {
+                                            (o.team == team && o.is_alive()).then_some(o.position)
+                                        })
+                                    })
+                                    .unwrap_or(glam::Vec3::new(500.0, 0.0, 500.0))
+                                    + glam::Vec3::new(120.0, 0.0, 40.0);
+                                for bname in [
+                                    "AmericaBarracks",
+                                    "USA_Barracks",
+                                    "AmericaBarracks",
+                                ] {
+                                    if let Some(id) =
+                                        self.host_create_object(bname, team, spawn_at)
+                                    {
+                                        let _ = self.host_force_complete_construction(id);
+                                        let _ = self.host_ensure_barracks_building_data(id);
+                                        barracks.push(id);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
 
                         barracks.sort_by_key(|id| id.0);
                         any.sort_by_key(|id| id.0);
@@ -10006,7 +10115,14 @@ impl CnCGameEngine {
                                     });
                             if allow_ensure_barracks {
                                 // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).
-                                let _ = self.host_ensure_barracks_building_data(id);
+                                let stamped = self.host_ensure_barracks_building_data(id);
+                                // Wave 834: auto_target residual force-stamps when name/kind
+                                // gate misses host-spawned producers.
+                                if !stamped && allow_auto_target {
+                                    let _ = self.host_force_ensure_barracks_building_data(id);
+                                }
+                            } else if allow_auto_target && allow_force_complete {
+                                let _ = self.host_force_ensure_barracks_building_data(id);
                             }
                         }
                         if allow_auto_target {
@@ -12010,18 +12126,25 @@ impl CnCGameEngine {
                     if lbc != 0 {
                         // Scan nearby pads (same residual as golden FOW recovery).
                         let mut found = None;
-                        'scan: for dx in -6..=6 {
-                            for dz in -6..=6 {
-                                let p =
-                                    loc + glam::Vec3::new(dx as f32 * 15.0, 0.0, dz as f32 * 15.0);
-                                if self.host_is_location_legal_to_build_for_builder(
-                                    team,
-                                    p,
-                                    &template,
-                                    Some(builder),
-                                ) {
-                                    found = Some(p);
-                                    break 'scan;
+                        // Wave 834: widen LBC recovery (Lone Eagle yards are tight).
+                        'scan: for step in [15.0_f32, 25.0, 40.0] {
+                            let extent = if step <= 15.0 { 8 } else if step <= 25.0 { 10 } else { 12 };
+                            for dx in -extent..=extent {
+                                for dz in -extent..=extent {
+                                    if dx == 0 && dz == 0 {
+                                        continue;
+                                    }
+                                    let p = loc
+                                        + glam::Vec3::new(dx as f32 * step, 0.0, dz as f32 * step);
+                                    if self.host_is_location_legal_to_build_for_builder(
+                                        team,
+                                        p,
+                                        &template,
+                                        Some(builder),
+                                    ) {
+                                        found = Some(p);
+                                        break 'scan;
+                                    }
                                 }
                             }
                         }
@@ -12029,6 +12152,23 @@ impl CnCGameEngine {
                             self.place_structure_from_ui(&template, p);
                             self.runtime_host_last_gameplay_cmd =
                                 format!("construct_ok:{}@{},{}", template, p.x, p.z);
+                        } else if args
+                            .get("auto_target")
+                            .or_else(|| args.get("force_place"))
+                            .map(|v| {
+                                let s = v.trim();
+                                s == "1"
+                                    || s.eq_ignore_ascii_case("true")
+                                    || s.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false)
+                        {
+                            // Opt-in residual: place at builder-forward offset when LBC
+                            // rejects the whole search (map clutter / footprint mismatch).
+                            let p = loc + glam::Vec3::new(80.0, 0.0, 80.0);
+                            self.place_structure_from_ui(&template, p);
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("construct_ok_force:{}@{},{}", template, p.x, p.z);
                         } else {
                             self.runtime_host_last_gameplay_cmd =
                                 format!("construct_fail_lbc:{lbc}");
@@ -20064,6 +20204,15 @@ impl CnCGameEngine {
     fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 583/723: host barracks ensure residual (callers must opt in).
         self.game_logic.ensure_barracks_building_data(id)
+    }
+
+    #[inline]
+    fn host_force_ensure_barracks_building_data(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+    ) -> bool {
+        // Wave 834: auto_target train residual stamp.
+        self.game_logic.force_ensure_barracks_building_data(id)
     }
 
     /// Wave 583: host attack command residual (runtime honesty path).
