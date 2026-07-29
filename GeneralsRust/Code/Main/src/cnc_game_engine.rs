@@ -1492,6 +1492,8 @@ pub struct CnCGameEngine {
     host_match_script_camera_pitch: Option<f32>,
     /// Wave 861: host-owned multiplayer residual (presentation dual-read peel).
     host_match_in_multiplayer: Option<bool>,
+    /// Wave 862: host-owned world bounds residual (min, max).
+    host_match_world_bounds: Option<(glam::Vec3, glam::Vec3)>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14416,6 +14418,7 @@ impl CnCGameEngine {
             host_match_script_camera_max_height: None,
             host_match_script_camera_pitch: None,
             host_match_in_multiplayer: None,
+            host_match_world_bounds: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19483,11 +19486,18 @@ impl CnCGameEngine {
         }
         // Wave 861: stamp multiplayer residual (skirmish host is never multiplayer).
         self.host_match_in_multiplayer = Some(self.game_logic.isInMultiplayerGame());
+        // Wave 862: stamp world bounds residual (freeze first).
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_world_bounds = Some(pres.world_env.world_bounds_vec3());
+        } else {
+            self.host_match_world_bounds = Some(self.game_logic.world_bounds());
+        }
         // Wave 855: boot victory residual is frame-local — clear before restamping.
         self.host_match_boot_victory_condition = None;
         self.host_match_script_camera_max_height = None;
         self.host_match_script_camera_pitch = None;
         self.host_match_in_multiplayer = None;
+        self.host_match_world_bounds = None;
         // Wave 849: stamp match outcome residuals from freeze (or clear when none).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_over = Some(pres.match_over);
@@ -20556,6 +20566,7 @@ impl CnCGameEngine {
                 .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
         }
         // PRES_SHELL_ONLY_DRAWABLE_TICK: client modules via update_drawables_local.
+        // Wave 862: presentation pose/shroud/caption residual already applied above.
         // Do not call full update_drawables — double-ticks and overwrites presentation FOW.
         // Boot/loading without freeze still uses the same shell tick (empty registry early-out).
         if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
@@ -20566,7 +20577,12 @@ impl CnCGameEngine {
     /// Wave 585: host UI-state residual (boot/loading without presentation freeze).
     #[inline]
     fn host_update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
-        // Wave 585: host update_ui_state residual.
+        // Wave 585/862: prefer last presentation UI residual when freeze installed.
+        if let Some(ui) = self.last_ui_state.clone() {
+            let _ = player_id;
+            return ui;
+        }
+        // Boot residual only.
         self.game_logic.update_ui_state(player_id)
     }
 
@@ -20591,7 +20607,14 @@ impl CnCGameEngine {
     /// Wave 585: host world-bounds residual (boot path without presentation freeze).
     #[inline]
     fn host_world_bounds(&self) -> (glam::Vec3, glam::Vec3) {
-        // Wave 585: host world_bounds residual.
+        // Wave 585/862: prefer freeze / host residual before live dual-read.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.world_env.world_bounds_vec3();
+        }
+        if let Some(b) = self.host_match_world_bounds {
+            return b;
+        }
+        // Boot residual only.
         self.game_logic.world_bounds()
     }
 
