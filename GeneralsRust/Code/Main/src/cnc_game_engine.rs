@@ -4423,9 +4423,21 @@ impl CnCGameEngine {
                             } else {
                                 "click_skirmish_start_ok_wnd"
                             };
+                            // Wave 840: control-file map wins over boot ShellMap pending residual.
+                            let control_map =
+                                args.get("map").cloned().filter(|m| !m.trim().is_empty());
                             if let Some((mode, faction, map, skirmish)) =
                                 self.take_pending_new_game_start_request()
                             {
+                                let map = control_map
+                                    .clone()
+                                    .filter(|m| !Self::map_name_is_shell_residual(m))
+                                    .unwrap_or(map);
+                                let map = if Self::map_name_is_shell_residual(&map) {
+                                    control_map.clone().unwrap_or(map)
+                                } else {
+                                    map
+                                };
                                 self.start_game_from_ui(mode, faction, map, skirmish);
                                 self.runtime_host_last_gameplay_cmd = start_cmd.into();
                             } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested(
@@ -4434,12 +4446,40 @@ impl CnCGameEngine {
                                 if let Some((mode, faction, map, skirmish)) =
                                     self.build_start_request_from_pending_globals(None)
                                 {
+                                    let map = control_map
+                                        .clone()
+                                        .filter(|m| !Self::map_name_is_shell_residual(m))
+                                        .unwrap_or(map);
+                                    let map = if Self::map_name_is_shell_residual(&map) {
+                                        control_map.clone().unwrap_or(map)
+                                    } else {
+                                        map
+                                    };
                                     self.start_game_from_ui(mode, faction, map, skirmish);
                                     self.runtime_host_last_gameplay_cmd = start_cmd.into();
+                                } else if let Some(map) = control_map.clone() {
+                                    // Pending empty but control map present — start soft residual.
+                                    self.start_game_from_ui(
+                                        GameMode::Skirmish,
+                                        "USA".into(),
+                                        map,
+                                        None,
+                                    );
+                                    self.runtime_host_last_gameplay_cmd =
+                                        "click_skirmish_start_ok_wnd_control_map".into();
                                 } else {
                                     self.runtime_host_last_gameplay_cmd =
                                         "click_skirmish_start_wnd_pending".into();
                                 }
+                            } else if let Some(map) = control_map.clone() {
+                                self.start_game_from_ui(
+                                    GameMode::Skirmish,
+                                    "USA".into(),
+                                    map,
+                                    None,
+                                );
+                                self.runtime_host_last_gameplay_cmd =
+                                    "click_skirmish_start_ok_wnd_control_map".into();
                             } else {
                                 self.runtime_host_last_gameplay_cmd =
                                     "click_skirmish_start_wnd_pending".into();
@@ -4468,6 +4508,13 @@ impl CnCGameEngine {
                             map,
                             skirmish,
                         }) => {
+                            // Wave 840: prefer control map over soft menu residual shell map.
+                            let map = args
+                                .get("map")
+                                .cloned()
+                                .filter(|m| !m.trim().is_empty())
+                                .filter(|m| !Self::map_name_is_shell_residual(m))
+                                .unwrap_or(map);
                             self.start_game_from_ui(mode, faction, map, skirmish);
                             self.runtime_host_last_gameplay_cmd = "click_skirmish_start_ok".into();
                         }
@@ -19274,8 +19321,20 @@ impl CnCGameEngine {
     #[inline]
     fn presentation_or_boot_map_name(&self) -> String {
         // Wave 554: presentation freeze owns map-name residual when installed.
+        // Wave 840: if freeze still holds shell residual after match load, prefer host map.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
-            return pres.world_env.map_name.clone();
+            let freeze = pres.world_env.map_name.clone();
+            if matches!(
+                self.current_state,
+                GameState::InGame | GameState::Paused | GameState::Loading
+            ) && Self::map_name_is_shell_residual(&freeze)
+            {
+                let host = self.game_logic.get_current_map_name().to_string();
+                if !Self::map_name_is_shell_residual(&host) {
+                    return host;
+                }
+            }
+            return freeze;
         }
         // Boot residual only.
         self.game_logic.get_current_map_name().to_string()
@@ -20696,6 +20755,57 @@ impl CnCGameEngine {
         self.sound_effects.push(sink);
     }
 
+    #[inline]
+    fn map_name_is_shell_residual(map: &str) -> bool {
+        let t = map.trim();
+        if t.is_empty() {
+            return true;
+        }
+        let lower = t.to_ascii_lowercase();
+        lower.contains("shellmap")
+            || lower == "default map"
+            || lower.ends_with("shellmapmd.map")
+            || lower.contains("\\shellmapmd\\")
+            || lower.contains("/shellmapmd/")
+    }
+
+    /// Wave 840: skirmish start must not keep boot ShellMapMD when a real control/
+    /// setup map is available (or when empty → DEFAULT_SKIRMISH_MAP).
+    fn resolve_skirmish_start_map_name(mode: GameMode, map: String) -> String {
+        let mut map_name = if map.trim().is_empty() {
+            DEFAULT_SKIRMISH_MAP.to_string()
+        } else {
+            map
+        };
+        if mode != GameMode::Skirmish {
+            return map_name;
+        }
+        if !Self::map_name_is_shell_residual(&map_name) {
+            return map_name;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            let setup = game_client::gui::get_skirmish_setup();
+            let selected = setup.selected_map().trim().to_string();
+            if !Self::map_name_is_shell_residual(&selected) {
+                return selected;
+            }
+            let info_map = setup.game_info().game_info().get_map().trim().to_string();
+            if !Self::map_name_is_shell_residual(&info_map) {
+                return info_map;
+            }
+        }
+        // Last resort: still refuse shell residual for skirmish authority start.
+        if Self::map_name_is_shell_residual(&map_name) {
+            warn!(
+                "Wave 840: rejecting shell residual map '{}' for skirmish start; using {}",
+                map_name, DEFAULT_SKIRMISH_MAP
+            );
+            return DEFAULT_SKIRMISH_MAP.to_string();
+        }
+        map_name
+    }
+
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     /// Wave 611: via `host_start_game_from_ui`.
     fn start_game_from_ui(
@@ -20724,11 +20834,8 @@ impl CnCGameEngine {
         self.transition_to_state(GameState::Loading);
 
         let faction_team = Self::team_from_faction(&faction);
-        let map_name = if map.trim().is_empty() {
-            DEFAULT_SKIRMISH_MAP.to_string()
-        } else {
-            map
-        };
+        // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
+        let map_name = Self::resolve_skirmish_start_map_name(mode, map);
 
         info!(
             "UI requested start: mode={:?}, faction={}, map={}, skirmish_slots={}",
@@ -20764,6 +20871,9 @@ impl CnCGameEngine {
 
         // Wave 579: host map-load residual via helper.
         self.host_load_map_or_default(&map_name);
+        // Wave 840: drop shell presentation freeze so match seed cannot keep ShellMapMD.
+        self.render_pipeline.set_presentation_frame(None);
+        self.last_presentation_frame = None;
 
         // Reset transient state.
         self.host_set_paused(false);

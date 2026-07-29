@@ -219,7 +219,7 @@ fn main() {
                 // vertical slice (WND latch peels + construct/train + presentation).
                 if exec.executable_host_ok && exec.reached_ingame && !exec.host_vertical_slice_ok {
                     failed.push(format!(
-                        "executable_smoke host_vertical_slice_ok=false (expected true on success; shell={} map={} slots={} rules={} start_wnd={} construct={} train={} gameplay={} render_alive={} render_items={} render_stable={} live_fallback={})",
+                        "executable_smoke host_vertical_slice_ok=false (expected true on success; shell={} map_select={} slots={} rules={} start_wnd={} construct={} train={} gameplay={} render_alive={} render_items={} render_stable={} live_fallback={} map_seen={})",
                         exec.shell_wnd_ok,
                         exec.skirmish_map_select_wnd_ok,
                         exec.skirmish_slot_config_wnd_ok,
@@ -231,7 +231,8 @@ fn main() {
                         exec.max_render_alive_objects,
                         exec.max_render_item_count,
                         exec.render_items_stable_ok,
-                        exec.presentation_live_fallback_ok
+                        exec.presentation_live_fallback_ok,
+                        exec.map_seen
                     ));
                 }
             }
