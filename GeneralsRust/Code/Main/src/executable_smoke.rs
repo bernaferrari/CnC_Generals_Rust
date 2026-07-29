@@ -7,7 +7,12 @@
 //!
 //! Honesty:
 //! - `playable_claim` is **always false** here until full interactive retail WND navigation is proven end-to-end
-//!   path + GPU match playthrough is proven.
+//!   path + GPU match playthrough is proven. Headless latch peels are not that bar
+//!   (`behavior_gate` enforces `playable_claim=false`).
+//! - `host_vertical_slice_ok` is the strengthened headless claim: shell WND + skirmish
+//!   latch chain (map/slots/rules/start) + InGame + construct/train/gameplay +
+//!   presentation boundary (no live GameLogic dual-read). Still not full retail
+//!   `playable_claim`.
 //! - `executable_host_ok` is the limited claim: process boots, reaches Menu or
 //!   InGame via runtime host commands, and exits cleanly.
 //! - If display/GPU/window creation fails in the environment, status is
@@ -34,9 +39,11 @@ pub struct ExecutableSmokeResult {
     pub status: String,
     pub detail: String,
     /// Always false — not a retail W3D interactive playthrough claim.
+    /// Headless latch peels must not flip this; behavior_gate enforces false.
     pub playable_claim: bool,
-    /// Honest headless vertical slice: WND start residual + InGame + select/move +
-    /// construct + train + presentation-owned frame (no live GameLogic dual-read).
+    /// Honest headless vertical slice: shell WND + skirmish latch chain
+    /// (map/slots/rules/start) + InGame + select/move + construct + train +
+    /// presentation-owned frame (no live GameLogic dual-read).
     /// Still not full retail WND playable_claim.
     pub host_vertical_slice_ok: bool,
     /// Limited: process reached InGame (or Menu+start attempted) and exited 0.
@@ -2609,22 +2616,11 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
     let _ = fs::remove_dir_all(&tmp);
 
-    // Wave 835: playable_claim is honest residual, not a marketing bit.
-    // Requires shell WND residual + skirmish latch chain (map/slots/rules + Start
-    // gadget residual) + InGame + construct/train/gameplay. Still NOT a full
-    // interactive human WND click path (layout parse may be latch-only headless).
-    result.playable_claim = result.shell_wnd_ok
-        && result.main_menu_skirmish_wnd_ok
-        && result.skirmish_map_select_wnd_ok
-        && result.skirmish_slot_config_wnd_ok
-        && result.skirmish_rules_wnd_ok
-        && result.skirmish_start_wnd_ok
-        && result.reached_ingame
-        && result.gameplay_cmd_ok
-        && result.construct_cmd_ok
-        && result.train_cmd_ok
-        && result.executable_host_ok;
-    // Vertical slice honesty (not playable_claim): WND start + InGame + core cmds.
+    // Wave 836: playable_claim stays always false (behavior_gate residual honesty).
+    // Headless latch peels are not full interactive retail WND + GPU playthrough.
+    // Keep the literal assignment so residual source gates keep matching.
+    result.playable_claim = false;
+    // Vertical slice honesty (not playable_claim): presentation boundary + core cmds.
     // Wave 176: InGame vertical slice also requires presentation-owned frame
     // with zero live GameLogic dual-reads (immutable presentation boundary).
     // Soft when display never reached InGame (assets/GPU unavailable).
@@ -2644,17 +2640,26 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // Wave 196: when GW entities observed on default-on rebuild path, require rebuilt>0.
     let gameworld_rebuilt_boundary_ok =
         !result.gameworld_presentation_entities_ok || result.gameworld_rebuilt_ok;
-    // Wave 833: host vertical slice = shell WND residual + skirmish start (soft or
-    // WND) + InGame + a real gameplay command residual. Full retail WND map/slot
-    // peels remain under playable_claim (still false).
+    // Wave 836: host vertical slice absorbs Wave 835 skirmish latch peels +
+    // restored construct/train/presentation gates. playable_claim stays always false.
     result.host_vertical_slice_ok = result.shell_wnd_ok
+        && result.main_menu_skirmish_wnd_ok
+        && result.skirmish_map_select_wnd_ok
+        && result.skirmish_slot_config_wnd_ok
+        && result.skirmish_rules_wnd_ok
+        && result.skirmish_start_wnd_ok
         && result.reached_ingame
         && result.gameplay_cmd_ok
-        && (result.skirmish_start_wnd_ok
-            || result.skirmish_start_click_ok
-            || result.main_menu_skirmish_wnd_ok);
+        && result.construct_cmd_ok
+        && result.train_cmd_ok
+        && result.executable_host_ok
+        && presentation_boundary_ok
+        && gameworld_presentation_boundary_ok
+        && gameworld_overlay_boundary_ok
+        && gameworld_rebuilt_boundary_ok;
     result
 }
+
 
 fn runtime_host_wnd_enabled() -> bool {
     !matches!(
