@@ -258,6 +258,7 @@ pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave
 pub mod host_live_host_starting_units_table_residual_wave832;
 pub mod host_live_host_exec_smoke_release_prefer_residual_wave833;
 pub mod host_live_host_train_auto_target_host_fallback_residual_wave834;
+pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
 pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
@@ -2918,6 +2919,13 @@ pub use host_live_host_train_auto_target_host_fallback_residual_wave834::{
     honesty_host_train_auto_target_host_fallback_residual_pack_wave834,
     simulate_live_host_train_auto_target_host_fallback_honesty,
 };
+pub use host_live_host_skirmish_wnd_latch_peels_residual_wave835::{
+    honesty_host_skirmish_wnd_latch_peels_method_names_residual_wave835,
+    honesty_host_skirmish_wnd_latch_peels_nav_commands_residual_wave835,
+    honesty_host_skirmish_wnd_latch_peels_residual_pack_wave835,
+    simulate_live_host_skirmish_wnd_latch_peels_honesty,
+};
+
 
 
 

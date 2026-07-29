@@ -4309,10 +4309,11 @@ impl CnCGameEngine {
                 let mut wnd_start_ok = false;
                 #[cfg(feature = "game_client")]
                 {
-                    // Wave 833: headless default avoids SkirmishGameOptionsMenu.wnd parse
-                    // (stalls the frame). Soft SkirmishMenu Start residual still starts
-                    // the match. Opt into heavy WND with GENERALS_RUNTIME_HOST_SKIRMISH_WND=1.
-                    let push_wnd = if self.runtime_host_headless {
+                    // Wave 833/835: headless default avoids SkirmishGameOptionsMenu.wnd
+                    // *layout parse* (stalls the frame). Wave 835 still runs map-select /
+                    // slot / rules / ButtonStart *state latch* residuals without create_layout.
+                    // Opt into heavy layout push with GENERALS_RUNTIME_HOST_SKIRMISH_WND=1.
+                    let push_wnd_layout = if self.runtime_host_headless {
                         std::env::var("GENERALS_RUNTIME_HOST_SKIRMISH_WND")
                             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                             .unwrap_or(false)
@@ -4321,11 +4322,15 @@ impl CnCGameEngine {
                             .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
                             .unwrap_or(true)
                     };
-                    if push_wnd {
-                        self.enter_shell_screen_from_runtime_host(
-                            Some("Skirmish"),
-                            "Menus/SkirmishGameOptionsMenu.wnd",
-                        );
+                    // Headless always runs latch peels; interactive needs layout when WND on.
+                    let run_wnd_latches = push_wnd_layout || self.runtime_host_headless;
+                    if run_wnd_latches {
+                        if push_wnd_layout {
+                            self.enter_shell_screen_from_runtime_host(
+                                Some("Skirmish"),
+                                "Menus/SkirmishGameOptionsMenu.wnd",
+                            );
+                        }
                         // Bind control IDs + selected map into WND state when possible.
                         // Prefer retail map-select overlay residual (ButtonSelectMap →
                         // Listbox/OK) before Start, matching C++ player map pick.
