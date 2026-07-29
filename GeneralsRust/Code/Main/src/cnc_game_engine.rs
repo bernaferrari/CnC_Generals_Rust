@@ -1440,6 +1440,9 @@ pub struct CnCGameEngine {
     game_logic: GameLogic,
     /// Immutable presentation feed for client/render after last logic step.
     last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    /// Wave 842: host-owned match mode residual set at start_game_from_ui.
+    /// Prefer over live GameLogic::game_mode when presentation freeze is missing.
+    host_match_game_mode: Option<GameMode>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14333,6 +14336,7 @@ impl CnCGameEngine {
 
             game_logic,
             last_presentation_frame: None,
+            host_match_game_mode: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19176,11 +19180,16 @@ impl CnCGameEngine {
 
     /// Prefer presentation-frozen game mode when a frame is installed.
     fn host_presentation_or_live_game_mode(&self) -> GameMode {
-        // Wave 609: host UI/presentation residual helper.
-        self.last_presentation_frame
-            .as_ref()
-            .map(|p| p.game_mode)
-            .unwrap_or_else(|| self.game_logic.game_mode())
+        // Wave 609/842: host UI/presentation residual helper.
+        // Prefer freeze, then host-owned match mode residual, then boot GameLogic.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.game_mode;
+        }
+        if let Some(mode) = self.host_match_game_mode {
+            return mode;
+        }
+        // Boot residual only (no match started yet).
+        self.game_logic.game_mode()
     }
 
     /// Wave 550: presentation freeze owns visual speed residual when installed.
@@ -20840,6 +20849,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.prepare_cpp_load_screen_for_mode(mode, false);
         self.transition_to_state(GameState::Loading);
+        // Wave 842: stamp host-owned match mode before map load / presentation seed.
+        self.host_match_game_mode = Some(mode);
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
