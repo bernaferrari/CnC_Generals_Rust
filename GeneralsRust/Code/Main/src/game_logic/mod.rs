@@ -262,6 +262,7 @@ pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
 pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
 pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
+pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
@@ -2908,6 +2909,13 @@ pub use host_live_host_boot_victory_condition_residual_wave855::{
     honesty_host_boot_victory_condition_residual_pack_wave855,
     simulate_live_host_boot_victory_condition_residual_honesty,
 };
+pub use host_live_host_sell_auto_target_residual_wave856::{
+    honesty_host_sell_auto_target_residual_method_names_residual_wave856,
+    honesty_host_sell_auto_target_residual_nav_commands_residual_wave856,
+    honesty_host_sell_auto_target_residual_pack_wave856,
+    simulate_live_host_sell_auto_target_residual_honesty,
+};
+
 pub use host_live_host_build_edge_margin_residual_wave829::{
     honesty_host_build_edge_margin_method_names_residual_wave829,
     honesty_host_build_edge_margin_nav_commands_residual_wave829,

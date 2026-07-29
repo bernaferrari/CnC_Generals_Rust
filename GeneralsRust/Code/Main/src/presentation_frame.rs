@@ -5763,9 +5763,17 @@ impl PresentationFrame {
             .filter(|o| {
                 o.team == player_team
                     && !o.destroyed
-                    && UnitControlSystem::presentation_is_selectable(o)
-                    && (Self::object_has_kind(o, KindOf::Structure)
+                    && !o.under_construction
+                    // Wave 856: selectable OR known structure/building residual (construct
+                    // same-frame may lag presentation_is_selectable flags).
+                    && (UnitControlSystem::presentation_is_selectable(o)
+                        || o.is_structure
+                        || o.building_type.is_some()
                         || o.object_type == PresentationObjectType::Building)
+                    && (Self::object_has_kind(o, KindOf::Structure)
+                        || o.object_type == PresentationObjectType::Building
+                        || o.is_structure
+                        || o.building_type.is_some())
                     && !Self::object_has_kind(o, KindOf::CommandCenter)
                     && o.building_type != Some(PresentationBuildingType::CommandCenter)
             })
