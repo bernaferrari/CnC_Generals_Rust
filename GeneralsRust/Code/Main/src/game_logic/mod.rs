@@ -260,6 +260,7 @@ pub mod host_live_host_exec_smoke_release_prefer_residual_wave833;
 pub mod host_live_host_train_auto_target_host_fallback_residual_wave834;
 pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
 pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
+pub mod host_live_presentation_empty_shadow_failopen_residual_wave838;
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
 pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
@@ -2932,6 +2933,13 @@ pub use host_live_host_skirmish_map_force_lone_eagle_residual_wave837::{
     honesty_host_skirmish_map_force_lone_eagle_residual_pack_wave837,
     simulate_live_host_skirmish_map_force_lone_eagle_honesty,
 };
+pub use host_live_presentation_empty_shadow_failopen_residual_wave838::{
+    honesty_presentation_empty_shadow_failopen_method_names_residual_wave838,
+    honesty_presentation_empty_shadow_failopen_nav_commands_residual_wave838,
+    honesty_presentation_empty_shadow_failopen_residual_pack_wave838,
+    simulate_live_presentation_empty_shadow_failopen_honesty,
+};
+
 
 
 
