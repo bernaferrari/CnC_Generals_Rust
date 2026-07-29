@@ -218,6 +218,7 @@ pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
 pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
 pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
+pub mod host_live_host_map_name_failclosed_residual_wave860;
 pub mod host_live_host_map_primary_enemy_residual_wave830;
 pub mod host_live_host_map_start_army_spawn_residual_wave831;
 pub mod host_live_host_match_alive_object_residuals_wave851;
@@ -2912,12 +2913,19 @@ pub use host_live_host_boot_victory_condition_residual_wave855::{
     honesty_host_boot_victory_condition_residual_pack_wave855,
     simulate_live_host_boot_victory_condition_residual_honesty,
 };
+pub use host_live_host_map_name_failclosed_residual_wave860::{
+    honesty_host_map_name_failclosed_method_names_residual_wave860,
+    honesty_host_map_name_failclosed_nav_commands_residual_wave860,
+    honesty_host_map_name_failclosed_residual_pack_wave860,
+    simulate_live_host_map_name_failclosed_honesty,
+};
 pub use host_live_host_residual_failclosed_peels_wave859::{
     honesty_host_residual_failclosed_peels_method_names_residual_wave859,
     honesty_host_residual_failclosed_peels_nav_commands_residual_wave859,
     honesty_host_residual_failclosed_peels_residual_pack_wave859,
     simulate_live_host_residual_failclosed_peels_honesty,
 };
+
 pub use host_live_host_script_camera_residuals_wave858::{
     honesty_host_script_camera_residuals_method_names_residual_wave858,
     honesty_host_script_camera_residuals_nav_commands_residual_wave858,

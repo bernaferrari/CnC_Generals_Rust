@@ -86,7 +86,11 @@ pub fn honesty_host_skirmish_map_reject_shell_residual_pack_wave840() -> bool {
         && cnc.contains("Wave 840: drop shell presentation freeze")
         && cnc.contains("Wave 840: control-file map wins over boot ShellMap")
         && (cnc.contains("Wave 840: if freeze still holds shell residual after match load")
-            || cnc.contains("Wave 840/843: if freeze still holds shell residual after match load"))
+            || (cnc
+                .contains("Wave 840/843: if freeze still holds shell residual after match load")
+                || cnc.contains(
+                    "Wave 840/843/860: if freeze still holds shell residual after match load",
+                )))
         && es.contains("skirmish_map_boundary_ok")
         && es.contains("map_is_shell_residual")
         && es.contains("&& skirmish_map_boundary_ok")

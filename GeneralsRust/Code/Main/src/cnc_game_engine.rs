@@ -19703,9 +19703,9 @@ impl CnCGameEngine {
     /// (even if empty). Boot residual without freeze uses host map probe.
     #[inline]
     fn presentation_or_boot_map_name(&self) -> String {
-        // Wave 554: presentation freeze owns map-name residual when installed.
-        // Wave 840/843: if freeze still holds shell residual after match load, prefer
-        // host_match_map_name (no live GameLogic dual-read), then boot host map.
+        // Wave 554/860: presentation freeze owns map-name residual when installed.
+        // Wave 840/843/860: if freeze still holds shell residual after match load, prefer
+        // host_match_map_name (no live GameLogic dual-read). Live probe only when residual cold.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             let freeze = pres.world_env.map_name.clone();
             if matches!(
@@ -19717,7 +19717,10 @@ impl CnCGameEngine {
                     if !Self::map_name_is_shell_residual(host) {
                         return host.clone();
                     }
+                    // Wave 860: warm residual still shell — fail-closed to residual, no live dual-read.
+                    return host.clone();
                 }
+                // Residual cold: last-resort live probe (true boot / pre-stamp).
                 let host = self.game_logic.get_current_map_name().to_string();
                 if !Self::map_name_is_shell_residual(&host) {
                     return host;
