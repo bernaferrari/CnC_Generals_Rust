@@ -3775,6 +3775,11 @@ use crate::game_logic::host_live_host_multiplayer_science_failclosed_wave861::{
     honesty_host_multiplayer_science_failclosed_nav_commands_residual_wave861,
     simulate_live_host_multiplayer_science_failclosed_honesty,
 };
+use crate::game_logic::host_live_host_world_bounds_ui_residual_wave862::{
+    honesty_host_world_bounds_ui_residual_method_names_residual_wave862,
+    honesty_host_world_bounds_ui_residual_nav_commands_residual_wave862,
+    simulate_live_host_world_bounds_ui_residual_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7995,6 +8000,9 @@ pub struct ShellSmokeResult {
     pub host_multiplayer_science_failclosed_method_names_wave861_ok: bool,
     pub host_multiplayer_science_failclosed_nav_commands_wave861_ok: bool,
     pub host_multiplayer_science_failclosed_live_wave861_ok: bool,
+    pub host_world_bounds_ui_residual_method_names_wave862_ok: bool,
+    pub host_world_bounds_ui_residual_nav_commands_wave862_ok: bool,
+    pub host_world_bounds_ui_residual_live_wave862_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12887,6 +12895,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_multiplayer_science_failclosed_nav_commands_residual_wave861();
     let host_multiplayer_science_failclosed_live_wave861_ok =
         simulate_live_host_multiplayer_science_failclosed_honesty();
+    let host_world_bounds_ui_residual_method_names_wave862_ok =
+        honesty_host_world_bounds_ui_residual_method_names_residual_wave862();
+    let host_world_bounds_ui_residual_nav_commands_wave862_ok =
+        honesty_host_world_bounds_ui_residual_nav_commands_residual_wave862();
+    let host_world_bounds_ui_residual_live_wave862_ok =
+        simulate_live_host_world_bounds_ui_residual_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15456,6 +15470,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_multiplayer_science_failclosed_method_names_wave861_ok,
         host_multiplayer_science_failclosed_nav_commands_wave861_ok,
         host_multiplayer_science_failclosed_live_wave861_ok,
+        host_world_bounds_ui_residual_method_names_wave862_ok,
+        host_world_bounds_ui_residual_nav_commands_wave862_ok,
+        host_world_bounds_ui_residual_live_wave862_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

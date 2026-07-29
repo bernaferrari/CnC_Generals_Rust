@@ -295,6 +295,7 @@ pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
 pub mod host_live_host_train_producer_residual_wave848;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
+pub mod host_live_host_world_bounds_ui_residual_wave862;
 pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
 pub mod host_live_host_writeback_skip_pending_host_logs_residual_wave755;
 pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave759;
@@ -2925,6 +2926,12 @@ pub use host_live_host_multiplayer_science_failclosed_wave861::{
     honesty_host_multiplayer_science_failclosed_nav_commands_residual_wave861,
     honesty_host_multiplayer_science_failclosed_residual_pack_wave861,
     simulate_live_host_multiplayer_science_failclosed_honesty,
+};
+pub use host_live_host_world_bounds_ui_residual_wave862::{
+    honesty_host_world_bounds_ui_residual_method_names_residual_wave862,
+    honesty_host_world_bounds_ui_residual_nav_commands_residual_wave862,
+    honesty_host_world_bounds_ui_residual_pack_wave862,
+    simulate_live_host_world_bounds_ui_residual_honesty,
 };
 
 pub use host_live_host_residual_failclosed_peels_wave859::{
