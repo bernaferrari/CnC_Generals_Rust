@@ -2646,9 +2646,15 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // Wave 196: when GW entities observed on default-on rebuild path, require rebuilt>0.
     let gameworld_rebuilt_boundary_ok =
         !result.gameworld_presentation_entities_ok || result.gameworld_rebuilt_ok;
-    // Wave 836/839: host vertical slice absorbs Wave 835 skirmish latch peels +
-    // construct/train/presentation gates + non-zero stable world render residual.
+    // Wave 836/839/840: host vertical slice absorbs Wave 835 skirmish latch peels +
+    // construct/train/presentation gates + non-zero stable world render residual +
+    // non-shell match map (ShellMapMD boot residual is not a skirmish map).
     // playable_claim stays always false.
+    let map_is_shell_residual = {
+        let m = result.map_seen.to_ascii_lowercase();
+        m.contains("shellmap") || m.trim().is_empty() || m == "-"
+    };
+    let skirmish_map_boundary_ok = !result.reached_ingame || !map_is_shell_residual;
     let render_mesh_boundary_ok = !result.reached_ingame
         || (result.max_render_alive_objects > 0
             && result.max_render_item_count > 0
@@ -2669,7 +2675,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         && gameworld_presentation_boundary_ok
         && gameworld_overlay_boundary_ok
         && gameworld_rebuilt_boundary_ok
-        && render_mesh_boundary_ok;
+        && render_mesh_boundary_ok
+        && skirmish_map_boundary_ok;
     result
 }
 

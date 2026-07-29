@@ -1232,11 +1232,18 @@ fn ensure_map_meta_registered(map_name: &str) {
 
 fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     ensure_default_slots();
-    // Wave 837: prefer options/map-select residual over a stale shell/default map.
-    // Previously only filled when empty, so ShellMapMD blocked Lone Eagle start.
+    // Wave 837/840: prefer options/map-select residual over a stale shell/default map.
+    // ShellMapMD must never beat a non-shell control/setup selection.
     let map_name = {
         let mut setup = get_skirmish_setup();
-        // Resolve preferred map before taking nested mutable GameInfo borrow.
+        let is_shellish = |m: &str| {
+            let t = m.trim();
+            if t.is_empty() {
+                return true;
+            }
+            let lower = t.to_ascii_lowercase();
+            lower.contains("shellmap") || lower == "default map"
+        };
         let options_selected = state
             .selected_map
             .as_ref()
@@ -1251,17 +1258,20 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
             }
         };
         let info = setup.game_info_mut().game_info_mut();
-        if let Some(selected) = options_selected.as_ref() {
-            info.set_map(selected.clone());
-        }
         let current = info.get_map().to_string();
-        // If setup still holds shell residual, prefer skirmish setup.selected_map.
-        let shellish = current.to_ascii_lowercase().contains("shellmap")
-            || current.trim().is_empty();
-        if shellish {
-            if let Some(selected) = setup_selected.as_ref() {
-                info.set_map(selected.clone());
-            }
+        let pick = [
+            options_selected.clone(),
+            setup_selected.clone(),
+            Some(current),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|m| !is_shellish(m))
+        .or(options_selected)
+        .or(setup_selected)
+        .unwrap_or_default();
+        if !pick.is_empty() {
+            info.set_map(pick.clone());
         }
         info.get_map().to_string()
     };
