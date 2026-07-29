@@ -1443,6 +1443,10 @@ pub struct CnCGameEngine {
     /// Wave 842: host-owned match mode residual set at start_game_from_ui.
     /// Prefer over live GameLogic::game_mode when presentation freeze is missing.
     host_match_game_mode: Option<GameMode>,
+    /// Wave 843: host-owned match map / local player / AI difficulty residuals.
+    host_match_map_name: Option<String>,
+    host_match_local_player_id: Option<u32>,
+    host_match_ai_difficulty: Option<crate::ai::AIDifficulty>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14337,6 +14341,9 @@ impl CnCGameEngine {
             game_logic,
             last_presentation_frame: None,
             host_match_game_mode: None,
+            host_match_map_name: None,
+            host_match_local_player_id: None,
+            host_match_ai_difficulty: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19325,9 +19332,12 @@ impl CnCGameEngine {
     }
 
     fn presentation_or_boot_local_player_id(&self) -> Option<u32> {
-        // Wave 553: presentation freeze owns local player id residual when installed.
+        // Wave 553/843: presentation freeze owns local player id residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return Some(pres.local_player_id);
+        }
+        if let Some(id) = self.host_match_local_player_id {
+            return Some(id);
         }
         // Boot residual only.
         self.game_logic.local_player_id()
@@ -19338,7 +19348,8 @@ impl CnCGameEngine {
     #[inline]
     fn presentation_or_boot_map_name(&self) -> String {
         // Wave 554: presentation freeze owns map-name residual when installed.
-        // Wave 840: if freeze still holds shell residual after match load, prefer host map.
+        // Wave 840/843: if freeze still holds shell residual after match load, prefer
+        // host_match_map_name (no live GameLogic dual-read), then boot host map.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             let freeze = pres.world_env.map_name.clone();
             if matches!(
@@ -19346,12 +19357,20 @@ impl CnCGameEngine {
                 GameState::InGame | GameState::Paused | GameState::Loading
             ) && Self::map_name_is_shell_residual(&freeze)
             {
+                if let Some(host) = self.host_match_map_name.as_ref() {
+                    if !Self::map_name_is_shell_residual(host) {
+                        return host.clone();
+                    }
+                }
                 let host = self.game_logic.get_current_map_name().to_string();
                 if !Self::map_name_is_shell_residual(&host) {
                     return host;
                 }
             }
             return freeze;
+        }
+        if let Some(host) = self.host_match_map_name.as_ref() {
+            return host.clone();
         }
         // Boot residual only.
         self.game_logic.get_current_map_name().to_string()
@@ -19361,9 +19380,12 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host difficulty probe.
     #[inline]
     fn presentation_or_boot_ai_difficulty(&self) -> crate::ai::AIDifficulty {
-        // Wave 554: presentation freeze owns AI difficulty residual when installed.
+        // Wave 554/843: presentation freeze owns AI difficulty residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.ai_difficulty;
+        }
+        if let Some(d) = self.host_match_ai_difficulty {
+            return d;
         }
         // Boot residual only.
         self.game_logic.get_difficulty()
@@ -20851,6 +20873,10 @@ impl CnCGameEngine {
         self.transition_to_state(GameState::Loading);
         // Wave 842: stamp host-owned match mode before map load / presentation seed.
         self.host_match_game_mode = Some(mode);
+        // Wave 843: clear prior match residuals until load completes.
+        self.host_match_map_name = None;
+        self.host_match_local_player_id = None;
+        self.host_match_ai_difficulty = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
@@ -20893,6 +20919,10 @@ impl CnCGameEngine {
         // Wave 840: drop shell presentation freeze so match seed cannot keep ShellMapMD.
         self.render_pipeline.set_presentation_frame(None);
         self.last_presentation_frame = None;
+        // Wave 843: host-owned match residuals for presentation_or_boot peels.
+        self.host_match_map_name = Some(map_name.clone());
+        self.host_match_local_player_id = Some(self.current_player_id);
+        self.host_match_ai_difficulty = Some(self.game_logic.get_difficulty());
 
         // Reset transient state.
         self.host_set_paused(false);

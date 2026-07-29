@@ -3680,6 +3680,11 @@ use crate::game_logic::host_live_host_match_game_mode_residual_wave842::{
     honesty_host_match_game_mode_nav_commands_residual_wave842,
     simulate_live_host_match_game_mode_honesty,
 };
+use crate::game_logic::host_live_host_match_presentation_residuals_wave843::{
+    honesty_host_match_presentation_residuals_method_names_residual_wave843,
+    honesty_host_match_presentation_residuals_nav_commands_residual_wave843,
+    simulate_live_host_match_presentation_residuals_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -7843,6 +7848,9 @@ pub struct ShellSmokeResult {
     pub host_match_game_mode_method_names_wave842_ok: bool,
     pub host_match_game_mode_nav_commands_wave842_ok: bool,
     pub host_match_game_mode_live_wave842_ok: bool,
+    pub host_match_presentation_residuals_method_names_wave843_ok: bool,
+    pub host_match_presentation_residuals_nav_commands_wave843_ok: bool,
+    pub host_match_presentation_residuals_live_wave843_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12623,6 +12631,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_match_game_mode_nav_commands_wave842_ok =
         honesty_host_match_game_mode_nav_commands_residual_wave842();
     let host_match_game_mode_live_wave842_ok = simulate_live_host_match_game_mode_honesty();
+    let host_match_presentation_residuals_method_names_wave843_ok =
+        honesty_host_match_presentation_residuals_method_names_residual_wave843();
+    let host_match_presentation_residuals_nav_commands_wave843_ok =
+        honesty_host_match_presentation_residuals_nav_commands_residual_wave843();
+    let host_match_presentation_residuals_live_wave843_ok =
+        simulate_live_host_match_presentation_residuals_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15135,6 +15149,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_match_game_mode_method_names_wave842_ok,
         host_match_game_mode_nav_commands_wave842_ok,
         host_match_game_mode_live_wave842_ok,
+        host_match_presentation_residuals_method_names_wave843_ok,
+        host_match_presentation_residuals_nav_commands_wave843_ok,
+        host_match_presentation_residuals_live_wave843_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
