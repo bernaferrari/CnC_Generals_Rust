@@ -1454,6 +1454,9 @@ pub struct CnCGameEngine {
     host_match_logic_frame: Option<u32>,
     host_match_logic_steps: Option<(u32, bool, f32)>,
     host_match_in_replay: Option<bool>,
+    /// Wave 845: host-owned shell/team residuals for presentation_or_boot peels.
+    host_match_in_shell: Option<bool>,
+    host_match_local_team: Option<crate::game_logic::Team>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -12283,6 +12286,8 @@ impl CnCGameEngine {
     fn enter_shell_menu_from_runtime_host(&mut self, override_screen: Option<&'static str>) {
         self.set_runtime_host_ui_screen_override(override_screen);
         self.ui_manager.suspend_for_shell_overlay();
+        // Wave 845: shell residual — presentation peels treat FOW shell bypass as true.
+        self.host_match_in_shell = Some(true);
         if self.current_state != GameState::Menu {
             self.request_state_change(GameState::Menu);
         }
@@ -14357,6 +14362,8 @@ impl CnCGameEngine {
             host_match_logic_frame: None,
             host_match_logic_steps: None,
             host_match_in_replay: None,
+            host_match_in_shell: None,
+            host_match_local_team: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19233,6 +19240,13 @@ impl CnCGameEngine {
         self.host_match_in_replay = Some(self.game_logic.isInReplayGame());
         // Keep player residual aligned with current host selection.
         self.host_match_local_player_id = Some(self.current_player_id);
+        // Wave 845: match is not shell once started; team from host player roster.
+        self.host_match_in_shell = Some(false);
+        self.host_match_local_team = Some(
+            self.game_logic
+                .player_team(self.current_player_id)
+                .unwrap_or(crate::game_logic::Team::USA),
+        );
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {
@@ -19267,9 +19281,12 @@ impl CnCGameEngine {
     /// host `isInShellGame`.
     #[inline]
     fn presentation_or_boot_shell_bypass(&self) -> bool {
-        // Wave 552: presentation freeze owns shell-bypass residual when installed.
+        // Wave 552/845: presentation freeze owns shell-bypass residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.fow_shell_bypass;
+        }
+        if let Some(v) = self.host_match_in_shell {
+            return v;
         }
         // Boot residual only.
         self.host_is_in_shell_game()
@@ -20234,7 +20251,11 @@ impl CnCGameEngine {
     /// Wave 585: host shell-map probe residual (`isInShellGame`).
     #[inline]
     fn host_is_in_shell_game(&self) -> bool {
-        // Wave 585: host isInShellGame residual.
+        // Wave 585/845: prefer host_match_in_shell residual after match stamp.
+        if let Some(v) = self.host_match_in_shell {
+            return v;
+        }
+        // Boot residual only.
         self.game_logic.isInShellGame()
     }
 
@@ -20524,9 +20545,12 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host player_team probe.
     #[inline]
     fn presentation_or_boot_local_team(&self) -> crate::game_logic::Team {
-        // Wave 555: presentation freeze owns local team residual when installed.
+        // Wave 555/845: presentation freeze owns local team residual when installed.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_team();
+        }
+        if let Some(team) = self.host_match_local_team {
+            return team;
         }
         // Boot residual only.
         self.game_logic
@@ -20938,6 +20962,8 @@ impl CnCGameEngine {
         self.host_match_logic_frame = None;
         self.host_match_logic_steps = None;
         self.host_match_in_replay = None;
+        self.host_match_in_shell = None;
+        self.host_match_local_team = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
