@@ -684,6 +684,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut cheer_detail = String::new();
     let mut saw_formation_ok = false;
     let mut saw_combat_damage = false;
+    let mut saw_early_combat_cmd = false;
     let mut formation_detail = String::new();
     let mut saw_capture_ok = false;
     let mut capture_detail = String::new();
@@ -954,6 +955,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
                 saw_combat_damage = true;
             }
+            // Wave 864: keep latched if counters ever rose (status may reset on path change).
+            // (saw_combat_damage is sticky once true)
             if snap.last_gameplay_cmd.starts_with("select_all_ok") {
                 saw_select_all_ok = true;
                 select_all_detail = snap.last_gameplay_cmd.clone();
@@ -1228,6 +1231,26 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             .unwrap_or(false);
                         if !train_mobile_ready && !train_wait_expired {
                             // keep polling; do not advance yet
+                        } else if !saw_early_combat_cmd {
+                            // Wave 864: issue combat early while InGame so match_damage
+                            // counters have time to accumulate before late options steps.
+                            let _ = write_control(
+                                &control_path,
+                                &["attack_nearest_enemy|auto_target=1"],
+                            );
+                            saw_early_combat_cmd = true;
+                            commanded_at = Some(Instant::now());
+                        } else if commanded_at
+                            .map(|t| t.elapsed() < Duration::from_secs(2))
+                            .unwrap_or(false)
+                        {
+                            // brief window for attack residual + damage counters
+                            if snap.last_gameplay_cmd.starts_with("attack_ok") {
+                                saw_attack_ok = true;
+                            }
+                            if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
+                                saw_combat_damage = true;
+                            }
                         } else {
                             let _ = write_control(
                                 &control_path,

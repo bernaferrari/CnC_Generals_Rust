@@ -121,6 +121,7 @@ pub mod host_hive_ready_log;
 pub mod host_identity_log;
 pub mod host_identity_ready_log;
 pub mod host_kind_of_log;
+pub mod host_live_exec_smoke_early_combat_residual_wave864;
 pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
 pub mod host_live_host_actively_constructing_complete_peel_residual_wave828;
 pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
@@ -2884,6 +2885,12 @@ pub use host_live_entity_presentation_structure_ui_residual_wave490::{
     ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
     RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
 };
+pub use host_live_exec_smoke_early_combat_residual_wave864::{
+    honesty_exec_smoke_early_combat_method_names_residual_wave864,
+    honesty_exec_smoke_early_combat_nav_commands_residual_wave864,
+    honesty_exec_smoke_early_combat_residual_pack_wave864,
+    simulate_live_exec_smoke_early_combat_honesty,
+};
 pub use host_live_fixed_step_diag_presentation_helper_residual_wave564::{
     honesty_fixed_step_diag_presentation_helper_method_names_residual_wave564,
     honesty_fixed_step_diag_presentation_helper_nav_commands_residual_wave564,
@@ -2922,6 +2929,7 @@ pub use host_live_host_first_opponent_residual_wave863::{
     honesty_host_first_opponent_residual_pack_wave863,
     simulate_live_host_first_opponent_residual_honesty,
 };
+
 pub use host_live_host_map_name_failclosed_residual_wave860::{
     honesty_host_map_name_failclosed_method_names_residual_wave860,
     honesty_host_map_name_failclosed_nav_commands_residual_wave860,
