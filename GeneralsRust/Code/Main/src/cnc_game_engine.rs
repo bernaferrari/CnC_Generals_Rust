@@ -18660,7 +18660,12 @@ impl CnCGameEngine {
     /// request queues so the next frame does not double-apply. All takes stay
     /// behind this single host dual-read surface.
     fn host_drain_live_camera_request_queues(&mut self) {
-        // Wave 596: host camera request queue drain residual.
+        // Wave 596/865: host camera request queue drain residual.
+        // Wave 865: when presentation freeze owns the frame, skip live queue dual-reads
+        // (script camera residuals already stamped on host_match_*).
+        if self.last_presentation_frame.is_some() {
+            return;
+        }
         let _ = self.game_logic.take_camera_focus_request();
         let _ = self.game_logic.take_camera_zoom_reset();
         let _ = self.game_logic.take_camera_zoom_request();
@@ -20617,8 +20622,12 @@ impl CnCGameEngine {
     /// Wave 585: host world-size override residual (minimap/heightmap repair path).
     #[inline]
     fn host_override_world_size(&mut self, width: f32, height: f32) {
-        // Wave 585: host override_world_size residual.
+        // Wave 585/865: host override_world_size residual + stamp bounds residual.
         self.game_logic.override_world_size(width, height);
+        // Keep host_match_world_bounds warm so presentation peels need not dual-read.
+        let (min, max) = self.game_logic.world_bounds();
+        self.host_match_world_bounds = Some((min, max));
+        let _ = (width, height);
     }
 
     /// Wave 585: host world-bounds residual (boot path without presentation freeze).

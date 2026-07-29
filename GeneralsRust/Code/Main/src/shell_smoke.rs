@@ -3790,6 +3790,11 @@ use crate::game_logic::host_live_exec_smoke_early_combat_residual_wave864::{
     honesty_exec_smoke_early_combat_nav_commands_residual_wave864,
     simulate_live_exec_smoke_early_combat_honesty,
 };
+use crate::game_logic::host_live_host_camera_drain_freeze_skip_residual_wave865::{
+    honesty_host_camera_drain_freeze_skip_method_names_residual_wave865,
+    honesty_host_camera_drain_freeze_skip_nav_commands_residual_wave865,
+    simulate_live_host_camera_drain_freeze_skip_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8019,6 +8024,9 @@ pub struct ShellSmokeResult {
     pub exec_smoke_early_combat_method_names_wave864_ok: bool,
     pub exec_smoke_early_combat_nav_commands_wave864_ok: bool,
     pub exec_smoke_early_combat_live_wave864_ok: bool,
+    pub host_camera_drain_freeze_skip_method_names_wave865_ok: bool,
+    pub host_camera_drain_freeze_skip_nav_commands_wave865_ok: bool,
+    pub host_camera_drain_freeze_skip_live_wave865_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12928,6 +12936,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let exec_smoke_early_combat_nav_commands_wave864_ok =
         honesty_exec_smoke_early_combat_nav_commands_residual_wave864();
     let exec_smoke_early_combat_live_wave864_ok = simulate_live_exec_smoke_early_combat_honesty();
+    let host_camera_drain_freeze_skip_method_names_wave865_ok =
+        honesty_host_camera_drain_freeze_skip_method_names_residual_wave865();
+    let host_camera_drain_freeze_skip_nav_commands_wave865_ok =
+        honesty_host_camera_drain_freeze_skip_nav_commands_residual_wave865();
+    let host_camera_drain_freeze_skip_live_wave865_ok =
+        simulate_live_host_camera_drain_freeze_skip_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15506,6 +15520,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         exec_smoke_early_combat_method_names_wave864_ok,
         exec_smoke_early_combat_nav_commands_wave864_ok,
         exec_smoke_early_combat_live_wave864_ok,
+        host_camera_drain_freeze_skip_method_names_wave865_ok,
+        host_camera_drain_freeze_skip_nav_commands_wave865_ok,
+        host_camera_drain_freeze_skip_live_wave865_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
