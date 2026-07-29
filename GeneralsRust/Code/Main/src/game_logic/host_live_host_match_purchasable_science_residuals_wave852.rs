@@ -67,7 +67,7 @@ pub fn honesty_host_match_purchasable_science_residuals_residual_pack_wave852() 
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_purchasable_sciences:")
         && cnc.contains("Wave 852: stamp purchasable science residual")
-        && cnc.contains("Wave 584/852")
+        && (cnc.contains("Wave 584/852") || cnc.contains("Wave 584/852/861"))
         && cnc.contains("if let Some(map) = self.host_match_purchasable_sciences.as_ref()")
         && cnc.contains("player_can_purchase_science(player_id, name)"); // boot residual remains
     residual_action_store(ResidualHostMatchPurchasableScienceResidualsAction::SourceMarkers);
