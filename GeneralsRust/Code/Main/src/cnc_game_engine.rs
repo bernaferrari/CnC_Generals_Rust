@@ -1484,6 +1484,9 @@ pub struct CnCGameEngine {
         Option<std::collections::HashMap<u32, std::collections::HashSet<String>>>,
     /// Wave 854: host-owned special-power-ready object residual (boot dual-read peel).
     host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
+    /// Wave 855: boot victory condition residual (single evaluate stamp).
+    /// None = not stamped; Some(None) = no winner yet; Some(Some(cond)) = outcome.
+    host_match_boot_victory_condition: Option<Option<crate::game_logic::VictoryCondition>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14381,6 +14384,7 @@ impl CnCGameEngine {
             host_match_alive_object_ids: None,
             host_match_purchasable_sciences: None,
             host_match_special_power_ready_ids: None,
+            host_match_boot_victory_condition: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19421,6 +19425,8 @@ impl CnCGameEngine {
         }
         // Wave 848: stamp local train producers after other match residuals.
         self.host_refresh_local_train_producer_residuals();
+        // Wave 855: boot victory residual is frame-local — clear before restamping.
+        self.host_match_boot_victory_condition = None;
         // Wave 849: stamp match outcome residuals from freeze (or clear when none).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_over = Some(pres.match_over);
@@ -20881,6 +20887,22 @@ impl CnCGameEngine {
     /// installed (no live re-evaluate dual-read). Boot residual without freeze uses
     /// host `evaluate_victory_condition`.
     #[inline]
+
+    /// Wave 855: single boot evaluate of victory condition for residual peels.
+    /// Presentation freeze / host_match_over already own InGame outcomes; this only
+    /// covers freeze-miss boot probes so match_over and winner share one evaluate.
+    #[inline]
+    fn host_boot_victory_condition_residual(
+        &mut self,
+    ) -> Option<crate::game_logic::VictoryCondition> {
+        if let Some(cached) = self.host_match_boot_victory_condition.as_ref() {
+            return *cached;
+        }
+        let v = self.game_logic.evaluate_victory_condition();
+        self.host_match_boot_victory_condition = Some(v);
+        v
+    }
+
     fn presentation_or_boot_match_over_label(&mut self) -> (bool, String) {
         // Wave 556/849: presentation freeze owns match-over / victory-label residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -20895,8 +20917,8 @@ impl CnCGameEngine {
                 self.host_match_victory_label.clone().unwrap_or_default(),
             );
         }
-        // Boot residual only.
-        if let Some(v) = self.game_logic.evaluate_victory_condition() {
+        // Wave 855: boot residual via single stamped evaluate.
+        if let Some(v) = self.host_boot_victory_condition_residual() {
             (true, format!("{v:?}"))
         } else {
             (false, String::new())
@@ -20922,8 +20944,8 @@ impl CnCGameEngine {
             // Stamped winner residual: None draw / Some(id) winner.
             return Some(self.host_match_victory_winner.unwrap_or(None));
         }
-        // Boot residual only.
-        match self.game_logic.evaluate_victory_condition() {
+        // Wave 855: boot residual via single stamped evaluate (shared with match_over).
+        match self.host_boot_victory_condition_residual() {
             Some(crate::game_logic::VictoryCondition::Winner(id)) => Some(Some(id)),
             Some(crate::game_logic::VictoryCondition::Draw) => Some(None),
             None => None,
@@ -21298,6 +21320,7 @@ impl CnCGameEngine {
         self.host_match_alive_object_ids = None;
         self.host_match_purchasable_sciences = None;
         self.host_match_special_power_ready_ids = None;
+        self.host_match_boot_victory_condition = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.

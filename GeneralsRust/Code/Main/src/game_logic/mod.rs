@@ -138,6 +138,7 @@ pub mod host_live_host_base_regen_dual_peel_residual_wave780;
 pub mod host_live_host_battlemaster_horde_dual_peel_residual_wave812;
 pub mod host_live_host_beam_flare_shell_dual_peel_residual_wave806;
 pub mod host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751;
+pub mod host_live_host_boot_victory_condition_residual_wave855;
 pub mod host_live_host_build_edge_margin_residual_wave829;
 pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
 pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
@@ -2901,6 +2902,12 @@ pub use host_live_host_actively_constructing_complete_peel_residual_wave828::{
     honesty_host_actively_constructing_complete_peel_residual_pack_wave828,
     simulate_live_host_actively_constructing_complete_peel_honesty,
 };
+pub use host_live_host_boot_victory_condition_residual_wave855::{
+    honesty_host_boot_victory_condition_residual_method_names_residual_wave855,
+    honesty_host_boot_victory_condition_residual_nav_commands_residual_wave855,
+    honesty_host_boot_victory_condition_residual_pack_wave855,
+    simulate_live_host_boot_victory_condition_residual_honesty,
+};
 pub use host_live_host_build_edge_margin_residual_wave829::{
     honesty_host_build_edge_margin_method_names_residual_wave829,
     honesty_host_build_edge_margin_nav_commands_residual_wave829,
@@ -2943,6 +2950,7 @@ pub use host_live_host_match_special_power_ready_residuals_wave854::{
     honesty_host_match_special_power_ready_residuals_residual_pack_wave854,
     simulate_live_host_match_special_power_ready_residuals_honesty,
 };
+
 pub use host_live_host_object_scan_unify_residual_wave853::{
     honesty_host_object_scan_unify_method_names_residual_wave853,
     honesty_host_object_scan_unify_nav_commands_residual_wave853,
