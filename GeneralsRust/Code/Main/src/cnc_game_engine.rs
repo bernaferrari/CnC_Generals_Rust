@@ -1477,6 +1477,8 @@ pub struct CnCGameEngine {
     host_match_victory_summary: Option<crate::game_logic::VictorySummary>,
     /// Wave 850: host-owned selection residual (peels player_selected_objects boot dual-read).
     host_match_selected_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    /// Wave 851: host-owned alive-object residual (peels object_is_alive boot dual-read).
+    host_match_alive_object_ids: Option<std::collections::HashSet<u32>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
@@ -14371,6 +14373,7 @@ impl CnCGameEngine {
             host_match_victory_winner: None,
             host_match_victory_summary: None,
             host_match_selected_ids: None,
+            host_match_alive_object_ids: None,
             gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
                 Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
             } else {
@@ -19394,6 +19397,24 @@ impl CnCGameEngine {
                 self.host_match_selected_ids = Some(from_objs);
             }
         }
+        // Wave 851: stamp alive-object residual from freeze, else host scan (stamp phase).
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            let alive: std::collections::HashSet<u32> = pres
+                .objects
+                .iter()
+                .filter(|o| !o.destroyed && o.health_current > 0.0)
+                .map(|o| o.id.0)
+                .collect();
+            self.host_match_alive_object_ids = Some(alive);
+        } else {
+            let alive: std::collections::HashSet<u32> = self
+                .game_logic
+                .get_objects()
+                .iter()
+                .filter_map(|(id, o)| o.is_alive().then_some(id.0))
+                .collect();
+            self.host_match_alive_object_ids = Some(alive);
+        }
     }
 
     fn presentation_or_boot_visual_speed(&self) -> f32 {
@@ -20444,7 +20465,10 @@ impl CnCGameEngine {
     /// Wave 584: host object-alive probe residual (upgrade honesty boot fallback).
     #[inline]
     fn host_object_is_alive(&self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 584: host object_is_alive residual.
+        // Wave 584/851: prefer host-stamped alive residual before live probe.
+        if let Some(alive) = self.host_match_alive_object_ids.as_ref() {
+            return alive.contains(&id.0);
+        }
         self.game_logic.object_is_alive(id)
     }
 
@@ -20452,9 +20476,13 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host object_is_alive probe.
     #[inline]
     fn presentation_or_boot_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 584: presentation-first alive residual (ui_object_alive) with boot host probe.
+        // Wave 584/851: presentation-first alive residual (ui_object_alive).
         if self.ui_object_alive(id) {
             return true;
+        }
+        // Wave 851: host-stamped alive residual before live boot probe.
+        if let Some(alive) = self.host_match_alive_object_ids.as_ref() {
+            return alive.contains(&id.0);
         }
         if self.last_presentation_frame.is_none() {
             return self.host_object_is_alive(id);
@@ -21167,6 +21195,7 @@ impl CnCGameEngine {
         self.host_match_victory_winner = None;
         self.host_match_victory_summary = None;
         self.host_match_selected_ids = None;
+        self.host_match_alive_object_ids = None;
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
