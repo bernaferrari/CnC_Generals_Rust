@@ -17284,11 +17284,14 @@ impl CnCGameEngine {
     /// Wave 579: host map-load residual with default fallback.
     #[inline]
     fn host_load_map_or_default(&mut self, map_name: &str) {
-        // Wave 579: load_map + DEFAULT_SKIRMISH_MAP fallback residual.
+        // Wave 579/871: load_map + DEFAULT_SKIRMISH_MAP fallback residual.
+        // Clear stale match residuals before map identity changes.
+        self.host_clear_match_residuals();
         if !self.game_logic.load_map(map_name) {
             warn!("Failed to load map '{}', falling back to default", map_name);
             let _ = self.game_logic.load_map(DEFAULT_SKIRMISH_MAP);
         }
+        self.host_stamp_sim_timing_residuals();
     }
 
     fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
@@ -17311,7 +17314,9 @@ impl CnCGameEngine {
         faction_team: crate::game_logic::Team,
         setup_skirmish_ai: bool,
     ) {
-        // Wave 577: start_new_game + set_player_team (+ optional skirmish AI).
+        // Wave 577/871: start_new_game + set_player_team (+ optional skirmish AI).
+        // Clear prior match residuals; stamp mode/team immediately for peels.
+        self.host_clear_match_residuals();
         self.game_logic.start_new_game(mode);
         let _ = self
             .game_logic
@@ -17319,6 +17324,10 @@ impl CnCGameEngine {
         if setup_skirmish_ai {
             self.game_logic.setup_skirmish_ai(self.current_player_id);
         }
+        self.host_match_game_mode = Some(mode);
+        self.host_match_local_team = Some(faction_team);
+        self.host_match_local_player_id = Some(self.current_player_id);
+        self.host_stamp_sim_timing_residuals();
     }
 
     fn host_process_commands_with_command_sound(&mut self) {
@@ -17351,9 +17360,10 @@ impl CnCGameEngine {
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
-        // Wave 576/578: silent queue+process residual.
+        // Wave 576/578/871: silent queue+process residual + stamp sim timing.
         self.game_logic.queue_command(command);
         self.game_logic.process_commands();
+        self.host_stamp_sim_timing_residuals();
     }
 
     fn host_set_paused(&mut self, paused: bool) {
@@ -20756,6 +20766,48 @@ impl CnCGameEngine {
         self.host_stamp_sim_timing_residuals();
     }
 
+    /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
+    #[inline]
+    fn host_clear_match_residuals(&mut self) {
+        self.host_match_map_name = None;
+        self.host_match_local_player_id = None;
+        self.host_match_ai_difficulty = None;
+        self.host_match_visual_speed = None;
+        self.host_match_time_frozen = None;
+        self.host_match_total_play_time = None;
+        self.host_match_logic_frame = None;
+        self.host_match_logic_steps = None;
+        self.host_match_in_replay = None;
+        self.host_match_in_shell = None;
+        self.host_match_local_team = None;
+        self.host_match_diplomacy_players = None;
+        self.host_match_known_template_names = None;
+        self.host_match_unlocked_sciences = None;
+        self.host_match_camera_follow_active = None;
+        self.host_match_camera_follow_position = None;
+        self.host_match_local_barracks_ids = None;
+        self.host_match_local_producer_ids = None;
+        self.host_match_local_unfinished_producer_ids = None;
+        self.host_match_local_team_sample_pos = None;
+        self.host_match_over = None;
+        self.host_match_victory_label = None;
+        self.host_match_victory_winner = None;
+        self.host_match_victory_summary = None;
+        self.host_match_selected_ids = None;
+        self.host_match_alive_object_ids = None;
+        self.host_match_purchasable_sciences = None;
+        self.host_match_local_science_purchase_points = None;
+        self.host_match_special_power_ready_ids = None;
+        self.host_match_boot_victory_condition = None;
+        // Wave 871: also clear residuals added after Wave 844.
+        self.host_match_first_opponent_id = None;
+        self.host_match_game_mode = None;
+        self.host_match_in_multiplayer = None;
+        self.host_match_script_camera_max_height = None;
+        self.host_match_script_camera_pitch = None;
+        self.host_match_world_bounds = None;
+    }
+
     /// Wave 870: keep host_match_* sim timing residuals warm after host ticks.
     #[inline]
     fn host_stamp_sim_timing_residuals(&mut self) {
@@ -20830,8 +20882,12 @@ impl CnCGameEngine {
     /// Wave 584: host match reset residual (GameLogic::reset boundary).
     #[inline]
     fn host_reset_game_logic(&mut self) {
-        // Wave 584: host reset residual.
+        // Wave 584/871: host reset residual + clear match residuals.
         self.game_logic.reset();
+        self.host_clear_match_residuals();
+        self.selected_objects.clear();
+        self.last_presentation_frame = None;
+        self.last_ui_state = None;
     }
 
     /// Wave 584: host destroy-object residual (debug Shift+Delete path).
@@ -20919,29 +20975,33 @@ impl CnCGameEngine {
     /// Wave 583: host attack command residual (runtime honesty path).
     #[inline]
     fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
-        // Wave 583: host attack residual.
+        // Wave 583/871: host attack residual + stamp sim timing.
         self.game_logic.command_attack(player_id, target);
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 583: host stop-selected residual (runtime honesty path).
     #[inline]
     fn host_command_stop(&mut self, player_id: u32) {
-        // Wave 583: host stop residual.
+        // Wave 583/871: host stop residual + stamp sim timing.
         self.game_logic.command_stop(player_id);
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 583: host attack-move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583: host attack-move residual.
+        // Wave 583/871: host attack-move residual + stamp sim timing.
         self.game_logic.command_attack_move(player_id, dest);
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 583: host move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583: host move residual.
+        // Wave 583/871: host move residual + stamp sim timing.
         self.game_logic.command_move(player_id, dest);
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 583: host legal-build probe residual (construct honesty path).
@@ -21033,8 +21093,9 @@ impl CnCGameEngine {
     /// Distinct from InGame `host_process_commands_with_command_sound`.
     #[inline]
     fn host_process_shell_menu_commands(&mut self) {
-        // Wave 582: shell/menu command drain residual.
+        // Wave 582/871: shell/menu command drain residual + stamp sim timing.
         self.game_logic.process_commands();
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 581: host create_object residual (thin authority spawn boundary).
@@ -21493,37 +21554,8 @@ impl CnCGameEngine {
         self.transition_to_state(GameState::Loading);
         // Wave 842: stamp host-owned match mode before map load / presentation seed.
         self.host_match_game_mode = Some(mode);
-        // Wave 843/844: clear prior match residuals until load completes.
-        self.host_match_map_name = None;
-        self.host_match_local_player_id = None;
-        self.host_match_ai_difficulty = None;
-        self.host_match_visual_speed = None;
-        self.host_match_time_frozen = None;
-        self.host_match_total_play_time = None;
-        self.host_match_logic_frame = None;
-        self.host_match_logic_steps = None;
-        self.host_match_in_replay = None;
-        self.host_match_in_shell = None;
-        self.host_match_local_team = None;
-        self.host_match_diplomacy_players = None;
-        self.host_match_known_template_names = None;
-        self.host_match_unlocked_sciences = None;
-        self.host_match_camera_follow_active = None;
-        self.host_match_camera_follow_position = None;
-        self.host_match_local_barracks_ids = None;
-        self.host_match_local_producer_ids = None;
-        self.host_match_local_unfinished_producer_ids = None;
-        self.host_match_local_team_sample_pos = None;
-        self.host_match_over = None;
-        self.host_match_victory_label = None;
-        self.host_match_victory_winner = None;
-        self.host_match_victory_summary = None;
-        self.host_match_selected_ids = None;
-        self.host_match_alive_object_ids = None;
-        self.host_match_purchasable_sciences = None;
-        self.host_match_local_science_purchase_points = None;
-        self.host_match_special_power_ready_ids = None;
-        self.host_match_boot_victory_condition = None;
+        // Wave 843/844/871: clear prior match residuals until load completes.
+        self.host_clear_match_residuals();
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
