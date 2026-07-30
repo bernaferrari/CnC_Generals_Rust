@@ -91,3 +91,17 @@ cc = "1.0"
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints.rust]
+unexpected_cfgs = "allow"
+unused = "allow"
+dead_code = "allow"
+nonstandard_style = "allow"
+deprecated = "allow"
+
+[lints.clippy]
+all = "allow"
+pedantic = "allow"
+nursery = "allow"
+cargo = "allow"
+restriction = "allow"
