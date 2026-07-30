@@ -17538,8 +17538,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_script_camera_max_height {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.script_default_camera_max_height()
+        // Wave 898: fail-closed boot default (C++ residual 1.0).
+        1.0
     }
 
     /// Wave 609: via `host_ui_script_default_camera_pitch`.
@@ -17557,8 +17557,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_script_camera_pitch {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.script_default_camera_pitch()
+        // Wave 898: fail-closed boot default (C++ residual 1.0).
+        1.0
     }
 
     /// Wave 609: via `host_ui_selection_seed_id`.
@@ -19328,8 +19328,8 @@ impl CnCGameEngine {
         if let Some(mode) = self.host_match_game_mode {
             return mode;
         }
-        // Boot residual only (no match started yet).
-        self.game_logic.game_mode()
+        // Wave 898: fail-closed boot default (menu/shell).
+        GameMode::Shell
     }
 
     /// Wave 550: presentation freeze owns visual speed residual when installed.
@@ -19998,19 +19998,19 @@ impl CnCGameEngine {
             if pres.has_template_name(name) {
                 return true;
             }
-            // Mid-command insert residual (freeze lag) — live probe only when freeze installed.
-            return self.game_logic.templates.contains_key(name);
+            // Wave 898: freeze lag miss uses host residual only (no dual-read).
+            if let Some(names) = self.host_match_known_template_names.as_ref() {
+                return names.binary_search(&name.to_string()).is_ok()
+                    || names.iter().any(|n| n.eq_ignore_ascii_case(name));
+            }
+            return false;
         }
         if let Some(names) = self.host_match_known_template_names.as_ref() {
-            if names.binary_search(&name.to_string()).is_ok()
-                || names.iter().any(|n| n.eq_ignore_ascii_case(name))
-            {
-                return true;
-            }
-            // Residual warm + miss: still allow live mid-command insert residual.
+            return names.binary_search(&name.to_string()).is_ok()
+                || names.iter().any(|n| n.eq_ignore_ascii_case(name));
         }
-        // Mid-command host insert residual / cold boot residual.
-        self.game_logic.templates.contains_key(name)
+        // Wave 898: fail-closed boot default (no dual-read).
+        false
     }
 
     /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
@@ -20726,8 +20726,8 @@ impl CnCGameEngine {
         if let Some(b) = self.host_match_world_bounds {
             return b;
         }
-        // Boot residual only.
-        self.game_logic.world_bounds()
+        // Wave 898: fail-closed boot default (no dual-read).
+        (glam::Vec3::ZERO, glam::Vec3::ZERO)
     }
 
     /// Wave 585: host first-opponent residual (debug victory hotkey).
@@ -20752,8 +20752,9 @@ impl CnCGameEngine {
                 .find(|p| p.id != player_id)
                 .map(|p| p.id);
         }
-        // Boot residual only.
-        self.game_logic.first_opponent_id(player_id)
+        // Wave 898: fail-closed boot default (no dual-read).
+        let _ = player_id;
+        None
     }
 
     /// Wave 584: host object-alive probe residual (upgrade honesty boot fallback).
@@ -20890,8 +20891,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_in_multiplayer {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.isInMultiplayerGame()
+        // Wave 898: fail-closed boot default (single-player host).
+        false
     }
 
     /// Wave 584: host special-power ready residual (boot-only UI fallback).
@@ -20905,11 +20906,13 @@ impl CnCGameEngine {
         // If residual is warm and object is not in the ready set, fail closed without
         // dual-reading GameLogic. Positive residual still defers to live type/cooldown.
         if let Some(ready) = self.host_match_special_power_ready_ids.as_ref() {
-            if !ready.contains(&id.0) {
-                return false;
-            }
+            // Wave 898: residual owns ready set (no live type/cooldown dual-read).
+            let _ = power;
+            return ready.contains(&id.0);
         }
-        self.game_logic.is_special_power_ready_for(id, power)
+        // Wave 898: fail-closed boot default.
+        let _ = (id, power);
+        false
     }
 
     /// Wave 584: presentation freeze owns victory summary residual when installed.
@@ -21136,13 +21139,17 @@ impl CnCGameEngine {
     /// Wave 583: boot residual EVA counter bundle (no presentation freeze).
     #[inline]
     fn boot_eva_counter_bundle_from_host(&self) -> (u32, u32, u32, u32) {
-        // Wave 583: boot residual EVA counters via host probes.
-        (
-            self.game_logic.eva_low_power_count(),
-            self.game_logic.eva_insufficient_funds_count(),
-            self.game_logic.eva_base_under_attack_count(),
-            self.game_logic.eva_ally_under_attack_count(),
-        )
+        // Wave 583/898: prefer presentation EVA residual when freeze installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return (
+                pres.eva_low_power_count,
+                pres.eva_insufficient_funds_count,
+                pres.eva_base_under_attack_count,
+                pres.eva_ally_under_attack_count,
+            );
+        }
+        // Wave 898: fail-closed boot default (no dual-read).
+        (0, 0, 0, 0)
     }
 
     /// Wave 582: host production enqueue residual (train honesty path boundary).
@@ -21197,10 +21204,8 @@ impl CnCGameEngine {
         if let Some(team) = self.host_match_local_team {
             return team;
         }
-        // Boot residual only.
-        self.game_logic
-            .player_team(self.current_player_id)
-            .unwrap_or(crate::game_logic::Team::USA)
+        // Wave 898: fail-closed boot default.
+        crate::game_logic::Team::USA
     }
 
     fn presentation_or_boot_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
