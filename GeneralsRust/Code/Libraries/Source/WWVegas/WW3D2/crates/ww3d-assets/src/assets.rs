@@ -161,8 +161,10 @@ impl AssetManager {
     }
 
     /// Get a prototype by name
-    pub fn get_prototype(&self, name: &str) -> Option<&Box<dyn Prototype>> {
-        self.prototypes.get(&prototype_key(name))
+    pub fn get_prototype(&self, name: &str) -> Option<&dyn Prototype> {
+        self.prototypes
+            .get(&prototype_key(name))
+            .map(|b| b.as_ref())
     }
 
     /// Downcast a stored prototype to its concrete type.

@@ -1437,8 +1437,11 @@ impl Default for DefaultLoaders {
 pub fn find_loader(
     loaders: &[Box<dyn PrototypeLoader>],
     chunk_type: u32,
-) -> Option<&Box<dyn PrototypeLoader>> {
-    loaders.iter().find(|loader| loader.can_load(chunk_type))
+) -> Option<&dyn PrototypeLoader> {
+    loaders
+        .iter()
+        .find(|loader| loader.can_load(chunk_type))
+        .map(|b| b.as_ref())
 }
 
 #[cfg(test)]

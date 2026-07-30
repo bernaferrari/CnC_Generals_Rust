@@ -131,6 +131,7 @@ pub mod host_live_host_angry_mob_projectile_dual_peel_residual_wave799;
 pub mod host_live_host_anim_steer_dual_peel_residual_wave784;
 pub mod host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789;
 pub mod host_live_host_artillery_barrage_flight_dual_peel_residual_wave793;
+pub mod host_live_host_assets_big_unpack_clippy_wave882;
 pub mod host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797;
 pub mod host_live_host_auto_deposit_dual_peel_residual_wave821;
 pub mod host_live_host_auto_select_mobile_opt_in_residual_wave726;
@@ -2907,6 +2908,12 @@ pub use host_live_exec_smoke_early_combat_residual_wave864::{
     honesty_exec_smoke_early_combat_residual_pack_wave864,
     simulate_live_exec_smoke_early_combat_honesty,
 };
+pub use host_live_host_assets_big_unpack_clippy_wave882::{
+    honesty_host_assets_big_unpack_method_names_residual_wave882,
+    honesty_host_assets_big_unpack_nav_commands_residual_wave882,
+    honesty_host_assets_big_unpack_residual_pack_wave882,
+    simulate_live_host_assets_big_unpack_honesty,
+};
 pub use host_live_host_boot_ui_freeze_route_residual_wave869::{
     honesty_host_boot_ui_freeze_route_method_names_residual_wave869,
     honesty_host_boot_ui_freeze_route_nav_commands_residual_wave869,
@@ -2924,6 +2931,7 @@ pub use host_live_host_ui_framework_clippy_residual_wave881::{
     honesty_host_ui_framework_clippy_residual_pack_wave881,
     simulate_live_host_ui_framework_clippy_honesty,
 };
+
 pub use host_live_host_ui_pres_rebuild_physics_clippy_wave880::{
     honesty_host_ui_pres_rebuild_method_names_residual_wave880,
     honesty_host_ui_pres_rebuild_nav_commands_residual_wave880,
