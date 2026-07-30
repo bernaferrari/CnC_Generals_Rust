@@ -74,6 +74,7 @@ impl PoolInitRec {
 
 /// Memory block header for tracking allocations
 #[derive(Debug)]
+#[allow(dead_code)]
 struct MemoryBlockHeader {
     /// Size of this block
     size: usize,
@@ -92,6 +93,7 @@ struct MemoryBlockHeader {
 
 impl MemoryBlockHeader {
     /// Create a new memory block header
+    #[allow(dead_code)]
     fn new(size: usize, pool: Option<*mut MemoryPool>) -> Self {
         Self {
             size,
@@ -189,11 +191,13 @@ impl MemoryPoolBlob {
     }
 
     /// Get the number of used blocks in this blob
+    #[allow(dead_code)]
     fn used_block_count(&self) -> usize {
         self.used_blocks.iter().filter(|&&used| used).count()
     }
 
     /// Check if this blob is completely empty
+    #[allow(dead_code)]
     fn is_empty(&self) -> bool {
         self.used_block_count() == 0
     }
@@ -248,6 +252,7 @@ pub struct MemoryPool {
 
 impl MemoryPool {
     /// Create a new memory pool
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             pool_name: String::new(),
@@ -448,6 +453,7 @@ pub struct DynamicMemoryAllocator {
 
 impl DynamicMemoryAllocator {
     /// Create a new dynamic memory allocator
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             num_pools: 0,
@@ -597,9 +603,11 @@ impl fmt::Debug for DynamicMemoryAllocator {
 /// Global memory pool factory
 pub struct MemoryPoolFactory {
     /// All pools managed by this factory
+    #[allow(clippy::vec_box)]
     pools: Vec<Box<MemoryPool>>,
 
     /// Dynamic memory allocators
+    #[allow(clippy::vec_box)]
     dmas: Vec<Box<DynamicMemoryAllocator>>,
 
     /// Total memory statistics
@@ -609,6 +617,7 @@ pub struct MemoryPoolFactory {
 
 impl MemoryPoolFactory {
     /// Create a new memory pool factory
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             pools: Vec::new(),

@@ -261,6 +261,7 @@ pub mod host_live_host_production_spawn_ready_log_helper_residual_wave679;
 pub mod host_live_host_production_spawn_requires_gw_bind_residual_wave738;
 pub mod host_live_host_projectiles_ready_log_helper_residual_wave678;
 pub mod host_live_host_prone_update_dual_peel_residual_wave782;
+pub mod host_live_host_queue_stamp_memory_clippy_wave874;
 pub mod host_live_host_radar_extend_no_dual_complete_residual_wave744;
 pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
 pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
@@ -2910,6 +2911,11 @@ pub use host_live_host_match_residual_clear_wave871::{
     honesty_host_match_residual_clear_nav_commands_residual_wave871,
     honesty_host_match_residual_clear_residual_pack_wave871,
     simulate_live_host_match_residual_clear_honesty,
+};
+pub use host_live_host_queue_stamp_memory_clippy_wave874::{
+    honesty_host_queue_stamp_method_names_residual_wave874,
+    honesty_host_queue_stamp_nav_commands_residual_wave874,
+    honesty_host_queue_stamp_residual_pack_wave874, simulate_live_host_queue_stamp_honesty,
 };
 pub use host_live_host_template_ui_residual_wave872::{
     honesty_host_template_ui_method_names_residual_wave872,
