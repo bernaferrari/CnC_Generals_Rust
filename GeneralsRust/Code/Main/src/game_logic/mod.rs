@@ -232,6 +232,7 @@ pub mod host_live_host_match_game_mode_residual_wave842;
 pub mod host_live_host_match_outcome_residuals_wave849;
 pub mod host_live_host_match_presentation_residuals_wave843;
 pub mod host_live_host_match_purchasable_science_residuals_wave852;
+pub mod host_live_host_match_residual_clear_wave871;
 pub mod host_live_host_match_selection_residuals_wave850;
 pub mod host_live_host_match_shell_team_residuals_wave845;
 pub mod host_live_host_match_sim_timing_residuals_wave844;
@@ -2902,6 +2903,12 @@ pub use host_live_host_boot_ui_freeze_route_residual_wave869::{
     honesty_host_boot_ui_freeze_route_nav_commands_residual_wave869,
     honesty_host_boot_ui_freeze_route_residual_pack_wave869,
     simulate_live_host_boot_ui_freeze_route_honesty,
+};
+pub use host_live_host_match_residual_clear_wave871::{
+    honesty_host_match_residual_clear_method_names_residual_wave871,
+    honesty_host_match_residual_clear_nav_commands_residual_wave871,
+    honesty_host_match_residual_clear_residual_pack_wave871,
+    simulate_live_host_match_residual_clear_honesty,
 };
 pub use host_live_host_sim_timing_stamp_residual_wave870::{
     honesty_host_sim_timing_stamp_method_names_residual_wave870,
