@@ -83,10 +83,7 @@ impl DebugIOInterface for DebugIONet {
         {
             if let Some(stream) = self.stream.as_mut() {
                 stream.set_nonblocking(true).ok();
-                match stream.read(buf) {
-                    Ok(count) => count,
-                    Err(_) => 0,
-                }
+                stream.read(buf).unwrap_or_default()
             } else {
                 0
             }

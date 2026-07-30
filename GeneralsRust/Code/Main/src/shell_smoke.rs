@@ -3885,6 +3885,11 @@ use crate::game_logic::host_live_host_zlib_asset_debug_clippy_wave884::{
     honesty_host_zlib_asset_debug_nav_commands_residual_wave884,
     simulate_live_host_zlib_asset_debug_honesty,
 };
+use crate::game_logic::host_live_host_profile_clippy_residual_wave885::{
+    honesty_host_profile_clippy_method_names_residual_wave885,
+    honesty_host_profile_clippy_nav_commands_residual_wave885,
+    simulate_live_host_profile_clippy_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8171,6 +8176,9 @@ pub struct ShellSmokeResult {
     pub host_zlib_asset_debug_method_names_wave884_ok: bool,
     pub host_zlib_asset_debug_nav_commands_wave884_ok: bool,
     pub host_zlib_asset_debug_live_wave884_ok: bool,
+    pub host_profile_clippy_method_names_wave885_ok: bool,
+    pub host_profile_clippy_nav_commands_wave885_ok: bool,
+    pub host_profile_clippy_live_wave885_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13181,6 +13189,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_zlib_asset_debug_nav_commands_wave884_ok =
         honesty_host_zlib_asset_debug_nav_commands_residual_wave884();
     let host_zlib_asset_debug_live_wave884_ok = simulate_live_host_zlib_asset_debug_honesty();
+    let host_profile_clippy_method_names_wave885_ok =
+        honesty_host_profile_clippy_method_names_residual_wave885();
+    let host_profile_clippy_nav_commands_wave885_ok =
+        honesty_host_profile_clippy_nav_commands_residual_wave885();
+    let host_profile_clippy_live_wave885_ok = simulate_live_host_profile_clippy_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15816,6 +15829,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_zlib_asset_debug_method_names_wave884_ok,
         host_zlib_asset_debug_nav_commands_wave884_ok,
         host_zlib_asset_debug_live_wave884_ok,
+        host_profile_clippy_method_names_wave885_ok,
+        host_profile_clippy_nav_commands_wave885_ok,
+        host_profile_clippy_live_wave885_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
