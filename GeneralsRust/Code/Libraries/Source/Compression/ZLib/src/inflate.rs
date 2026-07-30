@@ -233,16 +233,12 @@ impl Decompressor {
                 17 => {
                     // Repeat 0 for 3-10 times
                     let repeat = reader.read(3)? as usize + 3;
-                    for _ in 0..repeat {
-                        lengths.push(0);
-                    }
+                    lengths.resize(lengths.len() + repeat, 0);
                 }
                 18 => {
                     // Repeat 0 for 11-138 times
                     let repeat = reader.read(7)? as usize + 11;
-                    for _ in 0..repeat {
-                        lengths.push(0);
-                    }
+                    lengths.resize(lengths.len() + repeat, 0);
                 }
                 _ => {
                     return Err(ZlibError::InvalidDeflateStream(format!(
@@ -291,7 +287,7 @@ impl Decompressor {
 
     /// Decode length from symbol
     fn decode_length(&self, reader: &mut BitReader, symbol: u16) -> Result<u16> {
-        if symbol < 257 || symbol > 285 {
+        if !(257..=285).contains(&symbol) {
             return Err(ZlibError::InvalidDeflateStream(format!(
                 "Invalid length symbol: {}",
                 symbol

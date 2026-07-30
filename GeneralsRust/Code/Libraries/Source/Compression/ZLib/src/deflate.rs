@@ -271,11 +271,7 @@ impl Compressor {
             .max(256);
 
         // Find last non-zero distance length
-        let hdist = distance_lengths
-            .iter()
-            .rposition(|&x| x > 0)
-            .unwrap_or(0)
-            .max(0);
+        let hdist = distance_lengths.iter().rposition(|&x| x > 0).unwrap_or(0);
 
         // Write tree sizes
         output.write((hlit - 257) as u16, 5); // HLIT
