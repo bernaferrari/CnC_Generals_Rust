@@ -8911,17 +8911,16 @@ impl GameWorldShadow {
                 let speed = 20.0_f32;
                 let mut new_pos = pos;
                 new_pos.y = new_pos.y.max(150.0);
-                let mut over = false;
                 let mut vel = glam::Vec3::ZERO;
-                if dist < 5.0 {
-                    over = true;
+                let over = if dist < 5.0 {
+                    true
                 } else {
                     let step = speed.min(dist);
                     new_pos.x += dx / dist * step;
                     new_pos.z += dz / dist * step;
                     vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
-                    over = dist <= tier.delivery_distance() * 0.5;
-                }
+                    dist <= tier.delivery_distance() * 0.5
+                };
                 e.transform.position = new_pos;
                 if vel.length_squared() > 1e-6 {
                     e.transform.orientation = vel.z.atan2(vel.x);
@@ -9003,17 +9002,16 @@ impl GameWorldShadow {
                 let speed = 18.0_f32;
                 let mut new_pos = pos;
                 new_pos.y = new_pos.y.max(150.0);
-                let mut over = false;
                 let mut vel = glam::Vec3::ZERO;
-                if dist < 5.0 {
-                    over = true;
+                let over = if dist < 5.0 {
+                    true
                 } else {
                     let step = speed.min(dist);
                     new_pos.x += dx / dist * step;
                     new_pos.z += dz / dist * step;
                     vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
-                    over = dist <= ANTHRAX_DELIVERY_DISTANCE * 0.5;
-                }
+                    dist <= ANTHRAX_DELIVERY_DISTANCE * 0.5
+                };
                 e.transform.position = new_pos;
                 if vel.length_squared() > 1e-6 {
                     e.transform.orientation = vel.z.atan2(vel.x);
@@ -9080,17 +9078,16 @@ impl GameWorldShadow {
                 let speed = 18.0_f32;
                 let mut new_pos = pos;
                 new_pos.y = new_pos.y.max(150.0);
-                let mut over = false;
                 let mut vel = glam::Vec3::ZERO;
-                if dist < 5.0 {
-                    over = true;
+                let over = if dist < 5.0 {
+                    true
                 } else {
                     let step = speed.min(dist);
                     new_pos.x += dx / dist * step;
                     new_pos.z += dz / dist * step;
                     vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
-                    over = dist <= CLUSTER_MINES_DELIVERY_DISTANCE * 0.5;
-                }
+                    dist <= CLUSTER_MINES_DELIVERY_DISTANCE * 0.5
+                };
                 e.transform.position = new_pos;
                 if vel.length_squared() > 1e-6 {
                     e.transform.orientation = vel.z.atan2(vel.x);
@@ -9156,17 +9153,16 @@ impl GameWorldShadow {
                 let speed = 18.0_f32;
                 let mut new_pos = pos;
                 new_pos.y = new_pos.y.max(150.0);
-                let mut over = false;
                 let mut vel = glam::Vec3::ZERO;
-                if dist < 5.0 {
-                    over = true;
+                let over = if dist < 5.0 {
+                    true
                 } else {
                     let step = speed.min(dist);
                     new_pos.x += dx / dist * step;
                     new_pos.z += dz / dist * step;
                     vel = glam::Vec3::new(new_pos.x - pos.x, new_pos.y - pos.y, new_pos.z - pos.z);
-                    over = dist <= EMP_PULSE_DELIVERY_DISTANCE * 0.5;
-                }
+                    dist <= EMP_PULSE_DELIVERY_DISTANCE * 0.5
+                };
                 e.transform.position = new_pos;
                 if vel.length_squared() > 1e-6 {
                     e.transform.orientation = vel.z.atan2(vel.x);
