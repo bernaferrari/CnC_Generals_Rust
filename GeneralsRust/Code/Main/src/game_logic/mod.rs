@@ -247,6 +247,7 @@ pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
 pub mod host_live_host_object_scan_unify_residual_wave853;
+pub mod host_live_host_observe_failclosed_residual_wave898;
 pub mod host_live_host_override_camera_follow_residual_wave891;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
@@ -2935,6 +2936,13 @@ pub use host_live_host_boot_player_alive_science_residual_wave897::{
     honesty_host_boot_player_alive_science_residual_pack_wave897,
     simulate_live_host_boot_player_alive_science_honesty,
 };
+pub use host_live_host_observe_failclosed_residual_wave898::{
+    honesty_host_observe_failclosed_method_names_residual_wave898,
+    honesty_host_observe_failclosed_nav_commands_residual_wave898,
+    honesty_host_observe_failclosed_residual_pack_wave898,
+    simulate_live_host_observe_failclosed_honesty,
+};
+
 pub use host_live_host_map_shell_failclosed_residual_wave896::{
     honesty_host_map_shell_failclosed_method_names_residual_wave896,
     honesty_host_map_shell_failclosed_nav_commands_residual_wave896,
