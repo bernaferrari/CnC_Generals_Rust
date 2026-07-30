@@ -4,20 +4,15 @@ use ww3d_collision::physics_integration as backend;
 use crate::CollisionShape;
 
 /// High-level body classification matching the legacy WW3D engine semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RigidBodyType {
     /// Immovable body that never responds to forces.
     Static,
     /// Moves according to explicit velocities but ignores forces.
     Kinematic,
     /// Fully simulated body influenced by forces and impulses.
+    #[default]
     Dynamic,
-}
-
-impl Default for RigidBodyType {
-    fn default() -> Self {
-        Self::Dynamic
-    }
 }
 
 /// Lightweight standalone rigid body used for quick construction/tests.

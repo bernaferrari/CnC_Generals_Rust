@@ -309,6 +309,7 @@ pub mod host_live_host_train_auto_target_host_fallback_residual_wave834;
 pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
 pub mod host_live_host_train_producer_residual_wave848;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
+pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_world_bounds_ui_residual_wave862;
 pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
@@ -2915,6 +2916,11 @@ pub use host_live_host_ci_clippy_peel_residual_wave878::{
     honesty_host_ci_clippy_peel_method_names_residual_wave878,
     honesty_host_ci_clippy_peel_nav_commands_residual_wave878,
     honesty_host_ci_clippy_peel_residual_pack_wave878, simulate_live_host_ci_clippy_peel_honesty,
+};
+pub use host_live_host_ui_pres_rebuild_physics_clippy_wave880::{
+    honesty_host_ui_pres_rebuild_method_names_residual_wave880,
+    honesty_host_ui_pres_rebuild_nav_commands_residual_wave880,
+    honesty_host_ui_pres_rebuild_residual_pack_wave880, simulate_live_host_ui_pres_rebuild_honesty,
 };
 pub use host_live_host_wwdownload_clippy_residual_wave879::{
     honesty_host_wwdownload_clippy_method_names_residual_wave879,
