@@ -3970,6 +3970,11 @@ use crate::game_logic::host_live_host_refresh_sim_failclosed_residual_wave901::{
     honesty_host_refresh_sim_failclosed_nav_commands_residual_wave901,
     simulate_live_host_refresh_sim_failclosed_honesty,
 };
+use crate::game_logic::host_live_host_selection_stamp_train_failclosed_residual_wave902::{
+    honesty_host_selection_stamp_train_method_names_residual_wave902,
+    honesty_host_selection_stamp_train_nav_commands_residual_wave902,
+    simulate_live_host_selection_stamp_train_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8307,6 +8312,9 @@ pub struct ShellSmokeResult {
     pub host_refresh_sim_failclosed_method_names_wave901_ok: bool,
     pub host_refresh_sim_failclosed_nav_commands_wave901_ok: bool,
     pub host_refresh_sim_failclosed_live_wave901_ok: bool,
+    pub host_selection_stamp_train_method_names_wave902_ok: bool,
+    pub host_selection_stamp_train_nav_commands_wave902_ok: bool,
+    pub host_selection_stamp_train_live_wave902_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13411,6 +13419,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_refresh_sim_failclosed_nav_commands_residual_wave901();
     let host_refresh_sim_failclosed_live_wave901_ok =
         simulate_live_host_refresh_sim_failclosed_honesty();
+    let host_selection_stamp_train_method_names_wave902_ok =
+        honesty_host_selection_stamp_train_method_names_residual_wave902();
+    let host_selection_stamp_train_nav_commands_wave902_ok =
+        honesty_host_selection_stamp_train_nav_commands_residual_wave902();
+    let host_selection_stamp_train_live_wave902_ok =
+        simulate_live_host_selection_stamp_train_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -16097,6 +16111,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_refresh_sim_failclosed_method_names_wave901_ok,
         host_refresh_sim_failclosed_nav_commands_wave901_ok,
         host_refresh_sim_failclosed_live_wave901_ok,
+        host_selection_stamp_train_method_names_wave902_ok,
+        host_selection_stamp_train_nav_commands_wave902_ok,
+        host_selection_stamp_train_live_wave902_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

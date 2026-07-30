@@ -17365,7 +17365,8 @@ impl CnCGameEngine {
         let script_frozen = if let Some(pres) = self.last_presentation_frame.as_ref() {
             pres.time_frozen_for_simulation
         } else {
-            self.game_logic.is_time_frozen_for_simulation()
+            // Wave 902: fail-closed boot residual (no is_time_frozen dual-read).
+            false
         };
         self.host_match_time_frozen = Some(script_frozen || paused);
     }
@@ -17739,12 +17740,13 @@ impl CnCGameEngine {
             // Wave 543: presentation freeze owns selection residual — even if empty.
             return from_objs;
         }
-        // Wave 850: host-stamped selection residual before live boot probe.
+        // Wave 850/902: host-stamped selection residual before fail-closed boot.
         if let Some(ids) = self.host_match_selected_ids.as_ref() {
             return ids.clone();
         }
-        // Wave 240: boot residual via player_selected_objects probe (no freeze yet).
-        self.game_logic.player_selected_objects(player_id)
+        // Wave 902: fail-closed boot default (no player_selected_objects dual-read).
+        let _ = player_id;
+        Vec::new()
     }
 
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
@@ -19257,41 +19259,9 @@ impl CnCGameEngine {
                 }
             }
         } else {
-            // Wave 853/857: single host scan for alive + producers + special-power ready.
-            for (id, o) in self.game_logic.get_objects() {
-                if !o.is_alive() {
-                    continue;
-                }
-                alive.insert(id.0);
-                if o.special_power_ready {
-                    special_ready.insert(id.0);
-                }
-                if o.team != team {
-                    continue;
-                }
-                if sample.is_none() {
-                    let p = o.position;
-                    sample = Some([p.x, p.y, p.z]);
-                }
-                let name = o.template_name.to_ascii_lowercase();
-                let is_barracks = name.contains("barracks");
-                let is_producer = is_barracks
-                    || name.contains("warfactory")
-                    || name.contains("airfield")
-                    || name.contains("helipad");
-                if !is_producer {
-                    continue;
-                }
-                if o.status.under_construction {
-                    unfinished.push(*id);
-                    continue;
-                }
-                if is_barracks {
-                    barracks.push(*id);
-                } else {
-                    any.push(*id);
-                }
-            }
+            // Wave 853/857/902: cold residual fail-closed (no get_objects dual-read).
+            // InGame stamps via presentation freeze path above.
+            let _ = team;
         }
         barracks.sort_by_key(|id| id.0);
         any.sort_by_key(|id| id.0);
@@ -19323,21 +19293,20 @@ impl CnCGameEngine {
             // Wave 894: AI difficulty residual from freeze (no get_difficulty dual-read).
             self.host_match_ai_difficulty = Some(pres.ai_difficulty);
         } else {
-            self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
-            self.host_match_time_frozen = Some(self.game_logic.is_time_frozen_for_simulation());
-            self.host_match_total_play_time = Some(self.game_logic.get_total_play_time());
+            // Wave 902: cold residual after match-start — dual-read only frame + fixed-step
+            // (needed until presentation seed). Other clocks fail-closed.
+            self.host_match_visual_speed = self.host_match_visual_speed.or(Some(1.0));
+            self.host_match_time_frozen = Some(self.game_paused);
+            self.host_match_total_play_time = self.host_match_total_play_time.or(Some(0.0));
             self.host_match_logic_frame = Some(self.game_logic.get_frame());
             {
                 let d = self.game_logic.fixed_step_diagnostics();
                 self.host_match_logic_steps =
                     Some((d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds));
             }
-            self.host_match_in_replay = Some(self.game_logic.isInReplayGame());
-            // Keep player residual aligned with current host selection.
+            self.host_match_in_replay = Some(false);
             self.host_match_local_player_id = Some(self.current_player_id);
-            // Wave 845: match is not shell once started; team from host player roster.
             self.host_match_in_shell = Some(false);
-            // Wave 901: cold residual team fail-closed USA (no player_team dual-read).
             self.host_match_local_team = Some(crate::game_logic::Team::USA);
         }
         // Wave 846: diplomacy / template / sciences host residuals.
@@ -20678,10 +20647,11 @@ impl CnCGameEngine {
             ));
             return;
         }
-        self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
-        self.host_match_time_frozen =
-            Some(self.game_logic.is_time_frozen_for_simulation() || self.game_paused);
-        self.host_match_total_play_time = Some(self.game_logic.get_total_play_time());
+        // Wave 902: cold stamp after logic tick — dual-read only frame + fixed-step
+        // diagnostics (needed until presentation finalize). Other clocks fail-closed.
+        self.host_match_visual_speed = self.host_match_visual_speed.or(Some(1.0));
+        self.host_match_time_frozen = Some(self.game_paused);
+        self.host_match_total_play_time = self.host_match_total_play_time.or(Some(0.0));
         self.host_match_logic_frame = Some(self.game_logic.get_frame());
         {
             let d = self.game_logic.fixed_step_diagnostics();
