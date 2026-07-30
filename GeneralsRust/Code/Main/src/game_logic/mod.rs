@@ -146,6 +146,7 @@ pub mod host_live_host_boot_ui_freeze_route_residual_wave869;
 pub mod host_live_host_boot_victory_condition_residual_wave855;
 pub mod host_live_host_build_edge_margin_residual_wave829;
 pub mod host_live_host_camera_drain_freeze_skip_residual_wave865;
+pub mod host_live_host_camera_focus_failclosed_residual_wave903;
 pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
 pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
 pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
@@ -2939,6 +2940,12 @@ pub use host_live_host_boot_camera_ui_failclosed_residual_wave899::{
     honesty_host_boot_camera_ui_failclosed_nav_commands_residual_wave899,
     honesty_host_boot_camera_ui_failclosed_residual_pack_wave899,
     simulate_live_host_boot_camera_ui_failclosed_honesty,
+};
+pub use host_live_host_camera_focus_failclosed_residual_wave903::{
+    honesty_host_camera_focus_failclosed_method_names_residual_wave903,
+    honesty_host_camera_focus_failclosed_nav_commands_residual_wave903,
+    honesty_host_camera_focus_failclosed_residual_pack_wave903,
+    simulate_live_host_camera_focus_failclosed_honesty,
 };
 pub use host_live_host_event_drain_failclosed_residual_wave900::{
     honesty_host_event_drain_failclosed_method_names_residual_wave900,
