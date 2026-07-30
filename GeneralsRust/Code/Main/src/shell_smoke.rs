@@ -3850,6 +3850,11 @@ use crate::game_logic::host_live_host_gw_flight_over_assign_residual_wave877::{
     honesty_host_gw_flight_over_assign_nav_commands_residual_wave877,
     simulate_live_host_gw_flight_over_assign_honesty,
 };
+use crate::game_logic::host_live_host_ci_clippy_peel_residual_wave878::{
+    honesty_host_ci_clippy_peel_method_names_residual_wave878,
+    honesty_host_ci_clippy_peel_nav_commands_residual_wave878,
+    simulate_live_host_ci_clippy_peel_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8115,6 +8120,9 @@ pub struct ShellSmokeResult {
     pub host_gw_flight_over_assign_method_names_wave877_ok: bool,
     pub host_gw_flight_over_assign_nav_commands_wave877_ok: bool,
     pub host_gw_flight_over_assign_live_wave877_ok: bool,
+    pub host_ci_clippy_peel_method_names_wave878_ok: bool,
+    pub host_ci_clippy_peel_nav_commands_wave878_ok: bool,
+    pub host_ci_clippy_peel_live_wave878_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13090,6 +13098,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_gw_flight_over_assign_nav_commands_residual_wave877();
     let host_gw_flight_over_assign_live_wave877_ok =
         simulate_live_host_gw_flight_over_assign_honesty();
+    let host_ci_clippy_peel_method_names_wave878_ok =
+        honesty_host_ci_clippy_peel_method_names_residual_wave878();
+    let host_ci_clippy_peel_nav_commands_wave878_ok =
+        honesty_host_ci_clippy_peel_nav_commands_residual_wave878();
+    let host_ci_clippy_peel_live_wave878_ok = simulate_live_host_ci_clippy_peel_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15704,6 +15717,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_gw_flight_over_assign_method_names_wave877_ok,
         host_gw_flight_over_assign_nav_commands_wave877_ok,
         host_gw_flight_over_assign_live_wave877_ok,
+        host_ci_clippy_peel_method_names_wave878_ok,
+        host_ci_clippy_peel_nav_commands_wave878_ok,
+        host_ci_clippy_peel_live_wave878_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

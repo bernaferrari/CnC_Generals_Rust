@@ -160,7 +160,7 @@ impl DefinitionManager {
         let lower_name = definition.get_name().to_lowercase();
         self.definition_hash
             .entry(lower_name)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(definition.clone());
 
         // Insert into sorted array using binary search to find insertion point

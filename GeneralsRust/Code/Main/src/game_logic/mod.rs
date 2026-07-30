@@ -147,6 +147,7 @@ pub mod host_live_host_cannon_shell_projectile_dual_peel_residual_wave800;
 pub mod host_live_host_carpet_bomb_flight_dual_peel_residual_wave794;
 pub mod host_live_host_checkpoint_dual_peel_residual_wave786;
 pub mod host_live_host_china_infantry_horde_dual_peel_residual_wave813;
+pub mod host_live_host_ci_clippy_peel_residual_wave878;
 pub mod host_live_host_cluster_mines_flight_dual_peel_residual_wave790;
 pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
 pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
@@ -2909,6 +2910,11 @@ pub use host_live_host_boot_ui_freeze_route_residual_wave869::{
     honesty_host_boot_ui_freeze_route_residual_pack_wave869,
     simulate_live_host_boot_ui_freeze_route_honesty,
 };
+pub use host_live_host_ci_clippy_peel_residual_wave878::{
+    honesty_host_ci_clippy_peel_method_names_residual_wave878,
+    honesty_host_ci_clippy_peel_nav_commands_residual_wave878,
+    honesty_host_ci_clippy_peel_residual_pack_wave878, simulate_live_host_ci_clippy_peel_honesty,
+};
 pub use host_live_host_dual_read_zero_sole_tick_wave875::{
     honesty_host_dual_read_zero_sole_tick_method_names_residual_wave875,
     honesty_host_dual_read_zero_sole_tick_nav_commands_residual_wave875,
@@ -2921,6 +2927,7 @@ pub use host_live_host_gw_flight_over_assign_residual_wave877::{
     honesty_host_gw_flight_over_assign_residual_pack_wave877,
     simulate_live_host_gw_flight_over_assign_honesty,
 };
+
 pub use host_live_host_shell_no_dual_pace_residual_wave876::{
     honesty_host_shell_no_dual_pace_method_names_residual_wave876,
     honesty_host_shell_no_dual_pace_nav_commands_residual_wave876,
