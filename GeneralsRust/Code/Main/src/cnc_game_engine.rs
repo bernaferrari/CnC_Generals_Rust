@@ -16771,8 +16771,15 @@ impl CnCGameEngine {
         message: &str,
         team: Option<crate::game_logic::Team>,
     ) {
-        // Wave 603: host boot UI message residual.
+        // Wave 603/869: host boot UI message residual.
         // Wave 566: boot residual only — host radar queue + UI SFX.
+        // Wave 869: when presentation freeze is installed, never dual-write
+        // GameLogic mid-frame — route through presentation UI notify residual.
+        if self.last_presentation_frame.is_some() {
+            let _ = team;
+            self.host_notify_presentation_ui_message(message);
+            return;
+        }
         if let Some(team) = team {
             self.game_logic
                 .queue_radar_message_for_team(team, message.to_string());
@@ -17247,7 +17254,7 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         template_name: String,
     ) -> bool {
-        // Wave 580: cancel + HUD building_queue residual.
+        // Wave 580/869: cancel + HUD building_queue residual + refresh scan.
         if !self.game_logic.cancel_production(id, template_name.clone()) {
             return false;
         }
@@ -17259,6 +17266,7 @@ impl CnCGameEngine {
         {
             panel.building_queue.remove(idx);
         }
+        self.host_refresh_local_train_producer_residuals();
         true
     }
 
@@ -20838,8 +20846,14 @@ impl CnCGameEngine {
     /// Wave 584: host clear unit path residual (waypoint clear path).
     #[inline]
     fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 584: host clear path residual.
-        self.game_logic.clear_unit_movement_path(id)
+        // Wave 584/869: host clear path residual.
+        // Under presentation freeze, path clear still mutates host authority;
+        // residual scan stays warm for producer/alive peels after command churn.
+        let ok = self.game_logic.clear_unit_movement_path(id);
+        if ok {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        ok
     }
 
     /// Wave 584: host guard-radius adjust residual.
@@ -20849,8 +20863,12 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         delta: f32,
     ) -> Option<f32> {
-        // Wave 584: host guard radius residual.
-        self.game_logic.adjust_unit_guard_radius(id, delta)
+        // Wave 584/869: host guard radius residual + keep scan residual warm.
+        let r = self.game_logic.adjust_unit_guard_radius(id, delta);
+        if r.is_some() {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        r
     }
 
     /// Wave 583: host force-complete construction residual (runtime train honesty).

@@ -3810,6 +3810,11 @@ use crate::game_logic::host_live_host_science_points_residual_wave868::{
     honesty_host_science_points_nav_commands_residual_wave868,
     simulate_live_host_science_points_honesty,
 };
+use crate::game_logic::host_live_host_boot_ui_freeze_route_residual_wave869::{
+    honesty_host_boot_ui_freeze_route_method_names_residual_wave869,
+    honesty_host_boot_ui_freeze_route_nav_commands_residual_wave869,
+    simulate_live_host_boot_ui_freeze_route_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8051,6 +8056,9 @@ pub struct ShellSmokeResult {
     pub host_science_points_method_names_wave868_ok: bool,
     pub host_science_points_nav_commands_wave868_ok: bool,
     pub host_science_points_live_wave868_ok: bool,
+    pub host_boot_ui_freeze_route_method_names_wave869_ok: bool,
+    pub host_boot_ui_freeze_route_nav_commands_wave869_ok: bool,
+    pub host_boot_ui_freeze_route_live_wave869_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -12982,6 +12990,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_science_points_nav_commands_wave868_ok =
         honesty_host_science_points_nav_commands_residual_wave868();
     let host_science_points_live_wave868_ok = simulate_live_host_science_points_honesty();
+    let host_boot_ui_freeze_route_method_names_wave869_ok =
+        honesty_host_boot_ui_freeze_route_method_names_residual_wave869();
+    let host_boot_ui_freeze_route_nav_commands_wave869_ok =
+        honesty_host_boot_ui_freeze_route_nav_commands_residual_wave869();
+    let host_boot_ui_freeze_route_live_wave869_ok =
+        simulate_live_host_boot_ui_freeze_route_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15572,6 +15586,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_science_points_method_names_wave868_ok,
         host_science_points_nav_commands_wave868_ok,
         host_science_points_live_wave868_ok,
+        host_boot_ui_freeze_route_method_names_wave869_ok,
+        host_boot_ui_freeze_route_nav_commands_wave869_ok,
+        host_boot_ui_freeze_route_live_wave869_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
