@@ -30,7 +30,7 @@ pub mod constants {
 }
 
 /// Supported shader hardware versions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ShaderVersion {
     /// DirectX 6 compatible version (legacy fallback)
     V6,
@@ -39,13 +39,8 @@ pub enum ShaderVersion {
     /// DirectX 8 compatible version with pixel shaders
     V8,
     /// Modern version using compute shaders and advanced features
+    #[default]
     Modern,
-}
-
-impl Default for ShaderVersion {
-    fn default() -> Self {
-        ShaderVersion::Modern
-    }
 }
 
 impl ShaderVersion {
@@ -140,12 +135,9 @@ impl BumpMappingParams {
     /// Extract filename from full path (maintaining compatibility with original C++ behavior)
     pub fn extract_filename(path: &str) -> String {
         // Handle both Unix and Windows path separators
-        let filename = path
-            .split('/')
-            .last()
-            .unwrap_or(path)
-            .split('\\')
-            .last()
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
             .unwrap_or(path);
 
         // Remove extension if present

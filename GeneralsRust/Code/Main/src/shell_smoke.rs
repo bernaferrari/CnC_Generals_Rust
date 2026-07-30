@@ -3875,6 +3875,11 @@ use crate::game_logic::host_live_host_assets_big_unpack_clippy_wave882::{
     honesty_host_assets_big_unpack_nav_commands_residual_wave882,
     simulate_live_host_assets_big_unpack_honesty,
 };
+use crate::game_logic::host_live_host_wwshade_clippy_residual_wave883::{
+    honesty_host_wwshade_clippy_method_names_residual_wave883,
+    honesty_host_wwshade_clippy_nav_commands_residual_wave883,
+    simulate_live_host_wwshade_clippy_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8155,6 +8160,9 @@ pub struct ShellSmokeResult {
     pub host_assets_big_unpack_method_names_wave882_ok: bool,
     pub host_assets_big_unpack_nav_commands_wave882_ok: bool,
     pub host_assets_big_unpack_live_wave882_ok: bool,
+    pub host_wwshade_clippy_method_names_wave883_ok: bool,
+    pub host_wwshade_clippy_nav_commands_wave883_ok: bool,
+    pub host_wwshade_clippy_live_wave883_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13155,6 +13163,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_assets_big_unpack_nav_commands_wave882_ok =
         honesty_host_assets_big_unpack_nav_commands_residual_wave882();
     let host_assets_big_unpack_live_wave882_ok = simulate_live_host_assets_big_unpack_honesty();
+    let host_wwshade_clippy_method_names_wave883_ok =
+        honesty_host_wwshade_clippy_method_names_residual_wave883();
+    let host_wwshade_clippy_nav_commands_wave883_ok =
+        honesty_host_wwshade_clippy_nav_commands_residual_wave883();
+    let host_wwshade_clippy_live_wave883_ok = simulate_live_host_wwshade_clippy_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15784,6 +15797,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_assets_big_unpack_method_names_wave882_ok,
         host_assets_big_unpack_nav_commands_wave882_ok,
         host_assets_big_unpack_live_wave882_ok,
+        host_wwshade_clippy_method_names_wave883_ok,
+        host_wwshade_clippy_nav_commands_wave883_ok,
+        host_wwshade_clippy_live_wave883_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

@@ -321,6 +321,7 @@ pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wa
 pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
 pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
 pub mod host_live_host_wwdownload_clippy_residual_wave879;
+pub mod host_live_host_wwshade_clippy_residual_wave883;
 pub mod host_live_host_zone_damage_dual_peel_residual_wave825;
 pub mod host_live_presentation_empty_shadow_failopen_residual_wave838;
 pub mod host_live_presentation_mouse_ingame_failclosed_residual_wave841;
@@ -2914,6 +2915,12 @@ pub use host_live_host_assets_big_unpack_clippy_wave882::{
     honesty_host_assets_big_unpack_residual_pack_wave882,
     simulate_live_host_assets_big_unpack_honesty,
 };
+pub use host_live_host_wwshade_clippy_residual_wave883::{
+    honesty_host_wwshade_clippy_method_names_residual_wave883,
+    honesty_host_wwshade_clippy_nav_commands_residual_wave883,
+    honesty_host_wwshade_clippy_residual_pack_wave883, simulate_live_host_wwshade_clippy_honesty,
+};
+
 pub use host_live_host_boot_ui_freeze_route_residual_wave869::{
     honesty_host_boot_ui_freeze_route_method_names_residual_wave869,
     honesty_host_boot_ui_freeze_route_nav_commands_residual_wave869,

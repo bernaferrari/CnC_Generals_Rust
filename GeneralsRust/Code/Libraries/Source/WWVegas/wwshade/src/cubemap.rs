@@ -442,20 +442,15 @@ impl Default for CubeMapMaterial {
 }
 
 /// Cube map texture types supported
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CubeMapType {
     /// Standard 6-face cube map
+    #[default]
     SixFace,
     /// Spherical environment map projected to cube
     Spherical,
     /// Array texture with 6 layers
     TextureArray,
-}
-
-impl Default for CubeMapType {
-    fn default() -> Self {
-        CubeMapType::SixFace
-    }
 }
 
 #[cfg(test)]
