@@ -245,6 +245,7 @@ pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
 pub mod host_live_host_object_scan_unify_residual_wave853;
+pub mod host_live_host_override_camera_follow_residual_wave891;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
 pub mod host_live_host_particle_world_builder_clippy_wave887;
@@ -2922,6 +2923,12 @@ pub use host_live_host_assets_big_unpack_clippy_wave882::{
     honesty_host_assets_big_unpack_residual_pack_wave882,
     simulate_live_host_assets_big_unpack_honesty,
 };
+pub use host_live_host_override_camera_follow_residual_wave891::{
+    honesty_host_override_camera_follow_method_names_residual_wave891,
+    honesty_host_override_camera_follow_nav_commands_residual_wave891,
+    honesty_host_override_camera_follow_residual_pack_wave891,
+    simulate_live_host_override_camera_follow_honesty,
+};
 pub use host_live_host_particle_world_builder_clippy_wave887::{
     honesty_host_particle_world_builder_method_names_residual_wave887,
     honesty_host_particle_world_builder_nav_commands_residual_wave887,
@@ -2934,6 +2941,7 @@ pub use host_live_host_remaining_clippy_wave890::{
     honesty_host_remaining_clippy_residual_pack_wave890,
     simulate_live_host_remaining_clippy_honesty,
 };
+
 pub use host_live_host_wp_audio_clippy_residual_wave889::{
     honesty_host_wp_audio_clippy_method_names_residual_wave889,
     honesty_host_wp_audio_clippy_nav_commands_residual_wave889,

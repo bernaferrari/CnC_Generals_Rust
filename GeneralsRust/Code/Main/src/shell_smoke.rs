@@ -3915,6 +3915,11 @@ use crate::game_logic::host_live_host_remaining_clippy_wave890::{
     honesty_host_remaining_clippy_nav_commands_residual_wave890,
     simulate_live_host_remaining_clippy_honesty,
 };
+use crate::game_logic::host_live_host_override_camera_follow_residual_wave891::{
+    honesty_host_override_camera_follow_method_names_residual_wave891,
+    honesty_host_override_camera_follow_nav_commands_residual_wave891,
+    simulate_live_host_override_camera_follow_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8219,6 +8224,9 @@ pub struct ShellSmokeResult {
     pub host_remaining_clippy_method_names_wave890_ok: bool,
     pub host_remaining_clippy_nav_commands_wave890_ok: bool,
     pub host_remaining_clippy_live_wave890_ok: bool,
+    pub host_override_camera_follow_method_names_wave891_ok: bool,
+    pub host_override_camera_follow_nav_commands_wave891_ok: bool,
+    pub host_override_camera_follow_live_wave891_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13261,6 +13269,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_remaining_clippy_nav_commands_wave890_ok =
         honesty_host_remaining_clippy_nav_commands_residual_wave890();
     let host_remaining_clippy_live_wave890_ok = simulate_live_host_remaining_clippy_honesty();
+    let host_override_camera_follow_method_names_wave891_ok =
+        honesty_host_override_camera_follow_method_names_residual_wave891();
+    let host_override_camera_follow_nav_commands_wave891_ok =
+        honesty_host_override_camera_follow_nav_commands_residual_wave891();
+    let host_override_camera_follow_live_wave891_ok =
+        simulate_live_host_override_camera_follow_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15914,6 +15928,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_remaining_clippy_method_names_wave890_ok,
         host_remaining_clippy_nav_commands_wave890_ok,
         host_remaining_clippy_live_wave890_ok,
+        host_override_camera_follow_method_names_wave891_ok,
+        host_override_camera_follow_nav_commands_wave891_ok,
+        host_override_camera_follow_live_wave891_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

@@ -20704,12 +20704,14 @@ impl CnCGameEngine {
     /// Wave 585: host world-size override residual (minimap/heightmap repair path).
     #[inline]
     fn host_override_world_size(&mut self, width: f32, height: f32) {
-        // Wave 585/865: host override_world_size residual + stamp bounds residual.
+        // Wave 585/865/891: host override residual + stamp bounds from args
+        // (same math as GameLogic::override_world_size — no world_bounds dual-read).
         self.game_logic.override_world_size(width, height);
-        // Keep host_match_world_bounds warm so presentation peels need not dual-read.
-        let (min, max) = self.game_logic.world_bounds();
+        let half_w = width * 0.5;
+        let half_h = height * 0.5;
+        let min = glam::Vec3::new(-half_w, 0.0, -half_h);
+        let max = glam::Vec3::new(half_w, 0.0, half_h);
         self.host_match_world_bounds = Some((min, max));
-        let _ = (width, height);
     }
 
     /// Wave 585: host world-bounds residual (boot path without presentation freeze).
@@ -21083,16 +21085,18 @@ impl CnCGameEngine {
     /// Wave 583: host camera-follow write residual.
     #[inline]
     fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
-        // Wave 583/847: host follow command residual + stamp presentation peels.
+        // Wave 583/847/891: host follow residual + stamp position from one object
+        // resolve (same as set_camera_follow_object focus) — no second dual-read via
+        // camera_follow_target_position().
+        let stamped_pos = id.and_then(|oid| {
+            self.game_logic.get_object(oid).map(|o| {
+                let v = o.get_position();
+                [v.x, v.y, v.z]
+            })
+        });
         self.game_logic.set_camera_follow_object(id);
         self.host_match_camera_follow_active = Some(id.is_some());
-        self.host_match_camera_follow_position = if id.is_some() {
-            self.game_logic
-                .camera_follow_target_position()
-                .map(|v| [v.x, v.y, v.z])
-        } else {
-            None
-        };
+        self.host_match_camera_follow_position = stamped_pos;
     }
 
     /// Wave 583: presentation freeze owns follow-active residual when installed.
