@@ -3835,6 +3835,11 @@ use crate::game_logic::host_live_host_queue_stamp_memory_clippy_wave874::{
     honesty_host_queue_stamp_nav_commands_residual_wave874,
     simulate_live_host_queue_stamp_honesty,
 };
+use crate::game_logic::host_live_host_dual_read_zero_sole_tick_wave875::{
+    honesty_host_dual_read_zero_sole_tick_method_names_residual_wave875,
+    honesty_host_dual_read_zero_sole_tick_nav_commands_residual_wave875,
+    simulate_live_host_dual_read_zero_sole_tick_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8091,6 +8096,9 @@ pub struct ShellSmokeResult {
     pub host_queue_stamp_method_names_wave874_ok: bool,
     pub host_queue_stamp_nav_commands_wave874_ok: bool,
     pub host_queue_stamp_live_wave874_ok: bool,
+    pub host_dual_read_zero_sole_tick_method_names_wave875_ok: bool,
+    pub host_dual_read_zero_sole_tick_nav_commands_wave875_ok: bool,
+    pub host_dual_read_zero_sole_tick_live_wave875_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13049,6 +13057,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_queue_stamp_nav_commands_wave874_ok =
         honesty_host_queue_stamp_nav_commands_residual_wave874();
     let host_queue_stamp_live_wave874_ok = simulate_live_host_queue_stamp_honesty();
+    let host_dual_read_zero_sole_tick_method_names_wave875_ok =
+        honesty_host_dual_read_zero_sole_tick_method_names_residual_wave875();
+    let host_dual_read_zero_sole_tick_nav_commands_wave875_ok =
+        honesty_host_dual_read_zero_sole_tick_nav_commands_residual_wave875();
+    let host_dual_read_zero_sole_tick_live_wave875_ok =
+        simulate_live_host_dual_read_zero_sole_tick_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15654,6 +15668,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_queue_stamp_method_names_wave874_ok,
         host_queue_stamp_nav_commands_wave874_ok,
         host_queue_stamp_live_wave874_ok,
+        host_dual_read_zero_sole_tick_method_names_wave875_ok,
+        host_dual_read_zero_sole_tick_nav_commands_wave875_ok,
+        host_dual_read_zero_sole_tick_live_wave875_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

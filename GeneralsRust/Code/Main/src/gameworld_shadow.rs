@@ -8681,7 +8681,10 @@ impl GameWorldShadow {
                     let vision = e.enemy_near_vision_range.max(e.vision_range);
                     let my_team = e.team_ordinal;
                     // Drop entity borrow before scan (scan needs world()).
-                    drop(e);
+                    {
+                        #[allow(clippy::drop_ref)]
+                        drop(e);
+                    }
                     let present = self.scan_enemy_near_present(eid, sx, sz, vision, my_team);
                     if let Some(e2) = self.world.world_mut().entity_mut(eid) {
                         e2.enemy_near_scan_delay = delay_time;
@@ -8831,7 +8834,11 @@ impl GameWorldShadow {
                     let sz = e.transform.position.z;
                     let vision = e.checkpoint_vision_range.max(e.vision_range);
                     let my_team = e.team_ordinal;
-                    drop(e);
+                    // Drop entity borrow before scan (scan needs world()).
+                    {
+                        #[allow(clippy::drop_ref)]
+                        drop(e);
+                    }
                     let (enemy, ally) = self.scan_checkpoint_near(eid, sx, sz, vision, my_team);
                     if let Some(e2) = self.world.world_mut().entity_mut(eid) {
                         e2.checkpoint_scan_delay = delay_time;
