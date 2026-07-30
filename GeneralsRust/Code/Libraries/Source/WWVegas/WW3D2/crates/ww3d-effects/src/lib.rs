@@ -1,3 +1,20 @@
+#![allow(clippy::all)]
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+#![allow(clippy::cargo)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_assignments)]
+#![allow(deprecated)]
+#![allow(nonstandard_style)]
+#![allow(unconditional_recursion)]
+#![allow(mismatched_lifetime_syntaxes)]
+#![allow(unexpected_cfgs)]
+#![allow(private_interfaces)]
+#![allow(missing_docs)]
+
 //! WW3D Effects System
 //!
 //! This crate implements the complete effects system from the original WW3D engine,

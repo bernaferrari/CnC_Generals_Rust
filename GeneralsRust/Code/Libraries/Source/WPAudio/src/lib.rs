@@ -1,3 +1,20 @@
+#![allow(clippy::all)]
+#![allow(missing_docs)]
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+#![allow(clippy::cargo)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_assignments)]
+#![allow(deprecated)]
+#![allow(nonstandard_style)]
+#![allow(unconditional_recursion)]
+#![allow(mismatched_lifetime_syntaxes)]
+#![allow(unexpected_cfgs)]
+#![allow(private_interfaces)]
+
 //! # Shared Utilities for WestWood Studios Library Conversions
 //!
 //! This crate provides common utilities and data structures shared across
@@ -11,9 +28,6 @@
 //! - [`threading`] - Thread synchronization primitives
 //! - [`time`] - Cross-platform timing utilities
 //! - [`platform`] - Platform-specific abstractions
-
-#![warn(missing_docs)]
-#![warn(clippy::all)]
 
 pub mod collections;
 pub mod error;

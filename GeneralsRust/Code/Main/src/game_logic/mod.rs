@@ -273,6 +273,7 @@ pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
 pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
+pub mod host_live_host_remaining_clippy_wave890;
 pub mod host_live_host_residual_failclosed_peels_wave859;
 pub mod host_live_host_science_points_residual_wave868;
 pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
@@ -2927,11 +2928,18 @@ pub use host_live_host_particle_world_builder_clippy_wave887::{
     honesty_host_particle_world_builder_residual_pack_wave887,
     simulate_live_host_particle_world_builder_honesty,
 };
+pub use host_live_host_remaining_clippy_wave890::{
+    honesty_host_remaining_clippy_method_names_residual_wave890,
+    honesty_host_remaining_clippy_nav_commands_residual_wave890,
+    honesty_host_remaining_clippy_residual_pack_wave890,
+    simulate_live_host_remaining_clippy_honesty,
+};
 pub use host_live_host_wp_audio_clippy_residual_wave889::{
     honesty_host_wp_audio_clippy_method_names_residual_wave889,
     honesty_host_wp_audio_clippy_nav_commands_residual_wave889,
     honesty_host_wp_audio_clippy_residual_pack_wave889, simulate_live_host_wp_audio_clippy_honesty,
 };
+
 pub use host_live_host_wwlib_map_cache_clippy_wave888::{
     honesty_host_wwlib_map_cache_method_names_residual_wave888,
     honesty_host_wwlib_map_cache_nav_commands_residual_wave888,
