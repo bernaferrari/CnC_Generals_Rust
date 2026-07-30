@@ -3493,7 +3493,7 @@ impl GameClient {
         self.update_drawables_local(visual_delta)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
-            self.finish_frame_timing(current_time);
+            // Wave 876: Main owns frame pacing — no shell dual-sleep.
             return Ok(());
         }
 
@@ -3513,7 +3513,8 @@ impl GameClient {
         self.pump_message_stream()?;
 
         self.rendered_object_count = 0;
-        self.finish_frame_timing(current_time);
+        // Wave 876: Main owns frame pacing — no shell dual-sleep.
+        let _ = current_time;
         Ok(())
     }
 

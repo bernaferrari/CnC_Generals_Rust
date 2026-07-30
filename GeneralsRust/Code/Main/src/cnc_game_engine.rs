@@ -20604,6 +20604,7 @@ impl CnCGameEngine {
     /// - Main owns audio dispatch from PresentationFrame (no dual `update_audio`)
     /// - Main `RenderPipeline` is sole 3D present (no dual `draw_display`)
     /// - full `update()` also `finish_frame_timing` sleeps — would double-pace host frames
+    /// Wave 876: `update_presentation_shell` no longer sleeps; Main sole frame pace.
     /// Dual-world registry path remains available inside GameClient when
     /// `OBJECT_REGISTRY` is populated (opt-in bridge); production host keeps it empty.
     #[cfg(feature = "game_client")]
