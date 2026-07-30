@@ -3825,6 +3825,11 @@ use crate::game_logic::host_live_host_match_residual_clear_wave871::{
     honesty_host_match_residual_clear_nav_commands_residual_wave871,
     simulate_live_host_match_residual_clear_honesty,
 };
+use crate::game_logic::host_live_host_template_ui_residual_wave872::{
+    honesty_host_template_ui_method_names_residual_wave872,
+    honesty_host_template_ui_nav_commands_residual_wave872,
+    simulate_live_host_template_ui_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8075,6 +8080,9 @@ pub struct ShellSmokeResult {
     pub host_match_residual_clear_method_names_wave871_ok: bool,
     pub host_match_residual_clear_nav_commands_wave871_ok: bool,
     pub host_match_residual_clear_live_wave871_ok: bool,
+    pub host_template_ui_method_names_wave872_ok: bool,
+    pub host_template_ui_nav_commands_wave872_ok: bool,
+    pub host_template_ui_live_wave872_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13023,6 +13031,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_match_residual_clear_nav_commands_residual_wave871();
     let host_match_residual_clear_live_wave871_ok =
         simulate_live_host_match_residual_clear_honesty();
+    let host_template_ui_method_names_wave872_ok =
+        honesty_host_template_ui_method_names_residual_wave872();
+    let host_template_ui_nav_commands_wave872_ok =
+        honesty_host_template_ui_nav_commands_residual_wave872();
+    let host_template_ui_live_wave872_ok = simulate_live_host_template_ui_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15622,6 +15635,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_match_residual_clear_method_names_wave871_ok,
         host_match_residual_clear_nav_commands_wave871_ok,
         host_match_residual_clear_live_wave871_ok,
+        host_template_ui_method_names_wave872_ok,
+        host_template_ui_nav_commands_wave872_ok,
+        host_template_ui_live_wave872_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
