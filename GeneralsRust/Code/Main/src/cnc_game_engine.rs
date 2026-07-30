@@ -17283,14 +17283,11 @@ impl CnCGameEngine {
     }
 
     fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
-        // Wave 577/868: paired camera target + host request_camera_focus residual.
+        // Wave 577/868/903: host camera target residual only (no request_camera_focus dual-read).
+        // Presentation freeze / Main camera_target own observe path.
         let clamped = self.clamp_to_world_bounds(world_pos);
         self.camera_target.x = clamped.x;
         self.camera_target.z = clamped.z;
-        // Presentation freeze owns camera residual — skip live queue dual-read.
-        if self.last_presentation_frame.is_none() {
-            self.game_logic.request_camera_focus(clamped);
-        }
         clamped
     }
 
@@ -20883,10 +20880,14 @@ impl CnCGameEngine {
     /// Wave 583: host camera-follow write residual.
     #[inline]
     fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
-        // Wave 583/847/891: host follow residual + stamp position from one object
-        // resolve (same as set_camera_follow_object focus) — no second dual-read via
-        // camera_follow_target_position().
+        // Wave 583/847/891/903: stamp follow pose from presentation freeze first,
+        // then one host object resolve only if freeze miss (authority write still hosts).
         let stamped_pos = id.and_then(|oid| {
+            if let Some(pres) = self.last_presentation_frame.as_ref() {
+                if let Some(o) = pres.objects.iter().find(|o| o.id == oid) {
+                    return Some([o.position.x, o.position.y, o.position.z]);
+                }
+            }
             self.game_logic.get_object(oid).map(|o| {
                 let v = o.get_position();
                 [v.x, v.y, v.z]
