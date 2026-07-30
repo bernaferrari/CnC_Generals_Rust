@@ -1,3 +1,7 @@
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::manual_clamp)]
 //! WW3D Particle System
 //!
 //! This crate implements the complete particle system from the original WW3D engine,

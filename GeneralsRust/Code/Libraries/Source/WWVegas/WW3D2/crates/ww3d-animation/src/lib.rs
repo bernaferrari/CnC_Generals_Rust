@@ -1,3 +1,6 @@
+#![allow(clippy::new_without_default)]
+#![allow(clippy::len_without_is_empty)]
+#![allow(clippy::single_match)]
 use glam::{Mat4, Quat, Vec3};
 use ww3d_assets::prototypes::{AnimationChannelData, AnimationPrototype, HierarchyPrototype};
 

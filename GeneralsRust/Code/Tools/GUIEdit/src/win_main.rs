@@ -6,7 +6,6 @@
 
 use anyhow::Result;
 use eframe::egui;
-use env_logger;
 use log::info;
 use std::path::PathBuf;
 
