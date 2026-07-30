@@ -288,6 +288,7 @@ pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
 pub mod host_live_host_shell_no_dual_pace_residual_wave876;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
+pub mod host_live_host_sim_timing_presentation_residual_wave893;
 pub mod host_live_host_sim_timing_stamp_residual_wave870;
 pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
 pub mod host_live_host_skirmish_map_reject_shell_residual_wave840;
@@ -2935,6 +2936,12 @@ pub use host_live_host_pause_boot_player_residual_wave892::{
     honesty_host_pause_boot_player_nav_commands_residual_wave892,
     honesty_host_pause_boot_player_residual_pack_wave892,
     simulate_live_host_pause_boot_player_honesty,
+};
+pub use host_live_host_sim_timing_presentation_residual_wave893::{
+    honesty_host_sim_timing_presentation_method_names_residual_wave893,
+    honesty_host_sim_timing_presentation_nav_commands_residual_wave893,
+    honesty_host_sim_timing_presentation_residual_pack_wave893,
+    simulate_live_host_sim_timing_presentation_honesty,
 };
 
 pub use host_live_host_particle_world_builder_clippy_wave887::{
