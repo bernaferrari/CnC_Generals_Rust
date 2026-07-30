@@ -19,7 +19,7 @@ pub fn format_urls_from_config() -> DownloadResult<UrlConfig> {
     let config = config_manager.load()?;
 
     let sku = "GeneralsZH";
-    let base_url = format!("http://servserv.generals.ea.com/servserv/{}/", sku);
+    let _base_url = format!("http://servserv.generals.ea.com/servserv/{}/", sku);
 
     // Use configured values or defaults
     let base_url = config.base_url;
@@ -105,6 +105,7 @@ impl UrlBuilder {
 }
 
 /// Extract file information from URL
+#[allow(dead_code)]
 pub fn parse_url_info(url: &str) -> DownloadResult<(String, String, Option<u16>)> {
     let parsed_url = Url::parse(url)?;
 

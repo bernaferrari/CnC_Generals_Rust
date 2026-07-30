@@ -317,6 +317,7 @@ pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave7
 pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wave760;
 pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
 pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
+pub mod host_live_host_wwdownload_clippy_residual_wave879;
 pub mod host_live_host_zone_damage_dual_peel_residual_wave825;
 pub mod host_live_presentation_empty_shadow_failopen_residual_wave838;
 pub mod host_live_presentation_mouse_ingame_failclosed_residual_wave841;
@@ -2915,6 +2916,13 @@ pub use host_live_host_ci_clippy_peel_residual_wave878::{
     honesty_host_ci_clippy_peel_nav_commands_residual_wave878,
     honesty_host_ci_clippy_peel_residual_pack_wave878, simulate_live_host_ci_clippy_peel_honesty,
 };
+pub use host_live_host_wwdownload_clippy_residual_wave879::{
+    honesty_host_wwdownload_clippy_method_names_residual_wave879,
+    honesty_host_wwdownload_clippy_nav_commands_residual_wave879,
+    honesty_host_wwdownload_clippy_residual_pack_wave879,
+    simulate_live_host_wwdownload_clippy_honesty,
+};
+
 pub use host_live_host_dual_read_zero_sole_tick_wave875::{
     honesty_host_dual_read_zero_sole_tick_method_names_residual_wave875,
     honesty_host_dual_read_zero_sole_tick_nav_commands_residual_wave875,

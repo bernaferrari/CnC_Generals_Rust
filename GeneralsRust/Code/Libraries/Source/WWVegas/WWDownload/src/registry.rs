@@ -193,7 +193,7 @@ fn write_u32(root: HKEY, path: &str, key: &str, val: u32) -> bool {
 }
 
 pub fn get_string_from_registry(path: &str, key: &str, val: &mut String) -> bool {
-    let full_path = format!("{BASE_KEY}{path}");
+    let _full_path = format!("{BASE_KEY}{path}");
     #[cfg(target_os = "windows")]
     {
         if read_string(HKEY_LOCAL_MACHINE, &full_path, key, val) {
@@ -214,7 +214,7 @@ pub fn get_string_from_registry(path: &str, key: &str, val: &mut String) -> bool
 }
 
 pub fn get_unsigned_int_from_registry(path: &str, key: &str, val: &mut u32) -> bool {
-    let full_path = format!("{BASE_KEY}{path}");
+    let _full_path = format!("{BASE_KEY}{path}");
     #[cfg(target_os = "windows")]
     {
         if read_u32(HKEY_LOCAL_MACHINE, &full_path, key, val) {
@@ -235,7 +235,7 @@ pub fn get_unsigned_int_from_registry(path: &str, key: &str, val: &mut u32) -> b
 }
 
 pub fn set_string_in_registry(path: &str, key: &str, val: &str) -> bool {
-    let full_path = format!("{BASE_KEY}{path}");
+    let _full_path = format!("{BASE_KEY}{path}");
     #[cfg(target_os = "windows")]
     {
         if write_string(HKEY_LOCAL_MACHINE, &full_path, key, val) {
@@ -253,7 +253,7 @@ pub fn set_string_in_registry(path: &str, key: &str, val: &str) -> bool {
 }
 
 pub fn set_unsigned_int_in_registry(path: &str, key: &str, val: u32) -> bool {
-    let full_path = format!("{BASE_KEY}{path}");
+    let _full_path = format!("{BASE_KEY}{path}");
     #[cfg(target_os = "windows")]
     {
         if write_u32(HKEY_LOCAL_MACHINE, &full_path, key, val) {
