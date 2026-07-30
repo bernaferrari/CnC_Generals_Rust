@@ -324,6 +324,7 @@ pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
 pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
 pub mod host_live_host_ww3d_particles_anim_gui_edit_wave886;
 pub mod host_live_host_wwdownload_clippy_residual_wave879;
+pub mod host_live_host_wwlib_map_cache_clippy_wave888;
 pub mod host_live_host_wwshade_clippy_residual_wave883;
 pub mod host_live_host_zlib_asset_debug_clippy_wave884;
 pub mod host_live_host_zone_damage_dual_peel_residual_wave825;
@@ -2925,6 +2926,12 @@ pub use host_live_host_particle_world_builder_clippy_wave887::{
     honesty_host_particle_world_builder_residual_pack_wave887,
     simulate_live_host_particle_world_builder_honesty,
 };
+pub use host_live_host_wwlib_map_cache_clippy_wave888::{
+    honesty_host_wwlib_map_cache_method_names_residual_wave888,
+    honesty_host_wwlib_map_cache_nav_commands_residual_wave888,
+    honesty_host_wwlib_map_cache_residual_pack_wave888, simulate_live_host_wwlib_map_cache_honesty,
+};
+
 pub use host_live_host_profile_clippy_residual_wave885::{
     honesty_host_profile_clippy_method_names_residual_wave885,
     honesty_host_profile_clippy_nav_commands_residual_wave885,

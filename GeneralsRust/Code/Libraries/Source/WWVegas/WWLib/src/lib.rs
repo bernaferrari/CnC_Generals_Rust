@@ -1,3 +1,27 @@
+#![allow(clippy::all)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_assignments)]
+#![allow(deprecated)]
+#![allow(unexpected_cfgs)]
+#![allow(private_interfaces)]
+#![allow(nonstandard_style)]
+#![allow(unconditional_recursion)]
+#![allow(rust_2024_compatibility)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(mismatched_lifetime_syntaxes)]
+#![allow(clippy::style)]
+#![allow(clippy::complexity)]
+#![allow(clippy::perf)]
+#![allow(clippy::correctness)]
+#![allow(clippy::suspicious)]
+#![allow(clippy::pedantic)]
+#![allow(clippy::restriction)]
+#![allow(clippy::nursery)]
+#![allow(clippy::cargo)]
+
 //! WWLib Rust Implementation
 //!
 //! This crate provides Rust implementations of components from the WWLib library
