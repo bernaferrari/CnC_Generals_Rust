@@ -281,6 +281,7 @@ pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
 pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
+pub mod host_live_host_refresh_sim_failclosed_residual_wave901;
 pub mod host_live_host_remaining_clippy_wave890;
 pub mod host_live_host_residual_failclosed_peels_wave859;
 pub mod host_live_host_science_points_residual_wave868;
@@ -2943,6 +2944,12 @@ pub use host_live_host_event_drain_failclosed_residual_wave900::{
     honesty_host_event_drain_failclosed_nav_commands_residual_wave900,
     honesty_host_event_drain_failclosed_residual_pack_wave900,
     simulate_live_host_event_drain_failclosed_honesty,
+};
+pub use host_live_host_refresh_sim_failclosed_residual_wave901::{
+    honesty_host_refresh_sim_failclosed_method_names_residual_wave901,
+    honesty_host_refresh_sim_failclosed_nav_commands_residual_wave901,
+    honesty_host_refresh_sim_failclosed_residual_pack_wave901,
+    simulate_live_host_refresh_sim_failclosed_honesty,
 };
 
 pub use host_live_host_boot_player_alive_science_residual_wave897::{

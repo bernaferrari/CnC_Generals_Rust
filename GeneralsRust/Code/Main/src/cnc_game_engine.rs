@@ -19337,53 +19337,34 @@ impl CnCGameEngine {
             self.host_match_local_player_id = Some(self.current_player_id);
             // Wave 845: match is not shell once started; team from host player roster.
             self.host_match_in_shell = Some(false);
-            self.host_match_local_team = Some(
-                self.game_logic
-                    .player_team(self.current_player_id)
-                    .unwrap_or(crate::game_logic::Team::USA),
-            );
+            // Wave 901: cold residual team fail-closed USA (no player_team dual-read).
+            self.host_match_local_team = Some(crate::game_logic::Team::USA);
         }
         // Wave 846: diplomacy / template / sciences host residuals.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_diplomacy_players = Some(pres.players.clone());
             self.host_match_known_template_names = Some(pres.known_template_names.clone());
+            // Wave 901: sciences residual from freeze only (no player_unlocked dual-read).
             let mut sciences = std::collections::HashMap::new();
-            // Local sciences from freeze; other players from host stamp.
             sciences.insert(pres.local_player_id, pres.local_unlocked_sciences.clone());
             for p in &pres.players {
-                sciences
-                    .entry(p.id)
-                    .or_insert_with(|| self.game_logic.player_unlocked_sciences(p.id));
+                sciences.entry(p.id).or_insert_with(Vec::new);
             }
             self.host_match_unlocked_sciences = Some(sciences);
         } else {
-            let mut players = Vec::new();
-            for id in self.game_logic.player_ids() {
-                if let Some(info) = self.boot_player_info_from_host(id) {
-                    players.push(info);
-                }
-            }
-            self.host_match_diplomacy_players = Some(players);
-            let mut names: Vec<String> = self.game_logic.templates.keys().cloned().collect();
-            names.sort();
-            self.host_match_known_template_names = Some(names);
-            let mut sciences = std::collections::HashMap::new();
-            for id in self.game_logic.player_ids() {
-                sciences.insert(id, self.game_logic.player_unlocked_sciences(id));
-            }
-            self.host_match_unlocked_sciences = Some(sciences);
+            // Wave 901: cold residual fail-closed (boot_player_info already residual-only).
+            self.host_match_diplomacy_players = Some(Vec::new());
+            self.host_match_known_template_names = Some(Vec::new());
+            self.host_match_unlocked_sciences = Some(std::collections::HashMap::new());
         }
         // Wave 847: camera-follow host residual (prefer freeze when present).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_camera_follow_active = Some(pres.camera_follow_position.is_some());
             self.host_match_camera_follow_position = pres.camera_follow_position;
         } else {
-            self.host_match_camera_follow_active =
-                Some(self.game_logic.camera_follow_object_id().is_some());
-            self.host_match_camera_follow_position = self
-                .game_logic
-                .camera_follow_target_position()
-                .map(|v| [v.x, v.y, v.z]);
+            // Wave 901: cold residual fail-closed (no camera_follow dual-read).
+            self.host_match_camera_follow_active = Some(false);
+            self.host_match_camera_follow_position = None;
         }
         // Wave 848: stamp local train producers after other match residuals.
         self.host_refresh_local_train_producer_residuals();
@@ -19392,20 +19373,22 @@ impl CnCGameEngine {
             self.host_match_script_camera_max_height = Some(pres.script_default_camera_max_height);
             self.host_match_script_camera_pitch = Some(pres.script_default_camera_pitch);
         } else {
-            self.host_match_script_camera_max_height =
-                Some(self.game_logic.script_default_camera_max_height());
-            self.host_match_script_camera_pitch =
-                Some(self.game_logic.script_default_camera_pitch());
+            // Wave 901: cold residual fail-closed camera defaults.
+            self.host_match_script_camera_max_height = Some(1.0);
+            self.host_match_script_camera_pitch = Some(1.0);
         }
-        // Wave 861: stamp multiplayer residual (skirmish host is never multiplayer).
-        self.host_match_in_multiplayer = Some(self.game_logic.isInMultiplayerGame());
+        // Wave 861/901: skirmish host is never multiplayer (no dual-read).
+        self.host_match_in_multiplayer = Some(false);
         // Wave 862: stamp world bounds residual (freeze first).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_world_bounds = Some(pres.world_env.world_bounds_vec3());
+        } else if let Some(b) = self.host_match_world_bounds {
+            let _ = b; // keep prior stamp
         } else {
-            self.host_match_world_bounds = Some(self.game_logic.world_bounds());
+            // Wave 901: cold residual fail-closed.
+            self.host_match_world_bounds = Some((glam::Vec3::ZERO, glam::Vec3::ZERO));
         }
-        // Wave 863: stamp first-opponent residual from diplomacy / host players.
+        // Wave 863/901: stamp first-opponent residual from diplomacy residual only.
         let local = self
             .host_match_local_player_id
             .unwrap_or(self.current_player_id);
@@ -19416,15 +19399,10 @@ impl CnCGameEngine {
             self.host_match_first_opponent_id =
                 Some(pres.players.iter().find(|p| p.id != local).map(|p| p.id));
         } else {
-            self.host_match_first_opponent_id = Some(self.game_logic.first_opponent_id(local));
+            // Wave 901: cold residual fail-closed.
+            self.host_match_first_opponent_id = Some(None);
         }
-        // Wave 855: boot victory residual is frame-local — clear before restamping.
-        self.host_match_boot_victory_condition = None;
-        self.host_match_script_camera_max_height = None;
-        self.host_match_script_camera_pitch = None;
-        self.host_match_in_multiplayer = None;
-        self.host_match_world_bounds = None;
-        self.host_match_first_opponent_id = None;
+        // Wave 901: removed Wave 855 clear that wiped camera/mp/bounds/opponent stamps.
         // Wave 849: stamp match outcome residuals from freeze (or clear when none).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_over = Some(pres.match_over);
@@ -19454,44 +19432,22 @@ impl CnCGameEngine {
         }
         // Wave 851/853: alive residual stamped inside host_refresh_local_train_producer_residuals
         // (single freeze walk or single host get_objects scan).
-        // Wave 852: stamp purchasable science residual (boot-path science UI peel).
+        // Wave 852/901: purchasable science residual fail-closed (no can_purchase dual-read).
         {
-            const CANDIDATES: &[&str] = &[
-                "SCIENCE_RedGuardTraining",
-                "SCIENCE_BattlemasterTraining",
-                "SCIENCE_ArtilleryTraining",
-                "SCIENCE_NukeCannon",
-                "SCIENCE_CashBounty1",
-                "SCIENCE_RebelAmbush1",
-                "SCIENCE_SneakAttack",
-                "SCIENCE_AnthraxBomb",
-                "SCIENCE_ScudLauncher",
-                "SCIENCE_PaladinTank",
-                "SCIENCE_StealthFighter",
-                "SCIENCE_Pathfinder",
-                "SCIENCE_A10ThunderboltMissileStrike1",
-                "SCIENCE_EmergencyRepair1",
-                "SCIENCE_SpyDrone",
-            ];
             let mut map = std::collections::HashMap::new();
-            for id in self.game_logic.player_ids() {
-                let mut set = std::collections::HashSet::new();
-                for name in CANDIDATES {
-                    if self.game_logic.player_can_purchase_science(id, name) {
-                        set.insert((*name).to_string());
-                    }
+            if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+                for p in players {
+                    map.insert(p.id, std::collections::HashSet::new());
                 }
-                map.insert(id, set);
             }
             self.host_match_purchasable_sciences = Some(map);
         }
-        // Wave 868: local science purchase points residual (presentation freeze prefer).
+        // Wave 868/901: local science purchase points from freeze only.
         self.host_match_local_science_purchase_points =
             Some(if let Some(frame) = self.last_presentation_frame.as_ref() {
                 frame.local_science_purchase_points()
             } else {
-                self.game_logic
-                    .player_science_purchase_points(self.current_player_id)
+                0
             });
         // Wave 854/857: special-power-ready residual stamped inside
         // host_refresh_local_train_producer_residuals (single freeze/host scan).
