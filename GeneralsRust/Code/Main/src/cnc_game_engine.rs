@@ -17263,9 +17263,11 @@ impl CnCGameEngine {
     /// `selected_objects` in lockstep.
     #[inline]
     fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
-        // Wave 579: paired host select residual.
+        // Wave 579/866: paired host select residual + stamp host_match_selected_ids.
         self.game_logic.select_objects(player_id, ids.clone());
-        self.selected_objects = ids;
+        self.selected_objects = ids.clone();
+        self.host_match_selected_ids = Some(ids);
+        let _ = player_id;
     }
 
     /// Wave 579: host map-load residual with default fallback.

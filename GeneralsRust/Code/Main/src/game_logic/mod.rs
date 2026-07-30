@@ -268,6 +268,7 @@ pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
 pub mod host_live_host_script_camera_residuals_wave858;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
 pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
+pub mod host_live_host_selection_stamp_residual_wave866;
 pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
 pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
@@ -2897,6 +2898,11 @@ pub use host_live_host_camera_drain_freeze_skip_residual_wave865::{
     honesty_host_camera_drain_freeze_skip_nav_commands_residual_wave865,
     honesty_host_camera_drain_freeze_skip_residual_pack_wave865,
     simulate_live_host_camera_drain_freeze_skip_honesty,
+};
+pub use host_live_host_selection_stamp_residual_wave866::{
+    honesty_host_selection_stamp_method_names_residual_wave866,
+    honesty_host_selection_stamp_nav_commands_residual_wave866,
+    honesty_host_selection_stamp_residual_pack_wave866, simulate_live_host_selection_stamp_honesty,
 };
 
 pub use host_live_fixed_step_diag_presentation_helper_residual_wave564::{
