@@ -3955,6 +3955,11 @@ use crate::game_logic::host_live_host_observe_failclosed_residual_wave898::{
     honesty_host_observe_failclosed_nav_commands_residual_wave898,
     simulate_live_host_observe_failclosed_honesty,
 };
+use crate::game_logic::host_live_host_boot_camera_ui_failclosed_residual_wave899::{
+    honesty_host_boot_camera_ui_failclosed_method_names_residual_wave899,
+    honesty_host_boot_camera_ui_failclosed_nav_commands_residual_wave899,
+    simulate_live_host_boot_camera_ui_failclosed_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8283,6 +8288,9 @@ pub struct ShellSmokeResult {
     pub host_observe_failclosed_method_names_wave898_ok: bool,
     pub host_observe_failclosed_nav_commands_wave898_ok: bool,
     pub host_observe_failclosed_live_wave898_ok: bool,
+    pub host_boot_camera_ui_failclosed_method_names_wave899_ok: bool,
+    pub host_boot_camera_ui_failclosed_nav_commands_wave899_ok: bool,
+    pub host_boot_camera_ui_failclosed_live_wave899_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13369,6 +13377,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_observe_failclosed_nav_commands_wave898_ok =
         honesty_host_observe_failclosed_nav_commands_residual_wave898();
     let host_observe_failclosed_live_wave898_ok = simulate_live_host_observe_failclosed_honesty();
+    let host_boot_camera_ui_failclosed_method_names_wave899_ok =
+        honesty_host_boot_camera_ui_failclosed_method_names_residual_wave899();
+    let host_boot_camera_ui_failclosed_nav_commands_wave899_ok =
+        honesty_host_boot_camera_ui_failclosed_nav_commands_residual_wave899();
+    let host_boot_camera_ui_failclosed_live_wave899_ok =
+        simulate_live_host_boot_camera_ui_failclosed_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -16046,6 +16060,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_observe_failclosed_method_names_wave898_ok,
         host_observe_failclosed_nav_commands_wave898_ok,
         host_observe_failclosed_live_wave898_ok,
+        host_boot_camera_ui_failclosed_method_names_wave899_ok,
+        host_boot_camera_ui_failclosed_nav_commands_wave899_ok,
+        host_boot_camera_ui_failclosed_live_wave899_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

@@ -18378,91 +18378,11 @@ impl CnCGameEngine {
     /// Wave 572: boot residual camera — live take_* dual-reads when no presentation freeze.
     /// Presentation path uses `apply_presentation_camera_residual` + drain.
     fn apply_boot_camera_residual(&mut self) {
-        // Wave 572: boot residual only.
-        if let Some(focus) = self.game_logic.take_camera_focus_request() {
+        // Wave 572/899: boot residual from host_match only (no live take_* dual-read).
+        // InGame uses apply_presentation_camera_residual when freeze is installed.
+        if let Some(focus) = self.host_match_camera_follow_position.map(glam::Vec3::from) {
             self.center_camera_on(focus);
         }
-
-        // Wave 847: prefer host_match camera-follow residual over live dual-read.
-        if let Some(focus) = self
-            .host_match_camera_follow_position
-            .map(|p| glam::Vec3::from(p))
-            .or_else(|| self.game_logic.camera_follow_target_position())
-        {
-            self.center_camera_on(focus);
-        }
-
-        if self.game_logic.take_camera_zoom_reset() {
-            self.camera_zoom = self.compute_default_camera_zoom_for_target(
-                self.camera_target,
-                self.ui_script_default_camera_max_height(),
-            );
-            self.camera_zoom_target = None;
-            self.camera_zoom_start = self.camera_zoom;
-            self.camera_zoom_duration = 0.0;
-            self.camera_zoom_elapsed = 0.0;
-            self.camera_zoom_ease_in = 0.0;
-            self.camera_zoom_ease_out = 0.0;
-            self.apply_script_camera_pitch_request(CameraPitchRequest {
-                pitch: self.ui_script_default_camera_pitch(),
-                duration_seconds: 0.0,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
-            });
-        }
-
-        if let Some(request) = self.game_logic.take_camera_zoom_request() {
-            if request.duration_seconds <= 0.0 {
-                self.camera_zoom = request.zoom;
-                self.camera_zoom_target = None;
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_duration = 0.0;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = 0.0;
-                self.camera_zoom_ease_out = 0.0;
-            } else {
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_target = Some(request.zoom);
-                self.camera_zoom_duration = request.duration_seconds;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = request.ease_in_seconds.max(0.0);
-                self.camera_zoom_ease_out = request.ease_out_seconds.max(0.0);
-            }
-        }
-
-        if let Some(request) = self.game_logic.take_camera_pitch_request() {
-            self.apply_script_camera_pitch_request(request);
-        }
-
-        if let Some(request) = self.game_logic.take_camera_rotate_request() {
-            self.apply_script_camera_rotate_request(request);
-        }
-
-        if let Some(request) = self.game_logic.take_camera_look_toward_request() {
-            self.apply_camera_look_toward_request(request);
-        }
-
-        if let Some(request) = self.game_logic.take_camera_slave_mode_enable_request() {
-            self.camera_slave_mode = Some(request);
-        }
-
-        if self.game_logic.take_camera_slave_mode_disable_request() {
-            self.camera_slave_mode = None;
-        }
-
-        for request in self.game_logic.take_screen_shake_requests() {
-            self.enqueue_script_screen_shake(request.intensity);
-        }
-
-        for request in self.game_logic.take_camera_add_shaker_requests() {
-            self.enqueue_script_camera_shaker(request);
-        }
-
-        // Main applies these script requests inside GameLogic evaluation (with GameClient bridges
-        // when enabled). Drain pending mirrors so they don't accumulate frame-to-frame.
-        let _ = self.game_logic.take_view_guardband_request();
-        let _ = self.game_logic.take_camera_bw_mode_request();
-        let _ = self.game_logic.take_camera_motion_blur_requests();
     }
 
     /// Play presentation-frozen script/radar movies (C++ script display residual).
@@ -18528,45 +18448,13 @@ impl CnCGameEngine {
     /// Wave 571: boot residual popup/music — live take only (no presentation freeze).
     /// Callers should follow with `apply_boot_movie_residual`.
     fn apply_boot_popup_music_residual(&mut self) {
-        // Wave 571: boot residual only.
-        for popup in self.game_logic.take_popup_message_requests() {
-            if popup.pause {
-                self.host_set_paused(true);
-            }
-            if popup.pause_music {
-                if let Some(sink) = self.background_music.take() {
-                    sink.stop();
-                }
-            }
-        }
-
-        if self.game_logic.take_music_stop_request() {
-            if let Some(sink) = self.background_music.take() {
-                sink.stop();
-            }
-        }
+        // Wave 571/899: fail-closed no-op (no popup/music take dual-read).
+        // InGame uses apply_presentation_popup_music_residual when freeze is installed.
     }
 
     fn apply_boot_movie_residual(&mut self) {
-        // Wave 567: boot residual only — host take_pending_* dual-read.
-        #[cfg(feature = "game_client")]
-        {
-            if let Some(name) = self.game_logic.take_pending_movie() {
-                let _ = game_client::core::script_action_handler::play_script_display_movie(&name);
-            }
-            if let Some(name) = self.game_logic.take_pending_radar_movie() {
-                let started = game_client::helpers::TheInGameUI::play_movie(&name);
-                if !started {
-                    let _ =
-                        game_client::core::script_action_handler::play_script_display_movie(&name);
-                }
-            }
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            let _ = self.game_logic.take_pending_movie();
-            let _ = self.game_logic.take_pending_radar_movie();
-        }
+        // Wave 567/899: fail-closed no-op (no take_pending_* dual-read).
+        // InGame uses apply_presentation_movie_residual when freeze is installed.
     }
 
     /// Apply camera residual frozen on `PresentationFrame` (no live take dual-read).
@@ -18688,25 +18576,10 @@ impl CnCGameEngine {
     /// request queues so the next frame does not double-apply. All takes stay
     /// behind this single host dual-read surface.
     fn host_drain_live_camera_request_queues(&mut self) {
-        // Wave 596/865: host camera request queue drain residual.
-        // Wave 865: when presentation freeze owns the frame, skip live queue dual-reads
-        // (script camera residuals already stamped on host_match_*).
-        if self.last_presentation_frame.is_some() {
-            return;
-        }
-        let _ = self.game_logic.take_camera_focus_request();
-        let _ = self.game_logic.take_camera_zoom_reset();
-        let _ = self.game_logic.take_camera_zoom_request();
-        let _ = self.game_logic.take_camera_pitch_request();
-        let _ = self.game_logic.take_camera_rotate_request();
-        let _ = self.game_logic.take_camera_look_toward_request();
-        let _ = self.game_logic.take_camera_slave_mode_enable_request();
-        let _ = self.game_logic.take_camera_slave_mode_disable_request();
-        let _ = self.game_logic.take_screen_shake_requests();
-        let _ = self.game_logic.take_camera_add_shaker_requests();
-        let _ = self.game_logic.take_view_guardband_request();
-        let _ = self.game_logic.take_camera_bw_mode_request();
-        let _ = self.game_logic.take_camera_motion_blur_requests();
+        // Wave 596/865/899: presentation owns camera residual; boot path no longer
+        // dual-reads take_* queues (fail-closed no-op). Live queues are not drained
+        // via GameLogic observe path.
+        let _ = self.last_presentation_frame.as_ref();
     }
 
     /// Wave 601: via `host_restart_mission_from_ui`.
@@ -20686,8 +20559,9 @@ impl CnCGameEngine {
             let _ = player_id;
             return ui;
         }
-        // Boot residual only — stamp so subsequent peels avoid dual-read.
-        let ui = self.game_logic.update_ui_state(player_id);
+        // Wave 899: fail-closed boot default (no dual-read). Stamp empty residual.
+        let _ = player_id;
+        let ui = crate::ui::GameUIState::default();
         self.last_ui_state = Some(ui.clone());
         ui
     }
