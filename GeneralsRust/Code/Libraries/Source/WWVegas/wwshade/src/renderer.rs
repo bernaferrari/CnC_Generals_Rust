@@ -236,10 +236,8 @@ impl MeshContainer {
 
     /// Flush all passes for this container
     fn flush(&mut self) -> ShdResult<()> {
-        for container in &mut self.renderer_lists {
-            if let Some(cont) = container {
-                cont.flush()?;
-            }
+        for cont in self.renderer_lists.iter_mut().flatten() {
+            cont.flush()?;
         }
         Ok(())
     }
@@ -466,6 +464,7 @@ pub struct ShdRenderer {
 }
 
 impl ShdRenderer {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             mesh_containers: HashMap::new(),
@@ -519,12 +518,10 @@ impl ShaderRenderer for ShdRenderer {
         };
 
         // Get or create mesh container for this shader class
-        if !self.mesh_containers.contains_key(&class_id) {
-            self.mesh_containers
-                .insert(class_id, MeshContainer::new(class_id));
-        }
-
-        let container = self.mesh_containers.get_mut(&class_id).unwrap();
+        let container = self
+            .mesh_containers
+            .entry(class_id)
+            .or_insert_with(|| MeshContainer::new(class_id));
         let pass_count = {
             let shader_guard = shader.lock().unwrap();
             shader_guard.get_pass_count()

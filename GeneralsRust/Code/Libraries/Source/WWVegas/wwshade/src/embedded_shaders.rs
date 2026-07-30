@@ -70,10 +70,10 @@ static SHADER_CACHE: Lazy<HashMap<ShaderKey, &'static str>> = Lazy::new(|| {
         for file in dx6_dir.files() {
             if let Some(name) = file.path().file_name().and_then(|n| n.to_str()) {
                 if let Some(source) = file.contents_utf8() {
-                    let (shader_type, base_name) = if name.ends_with(".vsh") {
-                        (ShaderType::Vertex, &name[..name.len() - 4])
-                    } else if name.ends_with(".psh") {
-                        (ShaderType::Pixel, &name[..name.len() - 4])
+                    let (shader_type, base_name) = if let Some(base) = name.strip_suffix(".vsh") {
+                        (ShaderType::Vertex, base)
+                    } else if let Some(base) = name.strip_suffix(".psh") {
+                        (ShaderType::Pixel, base)
                     } else {
                         continue;
                     };
@@ -90,10 +90,10 @@ static SHADER_CACHE: Lazy<HashMap<ShaderKey, &'static str>> = Lazy::new(|| {
         for file in dx7_dir.files() {
             if let Some(name) = file.path().file_name().and_then(|n| n.to_str()) {
                 if let Some(source) = file.contents_utf8() {
-                    let (shader_type, base_name) = if name.ends_with(".vsh") {
-                        (ShaderType::Vertex, &name[..name.len() - 4])
-                    } else if name.ends_with(".psh") {
-                        (ShaderType::Pixel, &name[..name.len() - 4])
+                    let (shader_type, base_name) = if let Some(base) = name.strip_suffix(".vsh") {
+                        (ShaderType::Vertex, base)
+                    } else if let Some(base) = name.strip_suffix(".psh") {
+                        (ShaderType::Pixel, base)
                     } else {
                         continue;
                     };
@@ -110,10 +110,10 @@ static SHADER_CACHE: Lazy<HashMap<ShaderKey, &'static str>> = Lazy::new(|| {
         for file in dx8_dir.files() {
             if let Some(name) = file.path().file_name().and_then(|n| n.to_str()) {
                 if let Some(source) = file.contents_utf8() {
-                    let (shader_type, base_name) = if name.ends_with(".vsh") {
-                        (ShaderType::Vertex, &name[..name.len() - 4])
-                    } else if name.ends_with(".psh") {
-                        (ShaderType::Pixel, &name[..name.len() - 4])
+                    let (shader_type, base_name) = if let Some(base) = name.strip_suffix(".vsh") {
+                        (ShaderType::Vertex, base)
+                    } else if let Some(base) = name.strip_suffix(".psh") {
+                        (ShaderType::Pixel, base)
                     } else {
                         continue;
                     };

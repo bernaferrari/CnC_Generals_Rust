@@ -600,19 +600,19 @@ impl Default for ShdMeshLegacyLoader {
 
 /// Global loader instances
 static SHD_MESH_LOADER: once_cell::sync::Lazy<ShdMeshLoader> =
-    once_cell::sync::Lazy::new(|| ShdMeshLoader::new());
+    once_cell::sync::Lazy::new(ShdMeshLoader::new);
 
 static SHD_MESH_LEGACY_LOADER: once_cell::sync::Lazy<ShdMeshLegacyLoader> =
-    once_cell::sync::Lazy::new(|| ShdMeshLegacyLoader::new());
+    once_cell::sync::Lazy::new(ShdMeshLegacyLoader::new);
 
 /// Get the global shader mesh loader instance
 pub fn get_shd_mesh_loader() -> &'static ShdMeshLoader {
-    &*SHD_MESH_LOADER
+    &SHD_MESH_LOADER
 }
 
 /// Get the global legacy mesh loader instance  
 pub fn get_shd_mesh_legacy_loader() -> &'static ShdMeshLegacyLoader {
-    &*SHD_MESH_LEGACY_LOADER
+    &SHD_MESH_LEGACY_LOADER
 }
 
 #[cfg(test)]

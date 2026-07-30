@@ -98,7 +98,7 @@ pub trait ShdInterface: Send + Sync + std::fmt::Debug + Any {
 /// This structure contains pointers to different vertex attributes that may be
 /// needed by shaders. Attributes that are not available will be None, and the
 /// shader should validate that it receives everything it needs.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VertexStreams {
     /// Vertex positions (always required)
     pub positions: Option<Vec<glam::Vec3>>,
@@ -123,21 +123,6 @@ pub struct VertexStreams {
 
     /// Combined tangent-space cross product (S x T)
     pub tangent_cross: Option<Vec<glam::Vec3>>,
-}
-
-impl Default for VertexStreams {
-    fn default() -> Self {
-        Self {
-            positions: None,
-            normals: None,
-            uv_coords: Default::default(),
-            colors_int: None,
-            colors_float: None,
-            tangents: None,
-            binormals: None,
-            tangent_cross: None,
-        }
-    }
 }
 
 impl VertexStreams {

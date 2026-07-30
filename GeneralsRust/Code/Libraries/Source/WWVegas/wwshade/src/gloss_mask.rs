@@ -479,18 +479,13 @@ impl Default for GlossMaskMaterial {
 }
 
 /// Texture stage blending modes for gloss mask rendering
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GlossBlendMode {
     /// Simple diffuse texture modulation (fallback mode)
     Simple,
     /// Advanced blending with specular highlights (preferred mode)
+    #[default]
     ModulateAlphaAddColor,
-}
-
-impl Default for GlossBlendMode {
-    fn default() -> Self {
-        GlossBlendMode::ModulateAlphaAddColor
-    }
 }
 
 #[cfg(test)]
