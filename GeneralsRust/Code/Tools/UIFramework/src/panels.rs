@@ -329,7 +329,7 @@ impl Property {
             } => {
                 ui.horizontal(|ui| {
                     ui.label(name.as_str());
-                    egui::ComboBox::from_id_source(name)
+                    egui::ComboBox::from_id_salt(name)
                         .selected_text(options.get(*selected).unwrap_or(&"None".to_string()))
                         .show_ui(ui, |ui| {
                             for (i, option) in options.iter().enumerate() {

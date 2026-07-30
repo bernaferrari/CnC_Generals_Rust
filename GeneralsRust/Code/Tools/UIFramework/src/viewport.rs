@@ -61,11 +61,7 @@ impl Viewport3D {
             let response = ui.image((texture_id, available_size));
 
             // Track mouse interaction
-            if response.hovered() {
-                self.is_active = true;
-            } else {
-                self.is_active = false;
-            }
+            self.is_active = response.hovered();
         } else {
             // Fallback: show a placeholder
             ui.centered_and_justified(|ui| {

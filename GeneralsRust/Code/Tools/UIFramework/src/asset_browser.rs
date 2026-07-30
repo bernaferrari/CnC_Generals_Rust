@@ -158,7 +158,7 @@ impl AssetBrowserPanel {
         };
 
         ui.painter()
-            .rect_filled(rect, egui::Rounding::same(4), bg_color);
+            .rect_filled(rect, egui::CornerRadius::same(4), bg_color);
 
         // Icon/Thumbnail
         let icon_rect = egui::Rect::from_center_size(
@@ -298,7 +298,7 @@ impl AssetBrowserPanel {
 
             // Filter
             ui.label("Filter:");
-            egui::ComboBox::from_id_source("asset_type_filter")
+            egui::ComboBox::from_id_salt("asset_type_filter")
                 .selected_text(format!("{:?}", self.asset_type_filter))
                 .show_ui(ui, |ui| {
                     for filter_type in [
