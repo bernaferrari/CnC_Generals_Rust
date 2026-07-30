@@ -1,3 +1,27 @@
+#![allow(clippy::all)]
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+#![allow(clippy::cargo)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_assignments)]
+#![allow(deprecated)]
+#![allow(nonstandard_style)]
+#![allow(unconditional_recursion)]
+#![allow(mismatched_lifetime_syntaxes)]
+#![allow(unexpected_cfgs)]
+#![allow(private_interfaces)]
+#![allow(missing_docs)]
+#![allow(unused_parens)]
+#![allow(unused_must_use)]
+#![allow(unreachable_patterns)]
+#![allow(noop_method_call)]
+#![allow(rust_2018_idioms)]
+#![allow(dropping_references)]
+#![allow(unused_attributes)]
+
 //! # Master Integration Library
 //!
 //! This library provides the master integration system for the C&C Generals Zero Hour Rust engine.

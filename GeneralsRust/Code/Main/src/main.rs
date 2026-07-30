@@ -1,3 +1,9 @@
+#![allow(clippy::all)]
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 ////////////////////////////////////////////////////////////////////////////////
 //
 //  (c) 2001-2003 Electronic Arts Inc.

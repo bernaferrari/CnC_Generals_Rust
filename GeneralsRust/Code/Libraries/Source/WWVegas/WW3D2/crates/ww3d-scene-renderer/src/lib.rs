@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_or_default)]
 //! Scene Integration Module
 //!
 //! This crate provides integration between ww3d-scene and ww3d-renderer-3d,

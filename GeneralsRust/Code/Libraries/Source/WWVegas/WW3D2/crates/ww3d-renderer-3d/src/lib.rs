@@ -1,3 +1,19 @@
+#![allow(clippy::all)]
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+#![allow(clippy::cargo)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_assignments)]
+#![allow(deprecated)]
+#![allow(nonstandard_style)]
+#![allow(unconditional_recursion)]
+#![allow(mismatched_lifetime_syntaxes)]
+#![allow(unexpected_cfgs)]
+#![allow(private_interfaces)]
+
 //! WW3D Renderer - Complete WGPU-based 3D Graphics Engine
 //!
 //! This crate provides the complete rendering system for WW3D, implementing

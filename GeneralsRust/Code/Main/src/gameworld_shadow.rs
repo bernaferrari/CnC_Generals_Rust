@@ -8682,7 +8682,7 @@ impl GameWorldShadow {
                     let my_team = e.team_ordinal;
                     // Drop entity borrow before scan (scan needs world()).
                     {
-                        #[allow(clippy::drop_ref)]
+                        #[allow(dropping_references)]
                         drop(e);
                     }
                     let present = self.scan_enemy_near_present(eid, sx, sz, vision, my_team);
@@ -8836,7 +8836,7 @@ impl GameWorldShadow {
                     let my_team = e.team_ordinal;
                     // Drop entity borrow before scan (scan needs world()).
                     {
-                        #[allow(clippy::drop_ref)]
+                        #[allow(dropping_references)]
                         drop(e);
                     }
                     let (enemy, ally) = self.scan_checkpoint_near(eid, sx, sz, vision, my_team);
