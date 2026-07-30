@@ -302,7 +302,7 @@ impl AssetHotReload {
         if let Some(entry) = self.asset_cache.get_mut(path) {
             if let Ok(metadata) = tokio::fs::metadata(path).await {
                 if let Ok(modified) = metadata.modified() {
-                    if entry.last_modified.map_or(true, |last| modified > last) {
+                    if entry.last_modified.is_none_or(|last| modified > last) {
                         entry.last_modified = Some(modified);
                         entry.reload_count += 1;
                         return true;

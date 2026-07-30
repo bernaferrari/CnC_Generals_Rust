@@ -96,8 +96,11 @@ impl ProgressBarWidget {
         let progress = progress.clamp(0.0, 1.0);
 
         // Background
-        ui.painter()
-            .rect_filled(rect, egui::Rounding::same(4), ui.visuals().extreme_bg_color);
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(4),
+            ui.visuals().extreme_bg_color,
+        );
 
         // Progress fill
         let fill_width = rect.width() * progress;
@@ -106,7 +109,7 @@ impl ProgressBarWidget {
 
         ui.painter().rect_filled(
             fill_rect,
-            egui::Rounding::same(4),
+            egui::CornerRadius::same(4),
             ui.visuals().selection.bg_fill,
         );
 

@@ -104,11 +104,11 @@ impl ThemeManager {
         visuals.extreme_bg_color = egui::Color32::from_rgb(15, 18, 25);
 
         // Modern rounded corners
-        visuals.widgets.noninteractive.corner_radius = egui::Rounding::same(6);
-        visuals.widgets.inactive.corner_radius = egui::Rounding::same(6);
-        visuals.widgets.hovered.corner_radius = egui::Rounding::same(6);
-        visuals.widgets.active.corner_radius = egui::Rounding::same(6);
-        visuals.widgets.open.corner_radius = egui::Rounding::same(6);
+        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.open.corner_radius = egui::CornerRadius::same(6);
 
         visuals
     }

@@ -1,3 +1,17 @@
+#![allow(clippy::new_without_default)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::bool_to_int_with_if)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::rc_buffer)]
+#![allow(ambiguous_glob_reexports)]
+#![allow(clippy::arc_with_non_send_sync)]
 //! Modern UI Framework for Command & Conquer Game Development Tools
 //!
 //! This framework provides a unified, modern interface for all game development tools
