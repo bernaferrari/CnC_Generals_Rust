@@ -203,6 +203,7 @@ pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
 pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
 pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
 pub mod host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747;
+pub mod host_live_host_event_drain_failclosed_residual_wave900;
 pub mod host_live_host_exec_smoke_release_prefer_residual_wave833;
 pub mod host_live_host_field_object_expire_dual_peel_residual_wave802;
 pub mod host_live_host_fire_sound_loop_dual_peel_residual_wave767;
@@ -2937,6 +2938,13 @@ pub use host_live_host_boot_camera_ui_failclosed_residual_wave899::{
     honesty_host_boot_camera_ui_failclosed_residual_pack_wave899,
     simulate_live_host_boot_camera_ui_failclosed_honesty,
 };
+pub use host_live_host_event_drain_failclosed_residual_wave900::{
+    honesty_host_event_drain_failclosed_method_names_residual_wave900,
+    honesty_host_event_drain_failclosed_nav_commands_residual_wave900,
+    honesty_host_event_drain_failclosed_residual_pack_wave900,
+    simulate_live_host_event_drain_failclosed_honesty,
+};
+
 pub use host_live_host_boot_player_alive_science_residual_wave897::{
     honesty_host_boot_player_alive_science_method_names_residual_wave897,
     honesty_host_boot_player_alive_science_nav_commands_residual_wave897,

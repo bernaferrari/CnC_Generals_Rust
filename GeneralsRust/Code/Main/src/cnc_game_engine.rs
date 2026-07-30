@@ -16771,22 +16771,10 @@ impl CnCGameEngine {
         message: &str,
         team: Option<crate::game_logic::Team>,
     ) {
-        // Wave 603/869: host boot UI message residual.
-        // Wave 566: boot residual only — host radar queue + UI SFX.
-        // Wave 869: when presentation freeze is installed, never dual-write
-        // GameLogic mid-frame — route through presentation UI notify residual.
-        if self.last_presentation_frame.is_some() {
-            let _ = team;
-            self.host_notify_presentation_ui_message(message);
-            return;
-        }
-        if let Some(team) = team {
-            self.game_logic
-                .queue_radar_message_for_team(team, message.to_string());
-        } else {
-            self.game_logic.queue_radar_message(message.to_string());
-        }
-        self.game_logic.play_ui_sound("GUIMessageReceived");
+        // Wave 603/869/900: always route through presentation UI residual
+        // (HUD radar + audio subsystem) — no GameLogic dual-write.
+        let _ = team;
+        self.host_notify_presentation_ui_message(message);
     }
 
     /// Classic-four tokens also advance `last_eva_*` so counter residual does not re-push.
@@ -18410,8 +18398,7 @@ impl CnCGameEngine {
                 }
             }
         }
-        let _ = self.game_logic.take_pending_movie();
-        let _ = self.game_logic.take_pending_radar_movie();
+        // Wave 900: no live pending-movie drain dual-read after presentation apply.
     }
 
     /// Wave 567: boot residual movies when no presentation freeze is installed.
@@ -18440,9 +18427,7 @@ impl CnCGameEngine {
                 sink.stop();
             }
         }
-        // Drain live queues so peeked presentation fields are not re-applied.
-        let _ = self.game_logic.take_popup_message_requests();
-        let _ = self.game_logic.take_music_stop_request();
+        // Wave 900: no live popup/music drain dual-read after presentation apply.
     }
 
     /// Wave 571: boot residual popup/music — live take only (no presentation freeze).
@@ -19594,20 +19579,17 @@ impl CnCGameEngine {
     /// Wave 570: script message residual — prefer pipeline/last presentation freeze
     /// `new_script_messages`, drain live queue when freeze installed; boot residual takes live.
     fn host_take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
-        // Wave 607: host presentation/boot drain residual.
-        // Wave 570: presentation freeze owns script message residual when installed.
+        // Wave 607/900: presentation freeze owns script message residual when installed.
+        // No live take drain dual-read; boot fail-closed empty.
         if let Some(pres) = self
             .render_pipeline
             .presentation_frame()
             .or(self.last_presentation_frame.as_ref())
         {
-            let msgs = pres.new_script_messages.clone();
-            // Drain live queue so peeked presentation fields are not re-applied.
-            let _ = self.game_logic.take_new_script_messages();
-            return msgs;
+            return pres.new_script_messages.clone();
         }
-        // Boot residual only.
-        self.game_logic.take_new_script_messages()
+        // Wave 900: fail-closed boot default.
+        Vec::new()
     }
 
     /// Wave 607: via `host_take_presentation_or_boot_defeat_events`.
@@ -19617,15 +19599,13 @@ impl CnCGameEngine {
     }
 
     fn host_take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
-        // Wave 607: host presentation/boot drain residual.
-        // Wave 569: presentation freeze owns defeat residual when installed.
+        // Wave 607/900: presentation freeze owns defeat residual when installed.
+        // No live take drain dual-read; boot fail-closed empty.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
-            let ids = pres.defeated_player_ids.clone();
-            let _ = self.game_logic.take_defeat_events();
-            return ids;
+            return pres.defeated_player_ids.clone();
         }
-        // Boot residual only.
-        self.game_logic.take_defeat_events()
+        // Wave 900: fail-closed boot default.
+        Vec::new()
     }
 
     /// Wave 569: alliance residual — prefer presentation freeze `alliance_events`,
@@ -19643,15 +19623,13 @@ impl CnCGameEngine {
     fn host_take_presentation_or_boot_alliance_events(
         &mut self,
     ) -> Vec<crate::game_logic::AllianceNotification> {
-        // Wave 607: host presentation/boot drain residual.
-        // Wave 569: presentation freeze owns alliance residual when installed.
+        // Wave 607/900: presentation freeze owns alliance residual when installed.
+        // No live take drain dual-read; boot fail-closed empty.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
-            let ev = pres.alliance_events.clone();
-            let _ = self.game_logic.take_alliance_events();
-            return ev;
+            return pres.alliance_events.clone();
         }
-        // Boot residual only.
-        self.game_logic.take_alliance_events()
+        // Wave 900: fail-closed boot default.
+        Vec::new()
     }
 
     fn presentation_or_boot_local_player_id(&self) -> Option<u32> {
@@ -19819,10 +19797,8 @@ impl CnCGameEngine {
                 return;
             }
         }
-        if self.game_logic.templates.contains_key("GoldenRanger") {
-            self.host_stamp_known_template_name("GoldenRanger");
-            return;
-        }
+        // Wave 900: residual miss → insert host template (or_insert semantics via insert).
+        // No contains_key dual-read probe before write.
         let mut tpl = crate::game_logic::ThingTemplate::new("GoldenRanger");
         tpl.set_health(120.0);
         tpl.set_cost(100, 0);
@@ -22143,7 +22119,7 @@ impl CnCGameEngine {
     /// Wave 568: shell/menu script FPS residual — only trust freeze when it affirms
     /// shell-map (`fow_shell_bypass`); otherwise boot take_script_fps_limit_request.
     fn apply_shell_script_fps_limit_residual(&mut self) {
-        // Wave 568: shell freeze must affirm fow_shell_bypass.
+        // Wave 568/900: shell freeze owns FPS residual; no live take dual-read.
         if let Some(fps) = self
             .last_presentation_frame
             .as_ref()
@@ -22151,11 +22127,8 @@ impl CnCGameEngine {
             .and_then(|p| p.script_fps_limit)
         {
             self.apply_script_fps_limit_request(fps);
-            let _ = self.game_logic.take_script_fps_limit_request();
-        } else if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
-            // Boot/live residual when no shell presentation freeze.
-            self.apply_script_fps_limit_request(fps);
         }
+        // Wave 900: boot/no-freeze fail-closed (no take_script_fps_limit_request dual-read).
     }
 
     fn apply_script_fps_limit_request(&mut self, fps: i32) {
