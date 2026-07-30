@@ -16,15 +16,15 @@ fn read_exact<const N: usize>(f: &mut File) -> Result<[u8; N]> {
     Ok(buf)
 }
 
-fn parse_big_index(mut f: &mut File) -> Result<Vec<BigEntry>> {
+fn parse_big_index(f: &mut File) -> Result<Vec<BigEntry>> {
     // Header: magic(4) + archive_size(le u32) + file_count(be u32) + reserved(4)
-    let magic = read_exact::<4>(&mut f)?;
+    let magic = read_exact::<4>(f)?;
     if &magic != b"BIGF" && &magic != b"BIG4" {
         return Err(anyhow!("unsupported BIG magic: {:?}", magic));
     }
-    let size_le = u32::from_le_bytes(read_exact::<4>(&mut f)?);
-    let count = u32::from_be_bytes(read_exact::<4>(&mut f)?);
-    let _reserved = read_exact::<4>(&mut f)?;
+    let size_le = u32::from_le_bytes(read_exact::<4>(f)?);
+    let count = u32::from_be_bytes(read_exact::<4>(f)?);
+    let _reserved = read_exact::<4>(f)?;
     if size_le == 0 || count == 0 || count > 1_000_000 {
         // sanity
         return Err(anyhow!(
@@ -35,8 +35,8 @@ fn parse_big_index(mut f: &mut File) -> Result<Vec<BigEntry>> {
     }
     let mut entries = Vec::with_capacity(count as usize);
     for _ in 0..count {
-        let offset = u32::from_be_bytes(read_exact::<4>(&mut f)?);
-        let size = u32::from_be_bytes(read_exact::<4>(&mut f)?);
+        let offset = u32::from_be_bytes(read_exact::<4>(f)?);
+        let size = u32::from_be_bytes(read_exact::<4>(f)?);
         // Read null-terminated filename
         let mut name_bytes: Vec<u8> = Vec::with_capacity(64);
         loop {

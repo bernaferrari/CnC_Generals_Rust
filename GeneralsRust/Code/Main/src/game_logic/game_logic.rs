@@ -6952,6 +6952,7 @@ impl GameLogic {
         // Instead, process diversion inside apply_projectile_countermeasures_pass
         // after projectiles update (combat still applies damage; we heal-back
         // diverted hits is wrong). Prefer combat-level hook:
+        // Wave 882: projectile sole-integrate under GW authority (host skips dual advance).
         let projectile_hits = if crate::gameworld_shadow::gameworld_projectile_authority_live() {
             // Snapshot pre-step flight state for GameWorld integrate authority.
             crate::game_logic::host_projectile_log::record_snapshot(

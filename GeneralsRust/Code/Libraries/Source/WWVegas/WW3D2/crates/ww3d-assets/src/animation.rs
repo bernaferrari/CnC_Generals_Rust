@@ -329,6 +329,7 @@ impl Animation {
     pub fn evaluate(&self, time: f32, bone_count: usize) -> Vec<BoneTransform> {
         let mut transforms = vec![BoneTransform::default(); bone_count];
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..bone_count {
             let channels = self.channels_for_pivot(i as u32);
 

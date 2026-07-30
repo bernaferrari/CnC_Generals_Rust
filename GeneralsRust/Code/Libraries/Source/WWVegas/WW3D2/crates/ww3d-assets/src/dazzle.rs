@@ -650,6 +650,7 @@ impl DazzleRenderObjClass {
     /// Matches C++ Render method (lines 915-1013).
     ///
     /// Returns true if dazzle should be added to visible list.
+    #[allow(clippy::too_many_arguments)]
     pub fn update_visibility(
         &mut self,
         camera_pos: &Vector3,

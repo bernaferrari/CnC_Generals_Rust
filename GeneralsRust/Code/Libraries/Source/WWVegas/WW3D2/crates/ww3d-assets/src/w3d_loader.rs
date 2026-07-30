@@ -342,6 +342,7 @@ impl Default for W3DLoader {
 /// This enum represents the possible chunk types that can be parsed from
 /// a W3D file. Each variant contains the fully parsed data structure.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum W3DChunk {
     /// Mesh chunk (W3D_CHUNK_MESH = 0x00000000)
     Mesh(W3DMesh),

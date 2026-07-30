@@ -280,7 +280,7 @@ impl StreamingW3dLoader {
                     .unwrap()
                     .insert(path_clone, request.clone());
 
-                if let Err(_) = self.task_sender.send(request) {
+                if self.task_sender.send(request).is_err() {
                     // Channel closed, remove from loading assets
                     self.loading_assets.write().unwrap().remove(&path);
                 }

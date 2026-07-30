@@ -142,6 +142,7 @@ pub struct TextureBase {
 
 impl TextureBase {
     /// Create a new texture with specified parameters
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String,
         width: u32,
