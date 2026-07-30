@@ -17322,9 +17322,11 @@ impl CnCGameEngine {
     }
 
     fn host_process_commands_with_command_sound(&mut self) {
-        // Wave 576: process + Command SFX residual.
+        // Wave 576/870: process + Command SFX residual + stamp sim timing.
         self.game_logic.process_commands();
         self.play_sound_effect(SoundType::Command);
+        // Command processing can advance/side-effect sim clocks; keep residuals warm.
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 584: host queue-command residual (no immediate process flush).
@@ -20739,7 +20741,7 @@ impl CnCGameEngine {
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     #[inline]
     fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
-        // Wave 584: host logic tick residual.
+        // Wave 584/870: host logic tick residual + stamp sim timing residuals.
         if let Some(budget) = budget {
             if let Some(timing) = self.last_frame_timing {
                 self.game_logic.update_with_timing_budget(&timing, budget);
@@ -20750,6 +20752,22 @@ impl CnCGameEngine {
             self.game_logic.update_with_timing(&timing);
         } else {
             self.game_logic.update_with_dt(dt);
+        }
+        self.host_stamp_sim_timing_residuals();
+    }
+
+    /// Wave 870: keep host_match_* sim timing residuals warm after host ticks.
+    #[inline]
+    fn host_stamp_sim_timing_residuals(&mut self) {
+        self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
+        self.host_match_time_frozen =
+            Some(self.game_logic.is_time_frozen_for_simulation() || self.game_paused);
+        self.host_match_total_play_time = Some(self.game_logic.get_total_play_time());
+        self.host_match_logic_frame = Some(self.game_logic.get_frame());
+        {
+            let d = self.game_logic.fixed_step_diagnostics();
+            self.host_match_logic_steps =
+                Some((d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds));
         }
     }
 
