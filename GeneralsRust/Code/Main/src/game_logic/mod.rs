@@ -276,6 +276,7 @@ pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
 pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
+pub mod host_live_host_sim_timing_stamp_residual_wave870;
 pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
 pub mod host_live_host_skirmish_map_reject_shell_residual_wave840;
 pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
@@ -2902,6 +2903,13 @@ pub use host_live_host_boot_ui_freeze_route_residual_wave869::{
     honesty_host_boot_ui_freeze_route_residual_pack_wave869,
     simulate_live_host_boot_ui_freeze_route_honesty,
 };
+pub use host_live_host_sim_timing_stamp_residual_wave870::{
+    honesty_host_sim_timing_stamp_method_names_residual_wave870,
+    honesty_host_sim_timing_stamp_nav_commands_residual_wave870,
+    honesty_host_sim_timing_stamp_residual_pack_wave870,
+    simulate_live_host_sim_timing_stamp_honesty,
+};
+
 pub use host_live_host_camera_drain_freeze_skip_residual_wave865::{
     honesty_host_camera_drain_freeze_skip_method_names_residual_wave865,
     honesty_host_camera_drain_freeze_skip_nav_commands_residual_wave865,
