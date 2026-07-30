@@ -291,6 +291,7 @@ pub mod host_live_host_script_camera_residuals_wave858;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
 pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
 pub mod host_live_host_selection_stamp_residual_wave866;
+pub mod host_live_host_selection_stamp_train_failclosed_residual_wave902;
 pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
 pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
@@ -2950,6 +2951,12 @@ pub use host_live_host_refresh_sim_failclosed_residual_wave901::{
     honesty_host_refresh_sim_failclosed_nav_commands_residual_wave901,
     honesty_host_refresh_sim_failclosed_residual_pack_wave901,
     simulate_live_host_refresh_sim_failclosed_honesty,
+};
+pub use host_live_host_selection_stamp_train_failclosed_residual_wave902::{
+    honesty_host_selection_stamp_train_method_names_residual_wave902,
+    honesty_host_selection_stamp_train_nav_commands_residual_wave902,
+    honesty_host_selection_stamp_train_residual_pack_wave902,
+    simulate_live_host_selection_stamp_train_honesty,
 };
 
 pub use host_live_host_boot_player_alive_science_residual_wave897::{
