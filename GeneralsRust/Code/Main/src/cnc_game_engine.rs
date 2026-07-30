@@ -17369,15 +17369,24 @@ impl CnCGameEngine {
     }
 
     fn host_set_paused(&mut self, paused: bool) {
-        // Wave 575/601/867: paired host pause residual + time-frozen stamp.
+        // Wave 575/601/867/892: paired host pause residual + time-frozen stamp.
         self.game_paused = paused;
         self.game_logic.set_paused(paused);
-        // Keep sim timing residual warm (pause freezes presentation clocks).
-        self.host_match_time_frozen =
-            Some(self.game_logic.is_time_frozen_for_simulation() || paused);
+        // Compose freeze residual without dual-read when presentation freeze owns
+        // script time (InGame). Boot path still probes live is_time_frozen once.
+        let script_frozen = if let Some(pres) = self.last_presentation_frame.as_ref() {
+            pres.time_frozen_for_simulation
+        } else {
+            self.game_logic.is_time_frozen_for_simulation()
+        };
+        self.host_match_time_frozen = Some(script_frozen || paused);
     }
 
     fn boot_local_player_id_from_host(&self) -> u32 {
+        // Wave 574/892: prefer stamped host_match_local_player_id before live probes.
+        if let Some(id) = self.host_match_local_player_id {
+            return id;
+        }
         // Wave 574: boot residual via player_exists / min_player_id probes.
         if self.game_logic.player_exists(self.current_player_id) {
             return self.current_player_id;
