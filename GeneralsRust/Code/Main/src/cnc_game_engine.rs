@@ -19665,8 +19665,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_visual_speed {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.visual_speed_multiplier()
+        // Wave 895: fail-closed boot default (no dual-read).
+        1.0
     }
 
     /// Wave 551: presentation freeze owns time-frozen residual when installed.
@@ -19680,8 +19680,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_time_frozen {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.is_time_frozen_for_simulation()
+        // Wave 895: fail-closed boot default (no dual-read).
+        false
     }
 
     /// Wave 552: presentation freeze owns shell-bypass residual when installed
@@ -19696,8 +19696,9 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_in_shell {
             return v;
         }
-        // Boot residual only.
-        self.host_is_in_shell_game()
+        // Wave 895: fail-closed boot default (no dual-read). Menu shell residual
+        // is stamped into host_match_in_shell on match transitions.
+        true
     }
 
     /// Wave 553: presentation freeze owns total play-time residual when installed
@@ -19716,8 +19717,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_total_play_time {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.get_total_play_time()
+        // Wave 895: fail-closed boot default (no dual-read).
+        0.0
     }
 
     /// Wave 553: presentation freeze owns local player id residual when installed.
@@ -19806,8 +19807,8 @@ impl CnCGameEngine {
         if let Some(id) = self.host_match_local_player_id {
             return Some(id);
         }
-        // Boot residual only.
-        self.game_logic.local_player_id()
+        // Wave 895: host current_player_id residual (no GameLogic dual-read).
+        Some(self.current_player_id)
     }
 
     /// Wave 554: presentation freeze owns map-name residual when installed
@@ -19857,8 +19858,8 @@ impl CnCGameEngine {
         if let Some(d) = self.host_match_ai_difficulty {
             return d;
         }
-        // Boot residual only.
-        self.game_logic.get_difficulty()
+        // Wave 895: fail-closed boot default (no dual-read).
+        crate::ai::AIDifficulty::Medium
     }
 
     /// Wave 557: presentation freeze owns replay-mode residual when installed.
@@ -19872,8 +19873,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_in_replay {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.isInReplayGame()
+        // Wave 895: fail-closed boot default (no dual-read).
+        false
     }
 
     /// Wave 558: presentation freeze owns diplomacy roster residual when installed.
@@ -19890,14 +19891,9 @@ impl CnCGameEngine {
         if let Some(players) = self.host_match_diplomacy_players.as_ref() {
             return players.clone();
         }
-        // Wave 573: boot residual via shared host probe helper.
-        let mut out = Vec::new();
-        for id in self.game_logic.player_ids() {
-            if let Some(info) = self.boot_player_info_from_host(id) {
-                out.push(info);
-            }
-        }
-        out
+        // Wave 895: fail-closed boot default (no dual-read). Diplomacy residual is
+        // stamped into host_match_diplomacy_players on match sim refresh.
+        Vec::new()
     }
 
     /// Wave 560: presentation freeze owns logic-frame residual when installed.
@@ -19911,8 +19907,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_logic_frame {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.get_frame()
+        // Wave 895: fail-closed boot default (no dual-read).
+        0
     }
 
     /// Wave 561: presentation freeze owns fixed-step catch-up residual when installed.
@@ -19938,9 +19934,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_logic_steps {
             return v;
         }
-        // Boot residual only.
-        let d = self.game_logic.fixed_step_diagnostics();
-        (d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds)
+        // Wave 895: fail-closed boot default (no dual-read).
+        (0, false, 0.0)
     }
 
     /// Wave 563/565: presentation freeze owns template-name residual when installed
@@ -19957,8 +19952,8 @@ impl CnCGameEngine {
             return names.binary_search(&name.to_string()).is_ok()
                 || names.iter().any(|n| n.eq_ignore_ascii_case(name));
         }
-        // Boot residual only (residual never stamped).
-        self.game_logic.templates.contains_key(name)
+        // Wave 895: fail-closed boot default (no dual-read).
+        false
     }
 
     /// Wave 581: ensure GoldenRanger host template residual for train honesty path.
@@ -20804,9 +20799,9 @@ impl CnCGameEngine {
         if let Some(alive) = self.host_match_alive_object_ids.as_ref() {
             return alive.contains(&id.0);
         }
-        if self.last_presentation_frame.is_none() {
-            return self.host_object_is_alive(id);
-        }
+        // Wave 895: fail-closed boot default (no dual-read). Alive residual is
+        // stamped via host_refresh_local_train_producer_residuals.
+        let _ = id;
         false
     }
 
@@ -20957,10 +20952,10 @@ impl CnCGameEngine {
         }
         // Boot residual only when match outcome residual was never stamped.
         // Prefer host_match_over stamp path: if match not over and residual cold, empty.
-        if self.host_match_over.is_some() {
-            return crate::game_logic::VictorySummary::default();
-        }
-        self.game_logic.build_victory_summary(winner)
+        // Wave 895: fail-closed boot default (no dual-read). Match-over residual
+        // and freeze already covered above; cold residual yields empty summary.
+        let _ = winner;
+        crate::game_logic::VictorySummary::default()
     }
 
     /// Wave 584: host match reset residual (GameLogic::reset boundary).
@@ -21152,8 +21147,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_camera_follow_active {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.camera_follow_object_id().is_some()
+        // Wave 895: fail-closed boot default (no dual-read).
+        false
     }
 
     /// Wave 583: boot residual EVA counter bundle (no presentation freeze).
@@ -21239,8 +21234,9 @@ impl CnCGameEngine {
             // Non-local while freeze live: fail-closed (no dual-read).
             return Vec::new();
         }
-        // Boot residual only (residual never stamped).
-        self.game_logic.player_unlocked_sciences(player_id)
+        // Wave 895: fail-closed boot default (no dual-read).
+        let _ = player_id;
+        Vec::new()
     }
 
     /// Wave 556: presentation freeze owns match-over / victory-label residual when

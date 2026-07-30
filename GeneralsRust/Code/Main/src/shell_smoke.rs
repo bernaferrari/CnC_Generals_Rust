@@ -3935,6 +3935,11 @@ use crate::game_logic::host_live_host_sciences_ai_residual_wave894::{
     honesty_host_sciences_ai_nav_commands_residual_wave894,
     simulate_live_host_sciences_ai_honesty,
 };
+use crate::game_logic::host_live_host_pob_failclosed_boot_residual_wave895::{
+    honesty_host_pob_failclosed_boot_method_names_residual_wave895,
+    honesty_host_pob_failclosed_boot_nav_commands_residual_wave895,
+    simulate_live_host_pob_failclosed_boot_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8251,6 +8256,9 @@ pub struct ShellSmokeResult {
     pub host_sciences_ai_method_names_wave894_ok: bool,
     pub host_sciences_ai_nav_commands_wave894_ok: bool,
     pub host_sciences_ai_live_wave894_ok: bool,
+    pub host_pob_failclosed_boot_method_names_wave895_ok: bool,
+    pub host_pob_failclosed_boot_nav_commands_wave895_ok: bool,
+    pub host_pob_failclosed_boot_live_wave895_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13315,6 +13323,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_sciences_ai_nav_commands_wave894_ok =
         honesty_host_sciences_ai_nav_commands_residual_wave894();
     let host_sciences_ai_live_wave894_ok = simulate_live_host_sciences_ai_honesty();
+    let host_pob_failclosed_boot_method_names_wave895_ok =
+        honesty_host_pob_failclosed_boot_method_names_residual_wave895();
+    let host_pob_failclosed_boot_nav_commands_wave895_ok =
+        honesty_host_pob_failclosed_boot_nav_commands_residual_wave895();
+    let host_pob_failclosed_boot_live_wave895_ok = simulate_live_host_pob_failclosed_boot_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15980,6 +15993,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_sciences_ai_method_names_wave894_ok,
         host_sciences_ai_nav_commands_wave894_ok,
         host_sciences_ai_live_wave894_ok,
+        host_pob_failclosed_boot_method_names_wave895_ok,
+        host_pob_failclosed_boot_nav_commands_wave895_ok,
+        host_pob_failclosed_boot_live_wave895_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
