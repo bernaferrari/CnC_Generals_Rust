@@ -19465,25 +19465,42 @@ impl CnCGameEngine {
     }
 
     fn host_refresh_match_sim_residuals_from_logic(&mut self) {
-        self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
-        self.host_match_time_frozen = Some(self.game_logic.is_time_frozen_for_simulation());
-        self.host_match_total_play_time = Some(self.game_logic.get_total_play_time());
-        self.host_match_logic_frame = Some(self.game_logic.get_frame());
-        {
-            let d = self.game_logic.fixed_step_diagnostics();
-            self.host_match_logic_steps =
-                Some((d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds));
+        // Wave 893: prefer presentation freeze for sim timing + replay/team when live.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
+            self.host_match_time_frozen = Some(pres.time_frozen_for_simulation);
+            self.host_match_total_play_time = Some(pres.total_play_time_seconds);
+            self.host_match_logic_frame = Some(pres.frame.0);
+            self.host_match_logic_steps = Some((
+                pres.logic_steps_run,
+                pres.logic_steps_budget_hit,
+                pres.logic_steps_accumulated_seconds,
+            ));
+            self.host_match_in_replay = Some(pres.in_replay_game);
+            self.host_match_local_player_id = Some(self.current_player_id);
+            self.host_match_in_shell = Some(false);
+            self.host_match_local_team = Some(pres.local_team);
+        } else {
+            self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
+            self.host_match_time_frozen = Some(self.game_logic.is_time_frozen_for_simulation());
+            self.host_match_total_play_time = Some(self.game_logic.get_total_play_time());
+            self.host_match_logic_frame = Some(self.game_logic.get_frame());
+            {
+                let d = self.game_logic.fixed_step_diagnostics();
+                self.host_match_logic_steps =
+                    Some((d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds));
+            }
+            self.host_match_in_replay = Some(self.game_logic.isInReplayGame());
+            // Keep player residual aligned with current host selection.
+            self.host_match_local_player_id = Some(self.current_player_id);
+            // Wave 845: match is not shell once started; team from host player roster.
+            self.host_match_in_shell = Some(false);
+            self.host_match_local_team = Some(
+                self.game_logic
+                    .player_team(self.current_player_id)
+                    .unwrap_or(crate::game_logic::Team::USA),
+            );
         }
-        self.host_match_in_replay = Some(self.game_logic.isInReplayGame());
-        // Keep player residual aligned with current host selection.
-        self.host_match_local_player_id = Some(self.current_player_id);
-        // Wave 845: match is not shell once started; team from host player roster.
-        self.host_match_in_shell = Some(false);
-        self.host_match_local_team = Some(
-            self.game_logic
-                .player_team(self.current_player_id)
-                .unwrap_or(crate::game_logic::Team::USA),
-        );
         // Wave 846: diplomacy / template / sciences host residuals.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_diplomacy_players = Some(pres.players.clone());
@@ -20862,6 +20879,20 @@ impl CnCGameEngine {
     /// Wave 870: keep host_match_* sim timing residuals warm after host ticks.
     #[inline]
     fn host_stamp_sim_timing_residuals(&mut self) {
+        // Wave 893: prefer presentation freeze for sim timing residuals (no dual-read
+        // mid-command when a frame is installed). Boot/no-freeze still probes host.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
+            self.host_match_time_frozen = Some(pres.time_frozen_for_simulation || self.game_paused);
+            self.host_match_total_play_time = Some(pres.total_play_time_seconds);
+            self.host_match_logic_frame = Some(pres.frame.0);
+            self.host_match_logic_steps = Some((
+                pres.logic_steps_run,
+                pres.logic_steps_budget_hit,
+                pres.logic_steps_accumulated_seconds,
+            ));
+            return;
+        }
         self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
         self.host_match_time_frozen =
             Some(self.game_logic.is_time_frozen_for_simulation() || self.game_paused);
