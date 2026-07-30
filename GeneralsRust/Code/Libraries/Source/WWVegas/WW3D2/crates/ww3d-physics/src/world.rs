@@ -15,6 +15,7 @@ pub struct PhysicsWorld {
 
 impl PhysicsWorld {
     /// Create a new physics world using the legacy solver implementation.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             inner: backend::PhysicsWorld::new(),

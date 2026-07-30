@@ -20671,8 +20671,16 @@ impl CnCGameEngine {
     /// Wave 585: host UI-state residual (boot/loading without presentation freeze).
     #[inline]
     fn host_update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
-        // Wave 585/862/872: prefer last presentation UI residual when freeze installed.
+        // Wave 585/862/872/880: prefer last presentation UI residual when freeze installed.
         if let Some(ui) = self.last_ui_state.clone() {
+            let _ = player_id;
+            return ui;
+        }
+        // Wave 880: rebuild UI residual from presentation freeze without live dual-read.
+        if let Some(pres) = self.last_presentation_frame.clone() {
+            let mut ui = crate::ui::GameUIState::default();
+            pres.apply_to_ui_state(&mut ui);
+            self.last_ui_state = Some(ui.clone());
             let _ = player_id;
             return ui;
         }
