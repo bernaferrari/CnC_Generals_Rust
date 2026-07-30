@@ -3845,6 +3845,11 @@ use crate::game_logic::host_live_host_shell_no_dual_pace_residual_wave876::{
     honesty_host_shell_no_dual_pace_nav_commands_residual_wave876,
     simulate_live_host_shell_no_dual_pace_honesty,
 };
+use crate::game_logic::host_live_host_gw_flight_over_assign_residual_wave877::{
+    honesty_host_gw_flight_over_assign_method_names_residual_wave877,
+    honesty_host_gw_flight_over_assign_nav_commands_residual_wave877,
+    simulate_live_host_gw_flight_over_assign_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8107,6 +8112,9 @@ pub struct ShellSmokeResult {
     pub host_shell_no_dual_pace_method_names_wave876_ok: bool,
     pub host_shell_no_dual_pace_nav_commands_wave876_ok: bool,
     pub host_shell_no_dual_pace_live_wave876_ok: bool,
+    pub host_gw_flight_over_assign_method_names_wave877_ok: bool,
+    pub host_gw_flight_over_assign_nav_commands_wave877_ok: bool,
+    pub host_gw_flight_over_assign_live_wave877_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13076,6 +13084,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_shell_no_dual_pace_nav_commands_wave876_ok =
         honesty_host_shell_no_dual_pace_nav_commands_residual_wave876();
     let host_shell_no_dual_pace_live_wave876_ok = simulate_live_host_shell_no_dual_pace_honesty();
+    let host_gw_flight_over_assign_method_names_wave877_ok =
+        honesty_host_gw_flight_over_assign_method_names_residual_wave877();
+    let host_gw_flight_over_assign_nav_commands_wave877_ok =
+        honesty_host_gw_flight_over_assign_nav_commands_residual_wave877();
+    let host_gw_flight_over_assign_live_wave877_ok =
+        simulate_live_host_gw_flight_over_assign_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15687,6 +15701,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_shell_no_dual_pace_method_names_wave876_ok,
         host_shell_no_dual_pace_nav_commands_wave876_ok,
         host_shell_no_dual_pace_live_wave876_ok,
+        host_gw_flight_over_assign_method_names_wave877_ok,
+        host_gw_flight_over_assign_nav_commands_wave877_ok,
+        host_gw_flight_over_assign_live_wave877_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

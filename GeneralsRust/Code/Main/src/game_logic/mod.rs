@@ -213,6 +213,7 @@ pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
 pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
 pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
+pub mod host_live_host_gw_flight_over_assign_residual_wave877;
 pub mod host_live_host_hacker_income_dual_peel_residual_wave822;
 pub mod host_live_host_height_die_dual_peel_residual_wave771;
 pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
@@ -2913,6 +2914,12 @@ pub use host_live_host_dual_read_zero_sole_tick_wave875::{
     honesty_host_dual_read_zero_sole_tick_nav_commands_residual_wave875,
     honesty_host_dual_read_zero_sole_tick_residual_pack_wave875,
     simulate_live_host_dual_read_zero_sole_tick_honesty,
+};
+pub use host_live_host_gw_flight_over_assign_residual_wave877::{
+    honesty_host_gw_flight_over_assign_method_names_residual_wave877,
+    honesty_host_gw_flight_over_assign_nav_commands_residual_wave877,
+    honesty_host_gw_flight_over_assign_residual_pack_wave877,
+    simulate_live_host_gw_flight_over_assign_honesty,
 };
 pub use host_live_host_shell_no_dual_pace_residual_wave876::{
     honesty_host_shell_no_dual_pace_method_names_residual_wave876,
