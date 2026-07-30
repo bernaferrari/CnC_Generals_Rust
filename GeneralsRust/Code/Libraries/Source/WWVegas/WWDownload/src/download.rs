@@ -63,6 +63,7 @@ pub trait DownloadListener: Send + Sync {
 
 /// Main download manager
 pub struct DownloadManager {
+    #[allow(dead_code)]
     config_manager: ConfigManager,
     http_client: Client,
     current_status: Arc<Mutex<DownloadStatus>>,
