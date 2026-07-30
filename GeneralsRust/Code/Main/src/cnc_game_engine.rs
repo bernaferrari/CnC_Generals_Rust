@@ -19832,19 +19832,16 @@ impl CnCGameEngine {
                     // Wave 860: warm residual still shell — fail-closed to residual, no live dual-read.
                     return host.clone();
                 }
-                // Residual cold: last-resort live probe (true boot / pre-stamp).
-                let host = self.game_logic.get_current_map_name().to_string();
-                if !Self::map_name_is_shell_residual(&host) {
-                    return host;
-                }
+                // Wave 896: residual cold under InGame shell freeze — fail-closed to freeze
+                // (no get_current_map_name dual-read). Match-start stamps host_match_map_name.
             }
             return freeze;
         }
         if let Some(host) = self.host_match_map_name.as_ref() {
             return host.clone();
         }
-        // Boot residual only.
-        self.game_logic.get_current_map_name().to_string()
+        // Wave 896: fail-closed boot default (no dual-read).
+        String::new()
     }
 
     /// Wave 554: presentation freeze owns AI difficulty residual when installed.
@@ -20716,12 +20713,12 @@ impl CnCGameEngine {
     /// Wave 585: host shell-map probe residual (`isInShellGame`).
     #[inline]
     fn host_is_in_shell_game(&self) -> bool {
-        // Wave 585/845: prefer host_match_in_shell residual after match stamp.
+        // Wave 585/845/896: prefer host_match_in_shell residual after match stamp.
         if let Some(v) = self.host_match_in_shell {
             return v;
         }
-        // Boot residual only.
-        self.game_logic.isInShellGame()
+        // Wave 896: fail-closed boot default true (menu/shell before match stamp).
+        true
     }
 
     /// Wave 585: host world-size override residual (minimap/heightmap repair path).

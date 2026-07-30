@@ -228,6 +228,7 @@ pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
 pub mod host_live_host_map_name_failclosed_residual_wave860;
 pub mod host_live_host_map_primary_enemy_residual_wave830;
+pub mod host_live_host_map_shell_failclosed_residual_wave896;
 pub mod host_live_host_map_start_army_spawn_residual_wave831;
 pub mod host_live_host_match_alive_object_residuals_wave851;
 pub mod host_live_host_match_camera_follow_residuals_wave847;
@@ -2927,6 +2928,12 @@ pub use host_live_host_assets_big_unpack_clippy_wave882::{
     honesty_host_assets_big_unpack_residual_pack_wave882,
     simulate_live_host_assets_big_unpack_honesty,
 };
+pub use host_live_host_map_shell_failclosed_residual_wave896::{
+    honesty_host_map_shell_failclosed_method_names_residual_wave896,
+    honesty_host_map_shell_failclosed_nav_commands_residual_wave896,
+    honesty_host_map_shell_failclosed_residual_pack_wave896,
+    simulate_live_host_map_shell_failclosed_honesty,
+};
 pub use host_live_host_override_camera_follow_residual_wave891::{
     honesty_host_override_camera_follow_method_names_residual_wave891,
     honesty_host_override_camera_follow_nav_commands_residual_wave891,
@@ -2945,6 +2952,7 @@ pub use host_live_host_pob_failclosed_boot_residual_wave895::{
     honesty_host_pob_failclosed_boot_residual_pack_wave895,
     simulate_live_host_pob_failclosed_boot_honesty,
 };
+
 pub use host_live_host_sciences_ai_residual_wave894::{
     honesty_host_sciences_ai_method_names_residual_wave894,
     honesty_host_sciences_ai_nav_commands_residual_wave894,
