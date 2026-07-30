@@ -372,7 +372,7 @@ impl DebugIOInterface for DebugIOFlat {
     fn delete(self: Box<Self>) {
         let mut this = *self;
         for stream in this.streams.drain(..) {
-            stream.delete(this.copy_dir.as_ref().map(|p| p.as_path()));
+            stream.delete(this.copy_dir.as_deref());
         }
     }
 }

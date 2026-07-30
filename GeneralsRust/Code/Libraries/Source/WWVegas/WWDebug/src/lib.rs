@@ -1,3 +1,23 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(clippy::get_first)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::mutable_key_type)]
+#![allow(clippy::while_let_loop)]
+#![allow(clippy::or_fun_call)]
+#![allow(clippy::unwrap_or_default)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(deprecated)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::while_let_on_iterator)]
+#![allow(private_interfaces)]
 //! # Profile Module - Rust Implementation
 //!
 //! This is a Rust conversion of the C++ profiling library from Command & Conquer Generals Zero Hour.

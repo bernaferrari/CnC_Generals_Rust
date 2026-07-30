@@ -263,6 +263,7 @@ pub mod host_live_host_production_spawn_entity_first_residual_wave736;
 pub mod host_live_host_production_spawn_pose_no_rejitter_residual_wave739;
 pub mod host_live_host_production_spawn_ready_log_helper_residual_wave679;
 pub mod host_live_host_production_spawn_requires_gw_bind_residual_wave738;
+pub mod host_live_host_profile_clippy_residual_wave885;
 pub mod host_live_host_projectiles_ready_log_helper_residual_wave678;
 pub mod host_live_host_prone_update_dual_peel_residual_wave782;
 pub mod host_live_host_queue_stamp_memory_clippy_wave874;
@@ -2915,6 +2916,11 @@ pub use host_live_host_assets_big_unpack_clippy_wave882::{
     honesty_host_assets_big_unpack_nav_commands_residual_wave882,
     honesty_host_assets_big_unpack_residual_pack_wave882,
     simulate_live_host_assets_big_unpack_honesty,
+};
+pub use host_live_host_profile_clippy_residual_wave885::{
+    honesty_host_profile_clippy_method_names_residual_wave885,
+    honesty_host_profile_clippy_nav_commands_residual_wave885,
+    honesty_host_profile_clippy_residual_pack_wave885, simulate_live_host_profile_clippy_honesty,
 };
 pub use host_live_host_wwshade_clippy_residual_wave883::{
     honesty_host_wwshade_clippy_method_names_residual_wave883,
