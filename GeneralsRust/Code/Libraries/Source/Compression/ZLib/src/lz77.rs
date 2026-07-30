@@ -339,7 +339,7 @@ impl MatchFinder {
             chain_pos = self.prev[chain_pos % self.window_size] as usize;
         }
 
-        matches.sort_by(|a, b| b.length.cmp(&a.length));
+        matches.sort_by_key(|m| std::cmp::Reverse(m.length));
         matches
     }
 

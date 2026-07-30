@@ -1,3 +1,12 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::no_effect)]
+#![allow(clippy::identity_op)]
+#![allow(clippy::manual_is_multiple_of)]
+#![allow(clippy::same_item_push)]
+#![allow(clippy::manual_range_contains)]
 #![cfg_attr(test, cfg(feature = "internal"))]
 //! # ZLib Compression Library
 //!
@@ -47,15 +56,11 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use bit_vec::BitVec;
 use std::io::{Read, Write};
 use thiserror::Error;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-
-#[cfg(feature = "simd")]
-use wide::*;
 
 pub mod deflate;
 pub mod huffman;

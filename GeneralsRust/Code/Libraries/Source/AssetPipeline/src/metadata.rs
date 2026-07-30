@@ -270,15 +270,9 @@ impl DependencyTracker {
 
     /// Add dependency relationship
     pub fn add_dependency(&mut self, asset: Uuid, depends_on: Uuid) {
-        self.dependencies
-            .entry(asset)
-            .or_insert_with(Vec::new)
-            .push(depends_on);
+        self.dependencies.entry(asset).or_default().push(depends_on);
 
-        self.dependents
-            .entry(depends_on)
-            .or_insert_with(Vec::new)
-            .push(asset);
+        self.dependents.entry(depends_on).or_default().push(asset);
     }
 
     /// Get dependencies of an asset

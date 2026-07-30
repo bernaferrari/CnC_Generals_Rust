@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use eframe::egui;
-use env_logger;
+use env_logger::{self};
 use log::info;
 use std::collections::VecDeque;
 

@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::manual_is_multiple_of)]
+#![allow(clippy::manual_range_contains)]
 //! # Modern Asset Pipeline
 //!
 //! A next-generation asset processing pipeline that replaces Max4SDK with modern capabilities:

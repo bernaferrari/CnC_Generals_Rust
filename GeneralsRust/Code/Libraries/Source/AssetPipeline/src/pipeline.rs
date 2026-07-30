@@ -221,7 +221,7 @@ impl DependencyResolver {
     pub fn add_dependency(&mut self, asset_id: uuid::Uuid, depends_on: uuid::Uuid) {
         self.dependencies
             .entry(asset_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(depends_on);
     }
 
