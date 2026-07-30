@@ -17341,15 +17341,17 @@ impl CnCGameEngine {
     /// Wave 584: host queue-command residual (no immediate process flush).
     #[inline]
     fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
-        // Wave 584/872: host queue residual (authority write; no dual-read peel).
+        // Wave 584/872/874: host queue residual (authority write; no dual-read peel).
         self.game_logic.queue_command(command);
+        // Keep sim-timing residual warm so peels do not dual-read clocks mid-queue.
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 576: queue a GameCommand then flush with Command SFX.
     #[inline]
     fn host_queue_and_process_command(&mut self, command: crate::command_system::GameCommand) {
-        // Wave 576: queue + process + Command SFX residual.
-        self.game_logic.queue_command(command);
+        // Wave 576/874: queue + process + Command SFX residual via host helpers.
+        self.host_queue_command(command);
         self.host_process_commands_with_command_sound();
     }
 
