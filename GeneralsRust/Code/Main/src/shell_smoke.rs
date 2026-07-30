@@ -3895,6 +3895,11 @@ use crate::game_logic::host_live_host_ww3d_particles_anim_gui_edit_wave886::{
     honesty_host_ww3d_particles_anim_gui_nav_commands_residual_wave886,
     simulate_live_host_ww3d_particles_anim_gui_honesty,
 };
+use crate::game_logic::host_live_host_particle_world_builder_clippy_wave887::{
+    honesty_host_particle_world_builder_method_names_residual_wave887,
+    honesty_host_particle_world_builder_nav_commands_residual_wave887,
+    simulate_live_host_particle_world_builder_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8187,6 +8192,9 @@ pub struct ShellSmokeResult {
     pub host_ww3d_particles_anim_gui_method_names_wave886_ok: bool,
     pub host_ww3d_particles_anim_gui_nav_commands_wave886_ok: bool,
     pub host_ww3d_particles_anim_gui_live_wave886_ok: bool,
+    pub host_particle_world_builder_method_names_wave887_ok: bool,
+    pub host_particle_world_builder_nav_commands_wave887_ok: bool,
+    pub host_particle_world_builder_live_wave887_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13208,6 +13216,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_ww3d_particles_anim_gui_nav_commands_residual_wave886();
     let host_ww3d_particles_anim_gui_live_wave886_ok =
         simulate_live_host_ww3d_particles_anim_gui_honesty();
+    let host_particle_world_builder_method_names_wave887_ok =
+        honesty_host_particle_world_builder_method_names_residual_wave887();
+    let host_particle_world_builder_nav_commands_wave887_ok =
+        honesty_host_particle_world_builder_nav_commands_residual_wave887();
+    let host_particle_world_builder_live_wave887_ok =
+        simulate_live_host_particle_world_builder_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15849,6 +15863,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_ww3d_particles_anim_gui_method_names_wave886_ok,
         host_ww3d_particles_anim_gui_nav_commands_wave886_ok,
         host_ww3d_particles_anim_gui_live_wave886_ok,
+        host_particle_world_builder_method_names_wave887_ok,
+        host_particle_world_builder_nav_commands_wave887_ok,
+        host_particle_world_builder_live_wave887_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

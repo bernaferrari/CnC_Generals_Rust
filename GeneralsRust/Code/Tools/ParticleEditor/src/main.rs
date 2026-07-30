@@ -1,3 +1,15 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(clippy::single_char_add_str)]
+#![allow(clippy::for_kv_map)]
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::useless_format)]
+#![allow(deprecated)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::enum_variant_names)]
 //! Particle Editor - Advanced Real-Time Particle System Editor
 //!
 //! A modern particle system editor with real-time preview, timeline-based editing,

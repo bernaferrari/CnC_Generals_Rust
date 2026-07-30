@@ -247,6 +247,7 @@ pub mod host_live_host_mutation_residual_refresh_wave867;
 pub mod host_live_host_object_scan_unify_residual_wave853;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
 pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
+pub mod host_live_host_particle_world_builder_clippy_wave887;
 pub mod host_live_host_patriot_laser_dual_peel_residual_wave823;
 pub mod host_live_host_pending_patriot_dual_peel_residual_wave824;
 pub mod host_live_host_player_alive_dual_peel_residual_wave816;
@@ -2917,6 +2918,12 @@ pub use host_live_host_assets_big_unpack_clippy_wave882::{
     honesty_host_assets_big_unpack_nav_commands_residual_wave882,
     honesty_host_assets_big_unpack_residual_pack_wave882,
     simulate_live_host_assets_big_unpack_honesty,
+};
+pub use host_live_host_particle_world_builder_clippy_wave887::{
+    honesty_host_particle_world_builder_method_names_residual_wave887,
+    honesty_host_particle_world_builder_nav_commands_residual_wave887,
+    honesty_host_particle_world_builder_residual_pack_wave887,
+    simulate_live_host_particle_world_builder_honesty,
 };
 pub use host_live_host_profile_clippy_residual_wave885::{
     honesty_host_profile_clippy_method_names_residual_wave885,
