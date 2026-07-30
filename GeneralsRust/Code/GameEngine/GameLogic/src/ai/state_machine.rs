@@ -1766,7 +1766,7 @@ impl AiStateMachine {
     fn issue_movement_target(&self, state: &mut AiStateData, target: Coord3D) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         const TARGET_EPSILON: Real = 0.1;
@@ -1802,7 +1802,7 @@ impl AiStateMachine {
     fn start_move_sound(&self, state: &mut AiStateData) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         let Some((mut start_sound, loop_sound, owner_id)) = OBJECT_REGISTRY
@@ -2025,7 +2025,7 @@ impl AiStateMachine {
     fn release_from_container(&self, owner: &crate::object::Object) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         if let Some(container_id) = owner.get_container_id() {
@@ -2359,7 +2359,7 @@ impl AiStateMachine {
     pub fn set_goal_squad(&mut self, squad: SquadId) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         self.current_state.goal_squad = Some(squad);
@@ -2757,7 +2757,7 @@ mod tests {
     ) -> (Arc<RwLock<Object>>, Arc<Mutex<FaceAiCapture>>) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
@@ -2788,7 +2788,7 @@ mod tests {
     fn unregister_face_test_object(id: ObjectID) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         OBJECT_REGISTRY.unregister_object(id);

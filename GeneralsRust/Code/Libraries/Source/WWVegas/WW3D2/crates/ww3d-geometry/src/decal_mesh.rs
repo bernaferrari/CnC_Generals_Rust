@@ -427,6 +427,7 @@ pub struct DecalPoly {
 
 impl DecalPoly {
     /// Create a new decal polygon
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             vertices: Vec::new(),

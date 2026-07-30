@@ -3805,7 +3805,7 @@ impl UnitAIUpdate {
         // Wave 258: empty dual-world → no factory object walks.
 
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         let Some(mut current_state) = self.rappel_state.take() else {
@@ -7762,7 +7762,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn join_team(&mut self) {
         // Wave 258: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         if self.is_ai_in_dead_state() {
@@ -8390,7 +8390,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         // Wave 258: empty dual-world → no factory object walks.
 
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         if surrendered {
@@ -9165,7 +9165,7 @@ mod tests {
         // Wave 258: empty dual-world → no factory object walks.
 
         if dual_world_registry_unavailable() {
-            return;
+            panic!("dual-world registry unavailable in test helper");
         }
 
         let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));

@@ -18,6 +18,7 @@ pub struct MeshBuilder {
 
 impl MeshBuilder {
     /// Create a new mesh builder
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let mut builder = Self {
             vertices: Vec::new(),
@@ -437,8 +438,7 @@ impl MeshBuilder {
             let right = direction.cross(up_vector).normalize();
             let up = right.cross(direction).normalize();
 
-            for j in 0..shape_len {
-                let local_pos = shape[j];
+            for (j, &local_pos) in shape.iter().enumerate().take(shape_len) {
                 let world_pos = position + right * local_pos.x + up * local_pos.y;
 
                 // Calculate normal (simplified)

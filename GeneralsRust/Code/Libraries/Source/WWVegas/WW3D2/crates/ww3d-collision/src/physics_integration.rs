@@ -12,6 +12,10 @@ use std::collections::HashMap;
 
 type Quaternion = Quat;
 
+type CollisionCallback = Box<dyn FnMut(&CollisionEvent) + Send>;
+type SpatialGridBody<'a> = (PhysicsBodyId, &'a RigidBody);
+type SpatialGrid<'a> = std::collections::HashMap<(i32, i32, i32), Vec<SpatialGridBody<'a>>>;
+
 /// Physics world containing all physics objects
 pub struct PhysicsWorld {
     bodies: HashMap<PhysicsBodyId, RigidBody>,
@@ -22,11 +26,12 @@ pub struct PhysicsWorld {
     stats: PhysicsStats,
     contact_cache: Vec<ContactManifold>,
     collision_events: Vec<CollisionEvent>,
-    collision_callback: Option<Box<dyn FnMut(&CollisionEvent) + Send>>,
+    collision_callback: Option<CollisionCallback>,
 }
 
 impl PhysicsWorld {
     /// Create a new physics world
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             bodies: HashMap::new(),
@@ -333,8 +338,7 @@ impl PhysicsWorld {
 
         // Broad phase: build spatial hash grid
         let cell_size = 5.0; // Adjust based on typical object size
-        let mut spatial_grid: HashMap<(i32, i32, i32), Vec<(PhysicsBodyId, &RigidBody)>> =
-            HashMap::new();
+        let mut spatial_grid: SpatialGrid = HashMap::new();
 
         for (id, body) in &self.bodies {
             // Calculate grid cell
@@ -2373,7 +2377,7 @@ impl HingeConstraint {
     }
 
     pub fn with_damping(mut self, damping: f32) -> Self {
-        self.damping = damping.max(0.0).min(1.0);
+        self.damping = damping.clamp(0.0, 1.0);
         self
     }
 }

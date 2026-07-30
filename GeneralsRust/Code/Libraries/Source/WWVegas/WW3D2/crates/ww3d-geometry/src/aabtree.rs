@@ -807,7 +807,7 @@ impl AABTreeBuilder {
             root: None,
             node_count: 0,
             poly_count: 0,
-            rng_state: 0x1_2E_3D_4C_5B_6A_7980,
+            rng_state: 0x012E_3D4C_5B6A_7980,
         }
     }
 
@@ -816,7 +816,7 @@ impl AABTreeBuilder {
         self.root = None;
         self.node_count = 0;
         self.poly_count = 0;
-        self.rng_state = 0x1_2E_3D_4C_5B_6A_7980;
+        self.rng_state = 0x012E_3D4C_5B6A_7980;
 
         if mesh.triangles.is_empty() {
             return;

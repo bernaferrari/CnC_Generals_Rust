@@ -127,6 +127,7 @@ impl BoundingVolumeUtils {
 
         // Normalize covariance
         let n = points.len() as f32;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..3 {
             for j in 0..3 {
                 covariance[i][j] /= n;

@@ -328,6 +328,7 @@ impl CollisionMath {
     fn get_obb_vertices(obb: &OBBox) -> [Vec3; 8] {
         let mut vertices = [Vec3::ZERO; 8];
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..8 {
             let signs = [
                 if i & 1 != 0 { 1.0 } else { -1.0 },

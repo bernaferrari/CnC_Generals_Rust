@@ -18,6 +18,7 @@ pub struct CollisionSystem {
 
 impl CollisionSystem {
     /// Create a new collision system
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             aaboxes: HashMap::new(),

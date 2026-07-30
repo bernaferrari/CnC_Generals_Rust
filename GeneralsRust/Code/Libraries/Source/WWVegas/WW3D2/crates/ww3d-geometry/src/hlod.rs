@@ -727,7 +727,7 @@ impl HLod {
         let screen_area = angular_size * angular_size;
 
         // Clamp to reasonable range
-        screen_area.max(0.0).min(1.0)
+        screen_area.clamp(0.0, 1.0)
     }
 
     #[allow(dead_code)] // C++ parity

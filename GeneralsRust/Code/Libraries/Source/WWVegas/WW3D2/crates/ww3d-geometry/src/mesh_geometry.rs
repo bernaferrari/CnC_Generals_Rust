@@ -407,8 +407,8 @@ impl MeshGeometry {
         }
 
         // Orthogonalize tangents with normals and normalize
-        for i in 0..self.vertices.len() {
-            let normal = self.vertices[i].normal;
+        for (i, vertex) in self.vertices.iter().enumerate() {
+            let normal = vertex.normal;
             let tangent = tangents[i];
 
             // Gram-Schmidt orthogonalization
@@ -508,9 +508,7 @@ impl MeshGeometry {
         }
 
         // Update vertex positions using Loop subdivision weights
-        for i in 0..old_vertex_count {
-            let vertex = &self.vertices[i];
-
+        for (i, vertex) in self.vertices.iter().enumerate().take(old_vertex_count) {
             // Find neighboring vertices
             let mut neighbors = Vec::new();
             for triangle in &self.triangles {

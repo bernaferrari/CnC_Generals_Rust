@@ -73,6 +73,7 @@ impl ScreenRay {
 
     /// Alternative method: generate ray from camera position and screen coords
     /// Useful for perspective projections
+    #[allow(clippy::too_many_arguments)]
     pub fn from_camera_perspective(
         camera_pos: Vec3,
         camera_forward: Vec3,

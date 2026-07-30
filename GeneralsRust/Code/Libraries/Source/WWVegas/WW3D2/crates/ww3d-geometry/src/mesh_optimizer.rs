@@ -122,7 +122,7 @@ impl MeshOptimizer {
     }
 
     /// Collapse an edge
-    fn collapse_edge(mesh: &mut MeshGeometry, edge: Edge, errors: &mut Vec<QuadricError>) {
+    fn collapse_edge(mesh: &mut MeshGeometry, edge: Edge, errors: &mut [QuadricError]) {
         let target_vertex = edge.v0;
         let source_vertex = edge.v1;
 

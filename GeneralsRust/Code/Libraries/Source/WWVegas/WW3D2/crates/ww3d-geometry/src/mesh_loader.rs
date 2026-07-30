@@ -18,6 +18,7 @@ use ww3d_core::{
 
 /// Mesh loader result
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum MeshLoadResult {
     Success(MeshGeometry),
     Error(String),
