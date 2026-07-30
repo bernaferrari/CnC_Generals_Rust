@@ -3900,6 +3900,11 @@ use crate::game_logic::host_live_host_particle_world_builder_clippy_wave887::{
     honesty_host_particle_world_builder_nav_commands_residual_wave887,
     simulate_live_host_particle_world_builder_honesty,
 };
+use crate::game_logic::host_live_host_wwlib_map_cache_clippy_wave888::{
+    honesty_host_wwlib_map_cache_method_names_residual_wave888,
+    honesty_host_wwlib_map_cache_nav_commands_residual_wave888,
+    simulate_live_host_wwlib_map_cache_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8195,6 +8200,9 @@ pub struct ShellSmokeResult {
     pub host_particle_world_builder_method_names_wave887_ok: bool,
     pub host_particle_world_builder_nav_commands_wave887_ok: bool,
     pub host_particle_world_builder_live_wave887_ok: bool,
+    pub host_wwlib_map_cache_method_names_wave888_ok: bool,
+    pub host_wwlib_map_cache_nav_commands_wave888_ok: bool,
+    pub host_wwlib_map_cache_live_wave888_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13222,6 +13230,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_particle_world_builder_nav_commands_residual_wave887();
     let host_particle_world_builder_live_wave887_ok =
         simulate_live_host_particle_world_builder_honesty();
+    let host_wwlib_map_cache_method_names_wave888_ok =
+        honesty_host_wwlib_map_cache_method_names_residual_wave888();
+    let host_wwlib_map_cache_nav_commands_wave888_ok =
+        honesty_host_wwlib_map_cache_nav_commands_residual_wave888();
+    let host_wwlib_map_cache_live_wave888_ok = simulate_live_host_wwlib_map_cache_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -15866,6 +15879,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_particle_world_builder_method_names_wave887_ok,
         host_particle_world_builder_nav_commands_wave887_ok,
         host_particle_world_builder_live_wave887_ok,
+        host_wwlib_map_cache_method_names_wave888_ok,
+        host_wwlib_map_cache_nav_commands_wave888_ok,
+        host_wwlib_map_cache_live_wave888_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

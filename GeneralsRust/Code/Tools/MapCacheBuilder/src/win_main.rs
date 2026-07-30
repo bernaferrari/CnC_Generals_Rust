@@ -1,3 +1,7 @@
+#![allow(clippy::type_complexity)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 //! MapCacheBuilder Main Entry Point
 //!
 //! Corresponds to C++ file: Tools/MapCacheBuilder/Source/WinMain.cpp
