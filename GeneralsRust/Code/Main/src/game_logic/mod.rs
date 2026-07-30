@@ -321,6 +321,7 @@ pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave7
 pub mod host_live_host_writeback_skip_pending_player_projectile_logs_residual_wave760;
 pub mod host_live_host_writeback_skip_pending_remaining_logs_residual_wave758;
 pub mod host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756;
+pub mod host_live_host_ww3d_particles_anim_gui_edit_wave886;
 pub mod host_live_host_wwdownload_clippy_residual_wave879;
 pub mod host_live_host_wwshade_clippy_residual_wave883;
 pub mod host_live_host_zlib_asset_debug_clippy_wave884;
@@ -2922,6 +2923,13 @@ pub use host_live_host_profile_clippy_residual_wave885::{
     honesty_host_profile_clippy_nav_commands_residual_wave885,
     honesty_host_profile_clippy_residual_pack_wave885, simulate_live_host_profile_clippy_honesty,
 };
+pub use host_live_host_ww3d_particles_anim_gui_edit_wave886::{
+    honesty_host_ww3d_particles_anim_gui_method_names_residual_wave886,
+    honesty_host_ww3d_particles_anim_gui_nav_commands_residual_wave886,
+    honesty_host_ww3d_particles_anim_gui_residual_pack_wave886,
+    simulate_live_host_ww3d_particles_anim_gui_honesty,
+};
+
 pub use host_live_host_wwshade_clippy_residual_wave883::{
     honesty_host_wwshade_clippy_method_names_residual_wave883,
     honesty_host_wwshade_clippy_nav_commands_residual_wave883,
