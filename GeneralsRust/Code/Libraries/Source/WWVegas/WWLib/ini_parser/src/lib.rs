@@ -189,6 +189,7 @@ pub struct IniParser {
 
 impl IniParser {
     /// Create a new INI parser
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             filename: AsciiString::new(),

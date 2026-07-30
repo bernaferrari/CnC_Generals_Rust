@@ -156,6 +156,7 @@ impl AsciiString {
     }
 
     /// Create an AsciiString from a &str
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, String> {
         if s.is_empty() {
             return Ok(Self::THE_EMPTY_STRING);
@@ -172,6 +173,7 @@ impl AsciiString {
     }
 
     /// Create an AsciiString from a C-style string pointer
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn from_c_str(s: *const libc::c_char) -> Result<Self, String> {
         if s.is_null() {
             return Ok(Self::THE_EMPTY_STRING);
@@ -215,7 +217,10 @@ impl AsciiString {
     /// Get a const pointer to the string data
     pub fn str(&self) -> *const libc::c_char {
         if self.data.is_null() {
-            b"\0".as_ptr() as *const libc::c_char
+            #[allow(clippy::manual_c_str_literals)]
+            {
+                b"\0".as_ptr() as *const libc::c_char
+            }
         } else {
             AsciiStringData::data_ptr_const(self.data) as *const libc::c_char
         }
@@ -484,7 +489,7 @@ impl Eq for AsciiString {}
 
 impl PartialOrd for AsciiString {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.compare(other))
+        Some(self.cmp(other))
     }
 }
 

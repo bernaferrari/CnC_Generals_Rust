@@ -369,6 +369,7 @@ impl ParameterValue {
     }
 
     /// Convert value to string representation
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         match self {
             ParameterValue::Int(v) => v.to_string(),

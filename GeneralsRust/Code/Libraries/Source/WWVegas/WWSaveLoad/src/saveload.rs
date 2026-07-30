@@ -105,7 +105,7 @@ use std::time::Instant;
 ///     Ok(())
 /// });
 /// ```
-
+///
 /// Type alias for chunk IDs used throughout the save/load system
 pub type ChunkId = u32;
 
@@ -323,9 +323,11 @@ pub struct PointerRemap {
     remap_requests: Vec<RemapRequest>,
 }
 
+type RemapCallback = Box<dyn FnOnce(Option<Arc<dyn Persist>>) -> SaveLoadResult<()> + Send>;
+
 struct RemapRequest {
     target_id: RemapId,
-    callback: Box<dyn FnOnce(Option<Arc<dyn Persist>>) -> SaveLoadResult<()> + Send>,
+    callback: RemapCallback,
     #[cfg(debug_assertions)]
     file: String,
     #[cfg(debug_assertions)]
@@ -676,7 +678,7 @@ static SAVE_LOAD_SYSTEM: std::sync::OnceLock<SaveLoadSystem> = std::sync::OnceLo
 
 /// Get the global save/load system instance
 pub fn get_save_load_system() -> &'static SaveLoadSystem {
-    SAVE_LOAD_SYSTEM.get_or_init(|| SaveLoadSystem::new())
+    SAVE_LOAD_SYSTEM.get_or_init(SaveLoadSystem::new)
 }
 
 /// Simple implementation of a persist factory using generics
