@@ -7582,6 +7582,7 @@ impl GameLogic {
         // Under PRODUCTION_AUTHORITY sole-tick, GameWorld advances queue progress
         // and writeback finishes heads; host try_complete + spawn runs after
         // shadow writeback same frame (Wave 714) so ready-log is not a frame late.
+        // Wave 875: sole-tick early-return honesty — no host dual-advance.
         if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
             return;
         }
@@ -8581,6 +8582,7 @@ impl GameLogic {
         // GameWorld movement authority: path integrate + pose last-write runs in
         // shadow_session_after_host_tick via GameWorld::step_movement. Host still
         // owns path *commands* (move_to / attack-move logs) earlier in the frame.
+        // Wave 875: movement authority early-return honesty — GW sole integrate.
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
             let _ = (object_ids, dt);
             return;
