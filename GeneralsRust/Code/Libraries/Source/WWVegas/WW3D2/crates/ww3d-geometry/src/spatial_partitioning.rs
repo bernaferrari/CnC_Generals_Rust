@@ -270,6 +270,7 @@ pub struct BSPTree {
 
 impl BSPTree {
     /// Create a new BSP tree
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self { root: None }
     }
@@ -313,6 +314,7 @@ pub struct PortalSystem {
 
 impl PortalSystem {
     /// Create a new portal system
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             portals: Vec::new(),

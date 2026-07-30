@@ -296,6 +296,10 @@ impl UVBuffer {
         self.uv_coords.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.uv_coords.is_empty()
+    }
+
     /// Check equality with another UV buffer
     pub fn equals(&self, other: &UVBuffer) -> bool {
         if self.crc != other.crc || self.uv_coords.len() != other.uv_coords.len() {
@@ -464,7 +468,7 @@ pub struct Shader {
 
 impl Shader {
     /// Create default shader
-    pub fn default() -> Self {
+    pub fn new() -> Self {
         Self {
             depth_compare: DepthCompare::LessEqual,
             depth_mask: DepthMask::WriteEnable,
@@ -475,6 +479,11 @@ impl Shader {
             alpha_test: AlphaTest::Disable,
             cull_mode: CullMode::Backface,
         }
+    }
+}
+impl Default for Shader {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
