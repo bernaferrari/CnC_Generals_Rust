@@ -1482,6 +1482,8 @@ pub struct CnCGameEngine {
     /// Wave 852: host-owned purchasable science residual per player.
     host_match_purchasable_sciences:
         Option<std::collections::HashMap<u32, std::collections::HashSet<String>>>,
+    /// Wave 868: host-owned local science purchase points residual.
+    host_match_local_science_purchase_points: Option<i32>,
     /// Wave 854/857: host-owned special-power-ready object residual (unified scan stamp).
     host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
     /// Wave 855: boot victory condition residual (single evaluate stamp).
@@ -14415,6 +14417,7 @@ impl CnCGameEngine {
             host_match_selected_ids: None,
             host_match_alive_object_ids: None,
             host_match_purchasable_sciences: None,
+            host_match_local_science_purchase_points: None,
             host_match_special_power_ready_ids: None,
             host_match_boot_victory_condition: None,
             host_match_script_camera_max_height: None,
@@ -17281,11 +17284,14 @@ impl CnCGameEngine {
     }
 
     fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
-        // Wave 577: paired camera target + host request_camera_focus residual.
+        // Wave 577/868: paired camera target + host request_camera_focus residual.
         let clamped = self.clamp_to_world_bounds(world_pos);
         self.camera_target.x = clamped.x;
         self.camera_target.z = clamped.z;
-        self.game_logic.request_camera_focus(clamped);
+        // Presentation freeze owns camera residual — skip live queue dual-read.
+        if self.last_presentation_frame.is_none() {
+            self.game_logic.request_camera_focus(clamped);
+        }
         clamped
     }
 
@@ -17586,9 +17592,13 @@ impl CnCGameEngine {
 
     /// Wave 234: local science purchase points prefer presentation freeze.
     fn host_ui_local_science_purchase_points(&self) -> i32 {
-        // Wave 610: host residual helper.
+        // Wave 610/868: host residual helper.
+        // Presentation freeze first, then host-stamped residual, then boot probe.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_science_purchase_points();
+        }
+        if let Some(v) = self.host_match_local_science_purchase_points {
+            return v;
         }
         // Wave 238: boot residual via GameLogic probe (no &Player expose).
         self.game_logic
@@ -19585,6 +19595,14 @@ impl CnCGameEngine {
             }
             self.host_match_purchasable_sciences = Some(map);
         }
+        // Wave 868: local science purchase points residual (presentation freeze prefer).
+        self.host_match_local_science_purchase_points =
+            Some(if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.local_science_purchase_points()
+            } else {
+                self.game_logic
+                    .player_science_purchase_points(self.current_player_id)
+            });
         // Wave 854/857: special-power-ready residual stamped inside
         // host_refresh_local_train_producer_residuals (single freeze/host scan).
     }
@@ -20967,8 +20985,12 @@ impl CnCGameEngine {
         producer: crate::game_logic::ObjectId,
         template_name: String,
     ) -> bool {
-        // Wave 582: host enqueue residual.
-        self.game_logic.enqueue_production(producer, template_name)
+        // Wave 582/868: host enqueue residual + refresh object-scan residuals.
+        let ok = self.game_logic.enqueue_production(producer, template_name);
+        if ok {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        ok
     }
 
     /// Wave 582: shell/menu frame process_commands residual (no Command SFX).
@@ -21463,6 +21485,7 @@ impl CnCGameEngine {
         self.host_match_selected_ids = None;
         self.host_match_alive_object_ids = None;
         self.host_match_purchasable_sciences = None;
+        self.host_match_local_science_purchase_points = None;
         self.host_match_special_power_ready_ids = None;
         self.host_match_boot_victory_condition = None;
 

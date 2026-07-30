@@ -265,6 +265,7 @@ pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
 pub mod host_live_host_residual_failclosed_peels_wave859;
+pub mod host_live_host_science_points_residual_wave868;
 pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
 pub mod host_live_host_script_camera_residuals_wave858;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
@@ -2906,6 +2907,12 @@ pub use host_live_host_mutation_residual_refresh_wave867::{
     honesty_host_mutation_residual_refresh_residual_pack_wave867,
     simulate_live_host_mutation_residual_refresh_honesty,
 };
+pub use host_live_host_science_points_residual_wave868::{
+    honesty_host_science_points_method_names_residual_wave868,
+    honesty_host_science_points_nav_commands_residual_wave868,
+    honesty_host_science_points_residual_pack_wave868, simulate_live_host_science_points_honesty,
+};
+
 pub use host_live_host_selection_stamp_residual_wave866::{
     honesty_host_selection_stamp_method_names_residual_wave866,
     honesty_host_selection_stamp_nav_commands_residual_wave866,
