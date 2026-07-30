@@ -17341,7 +17341,7 @@ impl CnCGameEngine {
     /// Wave 584: host queue-command residual (no immediate process flush).
     #[inline]
     fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
-        // Wave 584: host queue residual.
+        // Wave 584/872: host queue residual (authority write; no dual-read peel).
         self.game_logic.queue_command(command);
     }
 
@@ -19933,8 +19933,17 @@ impl CnCGameEngine {
 
     /// Wave 581: ensure GoldenRanger host template residual for train honesty path.
     fn host_ensure_golden_ranger_template(&mut self) {
-        // Wave 581/722: mid-command host insert residual (callers must opt in).
+        // Wave 581/722/872: mid-command host insert residual (callers must opt in).
+        // Prefer residual template table when warm (no live dual-read on hit).
+        if let Some(names) = self.host_match_known_template_names.as_ref() {
+            if names.binary_search(&"GoldenRanger".to_string()).is_ok()
+                || names.iter().any(|n| n.eq_ignore_ascii_case("GoldenRanger"))
+            {
+                return;
+            }
+        }
         if self.game_logic.templates.contains_key("GoldenRanger") {
+            self.host_stamp_known_template_name("GoldenRanger");
             return;
         }
         let mut tpl = crate::game_logic::ThingTemplate::new("GoldenRanger");
@@ -19945,6 +19954,23 @@ impl CnCGameEngine {
         tpl.add_kind_of(crate::game_logic::KindOf::Selectable);
         tpl.add_kind_of(crate::game_logic::KindOf::Attackable);
         self.game_logic.templates.insert("GoldenRanger".into(), tpl);
+        self.host_stamp_known_template_name("GoldenRanger");
+    }
+
+    /// Wave 872: keep host_match_known_template_names residual warm after inserts.
+    #[inline]
+    fn host_stamp_known_template_name(&mut self, name: &str) {
+        let key = name.to_string();
+        let entry = self
+            .host_match_known_template_names
+            .get_or_insert_with(Vec::new);
+        if entry.binary_search(&key).is_err() && !entry.iter().any(|n| n.eq_ignore_ascii_case(name))
+        {
+            match entry.binary_search(&key) {
+                Ok(_) => {}
+                Err(i) => entry.insert(i, key),
+            }
+        }
     }
 
     /// Wave 581: template residual for train/construct mid-command host inserts.
@@ -20642,13 +20668,15 @@ impl CnCGameEngine {
     /// Wave 585: host UI-state residual (boot/loading without presentation freeze).
     #[inline]
     fn host_update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
-        // Wave 585/862: prefer last presentation UI residual when freeze installed.
+        // Wave 585/862/872: prefer last presentation UI residual when freeze installed.
         if let Some(ui) = self.last_ui_state.clone() {
             let _ = player_id;
             return ui;
         }
-        // Boot residual only.
-        self.game_logic.update_ui_state(player_id)
+        // Boot residual only — stamp so subsequent peels avoid dual-read.
+        let ui = self.game_logic.update_ui_state(player_id);
+        self.last_ui_state = Some(ui.clone());
+        ui
     }
 
     /// Wave 585: host shell-map probe residual (`isInShellGame`).
@@ -20744,8 +20772,9 @@ impl CnCGameEngine {
     /// Wave 584: host shell-map tick residual (menu frame budgeted update).
     #[inline]
     fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
-        // Wave 584: host shell update residual.
+        // Wave 584/872: host shell update residual + stamp sim timing.
         self.game_logic.update_shell_with_budget(dt, budget);
+        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
@@ -20959,8 +20988,12 @@ impl CnCGameEngine {
     /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
     #[inline]
     fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583/723: host barracks ensure residual (callers must opt in).
-        self.game_logic.ensure_barracks_building_data(id)
+        // Wave 583/723/872: host barracks ensure residual (callers must opt in).
+        let ok = self.game_logic.ensure_barracks_building_data(id);
+        if ok {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        ok
     }
 
     #[inline]
@@ -20968,8 +21001,12 @@ impl CnCGameEngine {
         &mut self,
         id: crate::game_logic::ObjectId,
     ) -> bool {
-        // Wave 834: auto_target train residual stamp.
-        self.game_logic.force_ensure_barracks_building_data(id)
+        // Wave 834/872: auto_target train residual stamp + refresh scan.
+        let ok = self.game_logic.force_ensure_barracks_building_data(id);
+        if ok {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        ok
     }
 
     /// Wave 583: host attack command residual (runtime honesty path).
