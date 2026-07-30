@@ -17341,9 +17341,12 @@ impl CnCGameEngine {
     }
 
     fn host_set_paused(&mut self, paused: bool) {
-        // Wave 575/601: paired host pause residual.
+        // Wave 575/601/867: paired host pause residual + time-frozen stamp.
         self.game_paused = paused;
         self.game_logic.set_paused(paused);
+        // Keep sim timing residual warm (pause freezes presentation clocks).
+        self.host_match_time_frozen =
+            Some(self.game_logic.is_time_frozen_for_simulation() || paused);
     }
 
     fn boot_local_player_id_from_host(&self) -> u32 {
@@ -20790,8 +20793,14 @@ impl CnCGameEngine {
     /// Wave 584: host destroy-object residual (debug Shift+Delete path).
     #[inline]
     fn host_destroy_object(&mut self, id: crate::game_logic::ObjectId) {
-        // Wave 584: host destroy residual.
+        // Wave 584/867: host destroy residual + refresh object-scan residuals.
         self.game_logic.destroy_object(id);
+        self.host_refresh_local_train_producer_residuals();
+        // Drop destroyed id from selection residuals if present.
+        if let Some(sel) = self.host_match_selected_ids.as_mut() {
+            sel.retain(|x| *x != id);
+        }
+        self.selected_objects.retain(|x| *x != id);
     }
 
     /// Wave 584: host science purchase capability residual (boot-only).
@@ -20829,8 +20838,12 @@ impl CnCGameEngine {
     /// Wave 583: host force-complete construction residual (runtime train honesty).
     #[inline]
     fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583: host construction force-complete residual.
-        self.game_logic.force_complete_construction(id)
+        // Wave 583/867: host construction force-complete residual + refresh scan.
+        let ok = self.game_logic.force_complete_construction(id);
+        if ok {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        ok
     }
 
     /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
@@ -20974,8 +20987,13 @@ impl CnCGameEngine {
         team: crate::game_logic::Team,
         spawn_at: glam::Vec3,
     ) -> Option<crate::game_logic::ObjectId> {
-        // Wave 581: host spawn residual.
-        self.game_logic.create_object(name, team, spawn_at)
+        // Wave 581/867: host spawn residual + refresh object-scan residuals.
+        let id = self.game_logic.create_object(name, team, spawn_at);
+        if id.is_some() {
+            // Keep alive/producer/special-power residuals warm after spawn.
+            self.host_refresh_local_train_producer_residuals();
+        }
+        id
     }
 
     /// Wave 555: presentation freeze owns local team residual when installed.
