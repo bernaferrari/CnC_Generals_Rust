@@ -17383,15 +17383,12 @@ impl CnCGameEngine {
     }
 
     fn boot_local_player_id_from_host(&self) -> u32 {
-        // Wave 574/892: prefer stamped host_match_local_player_id before live probes.
+        // Wave 574/892/897: prefer stamped host_match_local_player_id before host residual.
         if let Some(id) = self.host_match_local_player_id {
             return id;
         }
-        // Wave 574: boot residual via player_exists / min_player_id probes.
-        if self.game_logic.player_exists(self.current_player_id) {
-            return self.current_player_id;
-        }
-        self.game_logic.min_player_id().unwrap_or(0)
+        // Wave 897: host current_player_id residual (no player_exists/min_player dual-read).
+        self.current_player_id
     }
 
     /// Local/human player id for UI command issue. Prefers presentation freeze.
@@ -17436,33 +17433,18 @@ impl CnCGameEngine {
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
-        // Wave 573: boot residual via field probes (no &Player expose).
-        if !self.game_logic.player_exists(player_id) {
-            return None;
+        // Wave 573/897: prefer stamped diplomacy residual / presentation freeze.
+        if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+            return players.iter().find(|p| p.id == player_id).cloned();
         }
-        Some(crate::presentation_frame::PresentationPlayerInfo {
-            id: player_id,
-            name: self.game_logic.player_name(player_id).unwrap_or_default(),
-            team: self
-                .game_logic
-                .player_team(player_id)
-                .unwrap_or(crate::game_logic::Team::USA),
-            is_alive: self.game_logic.player_is_alive(player_id),
-            is_local: self.game_logic.player_is_local(player_id)
-                || player_id == self.current_player_id,
-            is_ai: self.game_logic.ai_manager_contains_player(player_id),
-            color_rgb: self
-                .game_logic
-                .player_color_rgb(player_id)
-                .unwrap_or((255, 255, 255)),
-        })
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.players.iter().find(|p| p.id == player_id).cloned();
+        }
+        // Wave 897: fail-closed boot default (no dual-read).
+        let _ = player_id;
+        None
     }
 
-    /// Wave 234/549: player roster probe prefers presentation freeze.
-    /// When freeze is installed, missing player_info fails closed (no host
-    /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
-    /// Wave 573: boot path via `boot_player_info_from_host`.
-    /// Wave 607: via `host_ui_player_info`.
     fn ui_player_info(
         &self,
         player_id: u32,
@@ -20777,11 +20759,13 @@ impl CnCGameEngine {
     /// Wave 584: host object-alive probe residual (upgrade honesty boot fallback).
     #[inline]
     fn host_object_is_alive(&self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 584/851: prefer host-stamped alive residual before live probe.
+        // Wave 584/851/897: prefer host-stamped alive residual before fail-closed.
         if let Some(alive) = self.host_match_alive_object_ids.as_ref() {
             return alive.contains(&id.0);
         }
-        self.game_logic.object_is_alive(id)
+        // Wave 897: fail-closed boot default (no dual-read).
+        let _ = id;
+        false
     }
 
     /// Wave 584: presentation freeze owns object-alive residual when installed.
@@ -20989,8 +20973,9 @@ impl CnCGameEngine {
                 .map(|set| set.iter().any(|s| s.eq_ignore_ascii_case(name)))
                 .unwrap_or(false);
         }
-        // Boot residual only (residual never stamped).
-        self.game_logic.player_can_purchase_science(player_id, name)
+        // Wave 897: fail-closed boot default (no dual-read).
+        let _ = (player_id, name);
+        false
     }
 
     /// Wave 584: host clear unit path residual (waypoint clear path).
