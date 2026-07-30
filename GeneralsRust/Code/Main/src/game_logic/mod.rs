@@ -254,6 +254,7 @@ pub mod host_live_host_pause_boot_player_residual_wave892;
 pub mod host_live_host_pending_patriot_dual_peel_residual_wave824;
 pub mod host_live_host_player_alive_dual_peel_residual_wave816;
 pub mod host_live_host_player_radar_dual_peel_residual_wave818;
+pub mod host_live_host_pob_failclosed_boot_residual_wave895;
 pub mod host_live_host_poison_dot_dual_peel_residual_wave769;
 pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
 pub mod host_live_host_power_plant_rods_dual_peel_residual_wave810;
@@ -2938,11 +2939,18 @@ pub use host_live_host_pause_boot_player_residual_wave892::{
     honesty_host_pause_boot_player_residual_pack_wave892,
     simulate_live_host_pause_boot_player_honesty,
 };
+pub use host_live_host_pob_failclosed_boot_residual_wave895::{
+    honesty_host_pob_failclosed_boot_method_names_residual_wave895,
+    honesty_host_pob_failclosed_boot_nav_commands_residual_wave895,
+    honesty_host_pob_failclosed_boot_residual_pack_wave895,
+    simulate_live_host_pob_failclosed_boot_honesty,
+};
 pub use host_live_host_sciences_ai_residual_wave894::{
     honesty_host_sciences_ai_method_names_residual_wave894,
     honesty_host_sciences_ai_nav_commands_residual_wave894,
     honesty_host_sciences_ai_residual_pack_wave894, simulate_live_host_sciences_ai_honesty,
 };
+
 pub use host_live_host_sim_timing_presentation_residual_wave893::{
     honesty_host_sim_timing_presentation_method_names_residual_wave893,
     honesty_host_sim_timing_presentation_nav_commands_residual_wave893,
