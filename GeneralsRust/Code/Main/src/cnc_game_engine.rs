@@ -19480,6 +19480,8 @@ impl CnCGameEngine {
             self.host_match_local_player_id = Some(self.current_player_id);
             self.host_match_in_shell = Some(false);
             self.host_match_local_team = Some(pres.local_team);
+            // Wave 894: AI difficulty residual from freeze (no get_difficulty dual-read).
+            self.host_match_ai_difficulty = Some(pres.ai_difficulty);
         } else {
             self.host_match_visual_speed = Some(self.game_logic.visual_speed_multiplier());
             self.host_match_time_frozen = Some(self.game_logic.is_time_frozen_for_simulation());
@@ -21225,14 +21227,17 @@ impl CnCGameEngine {
     }
 
     fn presentation_or_boot_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
-        // Wave 555/846/859: presentation freeze owns unlocked-sciences residual when installed.
-        // Freeze keeps C++ residual of local sciences for any probe while freeze is live.
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            return frame.local_unlocked_sciences.clone();
-        }
-        // Wave 859: warm host residual is fail-closed (empty vec on player miss).
+        // Wave 555/846/859/894: multi-player residual map first (stamped from freeze).
+        // Fail-closed empty on miss — no dual-read while residual/freeze is warm.
         if let Some(map) = self.host_match_unlocked_sciences.as_ref() {
             return map.get(&player_id).cloned().unwrap_or_default();
+        }
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            if player_id == frame.local_player_id {
+                return frame.local_unlocked_sciences.clone();
+            }
+            // Non-local while freeze live: fail-closed (no dual-read).
+            return Vec::new();
         }
         // Boot residual only (residual never stamped).
         self.game_logic.player_unlocked_sciences(player_id)

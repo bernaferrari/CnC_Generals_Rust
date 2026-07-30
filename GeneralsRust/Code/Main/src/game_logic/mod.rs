@@ -278,6 +278,7 @@ pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
 pub mod host_live_host_remaining_clippy_wave890;
 pub mod host_live_host_residual_failclosed_peels_wave859;
 pub mod host_live_host_science_points_residual_wave868;
+pub mod host_live_host_sciences_ai_residual_wave894;
 pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
 pub mod host_live_host_script_camera_residuals_wave858;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
@@ -2936,6 +2937,11 @@ pub use host_live_host_pause_boot_player_residual_wave892::{
     honesty_host_pause_boot_player_nav_commands_residual_wave892,
     honesty_host_pause_boot_player_residual_pack_wave892,
     simulate_live_host_pause_boot_player_honesty,
+};
+pub use host_live_host_sciences_ai_residual_wave894::{
+    honesty_host_sciences_ai_method_names_residual_wave894,
+    honesty_host_sciences_ai_nav_commands_residual_wave894,
+    honesty_host_sciences_ai_residual_pack_wave894, simulate_live_host_sciences_ai_honesty,
 };
 pub use host_live_host_sim_timing_presentation_residual_wave893::{
     honesty_host_sim_timing_presentation_method_names_residual_wave893,
