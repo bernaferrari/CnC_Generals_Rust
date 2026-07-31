@@ -155,6 +155,7 @@ pub mod host_live_host_ci_clippy_peel_residual_wave878;
 pub mod host_live_host_cluster_mines_flight_dual_peel_residual_wave790;
 pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
 pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
+pub mod host_live_host_cold_stamp_supplies_failclosed_residual_wave909;
 pub mod host_live_host_combat_field_dual_peel_residual_wave826;
 pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
 pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
@@ -2952,6 +2953,12 @@ pub use host_live_host_camera_focus_failclosed_residual_wave903::{
     honesty_host_camera_focus_failclosed_residual_pack_wave903,
     simulate_live_host_camera_focus_failclosed_honesty,
 };
+pub use host_live_host_cold_stamp_supplies_failclosed_residual_wave909::{
+    honesty_host_cold_stamp_supplies_failclosed_method_names_residual_wave909,
+    honesty_host_cold_stamp_supplies_failclosed_nav_commands_residual_wave909,
+    honesty_host_cold_stamp_supplies_failclosed_residual_pack_wave909,
+    simulate_live_host_cold_stamp_supplies_failclosed_honesty,
+};
 pub use host_live_host_mouse_presentation_only_residual_wave906::{
     honesty_host_mouse_presentation_only_method_names_residual_wave906,
     honesty_host_mouse_presentation_only_nav_commands_residual_wave906,
@@ -2964,6 +2971,7 @@ pub use host_live_host_sim_timing_snapshot_residual_wave908::{
     honesty_host_sim_timing_snapshot_residual_pack_wave908,
     simulate_live_host_sim_timing_snapshot_honesty,
 };
+
 pub use host_live_host_victory_fps_failclosed_residual_wave907::{
     honesty_host_victory_fps_failclosed_method_names_residual_wave907,
     honesty_host_victory_fps_failclosed_nav_commands_residual_wave907,
