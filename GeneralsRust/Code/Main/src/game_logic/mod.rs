@@ -167,6 +167,7 @@ pub mod host_live_host_destroy_list_if_needed_residual_wave912;
 pub mod host_live_host_dozer_bored_dual_peel_residual_wave819;
 pub mod host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753;
 pub mod host_live_host_dual_read_zero_sole_tick_wave875;
+pub mod host_live_host_dual_tick_queue_destroy_peels_residual_wave916;
 pub mod host_live_host_eager_ai_fire_intent_helper_residual_wave687;
 pub mod host_live_host_eager_aimood_request_shock_helper_residual_wave704;
 pub mod host_live_host_eager_attitude_overcharge_stealth_helper_residual_wave694;
@@ -2970,6 +2971,12 @@ pub use host_live_host_destroy_list_if_needed_residual_wave912::{
     honesty_host_destroy_list_if_needed_nav_commands_residual_wave912,
     honesty_host_destroy_list_if_needed_residual_pack_wave912,
     simulate_live_host_destroy_list_if_needed_honesty,
+};
+pub use host_live_host_dual_tick_queue_destroy_peels_residual_wave916::{
+    honesty_host_dual_tick_queue_destroy_peels_method_names_residual_wave916,
+    honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916,
+    honesty_host_dual_tick_queue_destroy_peels_residual_pack_wave916,
+    simulate_live_host_dual_tick_queue_destroy_peels_honesty,
 };
 pub use host_live_host_process_commands_if_needed_residual_wave914::{
     honesty_host_process_commands_if_needed_method_names_residual_wave914,
