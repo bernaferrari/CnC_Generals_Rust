@@ -10337,8 +10337,7 @@ impl CnCGameEngine {
                                         .filter(|n| *n > 1)
                                 })
                                 .unwrap_or(25_000);
-                            self.game_logic
-                                .ensure_player_min_supplies(self.current_player_id, floor);
+                            self.host_ensure_player_min_supplies_residual(floor);
                         }
                         // Wave 724/725: alias + GoldenRanger enqueue fallbacks are opt-in only.
                         let mut try_names = vec![template.as_str()];
@@ -10741,8 +10740,7 @@ impl CnCGameEngine {
                                     .filter(|n| *n > 1)
                             })
                             .unwrap_or(25_000);
-                        self.game_logic
-                            .ensure_player_min_supplies(self.current_player_id, floor);
+                        self.host_ensure_player_min_supplies_residual(floor);
                     }
                     // Wave 725: soft template alias fallbacks are opt-in only (default fail-closed).
                     // Retail commands use the exact requested template name.
@@ -19280,18 +19278,13 @@ impl CnCGameEngine {
             // Wave 894: AI difficulty residual from freeze (no get_difficulty dual-read).
             self.host_match_ai_difficulty = Some(pres.ai_difficulty);
         } else {
-            // Wave 902/908: cold residual after match-start — one sim_timing_snapshot probe
-            // until presentation seed. Other clocks fail-closed.
-            let snap = self.game_logic.sim_timing_snapshot();
+            // Wave 902/908/909: cold residual after match-start — keep prior tick stamp or
+            // fail-closed zeros until presentation seed / next update snapshot. No live probe.
             self.host_match_visual_speed = self.host_match_visual_speed.or(Some(1.0));
             self.host_match_time_frozen = Some(self.game_paused);
             self.host_match_total_play_time = self.host_match_total_play_time.or(Some(0.0));
-            self.host_match_logic_frame = Some(snap.frame);
-            self.host_match_logic_steps = Some((
-                snap.steps_run as u32,
-                snap.budget_hit,
-                snap.accumulated_time_seconds,
-            ));
+            self.host_match_logic_frame = self.host_match_logic_frame.or(Some(0));
+            self.host_match_logic_steps = self.host_match_logic_steps.or(Some((0, false, 0.0)));
             self.host_match_in_replay = Some(false);
             self.host_match_local_player_id = Some(self.current_player_id);
             self.host_match_in_shell = Some(false);
@@ -20604,6 +20597,20 @@ impl CnCGameEngine {
         ));
     }
 
+    /// Wave 909: runtime-host supplies floor residual.
+    /// Skip authority write when presentation residual already meets floor.
+    #[inline]
+    fn host_ensure_player_min_supplies_residual(&mut self, floor: u32) {
+        // Wave 909: presentation residual first, authority write only on miss.
+        let pid = self.current_player_id;
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            if frame.local_player_id == pid && (frame.local_supplies as u32) >= floor {
+                return;
+            }
+        }
+        self.game_logic.ensure_player_min_supplies(pid, floor);
+    }
+
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
     #[inline]
     fn host_clear_match_residuals(&mut self) {
@@ -20649,8 +20656,8 @@ impl CnCGameEngine {
     /// Wave 870: keep host_match_* sim timing residuals warm after host ticks.
     #[inline]
     fn host_stamp_sim_timing_residuals(&mut self) {
-        // Wave 893/908: prefer presentation freeze; cold path uses one snapshot probe
-        // (no separate get_frame + fixed_step_diagnostics dual-reads).
+        // Wave 893/908/909: prefer presentation freeze; cold path keeps prior residual
+        // or fail-closed zeros (ticks stamp via SimTimingSnapshot return — no live probe).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
             self.host_match_time_frozen = Some(pres.time_frozen_for_simulation || self.game_paused);
@@ -20663,8 +20670,12 @@ impl CnCGameEngine {
             ));
             return;
         }
-        let snap = self.game_logic.sim_timing_snapshot();
-        self.host_stamp_sim_timing_from_snapshot(snap);
+        // Wave 909: no sim_timing_snapshot dual-read on cold residual path.
+        self.host_match_visual_speed = self.host_match_visual_speed.or(Some(1.0));
+        self.host_match_time_frozen = Some(self.game_paused);
+        self.host_match_total_play_time = self.host_match_total_play_time.or(Some(0.0));
+        self.host_match_logic_frame = self.host_match_logic_frame.or(Some(0));
+        self.host_match_logic_steps = self.host_match_logic_steps.or(Some((0, false, 0.0)));
     }
 
     /// Wave 584: host multiplayer gate residual (network frame-data readiness).

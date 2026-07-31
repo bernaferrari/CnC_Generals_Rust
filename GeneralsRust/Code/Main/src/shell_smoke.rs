@@ -4005,6 +4005,11 @@ use crate::game_logic::host_live_host_sim_timing_snapshot_residual_wave908::{
     honesty_host_sim_timing_snapshot_nav_commands_residual_wave908,
     simulate_live_host_sim_timing_snapshot_honesty,
 };
+use crate::game_logic::host_live_host_cold_stamp_supplies_failclosed_residual_wave909::{
+    honesty_host_cold_stamp_supplies_failclosed_method_names_residual_wave909,
+    honesty_host_cold_stamp_supplies_failclosed_nav_commands_residual_wave909,
+    simulate_live_host_cold_stamp_supplies_failclosed_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8363,6 +8368,9 @@ pub struct ShellSmokeResult {
     pub host_sim_timing_snapshot_method_names_wave908_ok: bool,
     pub host_sim_timing_snapshot_nav_commands_wave908_ok: bool,
     pub host_sim_timing_snapshot_live_wave908_ok: bool,
+    pub host_cold_stamp_supplies_failclosed_method_names_wave909_ok: bool,
+    pub host_cold_stamp_supplies_failclosed_nav_commands_wave909_ok: bool,
+    pub host_cold_stamp_supplies_failclosed_live_wave909_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13508,6 +13516,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_sim_timing_snapshot_nav_commands_wave908_ok =
         honesty_host_sim_timing_snapshot_nav_commands_residual_wave908();
     let host_sim_timing_snapshot_live_wave908_ok = simulate_live_host_sim_timing_snapshot_honesty();
+    let host_cold_stamp_supplies_failclosed_method_names_wave909_ok =
+        honesty_host_cold_stamp_supplies_failclosed_method_names_residual_wave909();
+    let host_cold_stamp_supplies_failclosed_nav_commands_wave909_ok =
+        honesty_host_cold_stamp_supplies_failclosed_nav_commands_residual_wave909();
+    let host_cold_stamp_supplies_failclosed_live_wave909_ok =
+        simulate_live_host_cold_stamp_supplies_failclosed_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -16215,6 +16229,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_sim_timing_snapshot_method_names_wave908_ok,
         host_sim_timing_snapshot_nav_commands_wave908_ok,
         host_sim_timing_snapshot_live_wave908_ok,
+        host_cold_stamp_supplies_failclosed_method_names_wave909_ok,
+        host_cold_stamp_supplies_failclosed_nav_commands_wave909_ok,
+        host_cold_stamp_supplies_failclosed_live_wave909_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
