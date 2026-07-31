@@ -4045,6 +4045,11 @@ use crate::game_logic::host_live_host_dual_tick_queue_destroy_peels_residual_wav
     honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916,
     simulate_live_host_dual_tick_queue_destroy_peels_honesty,
 };
+use crate::game_logic::host_live_host_command_barracks_complete_peels_residual_wave917::{
+    honesty_host_command_barracks_complete_peels_method_names_residual_wave917,
+    honesty_host_command_barracks_complete_peels_nav_commands_residual_wave917,
+    simulate_live_host_command_barracks_complete_peels_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8427,6 +8432,9 @@ pub struct ShellSmokeResult {
     pub host_dual_tick_queue_destroy_peels_method_names_wave916_ok: bool,
     pub host_dual_tick_queue_destroy_peels_nav_commands_wave916_ok: bool,
     pub host_dual_tick_queue_destroy_peels_live_wave916_ok: bool,
+    pub host_command_barracks_complete_peels_method_names_wave917_ok: bool,
+    pub host_command_barracks_complete_peels_nav_commands_wave917_ok: bool,
+    pub host_command_barracks_complete_peels_live_wave917_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13619,6 +13627,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916();
     let host_dual_tick_queue_destroy_peels_live_wave916_ok =
         simulate_live_host_dual_tick_queue_destroy_peels_honesty();
+    let host_command_barracks_complete_peels_method_names_wave917_ok =
+        honesty_host_command_barracks_complete_peels_method_names_residual_wave917();
+    let host_command_barracks_complete_peels_nav_commands_wave917_ok =
+        honesty_host_command_barracks_complete_peels_nav_commands_residual_wave917();
+    let host_command_barracks_complete_peels_live_wave917_ok =
+        simulate_live_host_command_barracks_complete_peels_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16356,6 +16370,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_dual_tick_queue_destroy_peels_method_names_wave916_ok,
         host_dual_tick_queue_destroy_peels_nav_commands_wave916_ok,
         host_dual_tick_queue_destroy_peels_live_wave916_ok,
+        host_command_barracks_complete_peels_method_names_wave917_ok,
+        host_command_barracks_complete_peels_nav_commands_wave917_ok,
+        host_command_barracks_complete_peels_live_wave917_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

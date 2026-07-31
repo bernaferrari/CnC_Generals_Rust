@@ -157,6 +157,7 @@ pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
 pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
 pub mod host_live_host_cold_stamp_supplies_failclosed_residual_wave909;
 pub mod host_live_host_combat_field_dual_peel_residual_wave826;
+pub mod host_live_host_command_barracks_complete_peels_residual_wave917;
 pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
 pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
 pub mod host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746;
@@ -2966,6 +2967,12 @@ pub use host_live_host_cold_stamp_supplies_failclosed_residual_wave909::{
     honesty_host_cold_stamp_supplies_failclosed_residual_pack_wave909,
     simulate_live_host_cold_stamp_supplies_failclosed_honesty,
 };
+pub use host_live_host_command_barracks_complete_peels_residual_wave917::{
+    honesty_host_command_barracks_complete_peels_method_names_residual_wave917,
+    honesty_host_command_barracks_complete_peels_nav_commands_residual_wave917,
+    honesty_host_command_barracks_complete_peels_residual_pack_wave917,
+    simulate_live_host_command_barracks_complete_peels_honesty,
+};
 pub use host_live_host_destroy_list_if_needed_residual_wave912::{
     honesty_host_destroy_list_if_needed_method_names_residual_wave912,
     honesty_host_destroy_list_if_needed_nav_commands_residual_wave912,
@@ -2978,6 +2985,7 @@ pub use host_live_host_dual_tick_queue_destroy_peels_residual_wave916::{
     honesty_host_dual_tick_queue_destroy_peels_residual_pack_wave916,
     simulate_live_host_dual_tick_queue_destroy_peels_honesty,
 };
+
 pub use host_live_host_process_commands_if_needed_residual_wave914::{
     honesty_host_process_commands_if_needed_method_names_residual_wave914,
     honesty_host_process_commands_if_needed_nav_commands_residual_wave914,
