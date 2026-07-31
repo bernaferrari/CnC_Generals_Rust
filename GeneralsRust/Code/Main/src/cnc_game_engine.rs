@@ -20893,9 +20893,9 @@ impl CnCGameEngine {
         template: &str,
         builder: Option<crate::game_logic::ObjectId>,
     ) -> bool {
-        // Wave 583: host legal location residual.
-        self.game_logic
-            .is_location_legal_to_build_for_builder(team, loc, template, builder)
+        // Wave 583/910: route through legal-build residual (single dual-read helper).
+        self.host_legal_build_code_at_for_builder(team, loc, template, builder)
+            == crate::game_logic::host_production_buildable_command_residual::LBC_OK
     }
 
     /// Wave 583: host camera-follow write residual.
@@ -21036,7 +21036,7 @@ impl CnCGameEngine {
         if let Some(cached) = self.host_match_boot_victory_condition.as_ref() {
             return *cached;
         }
-        // Wave 907: presentation freeze owns victory residual when installed.
+        // Wave 907/910: presentation freeze owns victory residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             let v = if !pres.match_over {
                 None
@@ -21048,10 +21048,10 @@ impl CnCGameEngine {
             self.host_match_boot_victory_condition = Some(v);
             return v;
         }
-        // Boot residual only when no presentation freeze is installed.
-        let v = self.game_logic.evaluate_victory_condition();
-        self.host_match_boot_victory_condition = Some(v);
-        v
+        // Wave 910: cold boot residual fail-closed (no evaluate_victory dual-read).
+        // Match-over/winner stamp only from presentation freeze or prior cache.
+        self.host_match_boot_victory_condition = Some(None);
+        None
     }
 
     fn presentation_or_boot_match_over_label(&mut self) -> (bool, String) {
@@ -22063,7 +22063,7 @@ impl CnCGameEngine {
     /// Wave 568: InGame script FPS residual — prefer presentation freeze, always drain
     /// live queue after apply (peeked freeze must not re-apply next frame).
     fn apply_ingame_script_fps_limit_residual(&mut self) {
-        // Wave 568/907: presentation freeze owns script FPS residual when present.
+        // Wave 568/907/910: presentation freeze owns script FPS residual when present.
         if let Some(fps) = self
             .last_presentation_frame
             .as_ref()
@@ -22073,10 +22073,8 @@ impl CnCGameEngine {
             // Freeze installed: do not dual-read/drain live GameLogic queue.
             return;
         }
-        // Boot residual only when no presentation freeze is installed.
-        if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
-            self.apply_script_fps_limit_request(fps);
-        }
+        // Wave 910: cold residual fail-closed — no take_script_fps_limit_request dual-read.
+        // Script FPS applies only via presentation freeze residual.
     }
 
     /// Wave 568: shell/menu script FPS residual — only trust freeze when it affirms

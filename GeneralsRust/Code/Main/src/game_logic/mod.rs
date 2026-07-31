@@ -335,6 +335,7 @@ pub mod host_live_host_ui_observe_failclosed_residual_wave905;
 pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_victory_fps_failclosed_residual_wave907;
+pub mod host_live_host_victory_fps_legal_failclosed_residual_wave910;
 pub mod host_live_host_world_bounds_ui_residual_wave862;
 pub mod host_live_host_wp_audio_clippy_residual_wave889;
 pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
@@ -2959,6 +2960,13 @@ pub use host_live_host_cold_stamp_supplies_failclosed_residual_wave909::{
     honesty_host_cold_stamp_supplies_failclosed_residual_pack_wave909,
     simulate_live_host_cold_stamp_supplies_failclosed_honesty,
 };
+pub use host_live_host_victory_fps_legal_failclosed_residual_wave910::{
+    honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910,
+    honesty_host_victory_fps_legal_failclosed_nav_commands_residual_wave910,
+    honesty_host_victory_fps_legal_failclosed_residual_pack_wave910,
+    simulate_live_host_victory_fps_legal_failclosed_honesty,
+};
+
 pub use host_live_host_mouse_presentation_only_residual_wave906::{
     honesty_host_mouse_presentation_only_method_names_residual_wave906,
     honesty_host_mouse_presentation_only_nav_commands_residual_wave906,
