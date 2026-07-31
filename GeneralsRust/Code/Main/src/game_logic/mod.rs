@@ -300,6 +300,7 @@ pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
 pub mod host_live_host_shell_no_dual_pace_residual_wave876;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_sim_timing_presentation_residual_wave893;
+pub mod host_live_host_sim_timing_snapshot_residual_wave908;
 pub mod host_live_host_sim_timing_stamp_residual_wave870;
 pub mod host_live_host_single_authority_camera_residual_wave904;
 pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
@@ -2956,6 +2957,12 @@ pub use host_live_host_mouse_presentation_only_residual_wave906::{
     honesty_host_mouse_presentation_only_nav_commands_residual_wave906,
     honesty_host_mouse_presentation_only_residual_pack_wave906,
     simulate_live_host_mouse_presentation_only_honesty,
+};
+pub use host_live_host_sim_timing_snapshot_residual_wave908::{
+    honesty_host_sim_timing_snapshot_method_names_residual_wave908,
+    honesty_host_sim_timing_snapshot_nav_commands_residual_wave908,
+    honesty_host_sim_timing_snapshot_residual_pack_wave908,
+    simulate_live_host_sim_timing_snapshot_honesty,
 };
 pub use host_live_host_victory_fps_failclosed_residual_wave907::{
     honesty_host_victory_fps_failclosed_method_names_residual_wave907,

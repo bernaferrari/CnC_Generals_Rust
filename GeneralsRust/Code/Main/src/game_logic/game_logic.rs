@@ -246,6 +246,15 @@ pub struct FixedStepDiagnostics {
     pub accumulated_time_seconds: f32,
 }
 
+/// Wave 908: post-tick host residual stamp payload (frame + fixed-step diagnostics).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct SimTimingSnapshot {
+    pub frame: u32,
+    pub steps_run: usize,
+    pub budget_hit: bool,
+    pub accumulated_time_seconds: f32,
+}
+
 /// Aggregate player statistics for victory screen reporting.
 #[derive(Debug, Clone, Default)]
 pub struct PlayerStatistics {
@@ -6252,32 +6261,45 @@ impl GameLogic {
     }
 
     /// Main update loop with delta time
-    pub fn update_with_dt(&mut self, dt: f32) {
+    pub fn update_with_dt(&mut self, dt: f32) -> SimTimingSnapshot {
         self.step_simulation(dt, None);
+        self.sim_timing_snapshot()
     }
 
-    pub fn update_with_timing(&mut self, timing: &FrameTiming) {
+    pub fn update_with_timing(&mut self, timing: &FrameTiming) -> SimTimingSnapshot {
         self.step_simulation(timing.delta_seconds(), Some(timing.total_seconds()));
+        self.sim_timing_snapshot()
     }
 
     /// Headless/host residual: bound fixed-step catch-up so a stalled GPU present
     /// cannot dump dozens of logic frames into one drive_frame (UI freeze residual).
-    pub fn update_with_dt_budget(&mut self, dt: f32, max_fixed_steps: usize) {
+    pub fn update_with_dt_budget(&mut self, dt: f32, max_fixed_steps: usize) -> SimTimingSnapshot {
         self.step_simulation_with_budget(dt, None, Some(max_fixed_steps.max(1)));
+        self.sim_timing_snapshot()
     }
 
-    pub fn update_with_timing_budget(&mut self, timing: &FrameTiming, max_fixed_steps: usize) {
+    pub fn update_with_timing_budget(
+        &mut self,
+        timing: &FrameTiming,
+        max_fixed_steps: usize,
+    ) -> SimTimingSnapshot {
         self.step_simulation_with_budget(
             timing.delta_seconds(),
             Some(timing.total_seconds()),
             Some(max_fixed_steps.max(1)),
         );
+        self.sim_timing_snapshot()
     }
 
     /// Menu/shell update path that bounds fixed-step catch-up work per frame.
     /// This prevents multi-second UI stalls after startup while still advancing shell scripts.
-    pub fn update_shell_with_budget(&mut self, dt: f32, max_fixed_steps: usize) {
+    pub fn update_shell_with_budget(
+        &mut self,
+        dt: f32,
+        max_fixed_steps: usize,
+    ) -> SimTimingSnapshot {
         self.step_simulation_with_budget(dt, None, Some(max_fixed_steps.max(1)));
+        self.sim_timing_snapshot()
     }
 
     fn step_simulation(&mut self, delta_time: f32, absolute_time: Option<f32>) {
@@ -64659,6 +64681,18 @@ impl GameLogic {
 
     pub fn get_frame(&self) -> u32 {
         self.frame
+    }
+
+    /// Wave 908: single residual snapshot for host stamp after logic ticks.
+    #[inline]
+    pub fn sim_timing_snapshot(&self) -> SimTimingSnapshot {
+        let d = self.last_fixed_step_diagnostics;
+        SimTimingSnapshot {
+            frame: self.frame,
+            steps_run: d.steps_run,
+            budget_hit: d.budget_hit,
+            accumulated_time_seconds: d.accumulated_time_seconds,
+        }
     }
 
     /// Apply skirmish match rules from UI configuration.
