@@ -17318,12 +17318,11 @@ impl CnCGameEngine {
     }
 
     fn host_process_commands_with_command_sound(&mut self) {
-        // Wave 576/870/914: process + Command SFX residual + stamp sim timing.
-        // Skip empty-queue authority process_commands dual-write.
-        if !self.game_logic.has_pending_commands() {
+        // Wave 576/870/914/915: process + Command SFX residual + stamp sim timing.
+        // Empty queue skips process dual-write and Command SFX (no has_pending dual-read).
+        if !self.game_logic.process_commands_if_needed() {
             return;
         }
-        self.game_logic.process_commands_if_needed();
         self.play_sound_effect(SoundType::Command);
         // Command processing can advance/side-effect sim clocks; keep residuals warm.
         self.host_stamp_sim_timing_residuals();
@@ -19720,7 +19719,7 @@ impl CnCGameEngine {
 
     /// Wave 581: ensure GoldenRanger host template residual for train honesty path.
     fn host_ensure_golden_ranger_template(&mut self) {
-        // Wave 581/722/872: mid-command host insert residual (callers must opt in).
+        // Wave 581/722/872/915: mid-command host insert residual (callers must opt in).
         // Prefer residual template table when warm (no live dual-read on hit).
         if let Some(names) = self.host_match_known_template_names.as_ref() {
             if names.binary_search(&"GoldenRanger".to_string()).is_ok()
@@ -19728,8 +19727,12 @@ impl CnCGameEngine {
             {
                 return;
             }
+        } else if self.last_presentation_frame.is_some() {
+            // Wave 915: presentation freeze without residual table — fail-closed skip
+            // mid-match template dual-write (boot residual still inserts below).
+            return;
         }
-        // Wave 900: residual miss → insert host template (or_insert semantics via insert).
+        // Wave 900: residual miss / boot → insert host template (or_insert via insert).
         // No contains_key dual-read probe before write.
         let mut tpl = crate::game_logic::ThingTemplate::new("GoldenRanger");
         tpl.set_health(120.0);
@@ -20489,14 +20492,17 @@ impl CnCGameEngine {
     /// Wave 585: host world-size override residual (minimap/heightmap repair path).
     #[inline]
     fn host_override_world_size(&mut self, width: f32, height: f32) {
-        // Wave 585/865/891: host override residual + stamp bounds from args
+        // Wave 585/865/891/915: host override residual + stamp bounds from args
         // (same math as GameLogic::override_world_size — no world_bounds dual-read).
-        self.game_logic.override_world_size(width, height);
+        // Skip authority write when residual bounds already match requested size.
         let half_w = width * 0.5;
         let half_h = height * 0.5;
         let min = glam::Vec3::new(-half_w, 0.0, -half_h);
         let max = glam::Vec3::new(half_w, 0.0, half_h);
-        self.host_match_world_bounds = Some((min, max));
+        if self.host_match_world_bounds != Some((min, max)) {
+            self.game_logic.override_world_size(width, height);
+            self.host_match_world_bounds = Some((min, max));
+        }
     }
 
     /// Wave 585: host world-bounds residual (boot path without presentation freeze).

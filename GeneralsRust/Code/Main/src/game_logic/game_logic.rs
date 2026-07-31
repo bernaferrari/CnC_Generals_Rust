@@ -68970,15 +68970,15 @@ impl GameLogic {
         !self.command_queue.is_empty()
     }
 
-    /// Wave 914: process command queue only when non-empty (skip empty dual-write path).
-    /// Still materializes pending economy when not in a coupled shadow tick and work ran
-    /// or economy residual may be pending — empty queue skips both.
+    /// Wave 914/915: process command queue only when non-empty (skip empty dual-write path).
+    /// Returns whether any commands were processed.
     #[inline]
-    pub fn process_commands_if_needed(&mut self) {
+    pub fn process_commands_if_needed(&mut self) -> bool {
         if self.command_queue.is_empty() {
-            return;
+            return false;
         }
         self.process_commands();
+        true
     }
 
     pub fn process_commands(&mut self) {
