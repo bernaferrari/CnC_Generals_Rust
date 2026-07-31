@@ -328,6 +328,7 @@ pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
 pub mod host_live_host_train_producer_residual_wave848;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_ui_framework_clippy_residual_wave881;
+pub mod host_live_host_ui_observe_failclosed_residual_wave905;
 pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_world_bounds_ui_residual_wave862;
@@ -2953,6 +2954,12 @@ pub use host_live_host_single_authority_camera_residual_wave904::{
     honesty_host_single_authority_camera_nav_commands_residual_wave904,
     honesty_host_single_authority_camera_residual_pack_wave904,
     simulate_live_host_single_authority_camera_honesty,
+};
+pub use host_live_host_ui_observe_failclosed_residual_wave905::{
+    honesty_host_ui_observe_failclosed_method_names_residual_wave905,
+    honesty_host_ui_observe_failclosed_nav_commands_residual_wave905,
+    honesty_host_ui_observe_failclosed_residual_pack_wave905,
+    simulate_live_host_ui_observe_failclosed_honesty,
 };
 
 pub use host_live_host_event_drain_failclosed_residual_wave900::{
