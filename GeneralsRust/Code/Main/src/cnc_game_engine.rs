@@ -17274,12 +17274,19 @@ impl CnCGameEngine {
     /// Wave 579: host map-load residual with default fallback.
     #[inline]
     fn host_load_map_or_default(&mut self, map_name: &str) {
-        // Wave 579/871: load_map + DEFAULT_SKIRMISH_MAP fallback residual.
+        // Wave 579/871/918: load_map + DEFAULT_SKIRMISH_MAP fallback residual.
+        // Skip reload dual-write when host residual already matches this map identity.
+        if self.host_match_map_name.as_deref() == Some(map_name) {
+            return;
+        }
         // Clear stale match residuals before map identity changes.
         self.host_clear_match_residuals();
         if !self.game_logic.load_map(map_name) {
             warn!("Failed to load map '{}', falling back to default", map_name);
             let _ = self.game_logic.load_map(DEFAULT_SKIRMISH_MAP);
+            self.host_match_map_name = Some(DEFAULT_SKIRMISH_MAP.to_string());
+        } else {
+            self.host_match_map_name = Some(map_name.to_string());
         }
         self.host_stamp_sim_timing_residuals();
     }
@@ -17318,14 +17325,16 @@ impl CnCGameEngine {
     }
 
     fn host_process_commands_with_command_sound(&mut self) {
-        // Wave 576/870/914/915: process + Command SFX residual + stamp sim timing.
+        // Wave 576/870/914/915/918: process + Command SFX residual + stamp sim timing.
         // Empty queue skips process dual-write and Command SFX (no has_pending dual-read).
         if !self.game_logic.process_commands_if_needed() {
             return;
         }
         self.play_sound_effect(SoundType::Command);
-        // Command processing can advance/side-effect sim clocks; keep residuals warm.
-        self.host_stamp_sim_timing_residuals();
+        // Skip mid-command stamp when presentation freeze owns clocks.
+        if self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
     }
 
     /// Wave 584: host queue-command residual (no immediate process flush).
@@ -17351,10 +17360,13 @@ impl CnCGameEngine {
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
-        // Wave 576/578/871/914: silent queue+process residual + stamp sim timing.
+        // Wave 576/578/871/914/918: silent queue+process residual + stamp sim timing.
+        // Skip mid-command stamp when presentation freeze owns clocks.
         self.game_logic.queue_command(command);
-        self.game_logic.process_commands_if_needed();
-        self.host_stamp_sim_timing_residuals();
+        let processed = self.game_logic.process_commands_if_needed();
+        if processed && self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
     }
 
     fn host_set_paused(&mut self, paused: bool) {
@@ -20827,9 +20839,15 @@ impl CnCGameEngine {
     /// Wave 584: host clear unit path residual (waypoint clear path).
     #[inline]
     fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 584/869: host clear path residual.
-        // Under presentation freeze, path clear still mutates host authority;
-        // residual scan stays warm for producer/alive peels after command churn.
+        // Wave 584/869/918: host clear path residual.
+        // Skip authority clear when presentation residual already has no move destination.
+        if self.last_presentation_frame.as_ref().is_some_and(|pres| {
+            pres.objects
+                .iter()
+                .any(|o| o.id == id && o.move_destination.is_none())
+        }) {
+            return true;
+        }
         let ok = self.game_logic.clear_unit_movement_path(id);
         if ok {
             self.host_refresh_local_train_producer_residuals();
@@ -21079,10 +21097,12 @@ impl CnCGameEngine {
     /// Distinct from InGame `host_process_commands_with_command_sound`.
     #[inline]
     fn host_process_shell_menu_commands(&mut self) {
-        // Wave 582/871/914: shell/menu command drain residual + stamp sim timing.
-        // Empty queue skips process_commands authority dual-write.
-        self.game_logic.process_commands_if_needed();
-        self.host_stamp_sim_timing_residuals();
+        // Wave 582/871/914/918: shell/menu command drain residual + stamp sim timing.
+        // Empty queue skips process dual-write; stamp only when work ran without freeze.
+        let processed = self.game_logic.process_commands_if_needed();
+        if processed && self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
     }
 
     /// Wave 581: host create_object residual (thin authority spawn boundary).
