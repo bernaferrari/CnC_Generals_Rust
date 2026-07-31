@@ -1489,6 +1489,10 @@ pub struct CnCGameEngine {
     /// Wave 855: boot victory condition residual (single evaluate stamp).
     /// None = not stamped; Some(None) = no winner yet; Some(Some(cond)) = outcome.
     host_match_boot_victory_condition: Option<Option<crate::game_logic::VictoryCondition>>,
+    /// Wave 911: per-frame legal-build residual cache (construct pad scan peel).
+    host_legal_build_cache_frame: Option<u32>,
+    host_legal_build_cache:
+        std::collections::HashMap<(crate::game_logic::Team, i32, i32, u64, u32), u32>,
     /// Wave 858: host-owned script camera default residuals.
     host_match_script_camera_max_height: Option<f32>,
     host_match_script_camera_pitch: Option<f32>,
@@ -14418,6 +14422,8 @@ impl CnCGameEngine {
             host_match_local_science_purchase_points: None,
             host_match_special_power_ready_ids: None,
             host_match_boot_victory_condition: None,
+            host_legal_build_cache_frame: None,
+            host_legal_build_cache: std::collections::HashMap::new(),
             host_match_script_camera_max_height: None,
             host_match_script_camera_pitch: None,
             host_match_in_multiplayer: None,
@@ -20644,6 +20650,8 @@ impl CnCGameEngine {
         self.host_match_local_science_purchase_points = None;
         self.host_match_special_power_ready_ids = None;
         self.host_match_boot_victory_condition = None;
+        self.host_legal_build_cache_frame = None;
+        self.host_legal_build_cache.clear();
         // Wave 871: also clear residuals added after Wave 844.
         self.host_match_first_opponent_id = None;
         self.host_match_game_mode = None;
@@ -20873,27 +20881,52 @@ impl CnCGameEngine {
     /// Wave 583: host legal-build probe residual (construct honesty path).
     #[inline]
     fn host_legal_build_code_at_for_builder(
-        &self,
+        &mut self,
         team: crate::game_logic::Team,
         loc: glam::Vec3,
         template: &str,
         builder: Option<crate::game_logic::ObjectId>,
     ) -> u32 {
-        // Wave 583: host legal build-code residual.
-        self.game_logic
-            .legal_build_code_at_for_builder(team, loc, template, builder)
+        // Wave 583/911: host legal build-code residual with per-frame cache.
+        // Construct pad scans re-probe the same cells; cache peels repeat dual-reads.
+        let frame = self
+            .host_match_logic_frame
+            .or_else(|| self.last_presentation_frame.as_ref().map(|p| p.frame.0))
+            .unwrap_or(0);
+        if self.host_legal_build_cache_frame != Some(frame) {
+            self.host_legal_build_cache_frame = Some(frame);
+            self.host_legal_build_cache.clear();
+        }
+        let qx = (loc.x * 4.0).round() as i32;
+        let qz = (loc.z * 4.0).round() as i32;
+        let th = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            template.hash(&mut h);
+            h.finish()
+        };
+        let bid = builder.map(|b| b.0).unwrap_or(0);
+        let key = (team, qx, qz, th, bid);
+        if let Some(code) = self.host_legal_build_cache.get(&key).copied() {
+            return code;
+        }
+        let code = self
+            .game_logic
+            .legal_build_code_at_for_builder(team, loc, template, builder);
+        self.host_legal_build_cache.insert(key, code);
+        code
     }
 
     /// Wave 583: host legal-build location residual (construct honesty path).
     #[inline]
     fn host_is_location_legal_to_build_for_builder(
-        &self,
+        &mut self,
         team: crate::game_logic::Team,
         loc: glam::Vec3,
         template: &str,
         builder: Option<crate::game_logic::ObjectId>,
     ) -> bool {
-        // Wave 583/910: route through legal-build residual (single dual-read helper).
+        // Wave 583/910/911: route through cached legal-build residual.
         self.host_legal_build_code_at_for_builder(team, loc, template, builder)
             == crate::game_logic::host_production_buildable_command_residual::LBC_OK
     }
