@@ -264,6 +264,7 @@ pub mod host_live_host_particle_laser_object_dual_peel_residual_wave808;
 pub mod host_live_host_particle_world_builder_clippy_wave887;
 pub mod host_live_host_patriot_laser_dual_peel_residual_wave823;
 pub mod host_live_host_pause_boot_player_residual_wave892;
+pub mod host_live_host_paused_tick_guard_refresh_peels_residual_wave919;
 pub mod host_live_host_pending_patriot_dual_peel_residual_wave824;
 pub mod host_live_host_player_alive_dual_peel_residual_wave816;
 pub mod host_live_host_player_radar_dual_peel_residual_wave818;
@@ -2979,6 +2980,12 @@ pub use host_live_host_load_path_stamp_peels_residual_wave918::{
     honesty_host_load_path_stamp_peels_nav_commands_residual_wave918,
     honesty_host_load_path_stamp_peels_residual_pack_wave918,
     simulate_live_host_load_path_stamp_peels_honesty,
+};
+pub use host_live_host_paused_tick_guard_refresh_peels_residual_wave919::{
+    honesty_host_paused_tick_guard_refresh_peels_method_names_residual_wave919,
+    honesty_host_paused_tick_guard_refresh_peels_nav_commands_residual_wave919,
+    honesty_host_paused_tick_guard_refresh_peels_residual_pack_wave919,
+    simulate_live_host_paused_tick_guard_refresh_peels_honesty,
 };
 
 pub use host_live_host_destroy_list_if_needed_residual_wave912::{
