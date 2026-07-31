@@ -17318,8 +17318,12 @@ impl CnCGameEngine {
     }
 
     fn host_process_commands_with_command_sound(&mut self) {
-        // Wave 576/870: process + Command SFX residual + stamp sim timing.
-        self.game_logic.process_commands();
+        // Wave 576/870/914: process + Command SFX residual + stamp sim timing.
+        // Skip empty-queue authority process_commands dual-write.
+        if !self.game_logic.has_pending_commands() {
+            return;
+        }
+        self.game_logic.process_commands_if_needed();
         self.play_sound_effect(SoundType::Command);
         // Command processing can advance/side-effect sim clocks; keep residuals warm.
         self.host_stamp_sim_timing_residuals();
@@ -17349,9 +17353,9 @@ impl CnCGameEngine {
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
-        // Wave 576/578/871: silent queue+process residual + stamp sim timing.
+        // Wave 576/578/871/914: silent queue+process residual + stamp sim timing.
         self.game_logic.queue_command(command);
-        self.game_logic.process_commands();
+        self.game_logic.process_commands_if_needed();
         self.host_stamp_sim_timing_residuals();
     }
 
@@ -21020,8 +21024,9 @@ impl CnCGameEngine {
     /// Distinct from InGame `host_process_commands_with_command_sound`.
     #[inline]
     fn host_process_shell_menu_commands(&mut self) {
-        // Wave 582/871: shell/menu command drain residual + stamp sim timing.
-        self.game_logic.process_commands();
+        // Wave 582/871/914: shell/menu command drain residual + stamp sim timing.
+        // Empty queue skips process_commands authority dual-write.
+        self.game_logic.process_commands_if_needed();
         self.host_stamp_sim_timing_residuals();
     }
 

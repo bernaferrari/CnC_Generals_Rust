@@ -68964,6 +68964,23 @@ impl GameLogic {
     }
 
     /// Process queued commands
+    /// Wave 914: true when command queue has pending authority work.
+    #[inline]
+    pub fn has_pending_commands(&self) -> bool {
+        !self.command_queue.is_empty()
+    }
+
+    /// Wave 914: process command queue only when non-empty (skip empty dual-write path).
+    /// Still materializes pending economy when not in a coupled shadow tick and work ran
+    /// or economy residual may be pending — empty queue skips both.
+    #[inline]
+    pub fn process_commands_if_needed(&mut self) {
+        if self.command_queue.is_empty() {
+            return;
+        }
+        self.process_commands();
+    }
+
     pub fn process_commands(&mut self) {
         // Process all queued commands
         while let Some(command) = self.command_queue.pop_front() {
