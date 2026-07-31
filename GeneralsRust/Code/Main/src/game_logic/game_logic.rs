@@ -28761,6 +28761,24 @@ impl GameLogic {
         n
     }
 
+    /// Wave 912: true when destroy queue or destroy-ready residual has work.
+    #[inline]
+    pub fn has_pending_destroy_work(&self) -> bool {
+        if !self.objects_to_destroy.is_empty() {
+            return true;
+        }
+        crate::gameworld_shadow::gameworld_damage_authority_live()
+            && crate::game_logic::host_destroy_ready_log::has_pending()
+    }
+
+    /// Wave 912: process destroy list only when residual work is pending.
+    #[inline]
+    pub fn process_destroy_list_if_needed(&mut self) {
+        if self.has_pending_destroy_work() {
+            self.process_destroy_list();
+        }
+    }
+
     pub fn process_destroy_list(&mut self) {
         // Wave 621: under damage authority, GameWorld health writeback records
         // lethal IDs; host marks them here before draining the destroy queue.

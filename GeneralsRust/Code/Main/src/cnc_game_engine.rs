@@ -20306,9 +20306,10 @@ impl CnCGameEngine {
             let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&mut self.game_logic);
             self.last_gameworld_presentation_entity_count = 0;
         }
-        // Wave 621: after health writeback, drain destroy-ready log and process
+        // Wave 621/912: after health writeback, drain destroy-ready log and process
         // die side effects same couple-frame (host still owns ObjectId remove).
-        self.game_logic.process_destroy_list();
+        // Skip authority dual-write when no destroy queue / ready residual work.
+        self.game_logic.process_destroy_list_if_needed();
         if couple_shadow {
             crate::gameworld_shadow::end_shadow_coupled_tick();
         }

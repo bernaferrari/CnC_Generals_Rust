@@ -41,6 +41,18 @@ pub fn clear() {
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
 }
 
+/// Wave 912: residual probe — true when host destroy-ready log has events.
+#[inline]
+pub fn has_pending() -> bool {
+    LOG.with(|log| !log.borrow().is_empty())
+}
+
+/// Wave 912: residual probe — pending destroy-ready event count.
+#[inline]
+pub fn pending_count() -> usize {
+    LOG.with(|log| log.borrow().len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
