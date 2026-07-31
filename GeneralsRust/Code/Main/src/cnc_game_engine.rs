@@ -17331,10 +17331,9 @@ impl CnCGameEngine {
     /// Wave 584: host queue-command residual (no immediate process flush).
     #[inline]
     fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
-        // Wave 584/872/874: host queue residual (authority write; no dual-read peel).
+        // Wave 584/872/874/916: host queue residual (authority write; no dual-read peel).
+        // Queue-only path does not stamp sim timing — process/tick residuals own clocks.
         self.game_logic.queue_command(command);
-        // Keep sim-timing residual warm so peels do not dual-read clocks mid-queue.
-        self.host_stamp_sim_timing_residuals();
     }
 
     /// Wave 576: queue a GameCommand then flush with Command SFX.
@@ -19108,15 +19107,21 @@ impl CnCGameEngine {
         // Single-authority policy: Main GameLogic is the match host by default.
         // Dual-tick of the ported gamelogic crate is opt-in (GENERALS_ALLOW_DUAL_TICK)
         // and is fatal under GENERALS_VERIFY_SINGLE_AUTHORITY verification builds.
+        // Wave 916: AuthorityOnly (default) never touches the dual crate tick residual.
         let policy = crate::authoritative_world::dual_tick_policy();
-        if let Err(e) = crate::authoritative_world::apply_post_authority_crate_tick(
+        if !matches!(
             policy,
-            crate::game_logic::tick_gamelogic_crate,
+            crate::authoritative_world::DualTickPolicy::AuthorityOnly
         ) {
-            log::error!("{e}");
-            // Verification: refuse to continue a dual-world silent failure.
-            if crate::authoritative_world::verification_single_authority() {
-                panic!("{e}");
+            if let Err(e) = crate::authoritative_world::apply_post_authority_crate_tick(
+                policy,
+                crate::game_logic::tick_gamelogic_crate,
+            ) {
+                log::error!("{e}");
+                // Verification: refuse to continue a dual-world silent failure.
+                if crate::authoritative_world::verification_single_authority() {
+                    panic!("{e}");
+                }
             }
         }
         // C++ parity: when script time-freeze is active, gameplay simulation should not
@@ -20786,9 +20791,17 @@ impl CnCGameEngine {
     /// Wave 584: host destroy-object residual (debug Shift+Delete path).
     #[inline]
     fn host_destroy_object(&mut self, id: crate::game_logic::ObjectId) {
-        // Wave 584/867: host destroy residual + refresh object-scan residuals.
-        self.game_logic.destroy_object(id);
-        self.host_refresh_local_train_producer_residuals();
+        // Wave 584/867/916: host destroy residual + refresh object-scan residuals.
+        // Skip authority destroy when presentation residual already marks destroyed.
+        let already_destroyed = self.last_presentation_frame.as_ref().is_some_and(|pres| {
+            pres.objects
+                .iter()
+                .any(|o| o.id == id && (o.destroyed || o.health_current <= 0.0))
+        });
+        if !already_destroyed {
+            self.game_logic.destroy_object(id);
+            self.host_refresh_local_train_producer_residuals();
+        }
         // Drop destroyed id from selection residuals if present.
         if let Some(sel) = self.host_match_selected_ids.as_mut() {
             sel.retain(|x| *x != id);
