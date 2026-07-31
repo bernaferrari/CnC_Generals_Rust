@@ -4020,6 +4020,11 @@ use crate::game_logic::host_live_host_legal_build_cache_residual_wave911::{
     honesty_host_legal_build_cache_nav_commands_residual_wave911,
     simulate_live_host_legal_build_cache_honesty,
 };
+use crate::game_logic::host_live_host_destroy_list_if_needed_residual_wave912::{
+    honesty_host_destroy_list_if_needed_method_names_residual_wave912,
+    honesty_host_destroy_list_if_needed_nav_commands_residual_wave912,
+    simulate_live_host_destroy_list_if_needed_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8387,6 +8392,9 @@ pub struct ShellSmokeResult {
     pub host_legal_build_cache_method_names_wave911_ok: bool,
     pub host_legal_build_cache_nav_commands_wave911_ok: bool,
     pub host_legal_build_cache_live_wave911_ok: bool,
+    pub host_destroy_list_if_needed_method_names_wave912_ok: bool,
+    pub host_destroy_list_if_needed_nav_commands_wave912_ok: bool,
+    pub host_destroy_list_if_needed_live_wave912_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13549,6 +13557,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_legal_build_cache_nav_commands_wave911_ok =
         honesty_host_legal_build_cache_nav_commands_residual_wave911();
     let host_legal_build_cache_live_wave911_ok = simulate_live_host_legal_build_cache_honesty();
+    let host_destroy_list_if_needed_method_names_wave912_ok =
+        honesty_host_destroy_list_if_needed_method_names_residual_wave912();
+    let host_destroy_list_if_needed_nav_commands_wave912_ok =
+        honesty_host_destroy_list_if_needed_nav_commands_residual_wave912();
+    let host_destroy_list_if_needed_live_wave912_ok =
+        simulate_live_host_destroy_list_if_needed_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16271,6 +16285,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_legal_build_cache_method_names_wave911_ok,
         host_legal_build_cache_nav_commands_wave911_ok,
         host_legal_build_cache_live_wave911_ok,
+        host_destroy_list_if_needed_method_names_wave912_ok,
+        host_destroy_list_if_needed_nav_commands_wave912_ok,
+        host_destroy_list_if_needed_live_wave912_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
