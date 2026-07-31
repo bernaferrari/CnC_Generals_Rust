@@ -4025,6 +4025,11 @@ use crate::game_logic::host_live_host_destroy_list_if_needed_residual_wave912::{
     honesty_host_destroy_list_if_needed_nav_commands_residual_wave912,
     simulate_live_host_destroy_list_if_needed_honesty,
 };
+use crate::game_logic::host_live_host_redundant_authority_write_skip_residual_wave913::{
+    honesty_host_redundant_authority_write_skip_method_names_residual_wave913,
+    honesty_host_redundant_authority_write_skip_nav_commands_residual_wave913,
+    simulate_live_host_redundant_authority_write_skip_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8395,6 +8400,9 @@ pub struct ShellSmokeResult {
     pub host_destroy_list_if_needed_method_names_wave912_ok: bool,
     pub host_destroy_list_if_needed_nav_commands_wave912_ok: bool,
     pub host_destroy_list_if_needed_live_wave912_ok: bool,
+    pub host_redundant_authority_write_skip_method_names_wave913_ok: bool,
+    pub host_redundant_authority_write_skip_nav_commands_wave913_ok: bool,
+    pub host_redundant_authority_write_skip_live_wave913_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13563,6 +13571,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_destroy_list_if_needed_nav_commands_residual_wave912();
     let host_destroy_list_if_needed_live_wave912_ok =
         simulate_live_host_destroy_list_if_needed_honesty();
+    let host_redundant_authority_write_skip_method_names_wave913_ok =
+        honesty_host_redundant_authority_write_skip_method_names_residual_wave913();
+    let host_redundant_authority_write_skip_nav_commands_wave913_ok =
+        honesty_host_redundant_authority_write_skip_nav_commands_residual_wave913();
+    let host_redundant_authority_write_skip_live_wave913_ok =
+        simulate_live_host_redundant_authority_write_skip_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16288,6 +16302,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_destroy_list_if_needed_method_names_wave912_ok,
         host_destroy_list_if_needed_nav_commands_wave912_ok,
         host_destroy_list_if_needed_live_wave912_ok,
+        host_redundant_authority_write_skip_method_names_wave913_ok,
+        host_redundant_authority_write_skip_nav_commands_wave913_ok,
+        host_redundant_authority_write_skip_live_wave913_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
