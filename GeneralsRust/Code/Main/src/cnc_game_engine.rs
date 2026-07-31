@@ -1464,6 +1464,8 @@ pub struct CnCGameEngine {
     /// Wave 847: host-owned camera-follow residuals for presentation_or_boot peels.
     host_match_camera_follow_active: Option<bool>,
     host_match_camera_follow_position: Option<[f32; 3]>,
+    /// Wave 913: last camera-follow object residual (skip redundant authority writes).
+    host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
     /// Wave 848: host-owned local train producers residual (barracks / other).
     host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,
     host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
@@ -14408,6 +14410,7 @@ impl CnCGameEngine {
             host_match_unlocked_sciences: None,
             host_match_camera_follow_active: None,
             host_match_camera_follow_position: None,
+            host_match_camera_follow_id: None,
             host_match_local_barracks_ids: None,
             host_match_local_producer_ids: None,
             host_match_local_unfinished_producer_ids: None,
@@ -17256,8 +17259,13 @@ impl CnCGameEngine {
     /// `selected_objects` in lockstep.
     #[inline]
     fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
-        // Wave 579/866: paired host select residual + stamp host_match_selected_ids.
-        self.game_logic.select_objects(player_id, ids.clone());
+        // Wave 579/866/913: paired host select residual + stamp host_match_selected_ids.
+        // Skip authority select_objects when residual already matches.
+        let already =
+            self.selected_objects == ids && self.host_match_selected_ids.as_ref() == Some(&ids);
+        if !already {
+            self.game_logic.select_objects(player_id, ids.clone());
+        }
         self.selected_objects = ids.clone();
         self.host_match_selected_ids = Some(ids);
         let _ = player_id;
@@ -17348,9 +17356,12 @@ impl CnCGameEngine {
     }
 
     fn host_set_paused(&mut self, paused: bool) {
-        // Wave 575/601/867/892: paired host pause residual + time-frozen stamp.
-        self.game_paused = paused;
-        self.game_logic.set_paused(paused);
+        // Wave 575/601/867/892/913: paired host pause residual + time-frozen stamp.
+        // Skip authority set_paused when host residual already matches.
+        if self.game_paused != paused {
+            self.game_paused = paused;
+            self.game_logic.set_paused(paused);
+        }
         // Compose freeze residual without dual-read when presentation freeze owns
         // script time (InGame). Boot path still probes live is_time_frozen once.
         let script_frozen = if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -19317,10 +19328,15 @@ impl CnCGameEngine {
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_camera_follow_active = Some(pres.camera_follow_position.is_some());
             self.host_match_camera_follow_position = pres.camera_follow_position;
+            // Wave 913: freeze without object-id field — clear id residual when follow inactive.
+            if pres.camera_follow_position.is_none() {
+                self.host_match_camera_follow_id = Some(None);
+            }
         } else {
-            // Wave 901: cold residual fail-closed (no camera_follow dual-read).
+            // Wave 901/913: cold residual fail-closed (no camera_follow dual-read).
             self.host_match_camera_follow_active = Some(false);
             self.host_match_camera_follow_position = None;
+            self.host_match_camera_follow_id = Some(None);
         }
         // Wave 848: stamp local train producers after other match residuals.
         self.host_refresh_local_train_producer_residuals();
@@ -20637,6 +20653,7 @@ impl CnCGameEngine {
         self.host_match_unlocked_sciences = None;
         self.host_match_camera_follow_active = None;
         self.host_match_camera_follow_position = None;
+        self.host_match_camera_follow_id = None;
         self.host_match_local_barracks_ids = None;
         self.host_match_local_producer_ids = None;
         self.host_match_local_unfinished_producer_ids = None;
@@ -20935,8 +20952,8 @@ impl CnCGameEngine {
     /// Wave 583: host camera-follow write residual.
     #[inline]
     fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
-        // Wave 583/847/891/903/904: stamp follow pose from presentation freeze only
-        // (no get_object dual-read). Authority write still hosts set_camera_follow_object.
+        // Wave 583/847/891/903/904/913: stamp follow pose from presentation freeze only
+        // (no get_object dual-read). Skip authority write when residual already matches.
         let stamped_pos = id.and_then(|oid| {
             self.last_presentation_frame.as_ref().and_then(|pres| {
                 pres.objects
@@ -20945,7 +20962,10 @@ impl CnCGameEngine {
                     .map(|o| [o.position.x, o.position.y, o.position.z])
             })
         });
-        self.game_logic.set_camera_follow_object(id);
+        if self.host_match_camera_follow_id != Some(id) {
+            self.game_logic.set_camera_follow_object(id);
+        }
+        self.host_match_camera_follow_id = Some(id);
         self.host_match_camera_follow_active = Some(id.is_some());
         self.host_match_camera_follow_position = stamped_pos;
     }

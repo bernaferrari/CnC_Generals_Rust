@@ -286,6 +286,7 @@ pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
 pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
+pub mod host_live_host_redundant_authority_write_skip_residual_wave913;
 pub mod host_live_host_refresh_sim_failclosed_residual_wave901;
 pub mod host_live_host_remaining_clippy_wave890;
 pub mod host_live_host_residual_failclosed_peels_wave859;
@@ -2968,6 +2969,13 @@ pub use host_live_host_destroy_list_if_needed_residual_wave912::{
     honesty_host_destroy_list_if_needed_residual_pack_wave912,
     simulate_live_host_destroy_list_if_needed_honesty,
 };
+pub use host_live_host_redundant_authority_write_skip_residual_wave913::{
+    honesty_host_redundant_authority_write_skip_method_names_residual_wave913,
+    honesty_host_redundant_authority_write_skip_nav_commands_residual_wave913,
+    honesty_host_redundant_authority_write_skip_residual_pack_wave913,
+    simulate_live_host_redundant_authority_write_skip_honesty,
+};
+
 pub use host_live_host_legal_build_cache_residual_wave911::{
     honesty_host_legal_build_cache_method_names_residual_wave911,
     honesty_host_legal_build_cache_nav_commands_residual_wave911,
