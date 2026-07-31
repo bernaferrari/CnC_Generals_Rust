@@ -268,6 +268,7 @@ pub mod host_live_host_pob_failclosed_boot_residual_wave895;
 pub mod host_live_host_poison_dot_dual_peel_residual_wave769;
 pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
 pub mod host_live_host_power_plant_rods_dual_peel_residual_wave810;
+pub mod host_live_host_process_commands_if_needed_residual_wave914;
 pub mod host_live_host_production_door_sole_no_dual_tick_residual_wave743;
 pub mod host_live_host_production_object_id_prefers_gw_entity_residual_wave737;
 pub mod host_live_host_production_ready_no_empty_scan_residual_wave713;
@@ -2968,6 +2969,12 @@ pub use host_live_host_destroy_list_if_needed_residual_wave912::{
     honesty_host_destroy_list_if_needed_nav_commands_residual_wave912,
     honesty_host_destroy_list_if_needed_residual_pack_wave912,
     simulate_live_host_destroy_list_if_needed_honesty,
+};
+pub use host_live_host_process_commands_if_needed_residual_wave914::{
+    honesty_host_process_commands_if_needed_method_names_residual_wave914,
+    honesty_host_process_commands_if_needed_nav_commands_residual_wave914,
+    honesty_host_process_commands_if_needed_residual_pack_wave914,
+    simulate_live_host_process_commands_if_needed_honesty,
 };
 pub use host_live_host_redundant_authority_write_skip_residual_wave913::{
     honesty_host_redundant_authority_write_skip_method_names_residual_wave913,
