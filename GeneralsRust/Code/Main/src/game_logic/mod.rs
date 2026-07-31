@@ -228,6 +228,7 @@ pub mod host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave7
 pub mod host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803;
 pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
 pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
+pub mod host_live_host_legal_build_cache_residual_wave911;
 pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
 pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
@@ -2959,6 +2960,12 @@ pub use host_live_host_cold_stamp_supplies_failclosed_residual_wave909::{
     honesty_host_cold_stamp_supplies_failclosed_nav_commands_residual_wave909,
     honesty_host_cold_stamp_supplies_failclosed_residual_pack_wave909,
     simulate_live_host_cold_stamp_supplies_failclosed_honesty,
+};
+pub use host_live_host_legal_build_cache_residual_wave911::{
+    honesty_host_legal_build_cache_method_names_residual_wave911,
+    honesty_host_legal_build_cache_nav_commands_residual_wave911,
+    honesty_host_legal_build_cache_residual_pack_wave911,
+    simulate_live_host_legal_build_cache_honesty,
 };
 pub use host_live_host_victory_fps_legal_failclosed_residual_wave910::{
     honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910,
