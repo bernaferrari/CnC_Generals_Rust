@@ -17571,15 +17571,12 @@ impl CnCGameEngine {
             // Wave 544: presentation freeze owns selection seed residual — even if empty.
             return None;
         }
-        // Wave 850: host-stamped selection residual before live boot probe.
+        // Wave 850/905: host-stamped selection residual before fail-closed boot.
         if let Some(ids) = self.host_match_selected_ids.as_ref() {
             return ids.first().copied();
         }
-        // Wave 240: boot residual via player_selected_objects probe (no freeze yet).
-        self.game_logic
-            .player_selected_objects(self.current_player_id)
-            .first()
-            .copied()
+        // Wave 905: fail-closed boot default (no player_selected_objects dual-read).
+        None
     }
 
     /// Wave 234: local science purchase points prefer presentation freeze.
@@ -17599,9 +17596,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_local_science_purchase_points {
             return v;
         }
-        // Wave 238: boot residual via GameLogic probe (no &Player expose).
-        self.game_logic
-            .player_science_purchase_points(self.current_player_id)
+        // Wave 905: fail-closed boot default (no player_science dual-read).
+        0
     }
 
     /// Wave 238: local economy prefers presentation freeze.
@@ -17632,10 +17628,8 @@ impl CnCGameEngine {
             let max_power = frame.local_power_produced.max(0);
             return (money, power, max_power);
         }
-        self.game_logic
-            .player_economy(self.current_player_id)
-            .map(|(supplies, power, produced, _consumed)| (supplies as i32, power, produced.max(0)))
-            .unwrap_or((0, 0, 0))
+        // Wave 905: fail-closed boot default (no player_economy dual-read).
+        (0, 0, 0)
     }
 
     #[inline]
@@ -22337,9 +22331,8 @@ impl CnCGameEngine {
                 .sample_height(clamped.x, clamped.z)
                 .unwrap_or(self.camera_target.y)
         } else {
-            self.game_logic
-                .terrain_height_at(clamped)
-                .unwrap_or(self.camera_target.y)
+            // Wave 905: fail-closed boot height (no terrain_height_at dual-read).
+            self.camera_target.y
         };
         self.camera_target.x = clamped.x;
         self.camera_target.y = ground_height;
@@ -26022,10 +26015,8 @@ impl CnCGameEngine {
                         .map(|o| o.team == player_team && !o.destroyed)
                         .unwrap_or(false)
                 } else {
-                    self.game_logic
-                        .find_object(id)
-                        .map(|o| o.team == player_team && o.is_alive())
-                        .unwrap_or(false)
+                    // Wave 905: fail-closed without presentation freeze (no find_object dual-read).
+                    false
                 };
                 if friendly {
                     return ("Select", CursorIcon::Pointer);
