@@ -300,6 +300,7 @@ pub mod host_live_host_shell_no_dual_pace_residual_wave876;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_sim_timing_presentation_residual_wave893;
 pub mod host_live_host_sim_timing_stamp_residual_wave870;
+pub mod host_live_host_single_authority_camera_residual_wave904;
 pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
 pub mod host_live_host_skirmish_map_reject_shell_residual_wave840;
 pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
@@ -2947,6 +2948,13 @@ pub use host_live_host_camera_focus_failclosed_residual_wave903::{
     honesty_host_camera_focus_failclosed_residual_pack_wave903,
     simulate_live_host_camera_focus_failclosed_honesty,
 };
+pub use host_live_host_single_authority_camera_residual_wave904::{
+    honesty_host_single_authority_camera_method_names_residual_wave904,
+    honesty_host_single_authority_camera_nav_commands_residual_wave904,
+    honesty_host_single_authority_camera_residual_pack_wave904,
+    simulate_live_host_single_authority_camera_honesty,
+};
+
 pub use host_live_host_event_drain_failclosed_residual_wave900::{
     honesty_host_event_drain_failclosed_method_names_residual_wave900,
     honesty_host_event_drain_failclosed_nav_commands_residual_wave900,
