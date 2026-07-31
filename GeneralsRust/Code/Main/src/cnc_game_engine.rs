@@ -21005,6 +21005,19 @@ impl CnCGameEngine {
         if let Some(cached) = self.host_match_boot_victory_condition.as_ref() {
             return *cached;
         }
+        // Wave 907: presentation freeze owns victory residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            let v = if !pres.match_over {
+                None
+            } else if let Some(id) = pres.victory_winner_id() {
+                Some(crate::game_logic::VictoryCondition::Winner(id))
+            } else {
+                Some(crate::game_logic::VictoryCondition::Draw)
+            };
+            self.host_match_boot_victory_condition = Some(v);
+            return v;
+        }
+        // Boot residual only when no presentation freeze is installed.
         let v = self.game_logic.evaluate_victory_condition();
         self.host_match_boot_victory_condition = Some(v);
         v
@@ -21445,7 +21458,8 @@ impl CnCGameEngine {
         // Wave 843/844: host-owned match residuals for presentation_or_boot peels.
         self.host_match_map_name = Some(map_name.clone());
         self.host_match_local_player_id = Some(self.current_player_id);
-        self.host_match_ai_difficulty = Some(self.game_logic.get_difficulty());
+        // Wave 907: AI difficulty residual stays cold until presentation seed stamps it
+        // (no get_difficulty dual-read). Fail-closed default covers interim probes.
         self.host_refresh_match_sim_residuals_from_logic();
 
         // Reset transient state.
@@ -22018,16 +22032,20 @@ impl CnCGameEngine {
     /// Wave 568: InGame script FPS residual — prefer presentation freeze, always drain
     /// live queue after apply (peeked freeze must not re-apply next frame).
     fn apply_ingame_script_fps_limit_residual(&mut self) {
-        // Wave 568: presentation freeze owns script FPS residual when present.
+        // Wave 568/907: presentation freeze owns script FPS residual when present.
         if let Some(fps) = self
             .last_presentation_frame
             .as_ref()
             .and_then(|p| p.script_fps_limit)
         {
             self.apply_script_fps_limit_request(fps);
+            // Freeze installed: do not dual-read/drain live GameLogic queue.
+            return;
         }
-        // Drain live queue (boot residual discarded when freeze installed).
-        let _ = self.game_logic.take_script_fps_limit_request();
+        // Boot residual only when no presentation freeze is installed.
+        if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
+            self.apply_script_fps_limit_request(fps);
+        }
     }
 
     /// Wave 568: shell/menu script FPS residual — only trust freeze when it affirms
