@@ -19280,17 +19280,18 @@ impl CnCGameEngine {
             // Wave 894: AI difficulty residual from freeze (no get_difficulty dual-read).
             self.host_match_ai_difficulty = Some(pres.ai_difficulty);
         } else {
-            // Wave 902: cold residual after match-start — dual-read only frame + fixed-step
-            // (needed until presentation seed). Other clocks fail-closed.
+            // Wave 902/908: cold residual after match-start — one sim_timing_snapshot probe
+            // until presentation seed. Other clocks fail-closed.
+            let snap = self.game_logic.sim_timing_snapshot();
             self.host_match_visual_speed = self.host_match_visual_speed.or(Some(1.0));
             self.host_match_time_frozen = Some(self.game_paused);
             self.host_match_total_play_time = self.host_match_total_play_time.or(Some(0.0));
-            self.host_match_logic_frame = Some(self.game_logic.get_frame());
-            {
-                let d = self.game_logic.fixed_step_diagnostics();
-                self.host_match_logic_steps =
-                    Some((d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds));
-            }
+            self.host_match_logic_frame = Some(snap.frame);
+            self.host_match_logic_steps = Some((
+                snap.steps_run as u32,
+                snap.budget_hit,
+                snap.accumulated_time_seconds,
+            ));
             self.host_match_in_replay = Some(false);
             self.host_match_local_player_id = Some(self.current_player_id);
             self.host_match_in_shell = Some(false);
@@ -20552,27 +20553,55 @@ impl CnCGameEngine {
     /// Wave 584: host shell-map tick residual (menu frame budgeted update).
     #[inline]
     fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
-        // Wave 584/872: host shell update residual + stamp sim timing.
-        self.game_logic.update_shell_with_budget(dt, budget);
-        self.host_stamp_sim_timing_residuals();
+        // Wave 584/872/908: host shell update residual + stamp from snapshot return.
+        let snap = self.game_logic.update_shell_with_budget(dt, budget);
+        self.host_stamp_sim_timing_from_snapshot(snap);
     }
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     #[inline]
     fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
-        // Wave 584/870: host logic tick residual + stamp sim timing residuals.
-        if let Some(budget) = budget {
+        // Wave 584/870/908: host logic tick residual + stamp from update return snapshot
+        // (no get_frame / fixed_step_diagnostics dual-read after tick).
+        let snap = if let Some(budget) = budget {
             if let Some(timing) = self.last_frame_timing {
-                self.game_logic.update_with_timing_budget(&timing, budget);
+                self.game_logic.update_with_timing_budget(&timing, budget)
             } else {
-                self.game_logic.update_with_dt_budget(dt, budget);
+                self.game_logic.update_with_dt_budget(dt, budget)
             }
         } else if let Some(timing) = self.last_frame_timing {
-            self.game_logic.update_with_timing(&timing);
+            self.game_logic.update_with_timing(&timing)
         } else {
-            self.game_logic.update_with_dt(dt);
+            self.game_logic.update_with_dt(dt)
+        };
+        self.host_stamp_sim_timing_from_snapshot(snap);
+    }
+
+    /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.
+    #[inline]
+    fn host_stamp_sim_timing_from_snapshot(&mut self, snap: crate::game_logic::SimTimingSnapshot) {
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            // Freeze still preferred when installed (presentation owns residual clocks).
+            self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
+            self.host_match_time_frozen = Some(pres.time_frozen_for_simulation || self.game_paused);
+            self.host_match_total_play_time = Some(pres.total_play_time_seconds);
+            self.host_match_logic_frame = Some(pres.frame.0);
+            self.host_match_logic_steps = Some((
+                pres.logic_steps_run,
+                pres.logic_steps_budget_hit,
+                pres.logic_steps_accumulated_seconds,
+            ));
+            return;
         }
-        self.host_stamp_sim_timing_residuals();
+        self.host_match_visual_speed = self.host_match_visual_speed.or(Some(1.0));
+        self.host_match_time_frozen = Some(self.game_paused);
+        self.host_match_total_play_time = self.host_match_total_play_time.or(Some(0.0));
+        self.host_match_logic_frame = Some(snap.frame);
+        self.host_match_logic_steps = Some((
+            snap.steps_run as u32,
+            snap.budget_hit,
+            snap.accumulated_time_seconds,
+        ));
     }
 
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
@@ -20620,8 +20649,8 @@ impl CnCGameEngine {
     /// Wave 870: keep host_match_* sim timing residuals warm after host ticks.
     #[inline]
     fn host_stamp_sim_timing_residuals(&mut self) {
-        // Wave 893: prefer presentation freeze for sim timing residuals (no dual-read
-        // mid-command when a frame is installed). Boot/no-freeze still probes host.
+        // Wave 893/908: prefer presentation freeze; cold path uses one snapshot probe
+        // (no separate get_frame + fixed_step_diagnostics dual-reads).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
             self.host_match_time_frozen = Some(pres.time_frozen_for_simulation || self.game_paused);
@@ -20634,17 +20663,8 @@ impl CnCGameEngine {
             ));
             return;
         }
-        // Wave 902: cold stamp after logic tick — dual-read only frame + fixed-step
-        // diagnostics (needed until presentation finalize). Other clocks fail-closed.
-        self.host_match_visual_speed = self.host_match_visual_speed.or(Some(1.0));
-        self.host_match_time_frozen = Some(self.game_paused);
-        self.host_match_total_play_time = self.host_match_total_play_time.or(Some(0.0));
-        self.host_match_logic_frame = Some(self.game_logic.get_frame());
-        {
-            let d = self.game_logic.fixed_step_diagnostics();
-            self.host_match_logic_steps =
-                Some((d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds));
-        }
+        let snap = self.game_logic.sim_timing_snapshot();
+        self.host_stamp_sim_timing_from_snapshot(snap);
     }
 
     /// Wave 584: host multiplayer gate residual (network frame-data readiness).
