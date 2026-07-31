@@ -16309,20 +16309,10 @@ impl CnCGameEngine {
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
     fn host_presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
-        // Wave 609/841: host UI/presentation residual helper.
-        // Presentation freeze owns mouse classification when installed.
-        // Wave 841: InGame/Paused/Loading never dual-read live GameLogic for mouse
-        // (boot/Menu may still fall open when no freeze is installed yet).
-        if self.last_presentation_frame.is_some() {
-            return None;
-        }
-        if matches!(
-            self.current_state,
-            GameState::InGame | GameState::Paused | GameState::Loading
-        ) {
-            return None;
-        }
-        Some(&self.game_logic)
+        // Wave 609/841/906: always presentation-only mouse classification.
+        // No live GameLogic dual-read for cursor/command classification.
+        let _ = self;
+        None
     }
 
     /// Last immutable presentation snapshot after the most recent logic step.
