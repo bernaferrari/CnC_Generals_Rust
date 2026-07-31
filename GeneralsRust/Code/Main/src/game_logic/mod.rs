@@ -235,6 +235,7 @@ pub mod host_live_host_legal_build_cache_residual_wave911;
 pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
 pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
+pub mod host_live_host_load_path_stamp_peels_residual_wave918;
 pub mod host_live_host_map_name_failclosed_residual_wave860;
 pub mod host_live_host_map_primary_enemy_residual_wave830;
 pub mod host_live_host_map_shell_failclosed_residual_wave896;
@@ -2973,6 +2974,13 @@ pub use host_live_host_command_barracks_complete_peels_residual_wave917::{
     honesty_host_command_barracks_complete_peels_residual_pack_wave917,
     simulate_live_host_command_barracks_complete_peels_honesty,
 };
+pub use host_live_host_load_path_stamp_peels_residual_wave918::{
+    honesty_host_load_path_stamp_peels_method_names_residual_wave918,
+    honesty_host_load_path_stamp_peels_nav_commands_residual_wave918,
+    honesty_host_load_path_stamp_peels_residual_pack_wave918,
+    simulate_live_host_load_path_stamp_peels_honesty,
+};
+
 pub use host_live_host_destroy_list_if_needed_residual_wave912::{
     honesty_host_destroy_list_if_needed_method_names_residual_wave912,
     honesty_host_destroy_list_if_needed_nav_commands_residual_wave912,
