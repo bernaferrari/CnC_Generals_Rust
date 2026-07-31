@@ -18739,6 +18739,12 @@ impl CnCGameEngine {
         // while this is set AND the engine owns a live GameWorldShadow that will
         // write back after the host tick. Host-only gates / missing shadow leave
         // host construction/production advancing (fail-open).
+        // Wave 904: production path is single-authority by default; dual-tick remains
+        // opt-in via GENERALS_ALLOW_DUAL_TICK (verification hardens dual-world failures).
+        crate::authoritative_world::set_verification_single_authority(
+            crate::authoritative_world::verification_single_authority()
+                || std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none(),
+        );
         let couple_shadow = self.gameworld_shadow.is_some();
         if couple_shadow {
             crate::gameworld_shadow::begin_shadow_coupled_tick();
@@ -20880,17 +20886,14 @@ impl CnCGameEngine {
     /// Wave 583: host camera-follow write residual.
     #[inline]
     fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
-        // Wave 583/847/891/903: stamp follow pose from presentation freeze first,
-        // then one host object resolve only if freeze miss (authority write still hosts).
+        // Wave 583/847/891/903/904: stamp follow pose from presentation freeze only
+        // (no get_object dual-read). Authority write still hosts set_camera_follow_object.
         let stamped_pos = id.and_then(|oid| {
-            if let Some(pres) = self.last_presentation_frame.as_ref() {
-                if let Some(o) = pres.objects.iter().find(|o| o.id == oid) {
-                    return Some([o.position.x, o.position.y, o.position.z]);
-                }
-            }
-            self.game_logic.get_object(oid).map(|o| {
-                let v = o.get_position();
-                [v.x, v.y, v.z]
+            self.last_presentation_frame.as_ref().and_then(|pres| {
+                pres.objects
+                    .iter()
+                    .find(|o| o.id == oid)
+                    .map(|o| [o.position.x, o.position.y, o.position.z])
             })
         });
         self.game_logic.set_camera_follow_object(id);
