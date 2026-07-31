@@ -247,6 +247,7 @@ pub mod host_live_host_match_shell_team_residuals_wave845;
 pub mod host_live_host_match_sim_timing_residuals_wave844;
 pub mod host_live_host_match_special_power_ready_residuals_wave854;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
+pub mod host_live_host_mouse_presentation_only_residual_wave906;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
 pub mod host_live_host_object_scan_unify_residual_wave853;
@@ -2948,6 +2949,12 @@ pub use host_live_host_camera_focus_failclosed_residual_wave903::{
     honesty_host_camera_focus_failclosed_nav_commands_residual_wave903,
     honesty_host_camera_focus_failclosed_residual_pack_wave903,
     simulate_live_host_camera_focus_failclosed_honesty,
+};
+pub use host_live_host_mouse_presentation_only_residual_wave906::{
+    honesty_host_mouse_presentation_only_method_names_residual_wave906,
+    honesty_host_mouse_presentation_only_nav_commands_residual_wave906,
+    honesty_host_mouse_presentation_only_residual_pack_wave906,
+    simulate_live_host_mouse_presentation_only_honesty,
 };
 pub use host_live_host_single_authority_camera_residual_wave904::{
     honesty_host_single_authority_camera_method_names_residual_wave904,
