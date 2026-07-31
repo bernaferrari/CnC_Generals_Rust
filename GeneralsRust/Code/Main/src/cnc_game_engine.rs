@@ -20855,7 +20855,15 @@ impl CnCGameEngine {
     /// Wave 583: host force-complete construction residual (runtime train honesty).
     #[inline]
     fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583/867: host construction force-complete residual + refresh scan.
+        // Wave 583/867/917: host construction force-complete residual + refresh scan.
+        // Skip authority force-complete when presentation residual is already complete.
+        if self.last_presentation_frame.as_ref().is_some_and(|pres| {
+            pres.objects
+                .iter()
+                .any(|o| o.id == id && !o.destroyed && !o.under_construction)
+        }) {
+            return true;
+        }
         let ok = self.game_logic.force_complete_construction(id);
         if ok {
             self.host_refresh_local_train_producer_residuals();
@@ -20866,7 +20874,15 @@ impl CnCGameEngine {
     /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
     #[inline]
     fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583/723/872: host barracks ensure residual (callers must opt in).
+        // Wave 583/723/872/917: host barracks ensure residual (callers must opt in).
+        // Skip authority ensure when residual already lists this barracks producer.
+        if self
+            .host_match_local_barracks_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&id))
+        {
+            return true;
+        }
         let ok = self.game_logic.ensure_barracks_building_data(id);
         if ok {
             self.host_refresh_local_train_producer_residuals();
@@ -20879,7 +20895,15 @@ impl CnCGameEngine {
         &mut self,
         id: crate::game_logic::ObjectId,
     ) -> bool {
-        // Wave 834/872: auto_target train residual stamp + refresh scan.
+        // Wave 834/872/917: auto_target train residual stamp + refresh scan.
+        // Skip force ensure when residual already lists this barracks producer.
+        if self
+            .host_match_local_barracks_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&id))
+        {
+            return true;
+        }
         let ok = self.game_logic.force_ensure_barracks_building_data(id);
         if ok {
             self.host_refresh_local_train_producer_residuals();
@@ -20890,33 +20914,45 @@ impl CnCGameEngine {
     /// Wave 583: host attack command residual (runtime honesty path).
     #[inline]
     fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
-        // Wave 583/871: host attack residual + stamp sim timing.
+        // Wave 583/871/917: host attack residual + stamp sim timing.
+        // Skip mid-command stamp when presentation freeze owns clocks.
         self.game_logic.command_attack(player_id, target);
-        self.host_stamp_sim_timing_residuals();
+        if self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
     }
 
     /// Wave 583: host stop-selected residual (runtime honesty path).
     #[inline]
     fn host_command_stop(&mut self, player_id: u32) {
-        // Wave 583/871: host stop residual + stamp sim timing.
+        // Wave 583/871/917: host stop residual + stamp sim timing.
+        // Skip mid-command stamp when presentation freeze owns clocks.
         self.game_logic.command_stop(player_id);
-        self.host_stamp_sim_timing_residuals();
+        if self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
     }
 
     /// Wave 583: host attack-move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583/871: host attack-move residual + stamp sim timing.
+        // Wave 583/871/917: host attack-move residual + stamp sim timing.
+        // Skip mid-command stamp when presentation freeze owns clocks.
         self.game_logic.command_attack_move(player_id, dest);
-        self.host_stamp_sim_timing_residuals();
+        if self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
     }
 
     /// Wave 583: host move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583/871: host move residual + stamp sim timing.
+        // Wave 583/871/917: host move residual + stamp sim timing.
+        // Skip mid-command stamp when presentation freeze owns clocks.
         self.game_logic.command_move(player_id, dest);
-        self.host_stamp_sim_timing_residuals();
+        if self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
     }
 
     /// Wave 583: host legal-build probe residual (construct honesty path).
