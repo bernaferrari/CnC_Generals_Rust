@@ -20604,8 +20604,14 @@ impl CnCGameEngine {
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     #[inline]
     fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
-        // Wave 584/870/908: host logic tick residual + stamp from update return snapshot
+        // Wave 584/870/908/919: host logic tick residual + stamp from update return snapshot
         // (no get_frame / fixed_step_diagnostics dual-read after tick).
+        // Skip authority tick dual-write when host residual is paused (GameLogic also
+        // no-ops is_paused; avoid the call entirely).
+        if self.game_paused {
+            let _ = (dt, budget);
+            return;
+        }
         let snap = if let Some(budget) = budget {
             if let Some(timing) = self.last_frame_timing {
                 self.game_logic.update_with_timing_budget(&timing, budget)
@@ -20862,7 +20868,16 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         delta: f32,
     ) -> Option<f32> {
-        // Wave 584/869: host guard radius residual + keep scan residual warm.
+        // Wave 584/869/919: host guard radius residual + keep scan residual warm.
+        // Skip authority adjust when delta is a no-op; return presentation residual.
+        if delta.abs() <= f32::EPSILON {
+            return self.last_presentation_frame.as_ref().and_then(|pres| {
+                pres.objects
+                    .iter()
+                    .find(|o| o.id == id)
+                    .map(|o| o.guard_radius)
+            });
+        }
         let r = self.game_logic.adjust_unit_guard_radius(id, delta);
         if r.is_some() {
             self.host_refresh_local_train_producer_residuals();
@@ -21085,9 +21100,10 @@ impl CnCGameEngine {
         producer: crate::game_logic::ObjectId,
         template_name: String,
     ) -> bool {
-        // Wave 582/868: host enqueue residual + refresh object-scan residuals.
+        // Wave 582/868/919: host enqueue residual + refresh object-scan residuals.
+        // Skip producer residual refresh under presentation freeze (freeze owns scan).
         let ok = self.game_logic.enqueue_production(producer, template_name);
-        if ok {
+        if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
         ok
@@ -21113,10 +21129,10 @@ impl CnCGameEngine {
         team: crate::game_logic::Team,
         spawn_at: glam::Vec3,
     ) -> Option<crate::game_logic::ObjectId> {
-        // Wave 581/867: host spawn residual + refresh object-scan residuals.
+        // Wave 581/867/919: host spawn residual + refresh object-scan residuals.
+        // Under presentation freeze, next finalize refreshes alive residuals.
         let id = self.game_logic.create_object(name, team, spawn_at);
-        if id.is_some() {
-            // Keep alive/producer/special-power residuals warm after spawn.
+        if id.is_some() && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
         id

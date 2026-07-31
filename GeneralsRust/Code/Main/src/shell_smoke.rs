@@ -4055,6 +4055,11 @@ use crate::game_logic::host_live_host_load_path_stamp_peels_residual_wave918::{
     honesty_host_load_path_stamp_peels_nav_commands_residual_wave918,
     simulate_live_host_load_path_stamp_peels_honesty,
 };
+use crate::game_logic::host_live_host_paused_tick_guard_refresh_peels_residual_wave919::{
+    honesty_host_paused_tick_guard_refresh_peels_method_names_residual_wave919,
+    honesty_host_paused_tick_guard_refresh_peels_nav_commands_residual_wave919,
+    simulate_live_host_paused_tick_guard_refresh_peels_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8443,6 +8448,9 @@ pub struct ShellSmokeResult {
     pub host_load_path_stamp_peels_method_names_wave918_ok: bool,
     pub host_load_path_stamp_peels_nav_commands_wave918_ok: bool,
     pub host_load_path_stamp_peels_live_wave918_ok: bool,
+    pub host_paused_tick_guard_refresh_peels_method_names_wave919_ok: bool,
+    pub host_paused_tick_guard_refresh_peels_nav_commands_wave919_ok: bool,
+    pub host_paused_tick_guard_refresh_peels_live_wave919_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13647,6 +13655,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_load_path_stamp_peels_nav_commands_residual_wave918();
     let host_load_path_stamp_peels_live_wave918_ok =
         simulate_live_host_load_path_stamp_peels_honesty();
+    let host_paused_tick_guard_refresh_peels_method_names_wave919_ok =
+        honesty_host_paused_tick_guard_refresh_peels_method_names_residual_wave919();
+    let host_paused_tick_guard_refresh_peels_nav_commands_wave919_ok =
+        honesty_host_paused_tick_guard_refresh_peels_nav_commands_residual_wave919();
+    let host_paused_tick_guard_refresh_peels_live_wave919_ok =
+        simulate_live_host_paused_tick_guard_refresh_peels_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16390,6 +16404,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_load_path_stamp_peels_method_names_wave918_ok,
         host_load_path_stamp_peels_nav_commands_wave918_ok,
         host_load_path_stamp_peels_live_wave918_ok,
+        host_paused_tick_guard_refresh_peels_method_names_wave919_ok,
+        host_paused_tick_guard_refresh_peels_nav_commands_wave919_ok,
+        host_paused_tick_guard_refresh_peels_live_wave919_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
