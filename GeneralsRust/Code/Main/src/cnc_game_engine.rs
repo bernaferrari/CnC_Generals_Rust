@@ -17239,7 +17239,8 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         template_name: String,
     ) -> bool {
-        // Wave 580/869: cancel + HUD building_queue residual + refresh scan.
+        // Wave 580/869/920: cancel + HUD building_queue residual + refresh scan.
+        // Under presentation freeze, next finalize owns producer scan residual.
         if !self.game_logic.cancel_production(id, template_name.clone()) {
             return false;
         }
@@ -17251,7 +17252,9 @@ impl CnCGameEngine {
         {
             panel.building_queue.remove(idx);
         }
-        self.host_refresh_local_train_producer_residuals();
+        if self.last_presentation_frame.is_none() {
+            self.host_refresh_local_train_producer_residuals();
+        }
         true
     }
 
@@ -20596,7 +20599,12 @@ impl CnCGameEngine {
     /// Wave 584: host shell-map tick residual (menu frame budgeted update).
     #[inline]
     fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
-        // Wave 584/872/908: host shell update residual + stamp from snapshot return.
+        // Wave 584/872/908/920: host shell update residual + stamp from snapshot return.
+        // Skip empty-dt authority shell tick dual-write.
+        if dt <= 0.0 {
+            let _ = budget;
+            return;
+        }
         let snap = self.game_logic.update_shell_with_budget(dt, budget);
         self.host_stamp_sim_timing_from_snapshot(snap);
     }
@@ -20809,7 +20817,7 @@ impl CnCGameEngine {
     /// Wave 584: host destroy-object residual (debug Shift+Delete path).
     #[inline]
     fn host_destroy_object(&mut self, id: crate::game_logic::ObjectId) {
-        // Wave 584/867/916: host destroy residual + refresh object-scan residuals.
+        // Wave 584/867/916/920: host destroy residual + refresh object-scan residuals.
         // Skip authority destroy when presentation residual already marks destroyed.
         let already_destroyed = self.last_presentation_frame.as_ref().is_some_and(|pres| {
             pres.objects
@@ -20818,7 +20826,9 @@ impl CnCGameEngine {
         });
         if !already_destroyed {
             self.game_logic.destroy_object(id);
-            self.host_refresh_local_train_producer_residuals();
+            if self.last_presentation_frame.is_none() {
+                self.host_refresh_local_train_producer_residuals();
+            }
         }
         // Drop destroyed id from selection residuals if present.
         if let Some(sel) = self.host_match_selected_ids.as_mut() {
@@ -20845,7 +20855,7 @@ impl CnCGameEngine {
     /// Wave 584: host clear unit path residual (waypoint clear path).
     #[inline]
     fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 584/869/918: host clear path residual.
+        // Wave 584/869/918/920: host clear path residual.
         // Skip authority clear when presentation residual already has no move destination.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
             pres.objects
@@ -20855,7 +20865,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = self.game_logic.clear_unit_movement_path(id);
-        if ok {
+        if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
         ok
@@ -20868,7 +20878,7 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         delta: f32,
     ) -> Option<f32> {
-        // Wave 584/869/919: host guard radius residual + keep scan residual warm.
+        // Wave 584/869/919/920: host guard radius residual + keep scan residual warm.
         // Skip authority adjust when delta is a no-op; return presentation residual.
         if delta.abs() <= f32::EPSILON {
             return self.last_presentation_frame.as_ref().and_then(|pres| {
@@ -20879,7 +20889,7 @@ impl CnCGameEngine {
             });
         }
         let r = self.game_logic.adjust_unit_guard_radius(id, delta);
-        if r.is_some() {
+        if r.is_some() && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
         r
@@ -20888,7 +20898,7 @@ impl CnCGameEngine {
     /// Wave 583: host force-complete construction residual (runtime train honesty).
     #[inline]
     fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583/867/917: host construction force-complete residual + refresh scan.
+        // Wave 583/867/917/920: host construction force-complete residual + refresh scan.
         // Skip authority force-complete when presentation residual is already complete.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
             pres.objects
@@ -20898,7 +20908,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = self.game_logic.force_complete_construction(id);
-        if ok {
+        if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
         ok
@@ -20907,7 +20917,7 @@ impl CnCGameEngine {
     /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
     #[inline]
     fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583/723/872/917: host barracks ensure residual (callers must opt in).
+        // Wave 583/723/872/917/920: host barracks ensure residual (callers must opt in).
         // Skip authority ensure when residual already lists this barracks producer.
         if self
             .host_match_local_barracks_ids
@@ -20917,7 +20927,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = self.game_logic.ensure_barracks_building_data(id);
-        if ok {
+        if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
         ok
@@ -20928,7 +20938,7 @@ impl CnCGameEngine {
         &mut self,
         id: crate::game_logic::ObjectId,
     ) -> bool {
-        // Wave 834/872/917: auto_target train residual stamp + refresh scan.
+        // Wave 834/872/917/920: auto_target train residual stamp + refresh scan.
         // Skip force ensure when residual already lists this barracks producer.
         if self
             .host_match_local_barracks_ids
@@ -20938,7 +20948,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = self.game_logic.force_ensure_barracks_building_data(id);
-        if ok {
+        if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
         ok
