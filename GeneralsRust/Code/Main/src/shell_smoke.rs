@@ -4065,6 +4065,11 @@ use crate::game_logic::host_live_host_producer_refresh_freeze_peels_residual_wav
     honesty_host_producer_refresh_freeze_peels_nav_commands_residual_wave920,
     simulate_live_host_producer_refresh_freeze_peels_honesty,
 };
+use crate::game_logic::host_live_host_start_faction_supplies_residual_wave921::{
+    honesty_host_start_faction_supplies_method_names_residual_wave921,
+    honesty_host_start_faction_supplies_nav_commands_residual_wave921,
+    simulate_live_host_start_faction_supplies_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8459,6 +8464,9 @@ pub struct ShellSmokeResult {
     pub host_producer_refresh_freeze_peels_method_names_wave920_ok: bool,
     pub host_producer_refresh_freeze_peels_nav_commands_wave920_ok: bool,
     pub host_producer_refresh_freeze_peels_live_wave920_ok: bool,
+    pub host_start_faction_supplies_method_names_wave921_ok: bool,
+    pub host_start_faction_supplies_nav_commands_wave921_ok: bool,
+    pub host_start_faction_supplies_live_wave921_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13675,6 +13683,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_producer_refresh_freeze_peels_nav_commands_residual_wave920();
     let host_producer_refresh_freeze_peels_live_wave920_ok =
         simulate_live_host_producer_refresh_freeze_peels_honesty();
+    let host_start_faction_supplies_method_names_wave921_ok =
+        honesty_host_start_faction_supplies_method_names_residual_wave921();
+    let host_start_faction_supplies_nav_commands_wave921_ok =
+        honesty_host_start_faction_supplies_nav_commands_residual_wave921();
+    let host_start_faction_supplies_live_wave921_ok =
+        simulate_live_host_start_faction_supplies_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16424,6 +16438,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_producer_refresh_freeze_peels_method_names_wave920_ok,
         host_producer_refresh_freeze_peels_nav_commands_wave920_ok,
         host_producer_refresh_freeze_peels_live_wave920_ok,
+        host_start_faction_supplies_method_names_wave921_ok,
+        host_start_faction_supplies_nav_commands_wave921_ok,
+        host_start_faction_supplies_live_wave921_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

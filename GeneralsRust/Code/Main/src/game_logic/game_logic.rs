@@ -27113,6 +27113,22 @@ impl GameLogic {
         }
     }
 
+    /// Wave 921: single authority boundary for match start + local faction (+ optional AI).
+    #[inline]
+    pub fn start_new_game_with_faction(
+        &mut self,
+        mode: GameMode,
+        player_id: u32,
+        faction_team: Team,
+        setup_skirmish_ai: bool,
+    ) {
+        self.start_new_game(mode);
+        let _ = self.set_player_team(player_id, faction_team);
+        if setup_skirmish_ai {
+            self.setup_skirmish_ai(player_id);
+        }
+    }
+
     /// Apply an upgrade tag to an object.
     /// Mirrors C++ behavior where upgrades are persistent object state, not display-name edits.
     pub(crate) fn apply_upgrade_to_object(&mut self, object_id: ObjectId, upgrade: &str) {

@@ -1486,6 +1486,8 @@ pub struct CnCGameEngine {
         Option<std::collections::HashMap<u32, std::collections::HashSet<String>>>,
     /// Wave 868: host-owned local science purchase points residual.
     host_match_local_science_purchase_points: Option<i32>,
+    /// Wave 921: local supplies residual (presentation stamp; supplies floor peel).
+    host_match_local_supplies: Option<u32>,
     /// Wave 854/857: host-owned special-power-ready object residual (unified scan stamp).
     host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
     /// Wave 855: boot victory condition residual (single evaluate stamp).
@@ -14423,6 +14425,7 @@ impl CnCGameEngine {
             host_match_alive_object_ids: None,
             host_match_purchasable_sciences: None,
             host_match_local_science_purchase_points: None,
+            host_match_local_supplies: None,
             host_match_special_power_ready_ids: None,
             host_match_boot_victory_condition: None,
             host_legal_build_cache_frame: None,
@@ -17311,16 +17314,15 @@ impl CnCGameEngine {
         faction_team: crate::game_logic::Team,
         setup_skirmish_ai: bool,
     ) {
-        // Wave 577/871: start_new_game + set_player_team (+ optional skirmish AI).
+        // Wave 577/871/921: single authority start_new_game_with_faction boundary.
         // Clear prior match residuals; stamp mode/team immediately for peels.
         self.host_clear_match_residuals();
-        self.game_logic.start_new_game(mode);
-        let _ = self
-            .game_logic
-            .set_player_team(self.current_player_id, faction_team);
-        if setup_skirmish_ai {
-            self.game_logic.setup_skirmish_ai(self.current_player_id);
-        }
+        self.game_logic.start_new_game_with_faction(
+            mode,
+            self.current_player_id,
+            faction_team,
+            setup_skirmish_ai,
+        );
         self.host_match_game_mode = Some(mode);
         self.host_match_local_team = Some(faction_team);
         self.host_match_local_player_id = Some(self.current_player_id);
@@ -19444,6 +19446,13 @@ impl CnCGameEngine {
             } else {
                 0
             });
+        // Wave 921: local supplies residual from freeze only.
+        self.host_match_local_supplies =
+            Some(if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.local_supplies as u32
+            } else {
+                0
+            });
         // Wave 854/857: special-power-ready residual stamped inside
         // host_refresh_local_train_producer_residuals (single freeze/host scan).
     }
@@ -20665,12 +20674,14 @@ impl CnCGameEngine {
     /// Skip authority write when presentation residual already meets floor.
     #[inline]
     fn host_ensure_player_min_supplies_residual(&mut self, floor: u32) {
-        // Wave 909: presentation residual first, authority write only on miss.
+        // Wave 909/921: presentation/host residual first, authority write only on miss.
         let pid = self.current_player_id;
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             if frame.local_player_id == pid && (frame.local_supplies as u32) >= floor {
                 return;
             }
+        } else if self.host_match_local_supplies.is_some_and(|s| s >= floor) {
+            return;
         }
         self.game_logic.ensure_player_min_supplies(pid, floor);
     }
@@ -20707,6 +20718,7 @@ impl CnCGameEngine {
         self.host_match_alive_object_ids = None;
         self.host_match_purchasable_sciences = None;
         self.host_match_local_science_purchase_points = None;
+        self.host_match_local_supplies = None;
         self.host_match_special_power_ready_ids = None;
         self.host_match_boot_victory_condition = None;
         self.host_legal_build_cache_frame = None;
