@@ -323,6 +323,7 @@ pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
 pub mod host_live_host_special_power_scan_unify_residual_wave857;
 pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
+pub mod host_live_host_start_faction_supplies_residual_wave921;
 pub mod host_live_host_starting_units_table_residual_wave832;
 pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
@@ -2993,6 +2994,12 @@ pub use host_live_host_producer_refresh_freeze_peels_residual_wave920::{
     honesty_host_producer_refresh_freeze_peels_nav_commands_residual_wave920,
     honesty_host_producer_refresh_freeze_peels_residual_pack_wave920,
     simulate_live_host_producer_refresh_freeze_peels_honesty,
+};
+pub use host_live_host_start_faction_supplies_residual_wave921::{
+    honesty_host_start_faction_supplies_method_names_residual_wave921,
+    honesty_host_start_faction_supplies_nav_commands_residual_wave921,
+    honesty_host_start_faction_supplies_residual_pack_wave921,
+    simulate_live_host_start_faction_supplies_honesty,
 };
 
 pub use host_live_host_destroy_list_if_needed_residual_wave912::{
