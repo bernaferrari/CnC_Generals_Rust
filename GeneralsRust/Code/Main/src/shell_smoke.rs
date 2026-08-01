@@ -4075,6 +4075,11 @@ use crate::game_logic::host_live_host_load_queue_process_boundaries_residual_wav
     honesty_host_load_queue_process_boundaries_nav_commands_residual_wave922,
     simulate_live_host_load_queue_process_boundaries_honesty,
 };
+use crate::game_logic::host_live_host_tick_logic_frame_boundary_residual_wave923::{
+    honesty_host_tick_logic_frame_boundary_method_names_residual_wave923,
+    honesty_host_tick_logic_frame_boundary_nav_commands_residual_wave923,
+    simulate_live_host_tick_logic_frame_boundary_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8475,6 +8480,9 @@ pub struct ShellSmokeResult {
     pub host_load_queue_process_boundaries_method_names_wave922_ok: bool,
     pub host_load_queue_process_boundaries_nav_commands_wave922_ok: bool,
     pub host_load_queue_process_boundaries_live_wave922_ok: bool,
+    pub host_tick_logic_frame_boundary_method_names_wave923_ok: bool,
+    pub host_tick_logic_frame_boundary_nav_commands_wave923_ok: bool,
+    pub host_tick_logic_frame_boundary_live_wave923_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13703,6 +13711,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_load_queue_process_boundaries_nav_commands_residual_wave922();
     let host_load_queue_process_boundaries_live_wave922_ok =
         simulate_live_host_load_queue_process_boundaries_honesty();
+    let host_tick_logic_frame_boundary_method_names_wave923_ok =
+        honesty_host_tick_logic_frame_boundary_method_names_residual_wave923();
+    let host_tick_logic_frame_boundary_nav_commands_wave923_ok =
+        honesty_host_tick_logic_frame_boundary_nav_commands_residual_wave923();
+    let host_tick_logic_frame_boundary_live_wave923_ok =
+        simulate_live_host_tick_logic_frame_boundary_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16458,6 +16472,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_load_queue_process_boundaries_method_names_wave922_ok,
         host_load_queue_process_boundaries_nav_commands_wave922_ok,
         host_load_queue_process_boundaries_live_wave922_ok,
+        host_tick_logic_frame_boundary_method_names_wave923_ok,
+        host_tick_logic_frame_boundary_nav_commands_wave923_ok,
+        host_tick_logic_frame_boundary_live_wave923_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

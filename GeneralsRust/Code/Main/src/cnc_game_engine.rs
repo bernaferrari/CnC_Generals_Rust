@@ -20620,25 +20620,16 @@ impl CnCGameEngine {
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     #[inline]
     fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
-        // Wave 584/870/908/919: host logic tick residual + stamp from update return snapshot
-        // (no get_frame / fixed_step_diagnostics dual-read after tick).
+        // Wave 584/870/908/919/923: single tick_logic_frame authority boundary + stamp snapshot.
         // Skip authority tick dual-write when host residual is paused (GameLogic also
         // no-ops is_paused; avoid the call entirely).
         if self.game_paused {
             let _ = (dt, budget);
             return;
         }
-        let snap = if let Some(budget) = budget {
-            if let Some(timing) = self.last_frame_timing {
-                self.game_logic.update_with_timing_budget(&timing, budget)
-            } else {
-                self.game_logic.update_with_dt_budget(dt, budget)
-            }
-        } else if let Some(timing) = self.last_frame_timing {
-            self.game_logic.update_with_timing(&timing)
-        } else {
-            self.game_logic.update_with_dt(dt)
-        };
+        let snap = self
+            .game_logic
+            .tick_logic_frame(dt, self.last_frame_timing.as_ref(), budget);
         self.host_stamp_sim_timing_from_snapshot(snap);
     }
 
@@ -24303,15 +24294,14 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type: crate::command_system::CommandType::ResumeConstruction { target_id },
-                player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: builders,
-                modifier_keys: crate::command_system::ModifierKeys::default(),
-            });
+        self.host_queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::ResumeConstruction { target_id },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: builders,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
         self.host_process_commands_with_command_sound();
         let msg = "Resuming construction";
         self.game_hud.push_info_message(msg);
@@ -24877,19 +24867,18 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type: crate::command_system::CommandType::Stop,
-                player_id: self.current_player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: ids.clone(),
-                modifier_keys: crate::command_system::ModifierKeys {
-                    ctrl: true,
-                    shift: true,
-                    alt: false,
-                },
-            });
+        self.host_queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Stop,
+            player_id: self.current_player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: ids.clone(),
+            modifier_keys: crate::command_system::ModifierKeys {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            },
+        });
         self.host_process_commands_with_command_sound();
         let msg = format!("Stopped {} units", ids.len());
         self.game_hud.push_info_message(&msg);
@@ -25631,19 +25620,18 @@ impl CnCGameEngine {
         } else {
             crate::command_system::CommandType::ForceAttackGround { location }
         };
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type,
-                player_id: self.current_player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: selected,
-                modifier_keys: crate::command_system::ModifierKeys {
-                    ctrl: true,
-                    shift: false,
-                    alt: false,
-                },
-            });
+        self.host_queue_command(crate::command_system::GameCommand {
+            command_type,
+            player_id: self.current_player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys {
+                ctrl: true,
+                shift: false,
+                alt: false,
+            },
+        });
         self.host_process_commands_with_command_sound();
     }
 
