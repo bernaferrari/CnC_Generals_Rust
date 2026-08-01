@@ -6260,6 +6260,17 @@ impl GameLogic {
         self.load_map_with_progress(map_name, |_progress, _phase| {})
     }
 
+    /// Wave 922: load map or fall back to a default map name; returns loaded identity.
+    #[inline]
+    pub fn load_map_or_fallback(&mut self, map_name: &str, fallback: &str) -> String {
+        if self.load_map(map_name) {
+            map_name.to_string()
+        } else {
+            let _ = self.load_map(fallback);
+            fallback.to_string()
+        }
+    }
+
     /// Main update loop with delta time
     pub fn update_with_dt(&mut self, dt: f32) -> SimTimingSnapshot {
         self.step_simulation(dt, None);
@@ -68995,6 +69006,16 @@ impl GameLogic {
         }
         self.process_commands();
         true
+    }
+
+    /// Wave 922: queue one command then process if the queue is non-empty.
+    #[inline]
+    pub fn queue_and_process_command(
+        &mut self,
+        command: crate::command_system::GameCommand,
+    ) -> bool {
+        self.queue_command(command);
+        self.process_commands_if_needed()
     }
 
     pub fn process_commands(&mut self) {

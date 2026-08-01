@@ -17280,20 +17280,20 @@ impl CnCGameEngine {
     /// Wave 579: host map-load residual with default fallback.
     #[inline]
     fn host_load_map_or_default(&mut self, map_name: &str) {
-        // Wave 579/871/918: load_map + DEFAULT_SKIRMISH_MAP fallback residual.
+        // Wave 579/871/918/922: load_map_or_fallback residual (single authority boundary).
         // Skip reload dual-write when host residual already matches this map identity.
         if self.host_match_map_name.as_deref() == Some(map_name) {
             return;
         }
         // Clear stale match residuals before map identity changes.
         self.host_clear_match_residuals();
-        if !self.game_logic.load_map(map_name) {
+        let loaded = self
+            .game_logic
+            .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP);
+        if loaded != map_name {
             warn!("Failed to load map '{}', falling back to default", map_name);
-            let _ = self.game_logic.load_map(DEFAULT_SKIRMISH_MAP);
-            self.host_match_map_name = Some(DEFAULT_SKIRMISH_MAP.to_string());
-        } else {
-            self.host_match_map_name = Some(map_name.to_string());
         }
+        self.host_match_map_name = Some(loaded);
         self.host_stamp_sim_timing_residuals();
     }
 
@@ -17365,10 +17365,9 @@ impl CnCGameEngine {
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
-        // Wave 576/578/871/914/918: silent queue+process residual + stamp sim timing.
+        // Wave 576/578/871/914/918/922: silent queue+process single authority boundary.
         // Skip mid-command stamp when presentation freeze owns clocks.
-        self.game_logic.queue_command(command);
-        let processed = self.game_logic.process_commands_if_needed();
+        let processed = self.game_logic.queue_and_process_command(command);
         if processed && self.last_presentation_frame.is_none() {
             self.host_stamp_sim_timing_residuals();
         }
