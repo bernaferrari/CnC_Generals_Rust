@@ -6302,6 +6302,22 @@ impl GameLogic {
         self.sim_timing_snapshot()
     }
 
+    /// Wave 923: single host logic-tick boundary (dt/timing + optional budget).
+    #[inline]
+    pub fn tick_logic_frame(
+        &mut self,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        budget: Option<usize>,
+    ) -> SimTimingSnapshot {
+        match (budget, timing) {
+            (Some(b), Some(t)) => self.update_with_timing_budget(t, b),
+            (Some(b), None) => self.update_with_dt_budget(dt, b),
+            (None, Some(t)) => self.update_with_timing(t),
+            (None, None) => self.update_with_dt(dt),
+        }
+    }
+
     /// Menu/shell update path that bounds fixed-step catch-up work per frame.
     /// This prevents multi-second UI stalls after startup while still advancing shell scripts.
     pub fn update_shell_with_budget(
