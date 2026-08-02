@@ -28,6 +28,7 @@ pub mod message_serialization;
 pub mod message_stream;
 pub mod meta_event;
 pub use meta_event::take_host_drawable_tod_residual;
+pub use meta_event::take_host_model_condition_weather_residual;
 pub mod place_event_translator;
 pub mod player_state;
 pub mod translators;

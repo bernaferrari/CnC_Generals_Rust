@@ -279,6 +279,7 @@ pub mod host_live_host_match_sim_timing_residuals_wave844;
 pub mod host_live_host_match_special_power_ready_residuals_wave854;
 pub mod host_live_host_meta_airborne_catalog_residual_wave979;
 pub mod host_live_host_meta_drawable_template_residual_wave976;
+pub mod host_live_host_model_cond_weather_residual_wave988;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_mouse_presentation_only_residual_wave906;
 pub mod host_live_host_mouseover_hint_catalog_residual_wave968;
@@ -3455,6 +3456,13 @@ pub use host_live_host_demoralized_allow_off_residual_wave987::{
     honesty_host_demoralized_allow_off_residual_nav_commands_residual_wave987,
     honesty_host_demoralized_allow_off_residual_residual_pack_wave987,
     simulate_live_host_demoralized_allow_off_residual_honesty,
+};
+
+pub use host_live_host_model_cond_weather_residual_wave988::{
+    honesty_host_model_cond_weather_residual_method_names_residual_wave988,
+    honesty_host_model_cond_weather_residual_nav_commands_residual_wave988,
+    honesty_host_model_cond_weather_residual_residual_pack_wave988,
+    simulate_live_host_model_cond_weather_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
