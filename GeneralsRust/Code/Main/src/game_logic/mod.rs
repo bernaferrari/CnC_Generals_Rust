@@ -225,6 +225,7 @@ pub mod host_live_host_force_reload_dual_peel_residual_wave763;
 pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
+pub mod host_live_host_gamelogic_borrow_boundary_residual_wave935;
 pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
 pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
 pub mod host_live_host_gw_flight_over_assign_residual_wave877;
@@ -3029,6 +3030,13 @@ pub use host_live_host_support_boundary_residual_wave934::{
     honesty_host_support_boundary_nav_commands_residual_wave934,
     honesty_host_support_boundary_residual_pack_wave934,
     simulate_live_host_support_boundary_honesty,
+};
+
+pub use host_live_host_gamelogic_borrow_boundary_residual_wave935::{
+    honesty_host_gamelogic_borrow_boundary_method_names_residual_wave935,
+    honesty_host_gamelogic_borrow_boundary_nav_commands_residual_wave935,
+    honesty_host_gamelogic_borrow_boundary_residual_pack_wave935,
+    simulate_live_host_gamelogic_borrow_boundary_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

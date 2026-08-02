@@ -13848,7 +13848,7 @@ impl CnCGameEngine {
     fn host_finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
         // Wave 610: host residual helper.
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
-        self.game_logic = result.game_logic;
+        self.host_replace_game_logic(result.game_logic);
 
         if let Some(active_map_name) = result.loaded_map_name.as_ref() {
             if result.replay_requested {
@@ -17238,7 +17238,7 @@ impl CnCGameEngine {
         // Wave 580/869/920/931: cancel + HUD residual via object-lifecycle authority.
         // Under presentation freeze, next finalize owns producer scan residual.
         let ok = matches!(
-            self.game_logic.apply_object_lifecycle_op(
+            self.host_game_logic_mut().apply_object_lifecycle_op(
                 crate::game_logic::ObjectLifecycleOp::CancelProduction {
                     id,
                     template_name: template_name.clone(),
@@ -17272,7 +17272,7 @@ impl CnCGameEngine {
         let already =
             self.selected_objects == ids && self.host_match_selected_ids.as_ref() == Some(&ids);
         if !already {
-            self.game_logic.apply_session_control_op(
+            self.host_game_logic_mut().apply_session_control_op(
                 crate::game_logic::SessionControlOp::SelectObjects {
                     player_id,
                     ids: ids.clone(),
@@ -17324,10 +17324,11 @@ impl CnCGameEngine {
         // Wave 577/871/921/933: start_new_game via session-control authority.
         // Clear prior match residuals; stamp mode/team immediately for peels.
         self.host_clear_match_residuals();
-        self.game_logic.apply_session_control_op(
+        let player_id = self.current_player_id;
+        self.host_game_logic_mut().apply_session_control_op(
             crate::game_logic::SessionControlOp::StartNewGameWithFaction {
                 mode,
-                player_id: self.current_player_id,
+                player_id,
                 faction_team,
                 setup_skirmish_ai,
             },
@@ -17381,7 +17382,7 @@ impl CnCGameEngine {
     ) {
         // Wave 576/578/871/914/918/922/932: silent queue+process via command-pipeline authority.
         // Skip mid-command stamp when presentation freeze owns clocks.
-        let processed = self.game_logic.apply_command_pipeline_op(
+        let processed = self.host_game_logic_mut().apply_command_pipeline_op(
             crate::game_logic::CommandPipelineOp::QueueAndProcess { command },
         );
         if processed && self.last_presentation_frame.is_none() {
@@ -17394,7 +17395,7 @@ impl CnCGameEngine {
         // Skip authority set_paused when host residual already matches.
         if self.game_paused != paused {
             self.game_paused = paused;
-            self.game_logic.apply_session_control_op(
+            self.host_game_logic_mut().apply_session_control_op(
                 crate::game_logic::SessionControlOp::SetPaused { paused },
             );
         }
@@ -19454,7 +19455,7 @@ impl CnCGameEngine {
         tpl.add_kind_of(crate::game_logic::KindOf::Infantry);
         tpl.add_kind_of(crate::game_logic::KindOf::Selectable);
         tpl.add_kind_of(crate::game_logic::KindOf::Attackable);
-        let _ = self.game_logic.apply_host_support_op(
+        let _ = self.host_game_logic_mut().apply_host_support_op(
             crate::game_logic::HostSupportOp::InsertThingTemplate {
                 name: "GoldenRanger".into(),
                 template: tpl,
@@ -20196,7 +20197,7 @@ impl CnCGameEngine {
         let min = glam::Vec3::new(-half_w, 0.0, -half_h);
         let max = glam::Vec3::new(half_w, 0.0, half_h);
         if self.host_match_world_bounds != Some((min, max)) {
-            self.game_logic.apply_session_control_op(
+            self.host_game_logic_mut().apply_session_control_op(
                 crate::game_logic::SessionControlOp::OverrideWorldSize { width, height },
             );
             self.host_match_world_bounds = Some((min, max));
@@ -20283,7 +20284,7 @@ impl CnCGameEngine {
             let _ = budget;
             return;
         }
-        let snap = match self.game_logic.apply_host_support_op(
+        let snap = match self.host_game_logic_mut().apply_host_support_op(
             crate::game_logic::HostSupportOp::UpdateShellWithBudget { dt, budget },
         ) {
             crate::game_logic::HostSupportResult::Snapshot(s) => s,
@@ -20348,7 +20349,7 @@ impl CnCGameEngine {
         } else if self.host_match_local_supplies.is_some_and(|s| s >= floor) {
             return;
         }
-        let _ = self.game_logic.apply_host_support_op(
+        let _ = self.host_game_logic_mut().apply_host_support_op(
             crate::game_logic::HostSupportOp::EnsurePlayerMinSupplies {
                 player_id: pid,
                 floor,
@@ -20489,7 +20490,7 @@ impl CnCGameEngine {
     #[inline]
     fn host_reset_game_logic(&mut self) {
         // Wave 584/871/933: host reset residual via session-control authority.
-        self.game_logic
+        self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
         self.host_clear_match_residuals();
         self.selected_objects.clear();
@@ -20550,7 +20551,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.game_logic.apply_object_lifecycle_op(
+            self.host_game_logic_mut().apply_object_lifecycle_op(
                 crate::game_logic::ObjectLifecycleOp::ClearMovementPath { id },
             ),
             crate::game_logic::ObjectLifecycleResult::Bool(true)
@@ -20578,7 +20579,7 @@ impl CnCGameEngine {
                     .map(|o| o.guard_radius)
             });
         }
-        let r = match self.game_logic.apply_object_lifecycle_op(
+        let r = match self.host_game_logic_mut().apply_object_lifecycle_op(
             crate::game_logic::ObjectLifecycleOp::AdjustGuardRadius { id, delta },
         ) {
             crate::game_logic::ObjectLifecycleResult::Radius(r) => r,
@@ -20603,7 +20604,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.game_logic.apply_object_lifecycle_op(
+            self.host_game_logic_mut().apply_object_lifecycle_op(
                 crate::game_logic::ObjectLifecycleOp::ForceCompleteConstruction { id },
             ),
             crate::game_logic::ObjectLifecycleResult::Bool(true)
@@ -20627,7 +20628,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.game_logic.apply_host_support_op(
+            self.host_game_logic_mut().apply_host_support_op(
                 crate::game_logic::HostSupportOp::EnsureBarracksBuildingData { id },
             ),
             crate::game_logic::HostSupportResult::Bool(true)
@@ -20653,7 +20654,7 @@ impl CnCGameEngine {
             return true;
         }
         let ok = matches!(
-            self.game_logic.apply_host_support_op(
+            self.host_game_logic_mut().apply_host_support_op(
                 crate::game_logic::HostSupportOp::ForceEnsureBarracksBuildingData { id },
             ),
             crate::game_logic::HostSupportResult::Bool(true)
@@ -20668,7 +20669,7 @@ impl CnCGameEngine {
     #[inline]
     fn host_issue_direct_player_order(&mut self, order: crate::game_logic::DirectPlayerOrder) {
         // Wave 929/930: single GameLogic direct-order authority boundary + stamp.
-        self.game_logic.apply_direct_player_order(order);
+        self.host_game_logic_mut().apply_direct_player_order(order);
         self.host_stamp_after_authority_command();
     }
 
@@ -20783,7 +20784,7 @@ impl CnCGameEngine {
             })
         });
         if self.host_match_camera_follow_id != Some(id) {
-            self.game_logic.apply_session_control_op(
+            self.host_game_logic_mut().apply_session_control_op(
                 crate::game_logic::SessionControlOp::SetCameraFollow { id },
             );
         }
@@ -20833,7 +20834,7 @@ impl CnCGameEngine {
         // Wave 582/868/919/931: enqueue residual via object-lifecycle authority.
         // Skip producer residual refresh under presentation freeze (freeze owns scan).
         let ok = matches!(
-            self.game_logic.apply_object_lifecycle_op(
+            self.host_game_logic_mut().apply_object_lifecycle_op(
                 crate::game_logic::ObjectLifecycleOp::EnqueueProduction {
                     producer,
                     template_name,
@@ -20871,7 +20872,7 @@ impl CnCGameEngine {
     ) -> Option<crate::game_logic::ObjectId> {
         // Wave 581/867/919/931: host spawn residual via object-lifecycle authority.
         // Under presentation freeze, next finalize refreshes alive residuals.
-        let res = self.game_logic.apply_object_lifecycle_op(
+        let res = self.host_game_logic_mut().apply_object_lifecycle_op(
             crate::game_logic::ObjectLifecycleOp::Create {
                 name: name.to_string(),
                 team,
@@ -21077,6 +21078,24 @@ impl CnCGameEngine {
     fn quick_save_from_hotkey(&mut self, source: &str) {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_quick_save_from_hotkey(source)
+    }
+
+    /// Wave 935: intentional immutable GameLogic borrow boundary.
+    #[inline]
+    fn host_game_logic(&self) -> &crate::game_logic::GameLogic {
+        &self.game_logic
+    }
+
+    /// Wave 935: intentional mutable GameLogic borrow boundary.
+    #[inline]
+    fn host_game_logic_mut(&mut self) -> &mut crate::game_logic::GameLogic {
+        &mut self.game_logic
+    }
+
+    /// Wave 935: intentional full GameLogic replace boundary (map-load install).
+    #[inline]
+    fn host_replace_game_logic(&mut self, logic: crate::game_logic::GameLogic) {
+        self.game_logic = logic;
     }
 
     fn host_save_game_authority(
