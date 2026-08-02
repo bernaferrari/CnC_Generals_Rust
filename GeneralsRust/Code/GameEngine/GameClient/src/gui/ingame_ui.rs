@@ -860,6 +860,17 @@ pub struct PresentationSelectedUnitResidual {
     pub kind_names: Vec<String>,
 }
 
+/// Wave 966: presentation unit catalog residual for host select-similar / matching.
+#[derive(Debug, Clone)]
+pub struct PresentationUnitCatalogEntry {
+    pub object_id: u32,
+    pub template_name: String,
+    /// Team debug name (USA/China/GLA/Neutral) from presentation freeze.
+    pub team_name: String,
+    pub selectable: bool,
+    pub position: [f32; 3],
+}
+
 pub struct InGameUI {
     /// Selection box state
     selection_box: SelectionBox,
@@ -869,6 +880,9 @@ pub struct InGameUI {
 
     /// Wave 964: presentation selection residual (host empty dual-world path).
     presentation_selected: Vec<PresentationSelectedUnitResidual>,
+
+    /// Wave 966: full presentation unit catalog residual (host select-similar).
+    presentation_unit_catalog: Vec<PresentationUnitCatalogEntry>,
 
     /// Current placement preview (if any)
     placement_preview: Option<PlacementPreview>,
@@ -1053,6 +1067,7 @@ impl InGameUI {
             selection_box: SelectionBox::new(),
             selection_state: SelectionState::new(MAX_SELECTION_COUNT),
             presentation_selected: Vec::new(),
+            presentation_unit_catalog: Vec::new(),
             placement_preview: None,
             minimap: Minimap::new(
                 Vec2::new(
@@ -1672,8 +1687,48 @@ impl InGameUI {
         template_object_id: ObjectID,
         add_to_selection: bool,
     ) -> Result<()> {
-        // Wave 273: empty dual-world → Ok(()).
+        // Wave 966: host empty dual-world → presentation unit catalog residual.
         if dual_world_registry_unavailable() {
+            let seed = template_object_id;
+            let Some(reference) = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|u| u.object_id == seed)
+                .cloned()
+            else {
+                return Ok(());
+            };
+            if !reference.selectable || reference.template_name.is_empty() {
+                return Ok(());
+            }
+            let mut matching: Vec<ObjectID> = self
+                .presentation_unit_catalog
+                .iter()
+                .filter(|u| {
+                    u.selectable
+                        && u.template_name == reference.template_name
+                        && u.team_name == reference.team_name
+                })
+                .map(|u| u.object_id)
+                .collect();
+            if matching.is_empty() {
+                return Ok(());
+            }
+            matching.sort_unstable();
+            matching.dedup();
+
+            let selection_type = if add_to_selection {
+                SelectionType::Add
+            } else {
+                SelectionType::Replace
+            };
+            let selection_manager = get_selection_manager();
+            if let Ok(mut manager) = selection_manager.write() {
+                if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
+                    selection.select_objects(matching, selection_type);
+                }
+            }
+            self.sync_selection_state();
             return Ok(());
         }
 
@@ -1688,10 +1743,6 @@ impl InGameUI {
             .get_controlling_player_id()
             .map(|id| id as i32);
 
-        // Host/presentation path: empty dual-world registry → nothing to select.
-        if OBJECT_REGISTRY.is_empty() {
-            return Ok(());
-        }
         let mut matching: Vec<ObjectID> = Vec::new();
         for obj in OBJECT_REGISTRY.get_all_objects() {
             let Ok(guard) = obj.read() else {
@@ -1877,6 +1928,16 @@ impl InGameUI {
     /// Wave 964: read-only presentation selection residual.
     pub fn presentation_selection_residual(&self) -> &[PresentationSelectedUnitResidual] {
         &self.presentation_selected
+    }
+
+    /// Wave 966: stamp presentation unit catalog residual (host empty dual-world).
+    pub fn set_presentation_unit_catalog(&mut self, units: Vec<PresentationUnitCatalogEntry>) {
+        self.presentation_unit_catalog = units;
+    }
+
+    /// Wave 966: read-only presentation unit catalog residual.
+    pub fn presentation_unit_catalog(&self) -> &[PresentationUnitCatalogEntry] {
+        &self.presentation_unit_catalog
     }
 
     /// Set selection group

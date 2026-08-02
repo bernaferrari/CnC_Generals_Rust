@@ -3625,6 +3625,18 @@ impl GameClient {
         }
     }
 
+    /// Wave 966: stamp presentation unit catalog residual for host select-similar.
+    pub fn apply_presentation_unit_catalog(
+        &mut self,
+        units: Vec<crate::gui::ingame_ui::PresentationUnitCatalogEntry>,
+    ) {
+        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+            if let Ok(mut guard) = ui.lock() {
+                guard.set_presentation_unit_catalog(units);
+            }
+        }
+    }
+
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
     /// Mirrors the safe subset of C++ `GameClient::update` ordering that Main does not
