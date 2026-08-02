@@ -3707,6 +3707,7 @@ impl GameWorldShadow {
                                     quantity_produced: p.quantity_produced,
                                 })
                                 .collect();
+                            e.production_paused = bd.production_paused;
                         }
                         if let Some(head) = bd.production_queue.first() {
                             e.production_progress = head.progress;
@@ -3728,6 +3729,7 @@ impl GameWorldShadow {
                         e.production_progress = 0.0;
                         e.production_template.clear();
                         e.production_queue_items.clear();
+                        e.production_paused = false;
                         e.rally_point = None;
                         e.garrison_count = 0;
                         e.max_garrison = 0;
@@ -4861,6 +4863,7 @@ impl GameWorldShadow {
                                 quantity_produced: p.quantity_produced,
                             })
                             .collect();
+                        e.production_paused = bd.production_paused;
                     }
                     if let Some(head) = bd.production_queue.first() {
                         e.production_progress = head.progress;
@@ -4878,6 +4881,7 @@ impl GameWorldShadow {
                     e.production_progress = 0.0;
                     e.production_template.clear();
                     e.production_queue_items.clear();
+                    e.production_paused = false;
                     e.rally_point = None;
                     e.garrison_count = 0;
                     e.max_garrison = 0;
@@ -5224,6 +5228,7 @@ impl GameWorldShadow {
             e.production_progress = 0.0;
             e.production_template.clear();
             e.production_queue_items.clear();
+            e.production_paused = false;
             e.rally_point = None;
             e.garrison_count = 0;
             e.max_garrison = 0;
@@ -5994,7 +5999,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            if !ent.production_queue_items.is_empty() {
+            if !ent.production_queue_items.is_empty() && !ent.production_paused {
                 let mut items = ent.production_queue_items.clone();
                 if let Some(head) = items.first_mut() {
                     if head.progress + 1e-6 < head.total_time.max(0.0) {
@@ -6110,6 +6115,11 @@ impl GameWorldShadow {
                 });
             if queue_differs {
                 bd.production_queue = new_q;
+                dirty = true;
+            }
+            // Wave 990: production_paused residual last-writer (GameWorld ↔ host).
+            if bd.production_paused != ent.production_paused {
+                bd.production_paused = ent.production_paused;
                 dirty = true;
             }
             // Host factory exit delay residual last-writer.
@@ -21917,6 +21927,7 @@ mod tests {
         let eid = shadow.entity_for_host(barracks).expect("map");
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
             e.production_queue_items.clear();
+            e.production_paused = false;
             e.production_template.clear();
         }
         // Re-record for apply (drain consumed).

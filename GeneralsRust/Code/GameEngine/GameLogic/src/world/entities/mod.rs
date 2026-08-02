@@ -345,6 +345,8 @@ pub struct Entity {
     pub production_template: String,
     /// Full production queue residual (capped).
     pub production_queue_items: Vec<EntityProductionItem>,
+    /// Wave 990: host BuildingData::production_paused residual.
+    pub production_paused: bool,
     /// Host BuildingData::exit_delay_remaining residual (seconds).
     pub exit_delay_remaining: f32,
     /// Host Object::production_door_phase residual.
@@ -1470,6 +1472,7 @@ impl EntityStore {
             production_progress: 0.0,
             production_template: String::new(),
             production_queue_items: Vec::new(),
+            production_paused: false,
             exit_delay_remaining: 0.0,
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
