@@ -7096,6 +7096,11 @@ impl PresentationFrame {
                 obj.formation_id = ent.formation_id;
                 dirty = true;
             }
+            let form_off = glam::Vec2::new(ent.formation_offset[0], ent.formation_offset[1]);
+            if (obj.formation_offset - form_off).length_squared() > 1e-8 {
+                obj.formation_offset = form_off;
+                dirty = true;
+            }
             // Wave 996: topple lean + healing icon residual last-writer.
             if (obj.topple_lean_radians - ent.topple_lean_radians).abs() > 1e-5 {
                 obj.topple_lean_radians = ent.topple_lean_radians;
@@ -7526,7 +7531,7 @@ impl PresentationFrame {
             emoticon_frames_left: 0,
             is_surrendered: false,
             formation_id: ent.formation_id,
-            formation_offset: glam::Vec2::ZERO,
+            formation_offset: glam::Vec2::new(ent.formation_offset[0], ent.formation_offset[1]), // Wave 998
             over_water: ent.cell_is_underwater,
             cell_is_cliff: ent.cell_is_cliff,
             cell_is_underwater: ent.cell_is_underwater,
