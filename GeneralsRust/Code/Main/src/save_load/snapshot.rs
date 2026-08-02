@@ -56,6 +56,7 @@
 //! - Full retail Upgrade.ini BuildTime / ProductionUpdate research timers
 //! - Full C++ per-module WeaponSet / SpecialPowerModule / Upgrade Xfer tables
 
+// Wave 956: host_object/host_objects authority dual-read seal.
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use glam::Vec3;
@@ -4122,7 +4123,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<HashMap<ObjectId, ObjectSnapshot>> {
         let mut objects = HashMap::new();
 
-        for (id, object) in game_logic.get_objects() {
+        for (id, object) in game_logic.host_objects() {
             match self.snapshot_object(object) {
                 Ok(snapshot) => {
                     objects.insert(*id, snapshot);
@@ -4373,7 +4374,7 @@ impl SnapshotBuilder {
         let mut unlocked_units = HashSet::new();
         let mut unlocked_buildings = HashSet::new();
 
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team != player.team || !object.is_alive() {
                 continue;
             }
@@ -4405,19 +4406,19 @@ impl SnapshotBuilder {
 
     fn snapshot_population_used(&self, game_logic: &GameLogic, team: Team) -> u32 {
         game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|object| object.team == team && object.is_alive() && object.is_mobile())
             .count() as u32
     }
 
     fn snapshot_player_build_queue(&self, game_logic: &GameLogic, team: Team) -> Vec<String> {
-        let mut object_ids: Vec<ObjectId> = game_logic.get_objects().keys().copied().collect();
+        let mut object_ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
         object_ids.sort_by_key(|id| id.0);
 
         let mut build_queue = Vec::new();
         for object_id in object_ids {
-            let Some(object) = game_logic.find_object(object_id) else {
+            let Some(object) = game_logic.host_object(object_id) else {
                 continue;
             };
             if object.team != team {
@@ -4516,7 +4517,7 @@ impl SnapshotBuilder {
         _game_logic: &GameLogic,
     ) -> SaveLoadResult<ResourceManagerSnapshot> {
         let mut resource_ids: Vec<ObjectId> = _game_logic
-            .get_objects()
+            .host_objects()
             .iter()
             .filter_map(|(id, object)| Self::is_resource_source_object(object).then_some(*id))
             .collect();
@@ -4524,12 +4525,12 @@ impl SnapshotBuilder {
 
         let mut supply_deposits = Vec::new();
         for resource_id in resource_ids {
-            let Some(resource) = _game_logic.find_object(resource_id) else {
+            let Some(resource) = _game_logic.host_object(resource_id) else {
                 continue;
             };
 
             let harvesters = _game_logic
-                .get_objects()
+                .host_objects()
                 .iter()
                 .filter_map(|(id, object)| {
                     (object.target == Some(resource_id)
@@ -4562,7 +4563,7 @@ impl SnapshotBuilder {
             HashMap::new();
 
         let now = game_logic.get_current_frame() as f32 / 30.0;
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.movement.path.len() < 2 {
                 continue;
             }
@@ -4614,14 +4615,14 @@ impl SnapshotBuilder {
         let sim_time = _game_logic.get_current_frame() as f32 / 30.0;
 
         let mut active_combats = Vec::new();
-        for (&attacker_id, attacker) in _game_logic.get_objects() {
+        for (&attacker_id, attacker) in _game_logic.host_objects() {
             if !attacker.is_alive() {
                 continue;
             }
             let Some(target_id) = attacker.target else {
                 continue;
             };
-            let Some(target) = _game_logic.find_object(target_id) else {
+            let Some(target) = _game_logic.host_object(target_id) else {
                 continue;
             };
             if !target.is_alive() {
@@ -4645,7 +4646,7 @@ impl SnapshotBuilder {
         }
 
         let mut recent_deaths = Vec::new();
-        for (&object_id, object) in _game_logic.get_objects() {
+        for (&object_id, object) in _game_logic.host_objects() {
             if !object.status.destroyed {
                 continue;
             }
@@ -4672,7 +4673,7 @@ impl SnapshotBuilder {
         let mut experience_events = Vec::new();
         let mut veterancy_bonuses = HashMap::new();
 
-        for (&object_id, object) in _game_logic.get_objects() {
+        for (&object_id, object) in _game_logic.host_objects() {
             if object.experience.current <= 0.0 && object.experience.level == VeterancyLevel::Rookie
             {
                 continue;
@@ -5211,7 +5212,7 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         let mut resource_ids: Vec<ObjectId> = game_logic
-            .get_objects()
+            .host_objects()
             .iter()
             .filter_map(|(id, object)| Self::is_resource_source_object(object).then_some(*id))
             .collect();
@@ -5224,7 +5225,7 @@ impl SnapshotBuilder {
                 if used.contains(resource_id) {
                     continue;
                 }
-                let Some(object) = game_logic.find_object(*resource_id) else {
+                let Some(object) = game_logic.host_object(*resource_id) else {
                     continue;
                 };
                 let dist_sq = object.get_position().distance_squared(depot.position);
@@ -5317,8 +5318,8 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         for combat in &combat_tracker_snapshot.active_combats {
-            if game_logic.find_object(combat.attacker).is_none()
-                || game_logic.find_object(combat.target).is_none()
+            if game_logic.host_object(combat.attacker).is_none()
+                || game_logic.host_object(combat.target).is_none()
             {
                 continue;
             }

@@ -9,6 +9,8 @@
 //! - poor/wealthy resource thresholds + build-speed modifiers residual
 //! - skirmish base-defense extra distance residual
 
+//!
+//! Wave 956: host_object/host_objects authority dual-read seal.
 use crate::ai::AIDifficulty;
 use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
@@ -128,7 +130,7 @@ fn ensure_human_templates(logic: &mut GameLogic) {
 
 fn count_ai_structures(logic: &GameLogic) -> usize {
     logic
-        .get_objects()
+        .host_objects()
         .values()
         .filter(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure))
         .count()
@@ -136,7 +138,7 @@ fn count_ai_structures(logic: &GameLogic) -> usize {
 
 fn count_ai_units_or_queue(logic: &GameLogic) -> usize {
     logic
-        .get_objects()
+        .host_objects()
         .values()
         .filter(|o| {
             o.team == Team::GLA

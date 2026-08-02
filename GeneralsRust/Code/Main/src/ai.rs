@@ -1,3 +1,4 @@
+//! Wave 956: host_object/host_objects authority dual-read seal.
 use crate::game_logic::host_rng_residual::HostRandomState;
 use crate::game_logic::*;
 use glam::Vec3;
@@ -504,7 +505,7 @@ impl AIPlayer {
         // Update building status
         for building in &mut self.building_queue {
             if let Some(object_id) = building.object_id {
-                if let Some(object) = game_logic.find_object(object_id) {
+                if let Some(object) = game_logic.host_object(object_id) {
                     building.is_built = object.is_constructed();
                 } else {
                     // Building was destroyed — stamp rebuild delay (AIData RebuildDelaySeconds).
@@ -900,7 +901,7 @@ impl AIPlayer {
         // Pure residual acquire: prefer idle factories (priority 0) over busy (1)
         // when busy_ok; nearest 3D tiebreak for stable multi-factory choice.
         let cands: Vec<_> = game_logic
-            .get_objects()
+            .host_objects()
             .iter()
             .filter_map(|(&id, object)| {
                 if object.team != team || !object.is_constructed() || !object.is_alive() {
@@ -1067,7 +1068,7 @@ impl AIPlayer {
     fn calculate_military_strength(&self, game_logic: &GameLogic) -> f32 {
         let mut strength = 0.0;
 
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == self.team && object.is_alive() && object.can_attack() {
                 strength += object.health.current * 0.1; // Basic strength calculation
             }
@@ -1086,7 +1087,7 @@ impl AIPlayer {
 
         let mut strength = 0.0;
 
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == enemy_team && object.is_alive() && object.can_attack() {
                 strength += object.health.current * 0.1;
             }
@@ -1105,7 +1106,7 @@ impl AIPlayer {
 
         // Find our military units
         let mut attack_units = Vec::new();
-        for (object_id, object) in game_logic.get_objects() {
+        for (object_id, object) in game_logic.host_objects() {
             if object.team == self.team
                 && object.is_alive()
                 && object.can_attack()
@@ -1134,7 +1135,7 @@ impl AIPlayer {
                 .and_then(|eid| game_logic.get_player(eid).map(|p| p.team));
             let focus_enemy = enemy_team.and_then(|eteam| {
                 game_logic
-                    .get_objects()
+                    .host_objects()
                     .iter()
                     .filter(|(_, o)| {
                         o.team == eteam
@@ -1157,7 +1158,7 @@ impl AIPlayer {
                 // Pathfind toward enemy base like player AttackMove — bare move_to
                 // straight-lined through buildings and stranded AI armies.
                 let mobile = game_logic
-                    .find_object(unit_id)
+                    .host_object(unit_id)
                     .map(|u| u.is_mobile() && u.is_alive())
                     .unwrap_or(false);
                 if !mobile {
@@ -1191,7 +1192,7 @@ impl AIPlayer {
         let mut count = 0;
 
         // Find enemy command center or other key buildings
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == enemy_team
                 && object.is_alive()
                 && (object.is_kind_of(KindOf::CommandCenter)
@@ -1235,7 +1236,7 @@ impl AIPlayer {
 
         // Count military units
         let military_units = game_logic
-            .get_objects()
+            .host_objects()
             .iter()
             .filter(|(_, obj)| obj.team == self.team && obj.can_attack())
             .count();
@@ -1856,6 +1857,10 @@ mod cpp_parity_tests {
         // Default AI_DECISION_AUTHORITY is on: launch_attack engages host + logs decisions.
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        // Decision logs require coupled shadow writeback frame (live gate).
+        crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+        crate::gameworld_shadow::begin_shadow_coupled_tick();
         host_attack_log::clear();
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
@@ -1943,6 +1948,7 @@ mod cpp_parity_tests {
             "legacy launch_attack must set_target and host_attack_log"
         );
         assert_eq!(unit.ai_state, AIState::AttackMoving);
+        crate::gameworld_shadow::end_shadow_coupled_tick();
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),

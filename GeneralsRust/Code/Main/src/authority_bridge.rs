@@ -1,5 +1,7 @@
 //! Prove host combat/command path without dual-crate tick or engine_object_id.
 
+//!
+//! Wave 956: host_object/host_objects authority dual-read seal.
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{
     AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition,
@@ -94,7 +96,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         .expect("enemy");
 
     // Bridge must stay unused on host authority path.
-    let any_bridged = logic.get_objects().values().any(|_o| false);
+    let any_bridged = logic.host_objects().values().any(|_o| false);
     if any_bridged {
         return (
             false,
@@ -114,14 +116,14 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     ));
     logic.process_commands();
     let moved = logic
-        .get_object(ranger)
+        .host_object(ranger)
         .map(|o| {
             o.ai_state == AIState::Moving || o.movement.target_position.is_some() || o.status.moving
         })
         .unwrap_or(false);
 
     let hp_before = logic
-        .get_object(enemy)
+        .host_object(enemy)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
     // 200 HP / 25 dmg ≈ 8 shots at 1s reload → need ~240+ logic frames.
@@ -134,7 +136,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         ));
         logic.update();
         let still_alive = logic
-            .get_object(enemy)
+            .host_object(enemy)
             .map(|o| o.is_alive())
             .unwrap_or(false);
         if !still_alive {
@@ -143,7 +145,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         }
     }
     let hp_after = logic
-        .get_object(enemy)
+        .host_object(enemy)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
     let damaged = hp_after < hp_before || combat_killed;

@@ -1,3 +1,4 @@
+//! Wave 956: host_object/host_objects authority dual-read seal.
 use crate::game_logic::*;
 use glam::Vec3;
 
@@ -66,7 +67,7 @@ impl AIDecisionSystem {
         if !near.is_empty() {
             return near;
         }
-        game_logic.get_objects().keys().copied().collect()
+        game_logic.host_objects().keys().copied().collect()
     }
 
     pub fn find_nearest_enemy(
@@ -80,7 +81,7 @@ impl AIDecisionSystem {
         let candidates: Vec<_> = Self::candidate_object_ids(game_logic, position, search_radius)
             .into_iter()
             .filter_map(|object_id| {
-                let object = game_logic.find_object(object_id)?;
+                let object = game_logic.host_object(object_id)?;
                 // Skip if not an enemy (includes stealthed-undetected residual gate).
                 if !object.is_targetable_by_enemy_of(team) {
                     return None;
@@ -132,7 +133,7 @@ impl AIDecisionSystem {
             if object_id == attacker_id {
                 continue;
             }
-            let Some(object) = game_logic.find_object(object_id) else {
+            let Some(object) = game_logic.host_object(object_id) else {
                 continue;
             };
             // Skip if not a valid target (stealthed+undetected are not targetable).
@@ -202,12 +203,12 @@ impl AIDecisionSystem {
         target_id: ObjectId,
     ) -> AttackDecision {
         // Get attacker and target
-        let attacker = match game_logic.find_object(attacker_id) {
+        let attacker = match game_logic.host_object(attacker_id) {
             Some(obj) => obj,
             None => return AttackDecision::Hold,
         };
 
-        let target = match game_logic.find_object(target_id) {
+        let target = match game_logic.host_object(target_id) {
             Some(obj) => obj,
             None => return AttackDecision::FindNewTarget,
         };
@@ -287,7 +288,7 @@ impl AIDecisionSystem {
 
         // Count existing military units for this team
         let military_count = game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|obj| obj.team == team && obj.is_alive() && obj.can_attack())
             .count();
@@ -416,7 +417,7 @@ impl AIDecisionSystem {
         let mut has_anti_armor = false;
 
         for object_id in Self::candidate_object_ids(game_logic, position, scan_radius) {
-            let Some(object) = game_logic.find_object(object_id) else {
+            let Some(object) = game_logic.host_object(object_id) else {
                 continue;
             };
             // Skip non-enemies
@@ -544,7 +545,7 @@ impl AIDecisionSystem {
     ) -> u32 {
         let mut count = 0;
 
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == team && object.is_alive() {
                 if let Some(current_target) = object.target {
                     if current_target == target_id {
@@ -569,7 +570,7 @@ impl AIDecisionSystem {
             Self::find_nearest_enemy(game_logic, current_position, team, search_radius)?;
 
         // Get enemy position
-        let enemy = game_logic.find_object(enemy_id)?;
+        let enemy = game_logic.host_object(enemy_id)?;
         let enemy_pos = enemy.get_position();
 
         // If enemy is close, move to their position
@@ -592,7 +593,7 @@ impl AIDecisionSystem {
         player_id: u32,
     ) -> bool {
         // Get building
-        let building = match game_logic.find_object(building_id) {
+        let building = match game_logic.host_object(building_id) {
             Some(obj) => obj,
             None => return false,
         };

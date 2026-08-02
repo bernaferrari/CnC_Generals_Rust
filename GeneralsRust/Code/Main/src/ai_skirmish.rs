@@ -1,3 +1,4 @@
+//! Wave 956: host_object/host_objects authority dual-read seal.
 use crate::ai::*;
 use crate::game_logic::*;
 use glam::Vec3;
@@ -408,7 +409,7 @@ impl AISkirmishPlayer {
             intel.military_strength = 0.0;
             let mut base_locations = Vec::new();
 
-            for object in game_logic.get_objects().values() {
+            for object in game_logic.host_objects().values() {
                 if object.team == player.team && object.is_alive() {
                     if object.can_attack() {
                         intel.military_strength += object.health.current * 0.1;
@@ -467,7 +468,7 @@ impl AISkirmishPlayer {
         };
 
         // Try to find an existing unit to reassign
-        for (object_id, object) in game_logic.get_objects() {
+        for (object_id, object) in game_logic.host_objects() {
             if object.team == self.base.team
                 && object.is_alive()
                 && object.is_mobile()
@@ -498,7 +499,7 @@ impl AISkirmishPlayer {
 
         // Update areas around scout units
         for &scout_id in &self.scout_units {
-            if let Some(scout) = game_logic.find_object(scout_id) {
+            if let Some(scout) = game_logic.host_object(scout_id) {
                 if scout.is_alive() {
                     let scout_pos = scout.get_position();
 
@@ -553,7 +554,7 @@ impl AISkirmishPlayer {
         radius: f32,
         own_team: Team,
     ) -> bool {
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team != own_team
                 && object.is_alive()
                 && object.get_position().distance(center) <= radius
@@ -617,7 +618,7 @@ impl AISkirmishPlayer {
             position.threat_level = 0.0;
 
             // Check for nearby enemies
-            for object in game_logic.get_objects().values() {
+            for object in game_logic.host_objects().values() {
                 if object.team != self.base.team && object.is_alive() && object.can_attack() {
                     let distance = object.get_position().distance(position.position);
                     if distance < 200.0 {
@@ -695,7 +696,7 @@ impl AISkirmishPlayer {
         // Find units that can be used for defense
         let mut available_defenders = Vec::new();
 
-        for (object_id, object) in game_logic.get_objects() {
+        for (object_id, object) in game_logic.host_objects() {
             if object.team == self.base.team
                 && object.is_alive()
                 && object.can_attack()
@@ -716,7 +717,7 @@ impl AISkirmishPlayer {
                 defender_index += 1;
 
                 // Command unit to move to defensive position
-                if let Some(_defender) = game_logic.find_object(defender_id) {
+                if let Some(_defender) = game_logic.host_object(defender_id) {
                     // In a real implementation, we would command the unit to move
                     log::debug!(
                         "AI Player {} assigning unit {} to defend position {:?}",
@@ -769,7 +770,7 @@ impl AISkirmishPlayer {
         for (i, group) in self.attack_groups.iter_mut().enumerate() {
             // Remove dead units from group
             group.units.retain(|&unit_id| {
-                if let Some(unit) = game_logic.find_object(unit_id) {
+                if let Some(unit) = game_logic.host_object(unit_id) {
                     unit.is_alive()
                 } else {
                     false
@@ -819,7 +820,7 @@ impl AISkirmishPlayer {
         let mut at_objective = true;
 
         for &unit_id in &group.units {
-            if let Some(unit) = game_logic.find_object(unit_id) {
+            if let Some(unit) = game_logic.host_object(unit_id) {
                 // Check if unit is fighting
                 if unit.status.attacking || unit.target.is_some() {
                     in_combat = true;
@@ -877,7 +878,7 @@ impl AISkirmishPlayer {
     fn find_idle_military_units(&self, game_logic: &GameLogic) -> Vec<ObjectId> {
         let mut idle_units = Vec::new();
 
-        for (object_id, object) in game_logic.get_objects() {
+        for (object_id, object) in game_logic.host_objects() {
             if object.team == self.base.team
                 && object.is_alive()
                 && object.can_attack()
@@ -904,7 +905,7 @@ impl AISkirmishPlayer {
         }
 
         // Fallback to enemy units
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team != self.base.team && object.is_alive() {
                 return object.get_position();
             }
@@ -973,7 +974,7 @@ impl AISkirmishPlayer {
     fn calculate_supply_income(&self, game_logic: &GameLogic) -> i32 {
         let mut income = 0;
 
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == self.base.team
                 && object.is_alive()
                 && object.is_constructed()
@@ -991,7 +992,7 @@ impl AISkirmishPlayer {
         let mut consumption = 0;
 
         // Count units that consume supplies
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == self.base.team && object.is_alive() {
                 if object.is_kind_of(KindOf::Infantry) {
                     consumption += 1;
@@ -1044,7 +1045,7 @@ impl AISkirmishPlayer {
         let mut security = 100.0;
 
         // Reduce security based on nearby enemies
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team != own_team && object.is_alive() && object.can_attack() {
                 let distance = object.get_position().distance(position);
                 if distance < 300.0 {
@@ -1137,7 +1138,7 @@ impl AISkirmishPlayer {
     /// Count military units
     fn count_military_units(&self, game_logic: &GameLogic) -> u32 {
         let mut count = 0;
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == self.base.team && object.is_alive() && object.can_attack() {
                 count += 1;
             }
@@ -1148,7 +1149,7 @@ impl AISkirmishPlayer {
     /// Count economic structures
     fn count_economic_structures(&self, game_logic: &GameLogic) -> u32 {
         let mut count = 0;
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == self.base.team
                 && object.is_alive()
                 && (object.is_kind_of(KindOf::SupplyCenter)
@@ -1261,7 +1262,7 @@ impl AISkirmishPlayer {
         let mut value = 0.0;
         let range = 100.0; // Superweapon effective radius
 
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team != self.base.team
                 && object.is_alive()
                 && object.get_position().distance(position) <= range
@@ -1320,7 +1321,7 @@ impl AISkirmishPlayer {
         for (group_name, group) in &mut self.combat_groups {
             // Remove dead units
             group.units.retain(|&unit_id| {
-                if let Some(unit) = game_logic.find_object(unit_id) {
+                if let Some(unit) = game_logic.host_object(unit_id) {
                     unit.is_alive()
                 } else {
                     false
@@ -1354,7 +1355,7 @@ impl AISkirmishPlayer {
         let mut unit_count = 0;
 
         for &unit_id in units {
-            if let Some(unit) = game_logic.find_object(unit_id) {
+            if let Some(unit) = game_logic.host_object(unit_id) {
                 // Factor in health, veterancy, and weapon effectiveness
                 let health_factor = unit.health.percentage();
                 let veterancy_factor = match unit.experience.level {
@@ -1379,7 +1380,7 @@ impl AISkirmishPlayer {
     /// Manage unit veterancy and experience system
     fn manage_veterancy_system(&mut self, game_logic: &GameLogic) {
         // Promote experienced units to special roles
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team == self.base.team
                 && object.is_alive()
                 && object.experience.level != VeterancyLevel::Rookie
@@ -1466,7 +1467,7 @@ impl AISkirmishPlayer {
         let mut total_health = 0.0;
 
         for &unit_id in units {
-            if let Some(unit) = game_logic.find_object(unit_id) {
+            if let Some(unit) = game_logic.host_object(unit_id) {
                 total_health += unit.health.current;
             }
         }
@@ -1487,7 +1488,7 @@ impl AISkirmishPlayer {
     ) -> f32 {
         let mut strength = 0.0;
 
-        for object in game_logic.get_objects().values() {
+        for object in game_logic.host_objects().values() {
             if object.team != own_team
                 && object.is_alive()
                 && object.can_attack()
