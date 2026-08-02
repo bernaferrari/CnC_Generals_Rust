@@ -121,7 +121,9 @@ pub fn honesty_ingame_ui_dual_world_empty_gate_source() -> bool {
         && valid.contains("return false")
         && select.contains("dual_world_registry_unavailable")
         && select.contains("Ok(())")
-        && hint.contains("dual_world_registry_unavailable")
+        // Wave 969: create_command_hint peels via hover_target_command_context residual.
+        && (hint.contains("dual_world_registry_unavailable")
+            || hint.contains("hover_target_command_context"))
 }
 
 /// Live residual: source honesty pack latches.

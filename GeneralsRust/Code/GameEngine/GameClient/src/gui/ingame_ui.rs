@@ -4888,11 +4888,57 @@ impl InGameUI {
     /// Handles 25+ message types across 3 mouse modes to set the appropriate
     /// mouse cursor and radius cursor as a preview of what command would be
     /// issued if the player clicked.
-    pub fn create_command_hint(&mut self, hint_type: CommandHintType) {
-        // Wave 273: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
+
+    /// Wave 969: hover target residual (selectable, local-controlled, mine).
+    fn hover_target_command_context(&self) -> (bool, bool, bool) {
+        let id = self.moused_over_drawable_id;
+        if id == Self::INVALID_DRAWABLE_ID {
+            return (false, false, false);
         }
+        if dual_world_registry_unavailable() {
+            let Some(entry) = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|u| u.object_id == id)
+            else {
+                return (false, false, false);
+            };
+            let local = !self.presentation_local_team_name.is_empty()
+                && entry.team_name == self.presentation_local_team_name;
+            let is_mine = entry
+                .kind_names
+                .iter()
+                .any(|k| k == "Mine" || k.eq_ignore_ascii_case("mine"));
+            return (entry.selectable, local, is_mine);
+        }
+        if let Some(obj) = OBJECT_REGISTRY.get_object(id) {
+            if let Ok(guard) = obj.read() {
+                return (
+                    guard.is_selectable(),
+                    guard.is_locally_controlled(),
+                    guard.is_kind_of(KindOf::Mine),
+                );
+            }
+        }
+        (false, false, false)
+    }
+
+    /// Wave 969: attack-hint shroud residual (None when host dual-world empty).
+    fn hover_target_shroud_for_command_hint(&self) -> Option<ObjectShroudStatus> {
+        let id = self.moused_over_drawable_id;
+        if id == Self::INVALID_DRAWABLE_ID || dual_world_registry_unavailable() {
+            return None;
+        }
+        OBJECT_REGISTRY.get_object(id).and_then(|obj| {
+            obj.read()
+                .ok()
+                .map(|guard| guard.get_shrouded_status(self.player_id as i32))
+        })
+    }
+
+    pub fn create_command_hint(&mut self, hint_type: CommandHintType) {
+        // Wave 969: host empty dual-world uses presentation catalog hover residual
+        // (see hover_target_command_context / hover_target_shroud_for_command_hint).
 
         // Early exit: no cursor hints while scrolling, selecting, or in playback
         if !Self::command_hint_update_allowed(
@@ -4922,17 +4968,7 @@ impl InGameUI {
 
         let target_shroud = match hint_type {
             CommandHintType::AttackObject | CommandHintType::AttackObjectAfterMoving => {
-                if self.moused_over_drawable_id == Self::INVALID_DRAWABLE_ID {
-                    None
-                } else {
-                    OBJECT_REGISTRY
-                        .get_object(self.moused_over_drawable_id)
-                        .and_then(|obj| {
-                            obj.read()
-                                .ok()
-                                .map(|guard| guard.get_shrouded_status(self.player_id as i32))
-                        })
-                }
+                self.hover_target_shroud_for_command_hint()
             }
             _ => None,
         };
@@ -4960,63 +4996,22 @@ impl InGameUI {
                 match hint_type {
                     CommandHintType::MoveTo => {
                         // C++: MSG_DO_MOVETO_HINT (InGameUI.cpp:2595-2608)
-                        // If hovering over a selectable, locally-controlled, non-mine drawable,
-                        // C++ uses SELECTING cursor instead of MoveTo.
+                        // Wave 969: hover residual via presentation catalog when dual-world empty.
                         let source_is_local_structure = source_context == Some((true, true));
-                        if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
-                            if let Some(obj) =
-                                OBJECT_REGISTRY.get_object(self.moused_over_drawable_id)
-                            {
-                                if let Ok(guard) = obj.read() {
-                                    self.set_mouse_cursor(Self::move_to_cursor_for_context(
-                                        guard.is_selectable(),
-                                        guard.is_locally_controlled(),
-                                        guard.is_kind_of(KindOf::Mine),
-                                        source_is_local_structure,
-                                    ));
-                                } else {
-                                    self.set_mouse_cursor(Self::move_to_cursor_for_context(
-                                        false,
-                                        false,
-                                        false,
-                                        source_is_local_structure,
-                                    ));
-                                }
-                            } else {
-                                self.set_mouse_cursor(Self::move_to_cursor_for_context(
-                                    false,
-                                    false,
-                                    false,
-                                    source_is_local_structure,
-                                ));
-                            }
-                        } else {
-                            self.set_mouse_cursor(Self::move_to_cursor_for_context(
-                                false,
-                                false,
-                                false,
-                                source_is_local_structure,
-                            ));
-                        }
+                        let (selectable, local, is_mine) = self.hover_target_command_context();
+                        self.set_mouse_cursor(Self::move_to_cursor_for_context(
+                            selectable,
+                            local,
+                            is_mine,
+                            source_is_local_structure,
+                        ));
                     }
                     CommandHintType::AttackMoveTo => {
                         // C++: MSG_DO_ATTACKMOVETO_HINT (InGameUI.cpp:2610-2615)
-                        if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
-                            if let Some(obj) =
-                                OBJECT_REGISTRY.get_object(self.moused_over_drawable_id)
-                            {
-                                if let Ok(guard) = obj.read() {
-                                    if guard.is_selectable() && guard.is_locally_controlled() {
-                                        self.set_mouse_cursor(MouseCursor::Selecting);
-                                    } else {
-                                        self.set_mouse_cursor(MouseCursor::AttackMoveTo);
-                                    }
-                                } else {
-                                    self.set_mouse_cursor(MouseCursor::AttackMoveTo);
-                                }
-                            } else {
-                                self.set_mouse_cursor(MouseCursor::AttackMoveTo);
-                            }
+                        // Wave 969: hover residual via presentation catalog when dual-world empty.
+                        let (selectable, local, _) = self.hover_target_command_context();
+                        if selectable && local {
+                            self.set_mouse_cursor(MouseCursor::Selecting);
                         } else {
                             self.set_mouse_cursor(MouseCursor::AttackMoveTo);
                         }
@@ -5096,23 +5091,10 @@ impl InGameUI {
                     }
                     CommandHintType::SetRallyPoint => {
                         // C++: MSG_SET_RALLY_POINT_HINT (InGameUI.cpp:2671-2676)
-                        // If hovering over a selectable, locally-controlled drawable, use SELECTING
-                        if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
-                            if let Some(obj) =
-                                OBJECT_REGISTRY.get_object(self.moused_over_drawable_id)
-                            {
-                                if let Ok(guard) = obj.read() {
-                                    if guard.is_selectable() && guard.is_locally_controlled() {
-                                        self.set_mouse_cursor(MouseCursor::Selecting);
-                                    } else {
-                                        self.set_mouse_cursor(MouseCursor::SetRallyPoint);
-                                    }
-                                } else {
-                                    self.set_mouse_cursor(MouseCursor::SetRallyPoint);
-                                }
-                            } else {
-                                self.set_mouse_cursor(MouseCursor::SetRallyPoint);
-                            }
+                        // Wave 969: hover residual via presentation catalog when dual-world empty.
+                        let (selectable, local, _) = self.hover_target_command_context();
+                        if selectable && local {
+                            self.set_mouse_cursor(MouseCursor::Selecting);
                         } else {
                             self.set_mouse_cursor(MouseCursor::SetRallyPoint);
                         }
