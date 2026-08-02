@@ -1,0 +1,69 @@
+//! Wave 973: presentation residual for host message-stream translators.
+//!
+//! When OBJECT_REGISTRY is empty, translators answer relationship/kind/mine
+//! queries from the stamped unit catalog residual instead of dual-world factory
+//! objects. playable_claim stays false.
+
+use std::sync::RwLock;
+
+use once_cell::sync::Lazy;
+
+/// Thin catalog entry for translator residual queries.
+#[derive(Debug, Clone)]
+pub struct TranslatorCatalogEntry {
+    pub object_id: u32,
+    pub team_name: String,
+    pub selectable: bool,
+    pub kind_names: Vec<String>,
+    pub special_power_ready: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TranslatorPresentationResidual {
+    pub local_team_name: String,
+    pub catalog: Vec<TranslatorCatalogEntry>,
+}
+
+static RESIDUAL: Lazy<RwLock<TranslatorPresentationResidual>> =
+    Lazy::new(|| RwLock::new(TranslatorPresentationResidual::default()));
+
+/// Stamp host presentation residual used by message-stream translators.
+pub fn set_translator_presentation_residual(
+    local_team_name: impl Into<String>,
+    catalog: Vec<TranslatorCatalogEntry>,
+) {
+    if let Ok(mut guard) = RESIDUAL.write() {
+        guard.local_team_name = local_team_name.into();
+        guard.catalog = catalog;
+    }
+}
+
+pub fn translator_local_team_name() -> String {
+    RESIDUAL
+        .read()
+        .ok()
+        .map(|g| g.local_team_name.clone())
+        .unwrap_or_default()
+}
+
+pub fn translator_catalog_entry(object_id: u32) -> Option<TranslatorCatalogEntry> {
+    RESIDUAL
+        .read()
+        .ok()
+        .and_then(|g| g.catalog.iter().find(|e| e.object_id == object_id).cloned())
+}
+
+pub fn translator_catalog_has_kind(object_id: u32, kind_name: &str) -> bool {
+    translator_catalog_entry(object_id)
+        .map(|e| {
+            e.kind_names
+                .iter()
+                .any(|k| k == kind_name || k.eq_ignore_ascii_case(kind_name))
+        })
+        .unwrap_or(false)
+}
+
+pub fn translator_entry_is_local(entry: &TranslatorCatalogEntry) -> bool {
+    let local = translator_local_team_name();
+    !local.is_empty() && entry.team_name == local
+}

@@ -60,6 +60,7 @@ pub mod language_filter;
 pub mod line2_d;
 pub mod map_util;
 pub mod parabolic_ease;
+pub mod presentation_translator_residual;
 pub mod radius_decal;
 pub mod selection_info;
 pub mod snow;

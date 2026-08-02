@@ -1268,6 +1268,10 @@ impl InGameUISubsystem {
         self.presentation_local_team_name = team_name.into();
     }
 
+    pub fn presentation_local_team_name(&self) -> &str {
+        &self.presentation_local_team_name
+    }
+
     pub fn presentation_unit_catalog(
         &self,
     ) -> &[crate::gui::ingame_ui::PresentationUnitCatalogEntry] {

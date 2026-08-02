@@ -26,6 +26,10 @@ use crate::gui::window_manager::with_window_manager_ref;
 use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
+use crate::presentation_translator_residual::{
+    translator_catalog_entry, translator_catalog_has_kind, translator_entry_is_local,
+    translator_local_team_name,
+};
 use crate::system::beacon_display;
 use crate::system::GameMessageResult;
 use game_engine::common::game_engine::get_game_engine;
@@ -752,8 +756,23 @@ fn pending_command_accepts_position(options: u32) -> bool {
 }
 
 fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<Relationship> {
-    if local_player_id < 0 || dual_world_registry_unavailable() {
+    if local_player_id < 0 {
         return None;
+    }
+    // Wave 973: host empty dual-world → team residual relationship.
+    if dual_world_registry_unavailable() {
+        let entry = translator_catalog_entry(target_id)?;
+        let local = translator_local_team_name();
+        if local.is_empty() {
+            return None;
+        }
+        return Some(if entry.team_name == local {
+            Relationship::Allies
+        } else if entry.team_name == "Neutral" || local == "Neutral" {
+            Relationship::Neutral
+        } else {
+            Relationship::Enemies
+        });
     }
 
     let target = OBJECT_REGISTRY.get_object(target_id)?;
@@ -771,9 +790,11 @@ fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<R
 }
 
 fn is_prisoner_target(target_id: ObjectID) -> bool {
-    // Wave 249: host empty dual-world short-circuit.
+    // Wave 973: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
-        return false;
+        return translator_catalog_has_kind(target_id, "CanSurrender")
+            || translator_catalog_has_kind(target_id, "Prison")
+            || translator_catalog_has_kind(target_id, "PowTruck");
     }
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
@@ -1254,8 +1275,18 @@ fn selection_source_object_id(
     selection: &HashSet<ObjectID>,
     local_player_u32: Option<u32>,
 ) -> ObjectID {
-    // Wave 249: host empty dual-world short-circuit.
-    if selection.is_empty() || dual_world_registry_unavailable() {
+    // Wave 973: host empty dual-world → prefer local-team catalog residual.
+    if selection.is_empty() {
+        return 0;
+    }
+    if dual_world_registry_unavailable() {
+        for &id in selection {
+            if let Some(e) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&e) {
+                    return id;
+                }
+            }
+        }
         return selection.iter().next().copied().unwrap_or(0);
     }
     for &id in selection {
@@ -1772,9 +1803,13 @@ fn pick_context_target_for_click(
 }
 
 fn is_locally_controlled_mine_target(object_id: ObjectID) -> bool {
-    // Wave 249: host empty dual-world short-circuit.
+    // Wave 973: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
-        return false;
+        return translator_catalog_entry(object_id)
+            .map(|e| {
+                translator_entry_is_local(&e) && translator_catalog_has_kind(object_id, "Mine")
+            })
+            .unwrap_or(false);
     }
     OBJECT_REGISTRY
         .get_object(object_id)

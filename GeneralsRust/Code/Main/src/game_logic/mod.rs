@@ -386,6 +386,7 @@ pub mod host_live_host_train_auto_target_host_fallback_residual_wave834;
 pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
 pub mod host_live_host_train_producer_residual_wave848;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
+pub mod host_live_host_translator_catalog_residual_wave973;
 pub mod host_live_host_ui_framework_clippy_residual_wave881;
 pub mod host_live_host_ui_minimap_presentation_peel_residual_wave952;
 pub mod host_live_host_ui_observe_failclosed_residual_wave905;
@@ -3333,6 +3334,13 @@ pub use host_live_host_drawable_icon_pip_residual_wave972::{
     honesty_host_drawable_icon_pip_residual_nav_commands_residual_wave972,
     honesty_host_drawable_icon_pip_residual_residual_pack_wave972,
     simulate_live_host_drawable_icon_pip_residual_honesty,
+};
+
+pub use host_live_host_translator_catalog_residual_wave973::{
+    honesty_host_translator_catalog_method_names_residual_wave973,
+    honesty_host_translator_catalog_nav_commands_residual_wave973,
+    honesty_host_translator_catalog_residual_pack_wave973,
+    simulate_live_host_translator_catalog_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
