@@ -146,6 +146,27 @@ impl Default for SciencePurchaseState {
     }
 }
 
+/// Wave 985: host residual production pause requests (producer_id, paused).
+static HOST_PRODUCTION_PAUSE_QUEUE: std::sync::Mutex<Vec<(u32, bool)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Queue host production pause residual for Main GameLogic drain.
+pub fn queue_host_production_pause(producer_id: u32, paused: bool) {
+    if let Ok(mut q) = HOST_PRODUCTION_PAUSE_QUEUE.lock() {
+        // Last write for same producer wins.
+        q.retain(|(id, _)| *id != producer_id);
+        q.push((producer_id, paused));
+    }
+}
+
+/// Drain host production pause residual queue.
+pub fn take_host_production_pause_requests() -> Vec<(u32, bool)> {
+    HOST_PRODUCTION_PAUSE_QUEUE
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
 pub struct ControlBar {
     context: Arc<RwLock<ControlBarContext>>,
     window_manager: Option<Arc<WindowManager>>,
@@ -1649,9 +1670,12 @@ impl ControlBar {
             return Ok(());
         };
 
-        // Dual-world residual only. Host production pause is driven by Main command path.
+        // Dual-world residual: live production modules when registry is bound.
         if OBJECT_REGISTRY.get_object(producer_id).is_some() {
             Self::set_object_production_paused(producer_id, paused);
+        } else {
+            // Wave 985: host empty dual-world → queue residual for Main BuildingData.
+            queue_host_production_pause(producer_id, paused);
         }
         Ok(())
     }
