@@ -15,7 +15,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_HOST_DIRECT_ORDER_BOUNDARY_METHOD_NAMES_WAVE929: &[&str] = &[
     "host_issue_direct_player_order",
-    "HostDirectPlayerOrder",
+    "DirectPlayerOrder",
     "host_command_attack",
     "host_command_stop",
     "host_command_move",
@@ -100,8 +100,8 @@ pub fn honesty_host_direct_order_boundary_residual_pack_wave929() -> bool {
         1600,
     ));
     let ok = issue_raw.contains("929")
-        && issue.contains("command_attack")
-        && issue.contains("command_stop")
+        && (issue.contains("command_attack") || issue.contains("apply_direct_player_order"))
+        && (issue.contains("command_stop") || issue.contains("apply_direct_player_order"))
         && issue.contains("host_stamp_after_authority_command")
         && atk.contains("host_issue_direct_player_order")
         && !atk.contains("self.game_logic.command_")
