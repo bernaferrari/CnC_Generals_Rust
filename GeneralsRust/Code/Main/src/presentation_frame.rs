@@ -248,6 +248,11 @@ pub struct RenderableObject {
     /// Wave 982: producer/slaver residual for IgnoredInGui mouseover remap.
     #[serde(default)]
     pub producer_id: Option<ObjectId>,
+    /// Wave 983: healing icon residual (sole-benefactor / heal timer).
+    #[serde(default)]
+    pub show_healing: bool,
+    #[serde(default)]
+    pub healing_icon_type: u8,
     /// Wave 505: C++ OBJECT_STATUS_PARACHUTING residual.
     pub parachuting: bool,
     /// Wave 509: C++ parachute open residual (false + parachuting => FREEFALL).
@@ -3615,6 +3620,19 @@ impl PresentationFrame {
                 using_ability: obj.status.using_ability,
                 airborne_target: obj.status.airborne_target,
                 producer_id: obj.producer_id,
+                show_healing: {
+                    // C++ HEALING_ICON_DISPLAY_TIME residual via sole-benefactor claim window.
+                    let now = logic.get_current_frame() as u32;
+                    obj.sole_healing_benefactor_expiration_frame > now
+                        && obj.sole_healing_benefactor_expiration_frame != 0
+                },
+                healing_icon_type: if obj.is_kind_of(KindOf::Structure) {
+                    1
+                } else if obj.is_kind_of(KindOf::Vehicle) {
+                    2
+                } else {
+                    0
+                },
                 parachuting: obj.is_parachuting(),
                 parachute_open: obj.is_parachute_open(),
                 captured: obj.has_captured_model_condition() || obj.is_private_captured(),
@@ -7321,6 +7339,8 @@ impl PresentationFrame {
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
             producer_id: None, // Wave 982: GW entity producer residual not yet mirrored.
+            show_healing: false,
+            healing_icon_type: 0,
             parachuting: ent.parachuting,
             parachute_open: ent.parachute_open,
             captured: false,

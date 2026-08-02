@@ -1711,8 +1711,11 @@ pub struct BasicDrawable {
     presentation_disabled: bool,
     presentation_is_carbomb: bool,
     presentation_weapon_bonus_enthusiastic: bool,
+    /// Wave 983: host healing icon residual.
+    presentation_show_healing: bool,
+    presentation_healing_icon_type: u8,
 
-    /// Animation loop duration in frames (matches C++ setAnimationLoopDuration)
+    /// Animation loop duration in frames setAnimationLoopDuration)
     animation_loop_duration: u32,
     /// Animation completion time in frames (matches C++ setAnimationCompletionTime)
     animation_completion_time: u32,
@@ -1817,6 +1820,8 @@ impl BasicDrawable {
             presentation_disabled: false,
             presentation_is_carbomb: false,
             presentation_weapon_bonus_enthusiastic: false,
+            presentation_show_healing: false,
+            presentation_healing_icon_type: 0,
 
             animation_loop_duration: 0,
             animation_completion_time: 0,
@@ -1889,6 +1894,8 @@ impl BasicDrawable {
         is_carbomb: bool,
         weapon_bonus_enthusiastic: bool,
         orientation: f32,
+        show_healing: bool,
+        healing_icon_type: u8,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
@@ -1907,6 +1914,8 @@ impl BasicDrawable {
         self.presentation_disabled = disabled;
         self.presentation_is_carbomb = is_carbomb;
         self.presentation_weapon_bonus_enthusiastic = weapon_bonus_enthusiastic;
+        self.presentation_show_healing = show_healing;
+        self.presentation_healing_icon_type = healing_icon_type;
         self.hidden_by_stealth = effectively_stealthed;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
@@ -2086,6 +2095,8 @@ impl BasicDrawable {
         // Wave 977: host empty dual-world → presentation occupant residual only.
         // Full contained-drawable flash walk needs dual-world factory objects.
         if dual_world_registry_unavailable() {
+            // Wave 983: occupant residual already drives contain pips; contained-unit
+            // flash walk remains dual-world (no contained drawable IDs on host).
             let _ = (
                 object_id,
                 self.presentation_occupant_count,
@@ -3070,9 +3081,10 @@ impl BasicDrawable {
     }
 
     pub fn draw_healing(&mut self, _health_region: &IRegion2D) {
-        // Wave 972: host empty dual-world → no heal-timer residual yet (fail-closed icon).
+        // Wave 983: host empty dual-world → presentation healing residual.
         if dual_world_registry_unavailable() {
-            self.overlay_data.show_healing = false;
+            self.overlay_data.show_healing = self.presentation_show_healing;
+            self.overlay_data.healing_icon_type = self.presentation_healing_icon_type;
             return;
         }
 

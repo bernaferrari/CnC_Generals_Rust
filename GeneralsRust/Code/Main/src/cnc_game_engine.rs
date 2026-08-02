@@ -20143,6 +20143,9 @@ impl CnCGameEngine {
                     disabled: o.disabled,
                     is_carbomb: o.is_carbomb,
                     weapon_bonus_enthusiastic: o.weapon_bonus_enthusiastic,
+                    // Wave 983: healing icon residual.
+                    show_healing: o.show_healing,
+                    healing_icon_type: o.healing_icon_type,
                 }
             });
             let (created, updated, pruned) =
