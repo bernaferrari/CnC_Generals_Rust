@@ -1686,6 +1686,17 @@ pub struct BasicDrawable {
     current_frame: u32,
     /// Model condition flags for animation state (matches C++ m_conditionState)
     model_condition_flags: ModelConditionBitFlags,
+    /// Wave 965: presentation KindOf Debug names (host empty dual-world).
+    presentation_kind_names: Vec<String>,
+    /// Wave 965: presentation team indicator residual.
+    presentation_indicator_color: Option<(u8, u8, u8)>,
+    /// Wave 965: presentation stealth residual.
+    presentation_effectively_stealthed: bool,
+    /// Wave 965: presentation health fraction 0..1.
+    presentation_health_pct: f32,
+    /// Wave 965: presentation selected residual.
+    presentation_selected: bool,
+
     /// Animation loop duration in frames (matches C++ setAnimationLoopDuration)
     animation_loop_duration: u32,
     /// Animation completion time in frames (matches C++ setAnimationCompletionTime)
@@ -1775,6 +1786,12 @@ impl BasicDrawable {
             custom_sound_ambient_dynamic_info: None,
             current_frame: 0,
             model_condition_flags: create_model_condition_flags(),
+            presentation_kind_names: Vec::new(),
+            presentation_indicator_color: None,
+            presentation_effectively_stealthed: false,
+            presentation_health_pct: 0.0,
+            presentation_selected: false,
+
             animation_loop_duration: 0,
             animation_completion_time: 0,
             overlay_data: DrawableOverlayData::default(),
@@ -1825,6 +1842,26 @@ impl BasicDrawable {
         set: &ModelConditionBitFlags,
     ) {
         self.model_condition_flags.clear_and_set(clr, set);
+    }
+
+    /// Wave 965: stamp host presentation residual (no OBJECT_REGISTRY dual-world).
+    pub fn set_presentation_host_residual(
+        &mut self,
+        kind_names: Vec<String>,
+        indicator_color: Option<(u8, u8, u8)>,
+        effectively_stealthed: bool,
+        health_pct: f32,
+        selected: bool,
+    ) {
+        self.presentation_kind_names = kind_names;
+        self.presentation_indicator_color = indicator_color;
+        self.presentation_effectively_stealthed = effectively_stealthed;
+        self.presentation_health_pct = health_pct.clamp(0.0, 1.0);
+        self.presentation_selected = selected;
+        self.hidden_by_stealth = effectively_stealthed;
+        if let Some(color) = indicator_color {
+            self.set_indicator_color(Some(color));
+        }
     }
 
     /// C++ parity: `Drawable::reactToBodyDamageStateChange` (Drawable.cpp:1077-1101).
@@ -2144,9 +2181,13 @@ impl BasicDrawable {
     }
 
     fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
-        // Wave 270: empty dual-world → fail-closed.
+        // Wave 965: host empty dual-world → presentation kind residual.
         if dual_world_registry_unavailable() {
-            return false;
+            let name = format!("{kind:?}");
+            return self
+                .presentation_kind_names
+                .iter()
+                .any(|k| k == &name || k.eq_ignore_ascii_case(&name));
         }
 
         self.object_id.is_some_and(|obj_id| {
@@ -2157,8 +2198,11 @@ impl BasicDrawable {
     }
 
     fn object_stealth_visuals(&self) -> Option<(bool, f32)> {
-        // Wave 270: empty dual-world → None.
+        // Wave 965: host empty dual-world → presentation stealth residual.
         if dual_world_registry_unavailable() {
+            if self.presentation_effectively_stealthed {
+                return Some((true, 0.5));
+            }
             return None;
         }
 
@@ -2271,9 +2315,9 @@ impl BasicDrawable {
     }
 
     fn bound_object_indicator_color(&self) -> Option<(u8, u8, u8)> {
-        // Wave 270: empty dual-world → None.
+        // Wave 965: host empty dual-world → presentation team color residual.
         if dual_world_registry_unavailable() {
-            return None;
+            return self.presentation_indicator_color;
         }
 
         let object_id = self.object_id?;
@@ -2684,9 +2728,10 @@ impl BasicDrawable {
     }
 
     fn compute_health_region_from_object(&self) -> Option<IRegion2D> {
-        // Wave 270: empty dual-world → None.
+        // Wave 965: host empty dual-world → honor seeded overlay health region only.
+        // Presentation health fraction is stamped; screen region still needs view.
         if dual_world_registry_unavailable() {
-            return None;
+            return self.overlay_data.health_region;
         }
 
         let obj_id = self.object_id?;
