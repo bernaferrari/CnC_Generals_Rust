@@ -3069,6 +3069,38 @@ pub enum SessionControlOp {
     },
 }
 
+/// Wave 934: host-support residual authority payload (barracks/supplies/shell/destroy/template).
+#[derive(Debug, Clone)]
+pub enum HostSupportOp {
+    EnsureBarracksBuildingData {
+        id: ObjectId,
+    },
+    ForceEnsureBarracksBuildingData {
+        id: ObjectId,
+    },
+    EnsurePlayerMinSupplies {
+        player_id: u32,
+        floor: u32,
+    },
+    UpdateShellWithBudget {
+        dt: f32,
+        budget: usize,
+    },
+    ProcessDestroyListIfNeeded,
+    InsertThingTemplate {
+        name: String,
+        template: ThingTemplate,
+    },
+}
+
+/// Wave 934: heterogeneous result for [`HostSupportOp`].
+#[derive(Debug, Clone, Copy)]
+pub enum HostSupportResult {
+    Bool(bool),
+    Snapshot(SimTimingSnapshot),
+    Unit,
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27638,6 +27670,34 @@ impl GameLogic {
             }
             SessionControlOp::OverrideWorldSize { width, height } => {
                 self.override_world_size(width, height);
+            }
+        }
+    }
+
+    /// Wave 934: single host-support residual authority boundary.
+    #[inline]
+    pub fn apply_host_support_op(&mut self, op: HostSupportOp) -> HostSupportResult {
+        match op {
+            HostSupportOp::EnsureBarracksBuildingData { id } => {
+                HostSupportResult::Bool(self.ensure_barracks_building_data(id))
+            }
+            HostSupportOp::ForceEnsureBarracksBuildingData { id } => {
+                HostSupportResult::Bool(self.force_ensure_barracks_building_data(id))
+            }
+            HostSupportOp::EnsurePlayerMinSupplies { player_id, floor } => {
+                self.ensure_player_min_supplies(player_id, floor);
+                HostSupportResult::Unit
+            }
+            HostSupportOp::UpdateShellWithBudget { dt, budget } => {
+                HostSupportResult::Snapshot(self.update_shell_with_budget(dt, budget))
+            }
+            HostSupportOp::ProcessDestroyListIfNeeded => {
+                self.process_destroy_list_if_needed();
+                HostSupportResult::Unit
+            }
+            HostSupportOp::InsertThingTemplate { name, template } => {
+                self.templates.insert(name, template);
+                HostSupportResult::Unit
             }
         }
     }
