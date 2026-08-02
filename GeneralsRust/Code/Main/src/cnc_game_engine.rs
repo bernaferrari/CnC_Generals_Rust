@@ -19999,32 +19999,16 @@ impl CnCGameEngine {
     /// ends a coupled shadow tick when requested. Host remains temporary
     /// mid-frame owner; shadow is last-writer for HP/cash/pose.
     fn host_run_gameworld_shadow_after_logic(&mut self, couple_shadow: bool) {
-        // Wave 597: GameWorld shadow session residual.
-        // GameWorld shadow session AFTER host logic + projectiles + path so
-        // host_damage_log / host_move_log / attack logs from this frame are not
-        // drained a frame late. Defaults on (GENERALS_GAMEWORLD_SHADOW=0 to opt out).
-        // Host remains temporary mid-frame owner; shadow is last-writer for HP/cash/pose.
-        // Wave 680: drop mid-frame eager pointer before exclusive session borrow.
+        // Wave 597/680/927: GameWorld shadow session residual via single boundary.
+        // AFTER host logic + projectiles + path; host temporary mid-frame owner.
         crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
-                shadow,
+        self.last_gameworld_presentation_entity_count =
+            crate::gameworld_shadow::run_post_logic_shadow_boundary(
+                self.gameworld_shadow.as_mut(),
                 &mut self.game_logic,
             );
-            if !probe.full_match() {
-                log::warn!("{}", probe.format_report());
-            }
-            // Architecture residual: observe-path presentation from GameWorld
-            // (no live Main GameLogic dual-read for this view).
-            let gw_view = crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0);
-            self.last_gameworld_presentation_entity_count = gw_view.entities.len();
-        } else {
-            let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&mut self.game_logic);
-            self.last_gameworld_presentation_entity_count = 0;
-        }
         // Wave 621/912: after health writeback, drain destroy-ready log and process
         // die side effects same couple-frame (host still owns ObjectId remove).
-        // Skip authority dual-write when no destroy queue / ready residual work.
         self.game_logic.process_destroy_list_if_needed();
         if couple_shadow {
             crate::gameworld_shadow::end_shadow_coupled_tick();
@@ -20613,46 +20597,41 @@ impl CnCGameEngine {
 
     /// Wave 583: host attack command residual (runtime honesty path).
     #[inline]
-    fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
-        // Wave 583/871/917: host attack residual + stamp sim timing.
-        // Skip mid-command stamp when presentation freeze owns clocks.
-        self.game_logic.command_attack(player_id, target);
+    fn host_stamp_after_authority_command(&mut self) {
+        // Wave 917/927: skip mid-command stamp when presentation freeze owns clocks.
         if self.last_presentation_frame.is_none() {
             self.host_stamp_sim_timing_residuals();
         }
+    }
+
+    fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
+        // Wave 583/871/917/927: host attack residual + stamp sim timing.
+        self.game_logic.command_attack(player_id, target);
+        self.host_stamp_after_authority_command();
     }
 
     /// Wave 583: host stop-selected residual (runtime honesty path).
     #[inline]
     fn host_command_stop(&mut self, player_id: u32) {
-        // Wave 583/871/917: host stop residual + stamp sim timing.
-        // Skip mid-command stamp when presentation freeze owns clocks.
+        // Wave 583/871/917/927: host stop residual + stamp sim timing.
         self.game_logic.command_stop(player_id);
-        if self.last_presentation_frame.is_none() {
-            self.host_stamp_sim_timing_residuals();
-        }
+        self.host_stamp_after_authority_command();
     }
 
     /// Wave 583: host attack-move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583/871/917: host attack-move residual + stamp sim timing.
-        // Skip mid-command stamp when presentation freeze owns clocks.
+        // Wave 583/871/917/927: host attack-move residual + stamp sim timing.
         self.game_logic.command_attack_move(player_id, dest);
-        if self.last_presentation_frame.is_none() {
-            self.host_stamp_sim_timing_residuals();
-        }
+        self.host_stamp_after_authority_command();
     }
 
     /// Wave 583: host move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583/871/917: host move residual + stamp sim timing.
-        // Skip mid-command stamp when presentation freeze owns clocks.
+        // Wave 583/871/917/927: host move residual + stamp sim timing.
         self.game_logic.command_move(player_id, dest);
-        if self.last_presentation_frame.is_none() {
-            self.host_stamp_sim_timing_residuals();
-        }
+        self.host_stamp_after_authority_command();
     }
 
     /// Wave 583: host legal-build probe residual (construct honesty path).

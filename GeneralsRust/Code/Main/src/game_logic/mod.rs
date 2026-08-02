@@ -273,6 +273,7 @@ pub mod host_live_host_player_alive_dual_peel_residual_wave816;
 pub mod host_live_host_player_radar_dual_peel_residual_wave818;
 pub mod host_live_host_pob_failclosed_boot_residual_wave895;
 pub mod host_live_host_poison_dot_dual_peel_residual_wave769;
+pub mod host_live_host_post_logic_shadow_boundary_residual_wave927;
 pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
 pub mod host_live_host_power_plant_rods_dual_peel_residual_wave810;
 pub mod host_live_host_presentation_build_boundary_residual_wave926;
@@ -2987,6 +2988,12 @@ pub use host_live_host_eager_apply_batch_residual_wave925::{
     honesty_host_eager_apply_batch_nav_commands_residual_wave925,
     honesty_host_eager_apply_batch_residual_pack_wave925,
     simulate_live_host_eager_apply_batch_honesty,
+};
+pub use host_live_host_post_logic_shadow_boundary_residual_wave927::{
+    honesty_host_post_logic_shadow_boundary_method_names_residual_wave927,
+    honesty_host_post_logic_shadow_boundary_nav_commands_residual_wave927,
+    honesty_host_post_logic_shadow_boundary_residual_pack_wave927,
+    simulate_live_host_post_logic_shadow_boundary_honesty,
 };
 pub use host_live_host_presentation_build_boundary_residual_wave926::{
     honesty_host_presentation_build_boundary_method_names_residual_wave926,

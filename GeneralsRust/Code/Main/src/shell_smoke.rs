@@ -4095,6 +4095,11 @@ use crate::game_logic::host_live_host_presentation_build_boundary_residual_wave9
     honesty_host_presentation_build_boundary_nav_commands_residual_wave926,
     simulate_live_host_presentation_build_boundary_honesty,
 };
+use crate::game_logic::host_live_host_post_logic_shadow_boundary_residual_wave927::{
+    honesty_host_post_logic_shadow_boundary_method_names_residual_wave927,
+    honesty_host_post_logic_shadow_boundary_nav_commands_residual_wave927,
+    simulate_live_host_post_logic_shadow_boundary_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8507,6 +8512,9 @@ pub struct ShellSmokeResult {
     pub host_presentation_build_boundary_method_names_wave926_ok: bool,
     pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
     pub host_presentation_build_boundary_live_wave926_ok: bool,
+    pub host_post_logic_shadow_boundary_method_names_wave927_ok: bool,
+    pub host_post_logic_shadow_boundary_nav_commands_wave927_ok: bool,
+    pub host_post_logic_shadow_boundary_live_wave927_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13758,6 +13766,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_presentation_build_boundary_nav_commands_residual_wave926();
     let host_presentation_build_boundary_live_wave926_ok =
         simulate_live_host_presentation_build_boundary_honesty();
+    let host_post_logic_shadow_boundary_method_names_wave927_ok =
+        honesty_host_post_logic_shadow_boundary_method_names_residual_wave927();
+    let host_post_logic_shadow_boundary_nav_commands_wave927_ok =
+        honesty_host_post_logic_shadow_boundary_nav_commands_residual_wave927();
+    let host_post_logic_shadow_boundary_live_wave927_ok =
+        simulate_live_host_post_logic_shadow_boundary_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16525,6 +16539,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_presentation_build_boundary_method_names_wave926_ok,
         host_presentation_build_boundary_nav_commands_wave926_ok,
         host_presentation_build_boundary_live_wave926_ok,
+        host_post_logic_shadow_boundary_method_names_wave927_ok,
+        host_post_logic_shadow_boundary_nav_commands_wave927_ok,
+        host_post_logic_shadow_boundary_live_wave927_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
