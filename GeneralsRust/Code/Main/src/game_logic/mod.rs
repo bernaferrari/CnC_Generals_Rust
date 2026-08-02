@@ -371,6 +371,7 @@ pub mod host_live_host_victory_fps_failclosed_residual_wave907;
 pub mod host_live_host_victory_fps_legal_failclosed_residual_wave910;
 pub mod host_live_host_world_bounds_ui_residual_wave862;
 pub mod host_live_host_wp_audio_clippy_residual_wave889;
+pub mod host_live_host_writeback_core_boundary_residual_wave944;
 pub mod host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757;
 pub mod host_live_host_writeback_skip_pending_host_logs_residual_wave755;
 pub mod host_live_host_writeback_skip_pending_move_transform_logs_residual_wave759;
@@ -3101,6 +3102,13 @@ pub use host_live_host_unmapped_damage_fallback_residual_wave943::{
     honesty_host_unmapped_damage_fallback_nav_commands_residual_wave943,
     honesty_host_unmapped_damage_fallback_residual_pack_wave943,
     simulate_live_host_unmapped_damage_fallback_honesty,
+};
+
+pub use host_live_host_writeback_core_boundary_residual_wave944::{
+    honesty_host_writeback_core_boundary_method_names_residual_wave944,
+    honesty_host_writeback_core_boundary_nav_commands_residual_wave944,
+    honesty_host_writeback_core_boundary_residual_pack_wave944,
+    simulate_live_host_writeback_core_boundary_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
