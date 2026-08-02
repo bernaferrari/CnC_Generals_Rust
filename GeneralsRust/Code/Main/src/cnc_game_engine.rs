@@ -19432,7 +19432,7 @@ impl CnCGameEngine {
 
     /// Wave 581: ensure GoldenRanger host template residual for train honesty path.
     fn host_ensure_golden_ranger_template(&mut self) {
-        // Wave 581/722/872/915: mid-command host insert residual (callers must opt in).
+        // Wave 581/722/872/915/934: mid-command host insert residual (callers must opt in).
         // Prefer residual template table when warm (no live dual-read on hit).
         if let Some(names) = self.host_match_known_template_names.as_ref() {
             if names.binary_search(&"GoldenRanger".to_string()).is_ok()
@@ -19454,7 +19454,12 @@ impl CnCGameEngine {
         tpl.add_kind_of(crate::game_logic::KindOf::Infantry);
         tpl.add_kind_of(crate::game_logic::KindOf::Selectable);
         tpl.add_kind_of(crate::game_logic::KindOf::Attackable);
-        self.game_logic.templates.insert("GoldenRanger".into(), tpl);
+        let _ = self.game_logic.apply_host_support_op(
+            crate::game_logic::HostSupportOp::InsertThingTemplate {
+                name: "GoldenRanger".into(),
+                template: tpl,
+            },
+        );
         self.host_stamp_known_template_name("GoldenRanger");
     }
 
@@ -20032,7 +20037,9 @@ impl CnCGameEngine {
             );
         // Wave 621/912: after health writeback, drain destroy-ready log and process
         // die side effects same couple-frame (host still owns ObjectId remove).
-        self.game_logic.process_destroy_list_if_needed();
+        let _ = self
+            .game_logic
+            .apply_host_support_op(crate::game_logic::HostSupportOp::ProcessDestroyListIfNeeded);
         if couple_shadow {
             crate::gameworld_shadow::end_shadow_coupled_tick();
         }
@@ -20270,13 +20277,18 @@ impl CnCGameEngine {
     /// Wave 584: host shell-map tick residual (menu frame budgeted update).
     #[inline]
     fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
-        // Wave 584/872/908/920: host shell update residual + stamp from snapshot return.
+        // Wave 584/872/908/920/934: shell update via host-support authority.
         // Skip empty-dt authority shell tick dual-write.
         if dt <= 0.0 {
             let _ = budget;
             return;
         }
-        let snap = self.game_logic.update_shell_with_budget(dt, budget);
+        let snap = match self.game_logic.apply_host_support_op(
+            crate::game_logic::HostSupportOp::UpdateShellWithBudget { dt, budget },
+        ) {
+            crate::game_logic::HostSupportResult::Snapshot(s) => s,
+            _ => return,
+        };
         self.host_stamp_sim_timing_from_snapshot(snap);
     }
 
@@ -20327,7 +20339,7 @@ impl CnCGameEngine {
     /// Skip authority write when presentation residual already meets floor.
     #[inline]
     fn host_ensure_player_min_supplies_residual(&mut self, floor: u32) {
-        // Wave 909/921: presentation/host residual first, authority write only on miss.
+        // Wave 909/921/934: supplies residual via host-support authority.
         let pid = self.current_player_id;
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             if frame.local_player_id == pid && (frame.local_supplies as u32) >= floor {
@@ -20336,7 +20348,12 @@ impl CnCGameEngine {
         } else if self.host_match_local_supplies.is_some_and(|s| s >= floor) {
             return;
         }
-        self.game_logic.ensure_player_min_supplies(pid, floor);
+        let _ = self.game_logic.apply_host_support_op(
+            crate::game_logic::HostSupportOp::EnsurePlayerMinSupplies {
+                player_id: pid,
+                floor,
+            },
+        );
     }
 
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
@@ -20600,7 +20617,7 @@ impl CnCGameEngine {
     /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
     #[inline]
     fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583/723/872/917/920: host barracks ensure residual (callers must opt in).
+        // Wave 583/723/872/917/920/934: barracks ensure via host-support authority.
         // Skip authority ensure when residual already lists this barracks producer.
         if self
             .host_match_local_barracks_ids
@@ -20609,7 +20626,12 @@ impl CnCGameEngine {
         {
             return true;
         }
-        let ok = self.game_logic.ensure_barracks_building_data(id);
+        let ok = matches!(
+            self.game_logic.apply_host_support_op(
+                crate::game_logic::HostSupportOp::EnsureBarracksBuildingData { id },
+            ),
+            crate::game_logic::HostSupportResult::Bool(true)
+        );
         if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
@@ -20621,7 +20643,7 @@ impl CnCGameEngine {
         &mut self,
         id: crate::game_logic::ObjectId,
     ) -> bool {
-        // Wave 834/872/917/920: auto_target train residual stamp + refresh scan.
+        // Wave 834/872/917/920/934: force barracks ensure via host-support authority.
         // Skip force ensure when residual already lists this barracks producer.
         if self
             .host_match_local_barracks_ids
@@ -20630,7 +20652,12 @@ impl CnCGameEngine {
         {
             return true;
         }
-        let ok = self.game_logic.force_ensure_barracks_building_data(id);
+        let ok = matches!(
+            self.game_logic.apply_host_support_op(
+                crate::game_logic::HostSupportOp::ForceEnsureBarracksBuildingData { id },
+            ),
+            crate::game_logic::HostSupportResult::Bool(true)
+        );
         if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }

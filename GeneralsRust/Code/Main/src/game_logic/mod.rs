@@ -343,6 +343,7 @@ pub mod host_live_host_structure_collapse_dual_peel_residual_wave775;
 pub mod host_live_host_structure_topple_crush_dual_peel_residual_wave777;
 pub mod host_live_host_structure_topple_dual_peel_residual_wave776;
 pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
+pub mod host_live_host_support_boundary_residual_wave934;
 pub mod host_live_host_systems_dual_peel_residual_wave827;
 pub mod host_live_host_template_ui_residual_wave872;
 pub mod host_live_host_tensile_rubble_no_damage_auth_hp_stomp_residual_wave749;
@@ -3021,6 +3022,13 @@ pub use host_live_host_session_control_boundary_residual_wave933::{
     honesty_host_session_control_boundary_nav_commands_residual_wave933,
     honesty_host_session_control_boundary_residual_pack_wave933,
     simulate_live_host_session_control_boundary_honesty,
+};
+
+pub use host_live_host_support_boundary_residual_wave934::{
+    honesty_host_support_boundary_method_names_residual_wave934,
+    honesty_host_support_boundary_nav_commands_residual_wave934,
+    honesty_host_support_boundary_residual_pack_wave934,
+    simulate_live_host_support_boundary_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
