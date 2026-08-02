@@ -38,6 +38,7 @@ use crate::gui::window_video_manager::with_window_video_manager;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
+use crate::presentation_translator_residual::{translator_entry_has_kind, with_translator_catalog};
 use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
@@ -1035,7 +1036,20 @@ fn next_plane_camera_lock_object_id() -> Option<u32> {
             candidates.push(object_guard.get_id());
         }
     }
-    // Host residual: when registry empty, cycle airborne units from local selection.
+    // Wave 979: host empty dual-world → presentation catalog airborne residual.
+    if candidates.is_empty() {
+        with_translator_catalog(|catalog| {
+            for entry in catalog {
+                if translator_entry_has_kind(entry, "Projectile") {
+                    continue;
+                }
+                if entry.airborne_target || translator_entry_has_kind(entry, "Aircraft") {
+                    candidates.push(entry.object_id);
+                }
+            }
+        });
+    }
+    // Fallback: local selection via TheGameLogic when catalog has no airborne.
     if candidates.is_empty() {
         for object_id in local_selection_object_ids() {
             let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
@@ -1329,9 +1343,26 @@ fn kill_all_enemy_objects_for_local_player() {
         return;
     };
 
-    // Wave 976: host empty dual-world → no OBJECT_REGISTRY walk (no-op).
-    // Full enemy wipe remains dual-world factory path; host uses Main debug peels.
+    // Wave 979: host empty dual-world → kill non-local catalog IDs via TheGameLogic.
     if dual_world_registry_unavailable() {
+        use crate::presentation_translator_residual::{
+            translator_entry_is_local, with_translator_catalog,
+        };
+        let mut enemy_ids: Vec<u32> = Vec::new();
+        with_translator_catalog(|catalog| {
+            for entry in catalog {
+                if !translator_entry_is_local(entry) {
+                    enemy_ids.push(entry.object_id);
+                }
+            }
+        });
+        for object_id in enemy_ids {
+            if let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) {
+                if let Ok(mut object) = object_arc.write() {
+                    object.kill(None, None);
+                }
+            }
+        }
         return;
     }
     for object in OBJECT_REGISTRY.get_all_objects() {

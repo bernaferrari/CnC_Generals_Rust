@@ -873,6 +873,8 @@ pub struct PresentationUnitCatalogEntry {
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.
     pub special_power_ready: bool,
+    /// Wave 979: airborne residual for host plane-camera lock.
+    pub airborne_target: bool,
 }
 
 pub struct InGameUI {

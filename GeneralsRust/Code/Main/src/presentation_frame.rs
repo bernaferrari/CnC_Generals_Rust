@@ -13266,10 +13266,13 @@ mod tests {
     fn meta_event_plane_lock_prefers_selection_without_registry() {
         let me = include_str!("../../GameEngine/GameClient/src/message_stream/meta_event.rs");
         assert!(
-            me.contains(
+            (me.contains(
                 "Host residual: when registry empty, cycle airborne units from local selection"
-            ) && me.contains("local_selection_object_ids()"),
-            "plane camera lock must fall back to selection when OBJECT_REGISTRY is empty"
+            ) || me.contains(
+                "Wave 979: host empty dual-world → presentation catalog airborne residual"
+            )) && (me.contains("local_selection_object_ids()")
+                || me.contains("with_translator_catalog")),
+            "plane camera lock must fall back to catalog/selection when OBJECT_REGISTRY is empty"
         );
         assert!(
             me.contains("Host residual: registry empty is fine")

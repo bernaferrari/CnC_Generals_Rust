@@ -20229,8 +20229,11 @@ impl CnCGameEngine {
                             selectable: UnitControlSystem::presentation_is_selectable(o),
                             position: [o.position.x, o.position.y, o.position.z],
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
+                            // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.
                             special_power_ready: o.special_power_ready,
+                            airborne_target: o.airborne_target
+                                || o.kind_of.iter().any(|k| format!("{k:?}") == "Aircraft"),
                         },
                     )
                     .collect()

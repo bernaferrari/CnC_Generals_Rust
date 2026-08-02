@@ -20,6 +20,8 @@ pub struct TranslatorCatalogEntry {
     pub special_power_ready: bool,
     /// Wave 974: world position residual for host context pick.
     pub position: [f32; 3],
+    /// Wave 979: airborne residual for host plane-camera lock cycle.
+    pub airborne_target: bool,
 }
 
 #[derive(Debug, Clone, Default)]
