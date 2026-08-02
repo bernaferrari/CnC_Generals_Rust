@@ -20135,6 +20135,14 @@ impl CnCGameEngine {
                     },
                     under_construction: o.under_construction,
                     construction_percent: o.construction_percent.clamp(0.0, 1.0),
+                    // Wave 972: icon-pip residual.
+                    ammo_pip_total: o.ammo_pip_total.min(255) as u8,
+                    ammo_pip_full: o.ammo_pip_full.min(255) as u8,
+                    occupant_count: (o.occupant_count as u32).min(255) as u8,
+                    max_garrison: (o.max_garrison as u32).min(255) as u8,
+                    disabled: o.disabled,
+                    is_carbomb: o.is_carbomb,
+                    weapon_bonus_enthusiastic: o.weapon_bonus_enthusiastic,
                 }
             });
             let (created, updated, pruned) =

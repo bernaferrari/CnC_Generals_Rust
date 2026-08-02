@@ -1701,6 +1701,14 @@ pub struct BasicDrawable {
     /// Wave 970: presentation construction residual.
     presentation_under_construction: bool,
     presentation_construction_percent: f32,
+    /// Wave 972: icon-pip residual.
+    presentation_ammo_pip_total: u8,
+    presentation_ammo_pip_full: u8,
+    presentation_occupant_count: u8,
+    presentation_max_garrison: u8,
+    presentation_disabled: bool,
+    presentation_is_carbomb: bool,
+    presentation_weapon_bonus_enthusiastic: bool,
 
     /// Animation loop duration in frames (matches C++ setAnimationLoopDuration)
     animation_loop_duration: u32,
@@ -1799,6 +1807,13 @@ impl BasicDrawable {
             presentation_veterancy_level: 0,
             presentation_under_construction: false,
             presentation_construction_percent: 0.0,
+            presentation_ammo_pip_total: 0,
+            presentation_ammo_pip_full: 0,
+            presentation_occupant_count: 0,
+            presentation_max_garrison: 0,
+            presentation_disabled: false,
+            presentation_is_carbomb: false,
+            presentation_weapon_bonus_enthusiastic: false,
 
             animation_loop_duration: 0,
             animation_completion_time: 0,
@@ -1863,20 +1878,35 @@ impl BasicDrawable {
         veterancy_level: u8,
         under_construction: bool,
         construction_percent: f32,
+        ammo_pip_total: u8,
+        ammo_pip_full: u8,
+        occupant_count: u8,
+        max_garrison: u8,
+        disabled: bool,
+        is_carbomb: bool,
+        weapon_bonus_enthusiastic: bool,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
         self.presentation_effectively_stealthed = effectively_stealthed;
         self.presentation_health_pct = health_pct.clamp(0.0, 1.0);
         self.presentation_selected = selected;
+        self.selected = selected;
         self.presentation_veterancy_level = veterancy_level;
         self.presentation_under_construction = under_construction;
         self.presentation_construction_percent = construction_percent.clamp(0.0, 1.0);
+        self.presentation_ammo_pip_total = ammo_pip_total;
+        self.presentation_ammo_pip_full = ammo_pip_full;
+        self.presentation_occupant_count = occupant_count;
+        self.presentation_max_garrison = max_garrison;
+        self.presentation_disabled = disabled;
+        self.presentation_is_carbomb = is_carbomb;
+        self.presentation_weapon_bonus_enthusiastic = weapon_bonus_enthusiastic;
         self.hidden_by_stealth = effectively_stealthed;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
         }
-        // Wave 970: keep overlay residual coherent for host draw path.
+        // Wave 970/972: keep overlay residual coherent for host draw path.
         self.overlay_data.health_ratio = self.presentation_health_pct;
         self.overlay_data.veterancy_level = self.presentation_veterancy_level;
         self.overlay_data.is_under_construction = self.presentation_under_construction;
@@ -2886,14 +2916,27 @@ impl BasicDrawable {
     }
 
     fn selected_or_moused_over_for_icon_pips(&self) -> bool {
+        // Wave 972: host path also honors presentation_selected residual.
         self.selected
+            || self.presentation_selected
             || (self.id != DrawableId::INVALID
                 && TheInGameUI::get_moused_over_drawable_id() == self.id.0)
     }
 
     pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 972: host empty dual-world → presentation ammo residual.
         if dual_world_registry_unavailable() {
+            if !self.selected_or_moused_over_for_icon_pips() {
+                self.overlay_data.show_ammo = false;
+                return;
+            }
+            if self.presentation_ammo_pip_total == 0 {
+                self.overlay_data.show_ammo = false;
+                return;
+            }
+            self.overlay_data.ammo_total = self.presentation_ammo_pip_total;
+            self.overlay_data.ammo_full = self.presentation_ammo_pip_full;
+            self.overlay_data.show_ammo = true;
             return;
         }
 
@@ -2930,8 +2973,22 @@ impl BasicDrawable {
     }
 
     pub fn draw_contained(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 972: host empty dual-world → presentation contain residual.
         if dual_world_registry_unavailable() {
+            if !self.selected_or_moused_over_for_icon_pips() {
+                self.overlay_data.show_contained = false;
+                return;
+            }
+            if self.presentation_max_garrison == 0 {
+                self.overlay_data.show_contained = false;
+                return;
+            }
+            self.overlay_data.contained_total = self.presentation_max_garrison;
+            self.overlay_data.contained_full = self
+                .presentation_occupant_count
+                .min(self.presentation_max_garrison);
+            self.overlay_data.contained_infantry_count = self.overlay_data.contained_full;
+            self.overlay_data.show_contained = true;
             return;
         }
 
@@ -2985,8 +3042,9 @@ impl BasicDrawable {
     }
 
     pub fn draw_healing(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 972: host empty dual-world → no heal-timer residual yet (fail-closed icon).
         if dual_world_registry_unavailable() {
+            self.overlay_data.show_healing = false;
             return;
         }
 
@@ -3049,8 +3107,9 @@ impl BasicDrawable {
     }
 
     pub fn draw_enthusiastic(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 972: host empty dual-world → presentation enthusiastic residual.
         if dual_world_registry_unavailable() {
+            self.overlay_data.show_enthusiastic = self.presentation_weapon_bonus_enthusiastic;
             return;
         }
 
@@ -3084,8 +3143,9 @@ impl BasicDrawable {
     }
 
     pub fn draw_demoralized(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 972: host empty dual-world → no demoralize residual yet.
         if dual_world_registry_unavailable() {
+            self.overlay_data.show_demoralized = false;
             return;
         }
 
@@ -3124,8 +3184,15 @@ impl BasicDrawable {
     }
 
     pub fn draw_bombed(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 972: host empty dual-world → presentation carbomb residual.
         if dual_world_registry_unavailable() {
+            if self.presentation_is_carbomb {
+                self.overlay_data.show_bombed = true;
+                self.overlay_data.bomb_type = 3;
+            } else {
+                self.overlay_data.show_bombed = false;
+                self.overlay_data.bomb_type = 0;
+            }
             return;
         }
 
@@ -3187,8 +3254,9 @@ impl BasicDrawable {
     }
 
     pub fn draw_disabled(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 972: host empty dual-world → presentation disabled residual.
         if dual_world_registry_unavailable() {
+            self.overlay_data.show_disabled = self.presentation_disabled;
             return;
         }
 
