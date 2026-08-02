@@ -2982,6 +2982,15 @@ impl GameLogic {
     }
 }
 
+/// Wave 930: host direct player-order authority payload.
+#[derive(Debug, Clone, Copy)]
+pub enum DirectPlayerOrder {
+    Attack { player_id: u32, target: ObjectId },
+    Stop { player_id: u32 },
+    Move { player_id: u32, dest: glam::Vec3 },
+    AttackMove { player_id: u32, dest: glam::Vec3 },
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27456,6 +27465,25 @@ impl GameLogic {
                 selected.len(),
                 target_position
             );
+        }
+    }
+
+    /// Wave 930: single direct-order authority boundary.
+    #[inline]
+    pub fn apply_direct_player_order(&mut self, order: DirectPlayerOrder) {
+        match order {
+            DirectPlayerOrder::Attack { player_id, target } => {
+                self.command_attack(player_id, target);
+            }
+            DirectPlayerOrder::Stop { player_id } => {
+                self.command_stop(player_id);
+            }
+            DirectPlayerOrder::Move { player_id, dest } => {
+                self.command_move(player_id, dest);
+            }
+            DirectPlayerOrder::AttackMove { player_id, dest } => {
+                self.command_attack_move(player_id, dest);
+            }
         }
     }
 

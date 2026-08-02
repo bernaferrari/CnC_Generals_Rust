@@ -1837,25 +1837,6 @@ fn register_real_game_client_bootstrap() {
 #[cfg(not(feature = "game_client"))]
 fn register_real_game_client_bootstrap() {}
 
-#[derive(Debug, Clone, Copy)]
-enum HostDirectPlayerOrder {
-    Attack {
-        player_id: u32,
-        target: crate::game_logic::ObjectId,
-    },
-    Stop {
-        player_id: u32,
-    },
-    Move {
-        player_id: u32,
-        dest: glam::Vec3,
-    },
-    AttackMove {
-        player_id: u32,
-        dest: glam::Vec3,
-    },
-}
-
 impl CnCGameEngine {
     fn append_message_argument_to_common_stream(
         target: &mut game_engine::common::message_stream::GameMessage,
@@ -20614,21 +20595,9 @@ impl CnCGameEngine {
 
     /// Wave 929: single direct-order authority boundary + residual stamp.
     #[inline]
-    fn host_issue_direct_player_order(&mut self, order: HostDirectPlayerOrder) {
-        match order {
-            HostDirectPlayerOrder::Attack { player_id, target } => {
-                self.game_logic.command_attack(player_id, target);
-            }
-            HostDirectPlayerOrder::Stop { player_id } => {
-                self.game_logic.command_stop(player_id);
-            }
-            HostDirectPlayerOrder::Move { player_id, dest } => {
-                self.game_logic.command_move(player_id, dest);
-            }
-            HostDirectPlayerOrder::AttackMove { player_id, dest } => {
-                self.game_logic.command_attack_move(player_id, dest);
-            }
-        }
+    fn host_issue_direct_player_order(&mut self, order: crate::game_logic::DirectPlayerOrder) {
+        // Wave 929/930: single GameLogic direct-order authority boundary + stamp.
+        self.game_logic.apply_direct_player_order(order);
         self.host_stamp_after_authority_command();
     }
 
@@ -20641,28 +20610,39 @@ impl CnCGameEngine {
 
     fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
         // Wave 583/871/917/927/929: host attack residual via direct-order boundary.
-        self.host_issue_direct_player_order(HostDirectPlayerOrder::Attack { player_id, target });
+        self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::Attack {
+            player_id,
+            target,
+        });
     }
 
     /// Wave 583: host stop-selected residual (runtime honesty path).
     #[inline]
     fn host_command_stop(&mut self, player_id: u32) {
         // Wave 583/871/917/927/929: host stop residual via direct-order boundary.
-        self.host_issue_direct_player_order(HostDirectPlayerOrder::Stop { player_id });
+        self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::Stop {
+            player_id,
+        });
     }
 
     /// Wave 583: host attack-move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
         // Wave 583/871/917/927/929: host attack-move residual via direct-order boundary.
-        self.host_issue_direct_player_order(HostDirectPlayerOrder::AttackMove { player_id, dest });
+        self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::AttackMove {
+            player_id,
+            dest,
+        });
     }
 
     /// Wave 583: host move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
         // Wave 583/871/917/927/929: host move residual via direct-order boundary.
-        self.host_issue_direct_player_order(HostDirectPlayerOrder::Move { player_id, dest });
+        self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::Move {
+            player_id,
+            dest,
+        });
     }
 
     /// Wave 583: host legal-build probe residual (construct honesty path).

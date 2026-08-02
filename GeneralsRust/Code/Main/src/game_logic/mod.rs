@@ -166,6 +166,7 @@ pub mod host_live_host_default_template_opt_in_residual_wave727;
 pub mod host_live_host_defection_timer_dual_peel_residual_wave766;
 pub mod host_live_host_destroy_list_if_needed_residual_wave912;
 pub mod host_live_host_direct_order_boundary_residual_wave929;
+pub mod host_live_host_direct_order_gamelogic_boundary_residual_wave930;
 pub mod host_live_host_dozer_bored_dual_peel_residual_wave819;
 pub mod host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753;
 pub mod host_live_host_dual_read_zero_sole_tick_wave875;
@@ -2991,6 +2992,13 @@ pub use host_live_host_direct_order_boundary_residual_wave929::{
     honesty_host_direct_order_boundary_residual_pack_wave929,
     simulate_live_host_direct_order_boundary_honesty,
 };
+pub use host_live_host_direct_order_gamelogic_boundary_residual_wave930::{
+    honesty_host_direct_order_gamelogic_boundary_method_names_residual_wave930,
+    honesty_host_direct_order_gamelogic_boundary_nav_commands_residual_wave930,
+    honesty_host_direct_order_gamelogic_boundary_residual_pack_wave930,
+    simulate_live_host_direct_order_gamelogic_boundary_honesty,
+};
+
 pub use host_live_host_eager_apply_batch_residual_wave925::{
     honesty_host_eager_apply_batch_method_names_residual_wave925,
     honesty_host_eager_apply_batch_nav_commands_residual_wave925,
