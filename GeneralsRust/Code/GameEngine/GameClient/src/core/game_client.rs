@@ -3662,6 +3662,34 @@ impl GameClient {
         &mut self,
         units: Vec<crate::gui::ingame_ui::PresentationUnitCatalogEntry>,
     ) {
+        // Wave 973: stamp translator residual before moving into InGameUI store.
+        let translator_catalog: Vec<
+            crate::presentation_translator_residual::TranslatorCatalogEntry,
+        > = units
+            .iter()
+            .map(
+                |u| crate::presentation_translator_residual::TranslatorCatalogEntry {
+                    object_id: u.object_id,
+                    team_name: u.team_name.clone(),
+                    selectable: u.selectable,
+                    kind_names: u.kind_names.clone(),
+                    special_power_ready: u.special_power_ready,
+                },
+            )
+            .collect();
+        let local_team = if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+            ui.lock()
+                .ok()
+                .map(|g| g.presentation_local_team_name().to_string())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        crate::presentation_translator_residual::set_translator_presentation_residual(
+            local_team,
+            translator_catalog,
+        );
+
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
             if let Ok(mut guard) = ui.lock() {
                 guard.set_presentation_unit_catalog(units);
@@ -3674,8 +3702,30 @@ impl GameClient {
         let team_name = team_name.into();
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
             if let Ok(mut guard) = ui.lock() {
-                guard.set_presentation_local_team_name(team_name);
+                guard.set_presentation_local_team_name(team_name.clone());
+                // Wave 973: refresh translator residual local team, keep catalog.
+                let catalog: Vec<_> = guard
+                    .presentation_unit_catalog()
+                    .iter()
+                    .map(
+                        |u| crate::presentation_translator_residual::TranslatorCatalogEntry {
+                            object_id: u.object_id,
+                            team_name: u.team_name.clone(),
+                            selectable: u.selectable,
+                            kind_names: u.kind_names.clone(),
+                            special_power_ready: u.special_power_ready,
+                        },
+                    )
+                    .collect();
+                crate::presentation_translator_residual::set_translator_presentation_residual(
+                    team_name, catalog,
+                );
             }
+        } else {
+            crate::presentation_translator_residual::set_translator_presentation_residual(
+                team_name,
+                Vec::new(),
+            );
         }
     }
 
