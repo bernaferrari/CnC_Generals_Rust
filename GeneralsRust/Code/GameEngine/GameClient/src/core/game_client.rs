@@ -3681,6 +3681,7 @@ impl GameClient {
                     special_power_ready: u.special_power_ready,
                     position: u.position,
                     airborne_target: u.airborne_target,
+                    shroud_status: u.shroud_status as u8,
                 },
             )
             .collect();
@@ -3724,6 +3725,7 @@ impl GameClient {
                             special_power_ready: u.special_power_ready,
                             position: u.position,
                             airborne_target: u.airborne_target,
+                            shroud_status: u.shroud_status as u8,
                         },
                     )
                     .collect();
@@ -3760,6 +3762,18 @@ impl GameClient {
         self.frame = self.frame.wrapping_add(1);
 
         self.create_frame_tick_message()?;
+        // Wave 981: drain meta TOD residual onto host presentation drawables.
+        if let Some(ini_tod) = crate::message_stream::meta_event::take_host_drawable_tod_residual()
+        {
+            let client_tod = match ini_tod {
+                game_engine::common::ini::TimeOfDay::Morning => TimeOfDay::Morning,
+                game_engine::common::ini::TimeOfDay::Afternoon => TimeOfDay::Afternoon,
+                game_engine::common::ini::TimeOfDay::Evening => TimeOfDay::Evening,
+                game_engine::common::ini::TimeOfDay::Night => TimeOfDay::Night,
+                game_engine::common::ini::TimeOfDay::Invalid => TimeOfDay::Afternoon,
+            };
+            let _ = self.set_time_of_day(client_tod);
+        }
         // Startup movies remain Main/runtime-host owned; skip movie branch here.
         self.ensure_shell_visible()?;
         self.update_pre_draw_ui()?;

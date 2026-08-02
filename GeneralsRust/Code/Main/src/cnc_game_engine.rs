@@ -20234,6 +20234,23 @@ impl CnCGameEngine {
                             special_power_ready: o.special_power_ready,
                             airborne_target: o.airborne_target
                                 || o.kind_of.iter().any(|k| format!("{k:?}") == "Aircraft"),
+                            // Wave 981: FOW → command-hint shroud residual.
+                            shroud_status: {
+                                use crate::fow_rendering::ObjectVisibility;
+                                use gamelogic::common::ObjectShroudStatus;
+                                let v = o.fow_visibility;
+                                if v.visibility_alpha >= 0.95 {
+                                    ObjectShroudStatus::Clear
+                                } else if v.is_explored >= 0.5 || v.visibility_alpha > 0.05 {
+                                    if v.visibility_alpha >= 0.5 {
+                                        ObjectShroudStatus::PartialClear
+                                    } else {
+                                        ObjectShroudStatus::Fogged
+                                    }
+                                } else {
+                                    ObjectShroudStatus::Shrouded
+                                }
+                            },
                         },
                     )
                     .collect()

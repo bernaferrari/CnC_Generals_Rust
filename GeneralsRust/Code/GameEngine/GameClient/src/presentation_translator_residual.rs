@@ -22,6 +22,8 @@ pub struct TranslatorCatalogEntry {
     pub position: [f32; 3],
     /// Wave 979: airborne residual for host plane-camera lock cycle.
     pub airborne_target: bool,
+    /// Wave 981: FOW residual for host translators / command hints.
+    pub shroud_status: u8,
 }
 
 #[derive(Debug, Clone, Default)]
