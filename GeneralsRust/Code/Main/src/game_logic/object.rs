@@ -1,3 +1,4 @@
+//! Wave 958: host_object dual-read seal (tests + residual).
 use super::*;
 use crate::command_system::SpecialPowerType;
 use glam::{Mat4, Vec3};
@@ -15546,7 +15547,7 @@ mod tests {
         logic.templates.insert("AR_V".to_string(), tpl);
         let id = logic.create_object("AR_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let a = logic.get_object_mut(id).unwrap();
+            let a = logic.host_object_mut(id).unwrap();
             a.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 100.0,
@@ -15584,7 +15585,7 @@ mod tests {
         let id = logic.create_object("CFC_V", Team::USA, Vec3::ZERO).unwrap();
         let tgt = ObjectId(7);
         {
-            let a = logic.get_object_mut(id).unwrap();
+            let a = logic.host_object_mut(id).unwrap();
             a.continuous_fire_one_shots = 1;
             a.continuous_fire_two_shots = 4;
             a.continuous_fire_coast_frames = 10;
@@ -15617,7 +15618,7 @@ mod tests {
         let id = logic.create_object("CF_V", Team::USA, Vec3::ZERO).unwrap();
         let tgt = ObjectId(42);
         {
-            let a = logic.get_object_mut(id).unwrap();
+            let a = logic.host_object_mut(id).unwrap();
             a.continuous_fire_one_shots = 2;
             a.continuous_fire_two_shots = 5;
             assert_eq!(a.continuous_fire_level, 0);
@@ -15653,7 +15654,7 @@ mod tests {
             .create_object("FF_ATK", Team::USA, Vec3::ZERO)
             .unwrap();
         {
-            let a = logic.get_object_mut(atk).unwrap();
+            let a = logic.host_object_mut(atk).unwrap();
             a.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 200.0,
@@ -15690,7 +15691,7 @@ mod tests {
         logic.templates.insert("WB_V".to_string(), tpl);
         let id = logic.create_object("WB_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let o = logic.get_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.weapon_bonus_enthusiastic = true;
             o.weapon_bonus_horde = true;
             o.weapon_bonus_battle_plan_bombardment = true;
@@ -15724,7 +15725,7 @@ mod tests {
             .create_object("LIFT_V", Team::USA, Vec3::new(0.0, 50.0, 0.0))
             .unwrap();
         {
-            let o = logic.get_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.max_lift = 8.0;
             o.max_lift_damaged = 3.0;
             o.health.current = 100.0;

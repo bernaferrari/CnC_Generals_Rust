@@ -10,6 +10,7 @@
 
 //!
 //! Wave 956: host_object/host_objects authority dual-read seal.
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::game_logic::{GameLogic, ObjectId, Team};
 
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
@@ -19746,7 +19747,7 @@ mod tests {
         );
         let view = presentation_view_from_shadow(&shadow, 0);
         assert_eq!(view.frame, logic.get_frame() as u64);
-        assert_eq!(view.entities.len(), logic.get_objects().len().min(4096));
+        assert_eq!(view.entities.len(), logic.host_objects().len().min(4096));
     }
 
     #[test]
@@ -19800,13 +19801,13 @@ mod tests {
         let _ = shadow.apply_pending();
         // Host still at origin until writeback.
         {
-            let p = logic.get_objects().get(&id).unwrap().get_position();
+            let p = logic.host_objects().get(&id).unwrap().get_position();
             assert!(p.x.abs() < 0.1, "pre-writeback host x={}", p.x);
         }
         let n = shadow.writeback_transforms_to_host(&mut logic);
         let _ = crate::game_logic::host_transform_ready_log::drain();
         assert!(n >= 1, "writeback count {n}");
-        let p = logic.get_objects().get(&id).unwrap().get_position();
+        let p = logic.host_objects().get(&id).unwrap().get_position();
         assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
         assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
     }
@@ -19873,7 +19874,7 @@ mod tests {
             .expect("id");
         // Prove host object carries template model residual before shadow sync.
         {
-            let obj = logic.find_object(id).expect("host obj");
+            let obj = logic.host_object(id).expect("host obj");
             let key =
                 crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
             assert_eq!(
@@ -20519,7 +20520,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         assert!(n >= 1, "writeback must touch building");
-        let obj = logic.get_objects().get(&id).expect("o");
+        let obj = logic.host_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
         assert_eq!(bd.rally_point, Some(glam::Vec3::new(9.0, 0.0, 8.0)));
         assert!((bd.production_queue[0].progress - 0.75).abs() < 1e-5);
@@ -20573,7 +20574,7 @@ mod tests {
         );
         let wb = shadow.writeback_production_to_host(&mut logic);
         assert!(wb >= 1);
-        let obj = logic.get_object(oid).expect("obj");
+        let obj = logic.host_object(oid).expect("obj");
         let b = obj.building_data.as_ref().expect("bd");
         let hp = b.production_queue.first().expect("hq");
         assert!((hp.progress - 1.0).abs() < 1e-4);
@@ -20625,7 +20626,7 @@ mod tests {
             ent.construction_percent
         );
         assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
-        let obj = logic.get_object(oid).expect("obj");
+        let obj = logic.host_object(oid).expect("obj");
         assert!((obj.construction_percent - 0.5).abs() < 1e-4);
         match prev_a {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
@@ -20675,7 +20676,7 @@ mod tests {
             ent.special_power_cooldown_remaining
         );
         assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
-        let o = logic.get_object(oid).expect("obj");
+        let o = logic.host_object(oid).expect("obj");
         assert!((o.special_power_cooldown_remaining - 2.5).abs() < 1e-4);
         // Frozen residual: no advance while disabled.
         host_special_power_log::record(oid, false, 2.5, 10.0, true);
@@ -20787,7 +20788,7 @@ mod tests {
         }
         let n = shadow.writeback_construction_to_host(&mut logic);
         assert!(n >= 1);
-        let obj = logic.get_objects().get(&id).expect("o");
+        let obj = logic.host_objects().get(&id).expect("o");
         assert!((obj.construction_percent - 0.85).abs() < 1e-5);
         assert!(obj.status.under_construction);
         assert!(obj.status.sold);
@@ -20804,7 +20805,7 @@ mod tests {
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
-        let obj = logic.get_objects().get(&id).expect("o");
+        let obj = logic.host_objects().get(&id).expect("o");
         assert!(obj.status.stealthed);
         assert!(obj.status.selected);
         // Complete residual
@@ -20814,7 +20815,7 @@ mod tests {
             e.under_construction = false;
         }
         let _ = shadow.writeback_construction_to_host(&mut logic);
-        let obj = logic.get_objects().get(&id).expect("o");
+        let obj = logic.host_objects().get(&id).expect("o");
         assert!((obj.construction_percent - 1.0).abs() < 1e-5);
         assert!(!obj.status.under_construction);
     }
@@ -20908,7 +20909,7 @@ mod tests {
         let wb = shadow.writeback_combat_status_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(wb >= 1);
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!(o.status.stealthed);
         assert!(o.status.attacking);
         assert!(o.status.is_firing_weapon);
@@ -20973,7 +20974,7 @@ mod tests {
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
-        assert!(logic.get_objects().get(&id).expect("o").status.selected);
+        assert!(logic.host_objects().get(&id).expect("o").status.selected);
     }
 
     #[test]
@@ -21035,7 +21036,7 @@ mod tests {
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!(o.status.attacking && o.status.is_firing_weapon);
     }
 
@@ -21097,7 +21098,7 @@ mod tests {
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!(o.status.stealthed && !o.status.detected);
     }
 
@@ -21160,7 +21161,14 @@ mod tests {
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
-        assert!(logic.get_objects().get(&id).expect("o").status.disabled_emp);
+        assert!(
+            logic
+                .host_objects()
+                .get(&id)
+                .expect("o")
+                .status
+                .disabled_emp
+        );
     }
 
     #[test]
@@ -21497,11 +21505,11 @@ mod tests {
         assert!(shadow.writeback_contain_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_contain_ready_log::drain();
         assert_eq!(
-            logic.get_objects().get(&inf).expect("i").contained_by,
+            logic.host_objects().get(&inf).expect("i").contained_by,
             Some(bunker)
         );
         let bd = logic
-            .get_objects()
+            .host_objects()
             .get(&bunker)
             .expect("b")
             .building_data
@@ -21559,7 +21567,7 @@ mod tests {
         }
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
-            logic.get_objects().get(&id).expect("o").ai_state,
+            logic.host_objects().get(&id).expect("o").ai_state,
             AIState::GuardingObject
         );
     }
@@ -21629,7 +21637,7 @@ mod tests {
             e.special_power_cooldown = 45.0;
         }
         assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(!o.special_power_ready);
         assert!((o.special_power_cooldown_remaining - 18.0).abs() < 1e-3);
         assert!((o.special_power_cooldown - 45.0).abs() < 1e-3);
@@ -21675,7 +21683,13 @@ mod tests {
             o.special_power_ready = false;
         }
         assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
-        assert!(logic.get_objects().get(&id).expect("o").special_power_ready);
+        assert!(
+            logic
+                .host_objects()
+                .get(&id)
+                .expect("o")
+                .special_power_ready
+        );
     }
 
     #[test]
@@ -21724,7 +21738,7 @@ mod tests {
         let _ = crate::game_logic::host_stored_supplies_ready_log::drain();
         assert_eq!(
             logic
-                .get_objects()
+                .host_objects()
                 .get(&id)
                 .expect("o")
                 .stored_resources
@@ -21780,7 +21794,7 @@ mod tests {
         }
         let wb = shadow.writeback_construction_to_host(&mut logic);
         assert!(wb >= 1);
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!((o.construction_percent - 0.25).abs() < 1e-5);
         assert!(o.status.under_construction);
     }
@@ -21845,7 +21859,7 @@ mod tests {
         }
         let wb = shadow.writeback_owner_to_host(&mut logic);
         let _ = crate::game_logic::host_owner_ready_log::drain();
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!(
             wb >= 1,
             "writeback={wb} host_team={:?} shadow_owner={:?} after_host={:?}",
@@ -21942,7 +21956,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         assert!(wb >= 1);
-        let o = logic.get_objects().get(&barracks).expect("b");
+        let o = logic.host_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
         assert!(!q.is_empty());
         assert_eq!(q[0].template_name, "ProdRanger");
@@ -22019,7 +22033,7 @@ mod tests {
         }
         assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
         let restored = logic
-            .get_object(oid)
+            .host_object(oid)
             .unwrap()
             .building_data
             .as_ref()
@@ -22041,7 +22055,7 @@ mod tests {
         }
         assert_eq!(shadow.writeback_production_to_host(&mut logic), 0);
         assert!(logic
-            .get_object(oid)
+            .host_object(oid)
             .unwrap()
             .building_data
             .as_ref()
@@ -22115,7 +22129,7 @@ mod tests {
         }
         let wb = shadow.writeback_experience_to_host(&mut logic);
         assert!(wb >= 1);
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!(matches!(
             o.experience.level,
             VeterancyLevel::Elite | VeterancyLevel::Heroic
@@ -22182,7 +22196,7 @@ mod tests {
         let wb = shadow.writeback_combat_status_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(wb >= 1);
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!(o.force_attack);
         assert!(o.status.using_ability);
         assert!(o.status.deployed);
@@ -22255,7 +22269,7 @@ mod tests {
         let wb = shadow.writeback_combat_status_to_host(&mut logic);
         let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(wb >= 1);
-        let o = logic.get_objects().get(&id).expect("o");
+        let o = logic.host_objects().get(&id).expect("o");
         assert!(o.status.no_collisions);
         assert!(o.status.private_captured);
         assert!(o.status.faerie_fire);
@@ -22764,7 +22778,7 @@ mod tests {
         }
         assert!(shadow.writeback_command_set_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_command_set_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(
             o.command_set_override.as_deref(),
             Some("Command_DemoSuicide")
@@ -22823,7 +22837,7 @@ mod tests {
         }
         assert!(shadow.writeback_selection_radius_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_selection_radius_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!((o.selection_radius - 14.5).abs() < 1e-5);
     }
 
@@ -22883,7 +22897,7 @@ mod tests {
         }
         assert!(shadow.writeback_ground_height_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_ground_height_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!((o.ground_height - 12.5).abs() < 1e-5);
         assert!(o.ground_height_from_terrain);
     }
@@ -23005,7 +23019,7 @@ mod tests {
         let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
         let bits = {
-            let o = logic.get_objects().get(&oid).expect("o");
+            let o = logic.host_objects().get(&oid).expect("o");
             o.presentation_kind_of_bits()
         };
         assert!(bits != 0, "bits {bits}");
@@ -23096,7 +23110,7 @@ mod tests {
         }
         assert!(shadow.writeback_identity_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_identity_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.name, "ScriptRanger");
         assert!((o.team_color[0] - 0.1).abs() < 1e-5);
     }
@@ -23159,7 +23173,7 @@ mod tests {
         }
         assert!(shadow.writeback_building_type_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_building_type_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(
             o.building_data.as_ref().map(|b| b.building_type),
             Some(BuildingType::Barracks)
@@ -23238,7 +23252,7 @@ mod tests {
         }
         assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_crush_vision_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.crusher_level, 2);
         assert_eq!(o.crushable_level, 1);
         assert!((o.vision_range - 175.0).abs() < 1e-5);
@@ -23312,7 +23326,7 @@ mod tests {
         }
         assert!(shadow.writeback_demo_mine_cheer_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_demo_mine_cheer_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.demo_suicided_detonating);
         assert!((o.cheer_timer - 2.5).abs() < 1e-5);
         assert!(o.mine_data.is_some());
@@ -23371,7 +23385,7 @@ mod tests {
         }
         assert!(shadow.writeback_model_condition_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_model_condition_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.model_condition_bits, 0b1011);
     }
 
@@ -23472,7 +23486,7 @@ mod tests {
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let _ = crate::game_logic::host_bounce_land_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
         assert!((o.movement.max_speed - 12.5).abs() < 1e-5);
         assert_eq!(o.movement.current_path_index, 1);
@@ -23598,7 +23612,7 @@ mod tests {
         let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         let w = o.weapon.as_ref().expect("w");
         assert!((w.damage - 33.0).abs() < 1e-5);
         assert!((w.range - 140.0).abs() < 1e-5);
@@ -23686,7 +23700,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.vision_spied_mask, 0b101);
         assert!((o.camo_friendly_opacity - 0.35).abs() < 1e-5);
         assert_eq!(o.camo_stealth_look, 2);
@@ -23750,7 +23764,7 @@ mod tests {
         }
         assert!(shadow.writeback_disguise_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_disguise_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(
             o.disguise_as_template.as_deref(),
             Some("AmericaVehicleHumvee")
@@ -23829,7 +23843,7 @@ mod tests {
         }
         assert!(shadow.writeback_overlord_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_overlord_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.has_overlord_gattling_addon && !o.has_overlord_propaganda_addon);
         assert_eq!(o.overlord_bunker_capacity, Some(4));
         assert!(o.is_helix_transport);
@@ -23922,7 +23936,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
         assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
     }
@@ -23988,7 +24002,7 @@ mod tests {
         let _ = crate::game_logic::host_hive_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.hive_slave_count, 3);
         assert!((o.hive_slave_hp - 55.0).abs() < 1e-3);
     }
@@ -24054,7 +24068,7 @@ mod tests {
             e.max_garrison = 8;
         }
         assert!(shadow.writeback_contain_capacity_to_host(&mut logic) >= 1);
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.max_transport, 5);
         assert_eq!(o.building_data.as_ref().map(|bd| bd.max_garrison), Some(8));
     }
@@ -24109,7 +24123,7 @@ mod tests {
         }
         assert!(shadow.writeback_overcharge_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_overcharge_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.overcharge_enabled);
     }
 
@@ -24169,7 +24183,7 @@ mod tests {
         }
         assert!(shadow.writeback_weapon_set_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_weapon_set_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.weapon_set_player_upgrade && o.armed_riders_upgrade_weapon_set);
     }
 
@@ -24225,7 +24239,7 @@ mod tests {
         }
         assert!(shadow.writeback_ai_attitude_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_ai_attitude_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.ai_attitude, 2);
     }
 
@@ -24297,7 +24311,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         let p = o.guard_position.expect("host gp");
         assert!((p.x - 3.0).abs() < 1e-3 && (p.z - 5.0).abs() < 1e-3);
         assert_eq!(o.guard_target, Some(tid));
@@ -24379,7 +24393,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.continuous_fire_level, 2);
         assert_eq!(o.continuous_fire_consecutive, 9);
         assert_eq!(o.continuous_fire_coast_until_frame, 44);
@@ -24447,7 +24461,7 @@ mod tests {
         }
         assert!(shadow.writeback_detector_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_detector_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.is_detector);
         assert!((o.detection_range - 175.0).abs() < 1e-3);
         assert_eq!(o.detection_rate_frames, 12);
@@ -24508,7 +24522,7 @@ mod tests {
         }
         assert!(shadow.writeback_target_location_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_target_location_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         let p = o.target_location.expect("host tl");
         assert!((p.x - 11.0).abs() < 1e-3 && (p.z - 13.0).abs() < 1e-3);
     }
@@ -24591,7 +24605,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
         assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
         assert!(o.turret_holding);
@@ -24653,7 +24667,7 @@ mod tests {
         }
         assert!(shadow.writeback_entity_power_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_entity_power_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.power_provided, 50);
         assert_eq!(o.power_consumed, 5);
     }
@@ -24707,7 +24721,7 @@ mod tests {
         }
         assert!(shadow.writeback_weapon_slot_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_weapon_slot_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.active_weapon_slot, 1);
     }
 
@@ -24787,7 +24801,7 @@ mod tests {
         }
         assert!(shadow.writeback_weapon_bonus_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_weapon_bonus_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.weapon_bonus_frenzy && o.weapon_bonus_frenzy_level == 2);
         assert!(o.weapon_bonus_horde && o.weapon_bonus_nationalism);
         assert_eq!(o.weapon_bonus_frenzy_until_frame, 777);
@@ -24852,7 +24866,7 @@ mod tests {
         }
         assert!(shadow.writeback_faerie_fire_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_faerie_fire_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.is_faerie_fire());
         assert_eq!(o.faerie_fire_until_frame, 99);
     }
@@ -24916,7 +24930,7 @@ mod tests {
         }
         assert!(shadow.writeback_repulsor_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_repulsor_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(o.status.repulsor);
         assert_eq!(o.repulsor_until_frame, 12);
     }
@@ -24961,7 +24975,7 @@ mod tests {
         // Writeback pose to host as last-writer.
         assert!(shadow.writeback_transforms_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_transform_ready_log::drain();
-        let host_x = logic.get_objects().get(&oid).expect("o").get_position().x;
+        let host_x = logic.host_objects().get(&oid).expect("o").get_position().x;
         assert!(
             (host_x - after).abs() < 1e-3,
             "host pose writeback host={host_x} gw={after}"
@@ -24990,7 +25004,7 @@ mod tests {
             .expect("id");
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
-        let before = logic.get_objects().get(&oid).expect("o").health.current;
+        let before = logic.host_objects().get(&oid).expect("o").health.current;
         host_damage_log::clear();
         let _couple = ShadowCoupleGuard::enter();
         install_active_shadow_for_coupled_tick(&mut shadow);
@@ -25001,7 +25015,7 @@ mod tests {
         clear_active_shadow_for_coupled_tick();
         drop(_couple);
         // Host HP must not mid-frame mutate under damage authority.
-        let mid = logic.get_objects().get(&oid).expect("o").health.current;
+        let mid = logic.host_objects().get(&oid).expect("o").health.current;
         assert!(
             (mid - before).abs() < 1e-5,
             "host HP deferred before={before} mid={mid}"
@@ -25021,7 +25035,7 @@ mod tests {
             let _ = o.take_damage(25.0);
         }
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
-        let after = logic.get_objects().get(&oid).expect("o").health.current;
+        let after = logic.host_objects().get(&oid).expect("o").health.current;
         assert!(
             after < before - 20.0,
             "writeback must apply damage before={before} after={after}"
@@ -25061,7 +25075,7 @@ mod tests {
         }
         clear_active_shadow_for_coupled_tick();
         drop(_couple);
-        let mid = logic.get_objects().get(&oid).expect("o").health.current;
+        let mid = logic.host_objects().get(&oid).expect("o").health.current;
         assert!((mid - 40.0).abs() < 1e-5, "host heal deferred mid={mid}");
         let events = host_heal_log::drain();
         assert!(
@@ -25077,7 +25091,7 @@ mod tests {
             o.heal(30.0);
         }
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
-        let after = logic.get_objects().get(&oid).expect("o").health.current;
+        let after = logic.host_objects().get(&oid).expect("o").health.current;
         assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
     }
 
@@ -25100,7 +25114,12 @@ mod tests {
             .expect("id");
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
-        let before = logic.get_objects().get(&oid).expect("o").experience.current;
+        let before = logic
+            .host_objects()
+            .get(&oid)
+            .expect("o")
+            .experience
+            .current;
         host_experience_log::clear();
         // Wave 757: damage_authority_live requires coupled shadow tick depth
         // (host-only tests fail-open to host mutate). Enter couple for defer.
@@ -25112,7 +25131,12 @@ mod tests {
         }
         clear_active_shadow_for_coupled_tick();
         drop(_couple);
-        let mid = logic.get_objects().get(&oid).expect("o").experience.current;
+        let mid = logic
+            .host_objects()
+            .get(&oid)
+            .expect("o")
+            .experience
+            .current;
         assert!(
             (mid - before).abs() < 1e-5,
             "host XP deferred before={before} mid={mid}"
@@ -25136,7 +25160,12 @@ mod tests {
             clear_active_shadow_for_coupled_tick();
         }
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
-        let after = logic.get_objects().get(&oid).expect("o").experience.current;
+        let after = logic
+            .host_objects()
+            .get(&oid)
+            .expect("o")
+            .experience
+            .current;
         assert!(
             (after - (before + 50.0)).abs() < 1e-3,
             "writeback XP before={before} after={after}"
@@ -25192,13 +25221,13 @@ mod tests {
             o.move_to(glam::Vec3::new(50.0, 0.0, 0.0));
             o.record_host_movement();
         }
-        let before = logic.get_objects().get(&oid).expect("o").get_position().x;
+        let before = logic.host_objects().get(&oid).expect("o").get_position().x;
         let mut shadow = GameWorldShadow::new(64);
         // Multiple authority frames (path integrate + pose writeback each session).
         for _ in 0..10 {
             let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
         }
-        let after = logic.get_objects().get(&oid).expect("o").get_position().x;
+        let after = logic.host_objects().get(&oid).expect("o").get_position().x;
         assert!(
             after > before + 1.0,
             "shadow session movement authority must march host pose before={before} after={after}"
@@ -25273,7 +25302,7 @@ mod tests {
         }
         assert!(shadow.writeback_disable_timers_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_disable_timers_ready_log::drain();
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert_eq!(o.status.disabled_emp_until_frame, 11);
         assert_eq!(o.status.disabled_hacked_until_frame, 22);
         assert_eq!(o.status.disabled_paralyzed_until_frame, 33);
@@ -25334,7 +25363,7 @@ mod tests {
             e.experience_points = 42.0;
         }
         assert!(shadow.writeback_experience_to_host(&mut logic) >= 1);
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!((o.experience.current - 42.0).abs() < 1e-3);
     }
 
@@ -25394,7 +25423,7 @@ mod tests {
             e.max_health = 250.0;
         }
         assert!(shadow.writeback_health_to_host(&mut logic) >= 1);
-        let obj = logic.get_objects().get(&oid).expect("o");
+        let obj = logic.host_objects().get(&oid).expect("o");
         assert!(
             (obj.max_health - 250.0).abs() < 1e-3,
             "host max {}",
@@ -25504,7 +25533,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let pos = {
-            let obj = logic.get_objects().get(&id).unwrap();
+            let obj = logic.host_objects().get(&id).unwrap();
             let p = obj.get_position();
             [p.x, p.y, p.z]
         };
@@ -25561,7 +25590,7 @@ mod tests {
             ev.iter().any(|e| e.id == id),
             "destroy process must log host_destroy: {ev:?}"
         );
-        assert!(logic.get_objects().get(&id).is_none());
+        assert!(logic.host_objects().get(&id).is_none());
     }
 
     #[test]
@@ -25793,7 +25822,7 @@ mod tests {
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         assert!(n >= 1, "expected host target writeback");
-        assert_eq!(logic.get_objects().get(&a).unwrap().target, Some(b));
+        assert_eq!(logic.host_objects().get(&a).unwrap().target, Some(b));
         // Clear via shadow mutation + writeback
         assert!(shadow.queue_set_attack_target_for_host(a, None));
         let _ = shadow.apply_pending();
@@ -25801,7 +25830,7 @@ mod tests {
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&a).unwrap().target, None);
+        assert_eq!(logic.host_objects().get(&a).unwrap().target, None);
     }
 
     #[test]
@@ -25870,7 +25899,7 @@ mod tests {
             .create_object("MoveLogU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("a");
         assert!(
-            logic.get_objects().get(&a).unwrap().is_mobile(),
+            logic.host_objects().get(&a).unwrap().is_mobile(),
             "template Infantry should make object mobile"
         );
         logic
@@ -25918,7 +25947,7 @@ mod tests {
         let _ = crate::game_logic::host_move_target_ready_log::drain();
         assert!(n >= 1);
         assert!(logic
-            .get_objects()
+            .host_objects()
             .get(&a)
             .unwrap()
             .movement
@@ -25958,7 +25987,7 @@ mod tests {
         let cfg = golden_skirmish_config("ProdDone");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
         let barracks = logic
-            .get_objects()
+            .host_objects()
             .iter()
             .find(|(_, o)| o.team == Team::USA && o.building_data.is_some() && o.is_constructed())
             .map(|(id, _)| *id);
@@ -25985,10 +26014,10 @@ mod tests {
         assert!(logic.enqueue_production(bid, name.to_string()));
         crate::game_logic::host_production_log::clear();
         crate::game_logic::host_spawn_log::clear();
-        let before = logic.get_objects().len();
+        let before = logic.host_objects().len();
         for _ in 0..300 {
             logic.update_with_dt(1.0 / 30.0);
-            if logic.get_objects().len() > before {
+            if logic.host_objects().len() > before {
                 break;
             }
         }
@@ -26021,7 +26050,7 @@ mod tests {
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
         // Prefer a real barracks from skirmish/map config if present.
         let barracks = logic
-            .get_objects()
+            .host_objects()
             .iter()
             .find(|(_, o)| o.team == Team::USA && o.building_data.is_some() && o.is_constructed())
             .map(|(id, _)| *id);
@@ -26095,7 +26124,7 @@ mod tests {
         for _ in 0..10 {
             logic.update_with_dt(1.0 / 30.0);
         }
-        let p = logic.get_objects().get(&id).unwrap().get_position();
+        let p = logic.host_objects().get(&id).unwrap().get_position();
         assert!(
             p.x > 0.05,
             "host movement must advance despite stale engine_object_id when bridge off; pos={p:?}"
@@ -26120,7 +26149,7 @@ mod tests {
             o.health.current = 12.0;
             o.set_position(glam::Vec3::new(3.0, 0.0, 4.0));
         }
-        let o = logic.get_objects().get(&id).unwrap();
+        let o = logic.host_objects().get(&id).unwrap();
         assert!(
             (o.get_health_percentage() - (12.0 / 50.0)).abs() < 0.02 || o.health.current == 12.0
         );
@@ -26146,7 +26175,7 @@ mod tests {
             o.set_position(glam::Vec3::new(7.0, 0.0, 9.0));
             o.set_orientation(1.25);
         }
-        let o = logic.get_objects().get(&id).unwrap();
+        let o = logic.host_objects().get(&id).unwrap();
         assert_eq!(o.get_position(), glam::Vec3::new(7.0, 0.0, 9.0));
         assert!((o.get_orientation() - 1.25).abs() < 1e-5);
         assert!((o.get_health_percentage() - (33.0 / 80.0)).abs() < 1e-5);
@@ -26174,10 +26203,10 @@ mod tests {
         let _ = logic
             .create_object("RstU", Team::USA, glam::Vec3::ZERO)
             .expect("id");
-        assert!(!logic.get_objects().is_empty());
+        assert!(!logic.host_objects().is_empty());
         // Must not panic / lock-poison on factory residual when bridge off.
         logic.reset();
-        assert!(logic.get_objects().is_empty());
+        assert!(logic.host_objects().is_empty());
         assert_eq!(logic.get_frame(), 0);
     }
 
@@ -26584,9 +26613,9 @@ mod tests {
             o.construction_percent = 1.0;
             o.status.under_construction = false;
         }
-        assert!((logic.get_objects().get(&oid).expect("o").health.current - 50.0).abs() < 1e-5);
+        assert!((logic.host_objects().get(&oid).expect("o").health.current - 50.0).abs() < 1e-5);
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!(
             (o.health.current - o.health.maximum).abs() < 1e-3,
             "hp {}",
@@ -26624,7 +26653,7 @@ mod tests {
         host_construction_progress_log::record(oid, 0.6, true, 0.0);
         assert!(
             (logic
-                .get_objects()
+                .host_objects()
                 .get(&oid)
                 .expect("o")
                 .construction_percent
@@ -26641,7 +26670,7 @@ mod tests {
         assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
         assert!(
             (logic
-                .get_objects()
+                .host_objects()
                 .get(&oid)
                 .expect("o")
                 .construction_percent
@@ -26756,7 +26785,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let d = logic
-            .get_objects()
+            .host_objects()
             .get(&oid)
             .unwrap()
             .building_data
@@ -26819,7 +26848,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().body_damage_state,
+            logic.host_objects().get(&oid).unwrap().body_damage_state,
             HostBodyDamageType::ReallyDamaged
         );
     }
@@ -26879,13 +26908,13 @@ mod tests {
                 o.weapon.as_mut().unwrap().last_fire_time = 0.0;
             }
         }
-        if logic.get_objects().get(&oid).unwrap().weapon.is_some() {
+        if logic.host_objects().get(&oid).unwrap().weapon.is_some() {
             assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
             let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
             let _ = shadow.writeback_fire_intent_to_host(&mut logic);
             let _ = crate::game_logic::host_fire_intent_ready_log::drain();
             let t = logic
-                .get_objects()
+                .host_objects()
                 .get(&oid)
                 .unwrap()
                 .weapon
@@ -26981,7 +27010,7 @@ mod tests {
         assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_crush_vision_ready_log::drain();
         assert!(
-            logic.get_objects().get(&oid).unwrap().front_crushed,
+            logic.host_objects().get(&oid).unwrap().front_crushed,
             "front crushed writeback"
         );
     }
@@ -27055,7 +27084,7 @@ mod tests {
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let _ = crate::game_logic::host_bounce_land_ready_log::drain();
         assert!(
-            logic.get_objects().get(&oid).unwrap().waiting_for_path,
+            logic.host_objects().get(&oid).unwrap().waiting_for_path,
             "waiting_for_path writeback"
         );
     }
@@ -27146,7 +27175,7 @@ mod tests {
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let _ = crate::game_logic::host_bounce_land_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.locomotor_surfaces, 0b101);
         assert!(o.is_attack_path);
         assert!(o.is_braking);
@@ -27213,7 +27242,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.shock_stun_frames, 30);
         assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
         assert!(o.shock_allow_bounce);
@@ -27304,7 +27333,7 @@ mod tests {
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let _ = crate::game_logic::host_bounce_land_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
         assert_eq!(o.num_frames_blocked, 7);
         assert!(o.is_blocked);
@@ -27395,7 +27424,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&hole).unwrap();
+        let o = logic.host_objects().get(&hole).unwrap();
         assert!(o.is_rebuild_hole);
         assert_eq!(o.rebuild_template_name.as_deref(), Some("BldA"));
         assert_eq!(o.rebuild_ready_frame, 100);
@@ -27455,7 +27484,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&tgt).unwrap();
+        let o = logic.host_objects().get(&tgt).unwrap();
         assert_eq!(o.sole_healing_benefactor, Some(dozer));
         assert_eq!(o.sole_healing_benefactor_expiration_frame, 900);
     }
@@ -27506,7 +27535,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.idle_since_frame, 120);
         assert_eq!(o.mood_attack_check_rate, 45);
         assert!(!o.auto_acquire_when_idle);
@@ -27555,7 +27584,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!((o.guard_radius - 175.0).abs() < 1e-3);
         assert!(o.guard_position.is_some());
     }
@@ -27599,7 +27628,7 @@ mod tests {
             o.production_door_hold_open = false;
         }
         assert!(shadow.writeback_production_door_to_host(&mut logic) >= 1);
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.production_door_phase, 2);
         assert_eq!(o.production_door_phase_end_frame, 500);
         assert!(o.production_door_hold_open);
@@ -27696,7 +27725,7 @@ mod tests {
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let _ = crate::game_logic::host_bounce_land_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.motive_frames_remaining, 12);
         assert!((o.physics_mass - 2.5).abs() < 1e-5);
         assert!(o.can_path_through_units);
@@ -27773,7 +27802,7 @@ mod tests {
         }
         assert!(shadow.writeback_bounce_land_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_bounce_land_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!(o.kill_when_resting_on_ground);
         assert_eq!(o.bounce_land_events, 3);
         assert_eq!(o.bounce_audio_pending, 2);
@@ -27878,7 +27907,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
         assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
         assert!(o.turret_enabled);
@@ -27946,7 +27975,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!(o.stealth_delay_pending);
         assert_eq!(o.stealth_allowed_frame, 300);
         assert_eq!(o.stealth_delay_frames, 75);
@@ -28034,7 +28063,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.pre_attack_target, Some(tgt));
         assert_eq!(o.attack_substate, AttackSubState::FireWeapon);
         assert_eq!(o.consecutive_shots_at_target, 3);
@@ -28131,7 +28160,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!(o.is_approach_path);
         assert!(o.moving_backwards);
         assert_eq!(o.loco_appearance, LocomotorAppearance::Wings);
@@ -28218,7 +28247,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.requested_victim_id, Some(victim));
         assert_eq!(o.disguise_pending_template.as_deref(), Some("FakeTank"));
         assert_eq!(o.disguise_pending_team, Some(Team::GLA));
@@ -28286,7 +28315,7 @@ mod tests {
         }
         assert!(shadow.writeback_hijacker_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.hijack_vehicle_id, Some(vehicle));
         assert!(o.hijacker_in_vehicle);
         assert_eq!(o.hive_slave_respawn_frame, 250);
@@ -28334,7 +28363,7 @@ mod tests {
         let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!(o.leech_range_active_primary);
         assert!(o.leech_range_active_secondary);
     }
@@ -28389,7 +28418,7 @@ mod tests {
         }
         assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.last_fire_victim_host, victim.0);
         assert_eq!(o.fire_intent_count, 3);
         assert!((o.last_fire_damage - 42.0).abs() < 1e-5);
@@ -28609,10 +28638,10 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         // Host still has no target until writeback.
-        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        assert!(logic.host_objects().get(&oid).unwrap().target.is_none());
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -28676,7 +28705,7 @@ mod tests {
         );
         // Production path is host-immediate engagement + decision log (GameWorld
         // last-write). Shadow writeback re-asserts the same target.
-        let host = logic.get_objects().get(&oid).unwrap();
+        let host = logic.host_objects().get(&oid).unwrap();
         assert_eq!(
             host.target,
             Some(vid),
@@ -28693,7 +28722,7 @@ mod tests {
         // Host already holds the target; writeback is a no-op when equal.
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -28756,7 +28785,12 @@ mod tests {
             "continue-attack must log AttackTarget on next victim; got {events:?}"
         );
         assert!(
-            logic.get_objects().get(&attacker).unwrap().target.is_none(),
+            logic
+                .host_objects()
+                .get(&attacker)
+                .unwrap()
+                .target
+                .is_none(),
             "host target deferred under decision authority"
         );
         let mut shadow = GameWorldShadow::new(64);
@@ -28765,7 +28799,7 @@ mod tests {
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(
-            logic.get_objects().get(&attacker).unwrap().target,
+            logic.host_objects().get(&attacker).unwrap().target,
             Some(next)
         );
         match prev {
@@ -28836,7 +28870,7 @@ mod tests {
             }),
             "must log Attacking state; got {events:?}"
         );
-        let host = logic.get_objects().get(&uid).unwrap();
+        let host = logic.host_objects().get(&uid).unwrap();
         assert!(
             host.target.is_none(),
             "host target deferred under decision authority"
@@ -28851,7 +28885,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
+        assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -28900,7 +28934,7 @@ mod tests {
             "path_approach must log SetAIState; got {events:?} ord={gathering_ord}"
         );
         assert_ne!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Gathering,
             "host ai_state deferred under decision authority"
         );
@@ -28909,7 +28943,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Gathering
         );
         match prev {
@@ -28977,13 +29011,13 @@ mod tests {
         );
         // Host engagement should stick same-frame for unload residual.
         let host_engaged = logic
-            .get_objects()
+            .host_objects()
             .iter()
             .any(|(id, o)| *id != enemy && o.target == Some(enemy));
         assert!(
             host_engaged,
             "assault deploy must set host target same-frame; ordered={ordered} occ_target={:?}",
-            logic.get_objects().get(&occ).map(|o| o.target)
+            logic.host_objects().get(&occ).map(|o| o.target)
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -28992,7 +29026,7 @@ mod tests {
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         // Writeback should land on whoever logged AttackTarget (occ if ordered, else engagetest).
         let hit = logic
-            .get_objects()
+            .host_objects()
             .iter()
             .any(|(id, o)| o.target == Some(enemy) && *id != enemy);
         assert!(hit, "writeback must set some unit target to enemy");
@@ -29066,18 +29100,21 @@ mod tests {
             "laser guided must log AttackTarget; got {events:?}"
         );
         assert_eq!(
-            logic.get_objects().get(&mid).unwrap().target,
+            logic.host_objects().get(&mid).unwrap().target,
             Some(eid),
             "host target applies immediately under decision authority"
         );
         // Weapon slot still host-applied.
-        assert_eq!(logic.get_objects().get(&mid).unwrap().active_weapon_slot, 1);
+        assert_eq!(
+            logic.host_objects().get(&mid).unwrap().active_weapon_slot,
+            1
+        );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&mid).unwrap().target, Some(eid));
+        assert_eq!(logic.host_objects().get(&mid).unwrap().target, Some(eid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -29138,7 +29175,7 @@ mod tests {
             "must log AttackTarget; got {events:?}"
         );
         assert!(
-            logic.get_objects().get(&uid).unwrap().target.is_none(),
+            logic.host_objects().get(&uid).unwrap().target.is_none(),
             "host target deferred under decision authority"
         );
         let mut shadow = GameWorldShadow::new(64);
@@ -29146,7 +29183,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
+        assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -29208,7 +29245,7 @@ mod tests {
         );
         // Host retargets immediately (C++ transferAttack / rebuild-hole residual).
         assert_eq!(
-            logic.get_objects().get(&attacker).unwrap().target,
+            logic.host_objects().get(&attacker).unwrap().target,
             Some(to),
             "host must retarget immediately"
         );
@@ -29217,7 +29254,10 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&attacker).unwrap().target, Some(to));
+        assert_eq!(
+            logic.host_objects().get(&attacker).unwrap().target,
+            Some(to)
+        );
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -29333,13 +29373,13 @@ mod tests {
             }),
             "must log AttackTarget; got {events:?}"
         );
-        assert!(logic.get_objects().get(&uid).unwrap().target.is_none());
+        assert!(logic.host_objects().get(&uid).unwrap().target.is_none());
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
+        assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -29402,13 +29442,13 @@ mod tests {
             "mood acquire must log AttackTarget decision under authority; got {events:?}"
         );
         // Host target still unset until shadow writeback.
-        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        assert!(logic.host_objects().get(&oid).unwrap().target.is_none());
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -29459,7 +29499,7 @@ mod tests {
             "guard engage must log decision; got {events:?}"
         );
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().target,
+            logic.host_objects().get(&oid).unwrap().target,
             Some(vid),
             "host engage immediate"
         );
@@ -29468,7 +29508,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -29526,13 +29566,13 @@ mod tests {
             .find(|(_, p)| p.team == Team::GLA)
             .map(|(id, _)| *id);
         let enemy = logic
-            .get_objects()
+            .host_objects()
             .iter()
             .find(|(_, o)| o.team == Team::GLA)
             .map(|(id, _)| *id)
             .expect("enemy");
         let usa_unit = logic
-            .get_objects()
+            .host_objects()
             .iter()
             .find(|(_, o)| o.team == Team::USA)
             .map(|(id, _)| *id)
@@ -29555,7 +29595,7 @@ mod tests {
             "expected AttackTarget decision: {events:?}"
         );
         assert_eq!(
-            logic.get_objects().get(&usa_unit).unwrap().target,
+            logic.host_objects().get(&usa_unit).unwrap().target,
             Some(enemy),
             "launch_attack must engage host target immediately"
         );
@@ -29565,7 +29605,7 @@ mod tests {
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert_eq!(
-            logic.get_objects().get(&usa_unit).unwrap().target,
+            logic.host_objects().get(&usa_unit).unwrap().target,
             Some(enemy)
         );
         match prev {
@@ -29623,7 +29663,7 @@ mod tests {
         );
         // Host engagement clears same-frame so combat cannot keep firing.
         assert!(
-            logic.get_objects().get(&oid).unwrap().target.is_none(),
+            logic.host_objects().get(&oid).unwrap().target.is_none(),
             "host target must clear immediately on stop"
         );
         let mut shadow = GameWorldShadow::new(64);
@@ -29635,7 +29675,7 @@ mod tests {
         let _ = shadow.apply_pending();
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
-        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        assert!(logic.host_objects().get(&oid).unwrap().target.is_none());
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -29815,7 +29855,7 @@ mod tests {
             logic.assign_unit_path(id, Vec3::new(50.0, 0.0, 0.0), &[]),
             "assign_unit_path"
         );
-        let st = logic.get_objects().get(&id).unwrap().ai_state.clone();
+        let st = logic.host_objects().get(&id).unwrap().ai_state.clone();
         assert!(
             matches!(st, crate::game_logic::AIState::Moving),
             "host-only must set Moving immediately under AI_DECISION_AUTH, got {st:?}"
@@ -29883,10 +29923,10 @@ mod tests {
             o.movement.max_speed = 60.0;
         }
         assert!(logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
-        let pre = logic.get_objects().get(&id).unwrap().get_position();
+        let pre = logic.host_objects().get(&id).unwrap().get_position();
         // One host movement tick must advance pose when shadow is off.
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
-        let post = logic.get_objects().get(&id).unwrap().get_position();
+        let post = logic.host_objects().get(&id).unwrap().get_position();
         let dist = (post - pre).length();
         assert!(
             dist > 0.01,
@@ -29973,13 +30013,13 @@ mod tests {
         // Host still default zeros; writeback skipped when authority off.
         assert_eq!(shadow.writeback_fire_intent_to_host(&mut logic), 0);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.fire_intent_count, 0);
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         assert!(gameworld_ai_attack_authority_enabled());
         assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.fire_intent_count, 1);
         assert_eq!(o.last_fire_victim_host, 9);
         match prev {
@@ -30042,7 +30082,7 @@ mod tests {
         assert!(shadow.apply_host_fire_intent_events(&evs) >= 1);
         assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert_eq!(o.last_fire_victim_host, vid.0);
         assert_eq!(o.last_fire_frame, 77);
         assert!((o.last_fire_damage - 15.0).abs() < 1e-5);
@@ -30112,21 +30152,21 @@ mod tests {
             "assign_unit_path must log Moving; got {events:?}"
         );
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Moving,
             "host Moving immediate"
         );
         assert!(
-            logic.get_objects().get(&oid).unwrap().status.moving
+            logic.host_objects().get(&oid).unwrap().status.moving
                 || logic
-                    .get_objects()
+                    .host_objects()
                     .get(&oid)
                     .unwrap()
                     .movement
                     .target_position
                     .is_some()
                 || !logic
-                    .get_objects()
+                    .host_objects()
                     .get(&oid)
                     .unwrap()
                     .movement
@@ -30139,7 +30179,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Moving
         );
         match prev {
@@ -30199,7 +30239,7 @@ mod tests {
             "private_idle must log Idle; got {events:?}"
         );
         // Host still engaged until writeback.
-        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
@@ -30207,7 +30247,7 @@ mod tests {
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         // set_target(None) residual also idles host; either writeback path is enough.
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!(o.target.is_none());
         assert_eq!(o.ai_state, AIState::Idle);
         match prev {
@@ -30297,7 +30337,7 @@ mod tests {
             "waypoint must log Moving; got {events:?}"
         );
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Moving,
             "host Moving immediate"
         );
@@ -30306,7 +30346,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Moving
         );
         match prev {
@@ -30349,7 +30389,7 @@ mod tests {
             "must log Gathering; got {events:?}"
         );
         assert_ne!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Gathering
         );
         let mut shadow = GameWorldShadow::new(64);
@@ -30357,7 +30397,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Gathering
         );
         match prev {
@@ -30418,7 +30458,7 @@ mod tests {
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().status.death_type,
+            logic.host_objects().get(&oid).unwrap().status.death_type,
             HostDeathType::Burned
         );
     }
@@ -30473,7 +30513,7 @@ mod tests {
         let _ = crate::game_logic::host_ai_request_ready_log::drain();
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = crate::game_logic::host_hijacker_ready_log::drain();
-        let o = logic.get_objects().get(&oid).unwrap();
+        let o = logic.host_objects().get(&oid).unwrap();
         assert!(o.radar_active);
         assert_eq!(o.radar_extend_done_frame, 120);
     }
@@ -30552,7 +30592,7 @@ mod tests {
             o.special_power_cooldown_remaining = 9.0;
         }
         assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
-        let o = logic.get_objects().get(&oid).expect("o");
+        let o = logic.host_objects().get(&oid).expect("o");
         assert!((o.special_power_cooldown_remaining - 2.0).abs() < 1e-3);
     }
 
@@ -30571,7 +30611,7 @@ mod tests {
 
         let mut shadow = GameWorldShadow::new(4096);
         shadow.sync_from_host(&logic);
-        let pre = logic.get_objects().get(&id).unwrap().health.current;
+        let pre = logic.host_objects().get(&id).unwrap().health.current;
 
         std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
         assert!(gameworld_damage_authority_enabled());
@@ -30583,7 +30623,7 @@ mod tests {
         }
         clear_active_shadow_for_coupled_tick();
         drop(_couple);
-        let host_mid = logic.get_objects().get(&id).unwrap().health.current;
+        let host_mid = logic.host_objects().get(&id).unwrap().health.current;
         // Under DAMAGE_AUTHORITY, host HP defers until writeback.
         assert!(
             (host_mid - pre).abs() < 0.01,
@@ -30607,7 +30647,7 @@ mod tests {
         }
         let wb = shadow.writeback_health_to_host(&mut logic);
         assert!(wb >= 1, "expected writeback after host desync");
-        let host_final = logic.get_objects().get(&id).unwrap().health.current;
+        let host_final = logic.host_objects().get(&id).unwrap().health.current;
         let shadow_final = shadow.world().entity(eid).unwrap().health;
         assert!(
             (host_final - shadow_final).abs() < 0.05,
@@ -30647,11 +30687,11 @@ mod tests {
         let id = logic
             .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
             .expect("unit");
-        let pre = logic.get_objects().get(&id).unwrap().health.current;
+        let pre = logic.host_objects().get(&id).unwrap().health.current;
         if let Some(obj) = logic.host_object_mut(id) {
             let _ = obj.take_damage(25.0);
         }
-        let mid = logic.get_objects().get(&id).unwrap().health.current;
+        let mid = logic.host_objects().get(&id).unwrap().health.current;
         assert!(
             (mid - (pre - 25.0)).abs() < 0.01,
             "host HP must apply immediately when shadow disabled; pre={pre} mid={mid}"
@@ -30688,7 +30728,7 @@ mod tests {
             .expect("unit");
         assert!(gameworld_damage_authority_enabled());
         assert!(gameworld_shadow_enabled());
-        let pre = logic.get_objects().get(&id).unwrap().health.current;
+        let pre = logic.host_objects().get(&id).unwrap().health.current;
         // Wave 758: damage_authority_live needs coupled tick depth.
         let _couple = ShadowCoupleGuard::enter();
         if let Some(obj) = logic.host_object_mut(id) {
@@ -30894,7 +30934,7 @@ mod tests {
             "Repairing must be logged; got {events:?}"
         );
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Repairing,
             "host AI state applies immediately"
         );
@@ -30903,7 +30943,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Repairing
         );
         match prev {
@@ -30989,7 +31029,7 @@ mod tests {
             "Docked must be logged; got {events:?}"
         );
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Docked,
             "host AI state applies immediately"
         );
@@ -30998,7 +31038,7 @@ mod tests {
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
+            logic.host_objects().get(&oid).unwrap().ai_state,
             AIState::Docked
         );
         match prev {
@@ -31271,7 +31311,7 @@ mod tests {
         assert!(logic.private_stop(oid));
         // Host target clears same-frame; decision log still drives GameWorld.
         assert!(
-            logic.get_objects().get(&oid).unwrap().target.is_none(),
+            logic.host_objects().get(&oid).unwrap().target.is_none(),
             "private_stop must clear host target immediately"
         );
         let events = host_ai_decision_log::drain();
@@ -31291,7 +31331,7 @@ mod tests {
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         assert!(
-            logic.get_objects().get(&oid).unwrap().target.is_none(),
+            logic.host_objects().get(&oid).unwrap().target.is_none(),
             "host remains clear after stop + GameWorld stop apply"
         );
         match prev {
@@ -31682,7 +31722,7 @@ mod tests {
         // Host sell start always sets construction_percent=0.999 (and logs progress).
         // Construction authority no longer freezes host percent (stalls multi-frame sell).
         assert!(
-            (logic.get_objects().get(&oid).unwrap().construction_percent - 0.999).abs() < 1e-4,
+            (logic.host_objects().get(&oid).unwrap().construction_percent - 0.999).abs() < 1e-4,
             "host sell start must set 0.999 residual"
         );
         let evs = host_construction_progress_log::drain();
@@ -31728,11 +31768,11 @@ mod tests {
         // (frame + update_sell_list). Stop once percent is clearly negative.
         for _ in 0..200 {
             logic.update();
-            if logic.get_object(oid).is_none() {
+            if logic.host_object(oid).is_none() {
                 break;
             }
             let pct = logic
-                .get_object(oid)
+                .host_object(oid)
                 .map(|o| o.construction_percent)
                 .unwrap_or(-1.0);
             if pct < -0.1 {
@@ -31740,7 +31780,7 @@ mod tests {
             }
         }
         let host_pct = logic
-            .get_object(oid)
+            .host_object(oid)
             .map(|o| o.construction_percent)
             .expect("still selling");
         assert!(
@@ -31773,7 +31813,7 @@ mod tests {
             o.construction_percent = 0.5; // dirty host so writeback must restore
         }
         assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
-        let after = logic.get_object(oid).expect("o").construction_percent;
+        let after = logic.host_object(oid).expect("o").construction_percent;
         assert!(
             (after - host_pct).abs() < 1e-4,
             "writeback must preserve negative sell percent: after={after} want={host_pct}"
@@ -31866,7 +31906,7 @@ mod tests {
         // Simulate absolute heal through battle drone style residual: apply via heal log only.
         crate::game_logic::host_heal_log::record(oid, 100.0);
         assert!(
-            (logic.get_objects().get(&oid).unwrap().health.current - 40.0).abs() < 1e-3,
+            (logic.host_objects().get(&oid).unwrap().health.current - 40.0).abs() < 1e-3,
             "host HP must stay until writeback under damage authority"
         );
         let evs = host_heal_log::drain();

@@ -1,3 +1,4 @@
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::game_logic::{AIState, BuildingType, GameLogic, KindOf, Object, ObjectId, Team};
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
@@ -3244,14 +3245,14 @@ mod tests {
             );
             assert!(
                 game_logic
-                    .find_object(barracks_id)
+                    .host_object(barracks_id)
                     .map(|object| object.status.sold)
                     .unwrap_or(false),
                 "sell start should mark structure sold residual"
             );
             assert!(
                 game_logic
-                    .find_object(barracks_id)
+                    .host_object(barracks_id)
                     .and_then(|object| object.building_data.as_ref())
                     .map(|building| building.production_queue.is_empty())
                     .unwrap_or(true),
@@ -3263,12 +3264,12 @@ mod tests {
                 game_logic.set_current_frame(step);
                 game_logic.update_sell_list();
                 game_logic.process_destroy_list();
-                if game_logic.find_object(barracks_id).is_none() {
+                if game_logic.host_object(barracks_id).is_none() {
                     break;
                 }
             }
             assert!(
-                game_logic.find_object(barracks_id).is_none(),
+                game_logic.host_object(barracks_id).is_none(),
                 "sell finish should destroy structure"
             );
             assert_eq!(
@@ -3334,12 +3335,12 @@ mod tests {
                 game_logic.set_current_frame(step);
                 game_logic.update_sell_list();
                 game_logic.process_destroy_list();
-                if game_logic.find_object(barracks_id).is_none() {
+                if game_logic.host_object(barracks_id).is_none() {
                     break;
                 }
             }
             assert!(
-                game_logic.find_object(barracks_id).is_none(),
+                game_logic.host_object(barracks_id).is_none(),
                 "sell finish should destroy structure"
             );
             assert_eq!(
@@ -3392,7 +3393,7 @@ mod tests {
         game_logic.update();
 
         assert!(
-            game_logic.get_object(barracks_id).is_none(),
+            game_logic.host_object(barracks_id).is_none(),
             "cancelled construction should be destroyed"
         );
         assert_eq!(
@@ -3447,7 +3448,7 @@ mod tests {
         game_logic.update();
 
         assert!(
-            game_logic.get_object(barracks_id).is_some(),
+            game_logic.host_object(barracks_id).is_some(),
             "enemy cancel command must not destroy the target"
         );
         assert_eq!(
@@ -3891,7 +3892,7 @@ mod tests {
             "queued upgrade cleared"
         );
         let q_empty = logic
-            .get_object(bid)
+            .host_object(bid)
             .and_then(|o| o.building_data.as_ref())
             .map(|b| b.production_queue.is_empty())
             .unwrap_or(false);

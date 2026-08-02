@@ -11,6 +11,7 @@
 
 //!
 //! Wave 956: host_object/host_objects authority dual-read seal.
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::ai::AIDifficulty;
 use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
@@ -514,7 +515,7 @@ mod tests {
 
         // ArmsDealer must classify as WarFactory so Technical enqueue succeeds.
         let arms_type = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.template_name == "GLA_ArmsDealer")
             .and_then(|o| o.building_data.as_ref().map(|b| b.building_type));

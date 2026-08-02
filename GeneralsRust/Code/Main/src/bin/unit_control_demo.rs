@@ -9,6 +9,7 @@
 //! - Unit highlighting and visual feedback
 //! - Integration with game logic and rendering
 
+// Wave 958: host_object dual-read seal.
 use game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use generals_main::{
     game_logic::{GameLogic, GameMode, Team},
@@ -107,7 +108,7 @@ impl UnitControlDemo {
 
             println!(
                 "Demo world created with {} objects",
-                logic.get_objects().len()
+                logic.host_objects().len()
             );
         }
 
