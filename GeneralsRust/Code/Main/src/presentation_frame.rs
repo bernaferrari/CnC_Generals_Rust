@@ -7058,6 +7058,44 @@ impl PresentationFrame {
                 obj.crushable_level = ent.crushable_level;
                 dirty = true;
             }
+            // Wave 995: captured / prone / poison / defector residual last-writer.
+            if obj.captured != ent.private_captured {
+                obj.captured = ent.private_captured;
+                dirty = true;
+            }
+            if obj.prone != ent.prone_active {
+                obj.prone = ent.prone_active;
+                dirty = true;
+            }
+            let poison_tinted = ent.poison_damage_frame != 0;
+            if obj.poison_tinted != poison_tinted {
+                obj.poison_tinted = poison_tinted;
+                dirty = true;
+            }
+            if obj.undetected_defector != ent.defection_undetected {
+                obj.undetected_defector = ent.defection_undetected;
+                dirty = true;
+            }
+            if obj.defector_flash != ent.defection_flash_this_frame {
+                obj.defector_flash = ent.defection_flash_this_frame;
+                dirty = true;
+            }
+            if obj.cell_is_cliff != ent.cell_is_cliff {
+                obj.cell_is_cliff = ent.cell_is_cliff;
+                dirty = true;
+            }
+            if obj.cell_is_underwater != ent.cell_is_underwater {
+                obj.cell_is_underwater = ent.cell_is_underwater;
+                dirty = true;
+            }
+            if obj.over_water != ent.cell_is_underwater {
+                obj.over_water = ent.cell_is_underwater;
+                dirty = true;
+            }
+            if obj.formation_id != ent.formation_id {
+                obj.formation_id = ent.formation_id;
+                dirty = true;
+            }
             if (obj.camo_friendly_opacity - ent.camo_friendly_opacity).abs() > 1e-4 {
                 obj.camo_friendly_opacity = ent.camo_friendly_opacity;
                 dirty = true;
@@ -7447,16 +7485,16 @@ impl PresentationFrame {
             healing_icon_type: 0,
             parachuting: ent.parachuting,
             parachute_open: ent.parachute_open,
-            captured: false,
-            prone: false,
+            captured: ent.private_captured,
+            prone: ent.prone_active,
             emoticon_name: String::new(),
             emoticon_frames_left: 0,
             is_surrendered: false,
-            formation_id: 0,
+            formation_id: ent.formation_id,
             formation_offset: glam::Vec2::ZERO,
-            over_water: false,
-            cell_is_cliff: false,
-            cell_is_underwater: false,
+            over_water: ent.cell_is_underwater,
+            cell_is_cliff: ent.cell_is_cliff,
+            cell_is_underwater: ent.cell_is_underwater,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
             ai_state_ordinal: ent.ai_state_ordinal,
@@ -7506,9 +7544,9 @@ impl PresentationFrame {
             // Wave 498 defaults; overlay_host_fx_residual stamps live host FX residual.
             damage_fx_name: None,
             bone_fx_name: None,
-            poison_tinted: false,
-            undetected_defector: false,
-            defector_flash: false,
+            poison_tinted: ent.poison_damage_frame != 0,
+            undetected_defector: ent.defection_undetected,
+            defector_flash: ent.defection_flash_this_frame,
             death_fx_name: None,
             death_type_name: if ent.destroyed || ent.health <= 0.0 {
                 crate::game_logic::host_usa_pilot::HostDeathType::from_ordinal(ent.death_type)
