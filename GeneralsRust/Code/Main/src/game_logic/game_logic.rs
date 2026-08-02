@@ -28853,7 +28853,7 @@ impl GameLogic {
         let obj = self.get_objects_mut().get_mut(&id)?;
         Some(f(obj))
     }
-    /// Wave 946: host object mut access for shadow writeback phase only.
+    /// Wave 946/947: host object mut access for shadow writeback + channel tests.
     /// Prefer [`Self::with_host_object_mut`] when the mutation is a closed block.
     pub fn host_object_mut(
         &mut self,
