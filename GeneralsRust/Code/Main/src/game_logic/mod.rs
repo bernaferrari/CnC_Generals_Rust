@@ -234,6 +234,7 @@ pub mod host_live_host_first_opponent_residual_wave863;
 pub mod host_live_host_flashbang_comanche_helix_dual_peel_residual_wave804;
 pub mod host_live_host_float_update_dual_peel_residual_wave783;
 pub mod host_live_host_force_reload_dual_peel_residual_wave763;
+pub mod host_live_host_formation_offset_presentation_residual_wave998;
 pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
 pub mod host_live_host_fow_tod_residual_wave981;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
@@ -3535,6 +3536,13 @@ pub use host_live_host_production_interface_presentation_residual_wave997::{
     honesty_host_production_interface_presentation_residual_nav_commands_residual_wave997,
     honesty_host_production_interface_presentation_residual_residual_pack_wave997,
     simulate_live_host_production_interface_presentation_residual_honesty,
+};
+
+pub use host_live_host_formation_offset_presentation_residual_wave998::{
+    honesty_host_formation_offset_presentation_residual_method_names_residual_wave998,
+    honesty_host_formation_offset_presentation_residual_nav_commands_residual_wave998,
+    honesty_host_formation_offset_presentation_residual_residual_pack_wave998,
+    simulate_live_host_formation_offset_presentation_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
