@@ -3197,6 +3197,28 @@ pub enum ReadyLogDrainOp {
     StoredSupplies,
 }
 
+/// Wave 940: post-writeback sole-tick batch is a single authority call (no enum).
+/// Host ObjectId mutations used by shadow residual drains.
+#[derive(Debug, Clone)]
+pub enum HostObjectIdOp {
+    MarkForDestruction {
+        id: ObjectId,
+        team: Option<Team>,
+    },
+    Create {
+        template: String,
+        team: Team,
+        spawn_at: glam::Vec3,
+    },
+}
+
+/// Wave 940: result for [`HostObjectIdOp`].
+#[derive(Debug, Clone, Copy)]
+pub enum HostObjectIdResult {
+    Unit,
+    Created(Option<ObjectId>),
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27918,6 +27940,33 @@ impl GameLogic {
             ReadyLogDrainOp::Economy => self.host_apply_economy_ready_completions(),
             ReadyLogDrainOp::Upgrade => self.host_apply_upgrade_ready_completions(),
             ReadyLogDrainOp::StoredSupplies => self.host_apply_stored_supplies_ready_completions(),
+        }
+    }
+
+    /// Wave 940: batch post-writeback sole-tick residuals (single authority boundary).
+    #[inline]
+    pub fn apply_post_writeback_sole_ticks(&mut self) {
+        // Order matches shadow_session_after_host_tick (Waves 823–827).
+        self.tick_patriot_assist_lasers_sole();
+        self.tick_pending_patriot_assists_sole();
+        self.tick_zone_damage_fields_sole();
+        self.tick_combat_field_residuals_sole();
+        self.tick_host_systems_residuals_sole();
+    }
+
+    /// Wave 940: host ObjectId create/mark-destroy authority boundary.
+    #[inline]
+    pub fn apply_host_object_id_op(&mut self, op: HostObjectIdOp) -> HostObjectIdResult {
+        match op {
+            HostObjectIdOp::MarkForDestruction { id, team } => {
+                self.mark_object_for_destruction(id, team);
+                HostObjectIdResult::Unit
+            }
+            HostObjectIdOp::Create {
+                template,
+                team,
+                spawn_at,
+            } => HostObjectIdResult::Created(self.create_object(&template, team, spawn_at)),
         }
     }
 

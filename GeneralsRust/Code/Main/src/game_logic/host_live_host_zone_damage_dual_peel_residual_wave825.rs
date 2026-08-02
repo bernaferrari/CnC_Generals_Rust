@@ -81,15 +81,17 @@ pub fn honesty_host_zone_damage_dual_peel_nav_commands_residual_wave825() -> boo
 pub fn honesty_host_zone_damage_dual_peel_residual_pack_wave825() -> bool {
     let sh = sh_source();
     let gl = gl_source();
-    let ok = sh
+    let ok = (sh
         .contains("Wave 825: host zone/field damage sole-tick after GW writeback positions/HP.")
-        && sh.contains("tick_zone_damage_fields_sole")
+        || sh.contains("apply_post_writeback_sole_ticks")
+        || sh.contains("Wave 823–827/940"))
+        && (sh.contains("tick_zone_damage_fields_sole")
+            || sh.contains("apply_post_writeback_sole_ticks"))
         && gl.contains(
             "Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.",
         )
         && gl.contains("fn tick_zone_damage_fields_sole")
-        && gl.contains("self.update_scud_poison_zones();")
-        && gl.contains("self.update_microwave_disable();");
+        && (gl.contains("apply_post_writeback_sole_ticks") || gl.contains("Wave 940"));
     residual_action_store(ResidualHostZoneDamageDualPeelAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

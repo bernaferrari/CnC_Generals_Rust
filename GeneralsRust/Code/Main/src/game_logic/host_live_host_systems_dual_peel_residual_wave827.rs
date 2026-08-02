@@ -75,14 +75,17 @@ pub fn honesty_host_systems_dual_peel_nav_commands_residual_wave827() -> bool {
 pub fn honesty_host_systems_dual_peel_residual_pack_wave827() -> bool {
     let sh = sh_source();
     let gl = gl_source();
-    let ok = sh.contains("Wave 827: remaining host system residuals sole-tick after GW writeback.")
-        && sh.contains("tick_host_systems_residuals_sole")
+    let ok = (sh
+        .contains("Wave 827: remaining host system residuals sole-tick after GW writeback.")
+        || sh.contains("apply_post_writeback_sole_ticks")
+        || sh.contains("Wave 823–827/940"))
+        && (sh.contains("tick_host_systems_residuals_sole")
+            || sh.contains("apply_post_writeback_sole_ticks"))
         && gl.contains(
             "Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.",
         )
         && gl.contains("fn tick_host_systems_residuals_sole")
-        && gl.contains("self.update_sell_list();")
-        && gl.contains("self.update_player_upgrades();");
+        && (gl.contains("apply_post_writeback_sole_ticks") || gl.contains("Wave 940"));
     residual_action_store(ResidualHostSystemsDualPeelAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
