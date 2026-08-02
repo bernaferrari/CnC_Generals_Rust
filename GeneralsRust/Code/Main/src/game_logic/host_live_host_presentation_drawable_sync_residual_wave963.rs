@@ -17,7 +17,7 @@ pub const LIVE_HOST_PRESENTATION_DRAWABLE_SYNC_METHOD_NAMES_WAVE963: &[&str] = &
     "sync_presentation_drawables",
     "ensure_presentation_drawables",
     "PresentationDrawableSync",
-    "stamp_presentation_model_residual",
+    "stamp_presentation_object_residual",
     "Wave 963",
     "playable_claim = false",
 ];
@@ -122,7 +122,8 @@ pub fn honesty_host_presentation_drawable_sync_residual_pack_wave963() -> bool {
         && cnc.contains("Wave 963")
         && client.contains("struct PresentationDrawableSync")
         && client.contains("sync_presentation_drawables")
-        && client.contains("stamp_presentation_model_residual")
+        && (client.contains("stamp_presentation_model_residual")
+            || client.contains("stamp_presentation_object_residual"))
         && client.contains("destroy_drawable")
         && client.contains("model_condition_bits")
         && client.contains("react_to_body_damage_state_change")

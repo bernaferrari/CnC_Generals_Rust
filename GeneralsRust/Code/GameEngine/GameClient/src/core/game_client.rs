@@ -150,6 +150,14 @@ pub struct PresentationDrawableSync {
     pub destroyed: bool,
     pub model_condition_bits: u128,
     pub body_damage_state: u8,
+    /// Wave 965: presentation KindOf Debug names (host empty dual-world kind queries).
+    pub kind_names: Vec<String>,
+    /// Wave 965: team tint residual 0..1 RGBA → indicator RGB.
+    pub team_color: [f32; 4],
+    pub effectively_stealthed: bool,
+    pub health_current: f32,
+    pub health_max: f32,
+    pub selected: bool,
 }
 
 /// Wave 269: host-only path has no dual-world factory objects.
@@ -3412,6 +3420,12 @@ impl GameClient {
                 destroyed: false,
                 model_condition_bits: 0,
                 body_damage_state: 0,
+                kind_names: Vec::new(),
+                team_color: [1.0, 1.0, 1.0, 1.0],
+                effectively_stealthed: false,
+                health_current: 0.0,
+                health_max: 0.0,
+                selected: false,
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -3448,11 +3462,7 @@ impl GameClient {
                         if !e.template_name.is_empty() {
                             basic.set_template_name(Some(e.template_name.clone()));
                         }
-                        Self::stamp_presentation_model_residual(
-                            basic,
-                            e.model_condition_bits,
-                            e.body_damage_state,
-                        );
+                        Self::stamp_presentation_object_residual(basic, &e);
                     }
                     updated = updated.saturating_add(1);
                 }
@@ -3468,11 +3478,7 @@ impl GameClient {
             drawable.set_position(position);
             let transform = Matrix4::translation(position).mul(&Matrix4::rotation_y(e.orientation));
             drawable.set_instance_transform(transform);
-            Self::stamp_presentation_model_residual(
-                &mut drawable,
-                e.model_condition_bits,
-                e.body_damage_state,
-            );
+            Self::stamp_presentation_object_residual(&mut drawable, &e);
             let id = self.alloc_drawable_id();
             drawable.set_id(id);
             self.drawable_map.insert(id, Box::new(drawable));
@@ -3501,10 +3507,9 @@ impl GameClient {
         (created, updated, pruned)
     }
 
-    fn stamp_presentation_model_residual(
+    fn stamp_presentation_object_residual(
         drawable: &mut BasicDrawable,
-        model_condition_bits: u128,
-        body_damage_state: u8,
+        e: &PresentationDrawableSync,
     ) {
         use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionFlags};
         use gamelogic::common::types::BodyDamageType;
@@ -3515,19 +3520,36 @@ impl GameClient {
         let n = bit_names.len().min(128);
         for i in 0..n {
             clear_all.set(i, true);
-            if (model_condition_bits >> i) & 1 == 1 {
+            if (e.model_condition_bits >> i) & 1 == 1 {
                 set.set(i, true);
             }
         }
         drawable.clear_and_set_model_condition_flags(&clear_all, &set);
 
-        let body = match body_damage_state {
+        let body = match e.body_damage_state {
             1 => BodyDamageType::Damaged,
             2 => BodyDamageType::ReallyDamaged,
             3 => BodyDamageType::Rubble,
             _ => BodyDamageType::Pristine,
         };
         drawable.react_to_body_damage_state_change(body);
+
+        // Wave 965: host residual cache for kind/stealth/color/health without dual-world.
+        let r = (e.team_color[0].clamp(0.0, 1.0) * 255.0) as u8;
+        let g = (e.team_color[1].clamp(0.0, 1.0) * 255.0) as u8;
+        let b = (e.team_color[2].clamp(0.0, 1.0) * 255.0) as u8;
+        let health_pct = if e.health_max > 0.0 {
+            (e.health_current / e.health_max).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        drawable.set_presentation_host_residual(
+            e.kind_names.clone(),
+            Some((r, g, b)),
+            e.effectively_stealthed,
+            health_pct,
+            e.selected,
+        );
     }
 
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
