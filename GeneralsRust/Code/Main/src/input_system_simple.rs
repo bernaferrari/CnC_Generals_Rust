@@ -1,4 +1,4 @@
-use crate::game_logic::{GameLogic, ObjectId, Team};
+use crate::game_logic::{GameLogic, KindOf, ObjectId, Team};
 use crate::input_system::RtsInputSystem;
 use crate::presentation_frame::PresentationFrame;
 use anyhow::Result;
@@ -60,6 +60,23 @@ impl SimpleInputProcessor {
     /// Install dual-tick presentation snapshot for pick residual.
     pub fn set_presentation_frame(&mut self, frame: Option<PresentationFrame>) {
         self.presentation_frame = frame;
+    }
+
+    fn presentation_local_team(&self, game_logic: &GameLogic) -> Team {
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            return frame.local_team;
+        }
+        self.local_player_team(game_logic)
+    }
+
+    fn presentation_is_selectable(o: &crate::presentation_frame::RenderableObject) -> bool {
+        !o.destroyed
+            && PresentationFrame::object_has_kind(o, KindOf::Selectable)
+            && o.contained_by.is_none()
+    }
+
+    fn presentation_is_attackable(o: &crate::presentation_frame::RenderableObject) -> bool {
+        !o.destroyed && PresentationFrame::object_has_kind(o, KindOf::Attackable)
     }
 
     pub fn presentation_frame(&self) -> Option<&PresentationFrame> {
@@ -203,22 +220,22 @@ impl SimpleInputProcessor {
     }
 
     /// Select all player units asynchronously
+
     async fn select_all_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
-        // Find all selectable units belonging to the player
+        // Wave 953: presentation-only select-all (no live get_objects dual-read).
+        let player_team = self.presentation_local_team(&logic);
         let mut all_units = Vec::new();
-        let player_team = self.local_player_team(&logic);
-
-        for (object_id, object) in logic.get_objects().iter() {
-            if object.team == player_team && object.is_selectable() {
-                all_units.push(*object_id);
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            for o in &frame.objects {
+                if o.team == player_team && Self::presentation_is_selectable(o) {
+                    all_units.push(o.id);
+                }
             }
         }
-
         logic.select_objects(self.local_player_id, all_units.clone());
         println!("Selected all {} units", all_units.len());
-
         Ok(())
     }
 
@@ -265,33 +282,36 @@ impl SimpleInputProcessor {
     }
 
     /// Cycle through units asynchronously
+
     async fn cycle_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
-        // Get all selectable units
-        let player_team = self.local_player_team(&logic);
-        let mut all_units: Vec<ObjectId> = logic
-            .get_objects()
-            .iter()
-            .filter(|(_, obj)| obj.team == player_team && obj.is_selectable())
-            .map(|(&id, _)| id)
-            .collect();
+        // Wave 953: presentation-only unit cycle (no live get_objects dual-read).
+        let player_team = self.presentation_local_team(&logic);
+        let mut all_units: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref() {
+            frame
+                .objects
+                .iter()
+                .filter(|o| o.team == player_team && Self::presentation_is_selectable(o))
+                .map(|o| o.id)
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         if all_units.is_empty() {
             println!("No units to cycle through");
             return Ok(());
         }
 
-        all_units.sort(); // Ensure consistent order
+        all_units.sort();
 
-        // Find currently selected unit
         let current_selection = logic
             .get_player(self.local_player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
 
         let next_unit = if let Some(&current_id) = current_selection.first() {
-            // Find next unit in sequence
             if let Some(current_index) = all_units.iter().position(|&id| id == current_id) {
                 let next_index = (current_index + 1) % all_units.len();
                 all_units[next_index]
@@ -303,8 +323,7 @@ impl SimpleInputProcessor {
         };
 
         logic.select_objects(self.local_player_id, vec![next_unit]);
-        println!("Cycled to unit {}", next_unit);
-
+        println!("Cycled to unit {:?}", next_unit);
         Ok(())
     }
 
@@ -340,6 +359,7 @@ impl SimpleInputProcessor {
     }
 
     /// Select units in a control group asynchronously
+
     async fn select_control_group_async(
         &self,
         group_num: u8,
@@ -356,18 +376,20 @@ impl SimpleInputProcessor {
         };
 
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        // Wave 953: control-group filter presentation-only (fail-closed without freeze).
         let mut selection = Vec::new();
-        for id in stored {
-            if let Some(obj) = logic.find_object(id) {
-                if obj.is_alive() && obj.is_selectable() {
-                    selection.push(id);
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            for id in stored {
+                if let Some(o) = frame.objects.iter().find(|o| o.id == id) {
+                    if Self::presentation_is_selectable(o) {
+                        selection.push(id);
+                    }
                 }
             }
         }
-
         logic.select_objects(self.local_player_id, selection.clone());
         println!(
-            "Selected control group {} ({} units)",
+            "Selected control group {}: {} units",
             group_num,
             selection.len()
         );
@@ -395,6 +417,7 @@ impl SimpleInputProcessor {
     }
 
     /// Handle left click processing asynchronously
+
     async fn handle_left_click_async(
         &self,
         world_pos: Vec3,
@@ -403,40 +426,34 @@ impl SimpleInputProcessor {
     ) -> Result<()> {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
-        // Find object at world position
+        // Wave 953: pick + friendly classify presentation-only.
         let clicked_object = self.find_object_at_position(world_pos, &logic);
 
         if let Some(object_id) = clicked_object {
-            // Check if object belongs to local player
-            if let Some(obj) = logic.find_object(object_id) {
-                let player_team = self.local_player_team(&logic);
-                if obj.team == player_team && obj.is_selectable() {
-                    // Select the object
-                    if shift_held {
-                        // Add to selection
-                        let mut current_selection = logic
-                            .get_player(self.local_player_id)
-                            .map(|p| p.selected_objects.clone())
-                            .unwrap_or_default();
-
-                        if !current_selection.contains(&object_id) {
-                            current_selection.push(object_id);
-                            logic.select_objects(self.local_player_id, current_selection);
-                            println!("Added object {} to selection", object_id);
-                        }
-                    } else {
-                        // Replace selection
-                        logic.select_objects(self.local_player_id, vec![object_id]);
-                        println!("Selected object {} at {:?}", object_id, world_pos);
+            let player_team = self.presentation_local_team(&logic);
+            let friendly_selectable = self
+                .presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.objects.iter().find(|o| o.id == object_id))
+                .map(|o| o.team == player_team && Self::presentation_is_selectable(o))
+                .unwrap_or(false);
+            if friendly_selectable && logic.host_object(object_id).is_some() {
+                if shift_held {
+                    let mut current_selection = logic
+                        .get_player(self.local_player_id)
+                        .map(|p| p.selected_objects.clone())
+                        .unwrap_or_default();
+                    if !current_selection.contains(&object_id) {
+                        current_selection.push(object_id);
                     }
+                    logic.select_objects(self.local_player_id, current_selection);
+                } else {
+                    logic.select_objects(self.local_player_id, vec![object_id]);
                 }
             }
-        } else {
-            // Clicked on empty space - clear selection unless shift is held
-            if !shift_held {
-                logic.select_objects(self.local_player_id, vec![]);
-                println!("Cleared selection");
-            }
+        } else if !shift_held {
+            // Click empty ground clears selection residual.
+            logic.select_objects(self.local_player_id, Vec::new());
         }
 
         Ok(())
@@ -451,6 +468,7 @@ impl SimpleInputProcessor {
     }
 
     /// Handle right click processing asynchronously
+
     async fn handle_right_click_async(
         &self,
         world_pos: Vec3,
@@ -470,23 +488,25 @@ impl SimpleInputProcessor {
             return Ok(());
         }
 
-        // Check if clicking on an enemy unit (attack command)
+        // Wave 953: attack target classify presentation-only.
         let target_object = self.find_object_at_position(world_pos, &logic);
+        let player_team = self.presentation_local_team(&logic);
 
         if let Some(target_id) = target_object {
-            if let Some(target) = logic.find_object(target_id) {
-                let player_team = self.local_player_team(&logic);
-                // Check if target is enemy
-                if target.team != player_team && target.is_attackable() {
-                    // Issue attack command
-                    logic.command_attack(self.local_player_id, target_id);
-                    println!(
-                        "Commanded {} units to attack target {}",
-                        selected_objects.len(),
-                        target_id
-                    );
-                    return Ok(());
-                }
+            let attackable_enemy = self
+                .presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.objects.iter().find(|o| o.id == target_id))
+                .map(|o| o.team != player_team && Self::presentation_is_attackable(o))
+                .unwrap_or(false);
+            if attackable_enemy && logic.host_object(target_id).is_some() {
+                logic.command_attack(self.local_player_id, target_id);
+                println!(
+                    "Commanded {} units to attack target {}",
+                    selected_objects.len(),
+                    target_id
+                );
+                return Ok(());
             }
         }
 
