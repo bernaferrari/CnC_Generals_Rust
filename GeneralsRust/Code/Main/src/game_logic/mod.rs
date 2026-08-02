@@ -237,6 +237,7 @@ pub mod host_live_host_fow_tod_residual_wave981;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
 pub mod host_live_host_gamelogic_borrow_boundary_residual_wave935;
+pub mod host_live_host_gameworld_production_paused_writeback_residual_wave990;
 pub mod host_live_host_get_object_mut_seal_residual_wave950;
 pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
 pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
@@ -3471,6 +3472,13 @@ pub use host_live_host_sp_prisoner_allow_surrender_off_residual_wave989::{
     honesty_host_sp_prisoner_allow_surrender_off_residual_nav_commands_residual_wave989,
     honesty_host_sp_prisoner_allow_surrender_off_residual_residual_pack_wave989,
     simulate_live_host_sp_prisoner_allow_surrender_off_residual_honesty,
+};
+
+pub use host_live_host_gameworld_production_paused_writeback_residual_wave990::{
+    honesty_host_gameworld_production_paused_writeback_residual_method_names_residual_wave990,
+    honesty_host_gameworld_production_paused_writeback_residual_nav_commands_residual_wave990,
+    honesty_host_gameworld_production_paused_writeback_residual_residual_pack_wave990,
+    simulate_live_host_gameworld_production_paused_writeback_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
