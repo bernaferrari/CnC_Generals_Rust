@@ -482,15 +482,13 @@ impl UnitControlSystem {
                     .map(|o| o.team == self.local_player_team)
                     .unwrap_or(false)
             } else {
-                logic
-                    .get_object(result.object_id)
-                    .map(|obj| obj.team == self.local_player_team)
-                    .unwrap_or(false)
+                // Wave 951: fail-closed without presentation freeze.
+                false
             };
 
             if friendly {
-                // Keep host object for selection mutations when still present.
-                if logic.get_object(result.object_id).is_some() {
+                // Host presence for selection mutations via authority API.
+                if logic.host_object(result.object_id).is_some() {
                     if is_double_click {
                         // Double-click: select all units of same type
                         self.select_similar_units(result.object_id, &logic);
@@ -548,12 +546,11 @@ impl UnitControlSystem {
                         o.team != self.local_player_team && Self::presentation_is_attackable(o)
                     })
                     .unwrap_or(false)
-            } else if let Some(target) = logic.get_object(result.object_id) {
-                target.team != self.local_player_team && target.is_attackable()
             } else {
+                // Wave 951: fail-closed without presentation freeze.
                 false
             };
-            if attackable_enemy && logic.get_object(result.object_id).is_some() {
+            if attackable_enemy && logic.host_object(result.object_id).is_some() {
                 // Create attack command
                 let command = self.create_attack_command(result.object_id);
                 logic.queue_command(command);
@@ -776,11 +773,7 @@ impl UnitControlSystem {
                     continue;
                 }
             }
-            if let Some(object) = logic.get_object(object_id) {
-                if object.is_alive() {
-                    control_group.add_object(object_id, object.get_position());
-                }
-            }
+            // Wave 951: control-group assign is presentation-only (fail-closed live).
         }
 
         self.control_groups.insert(group_num, control_group);
@@ -810,17 +803,8 @@ impl UnitControlSystem {
             {
                 frame.filter_alive_selectable_ids(&control_group.objects, self.local_player_team)
             } else {
-                control_group
-                    .objects
-                    .iter()
-                    .filter(|&&obj_id| {
-                        logic
-                            .get_object(obj_id)
-                            .map(|o| o.is_alive() && o.is_selectable())
-                            .unwrap_or(false)
-                    })
-                    .copied()
-                    .collect()
+                // Wave 951: fail-closed without presentation freeze.
+                Vec::new()
             };
 
             self.selected_objects = valid_objects;
@@ -835,9 +819,7 @@ impl UnitControlSystem {
                         continue;
                     }
                 }
-                if let Some(obj) = logic.get_object(obj_id) {
-                    control_group.positions.insert(obj_id, obj.get_position());
-                }
+                // Wave 951: positions from presentation only (fail-closed live).
             }
             control_group.recalculate_center();
 

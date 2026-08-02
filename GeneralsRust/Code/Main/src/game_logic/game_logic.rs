@@ -28853,8 +28853,14 @@ impl GameLogic {
         let obj = self.get_objects_mut().get_mut(&id)?;
         Some(f(obj))
     }
-    /// Wave 946–950: host object mut access (shadow/writeback/channel/presentation/commands).
+    /// Wave 946–951: host object access (shadow/writeback/channel/presentation/commands).
     /// Prefer [`Self::with_host_object_mut`] when the mutation is a closed block.
+    /// Wave 951: host object immutable access for outside-crate dual-read peels.
+    #[inline]
+    pub fn host_object(&self, id: ObjectId) -> Option<&crate::game_logic::object::Object> {
+        self.get_object(id)
+    }
+
     pub fn host_object_mut(
         &mut self,
         id: ObjectId,
