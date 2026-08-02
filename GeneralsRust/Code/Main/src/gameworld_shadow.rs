@@ -3676,6 +3676,11 @@ impl GameWorldShadow {
                     e.disabled_freefall = obj.status.disabled_freefall;
                     e.no_collisions = obj.status.no_collisions;
                     e.private_captured = obj.status.private_captured;
+                    e.is_surrendered = obj.is_surrendered;
+                    e.emoticon_name = obj.emoticon_name.clone();
+                    e.emoticon_frames_left = obj.emoticon_frames_left;
+                    e.formation_id = obj.formation_id;
+                    e.formation_offset = [obj.formation_offset.x, obj.formation_offset.y];
                     e.disguise_transitioning_to = obj.status.disguise_transitioning_to;
                     e.disguise_halfpoint_reached = obj.status.disguise_halfpoint_reached;
                     e.faerie_fire = obj.status.faerie_fire;
@@ -4833,6 +4838,11 @@ impl GameWorldShadow {
                 e.disabled_freefall = obj.status.disabled_freefall;
                 e.no_collisions = obj.status.no_collisions;
                 e.private_captured = obj.status.private_captured;
+                e.is_surrendered = obj.is_surrendered;
+                e.emoticon_name = obj.emoticon_name.clone();
+                e.emoticon_frames_left = obj.emoticon_frames_left;
+                e.formation_id = obj.formation_id;
+                e.formation_offset = [obj.formation_offset.x, obj.formation_offset.y];
                 e.disguise_transitioning_to = obj.status.disguise_transitioning_to;
                 e.disguise_halfpoint_reached = obj.status.disguise_halfpoint_reached;
                 e.faerie_fire = obj.status.faerie_fire;
