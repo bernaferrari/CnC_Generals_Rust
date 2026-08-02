@@ -6054,7 +6054,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946/947 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -19500,7 +19500,7 @@ pub fn apply_logged_damage_channel_parity(
             .map(|o| o.health.current)
             .ok_or_else(|| format!("missing {id:?}"))?;
         pre.push((id, h));
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             let _ = obj.take_damage(amount);
         }
     }
@@ -19639,7 +19639,7 @@ pub fn damage_parity_probe(
     }
     let _ = shadow.apply_pending();
     // Apply same damage on host for comparison path.
-    if let Some(obj) = logic.get_objects_mut().get_mut(&host) {
+    if let Some(obj) = logic.host_object_mut(host) {
         let _ = obj.take_damage(amount);
     } else {
         return Err("host object vanished".into());
@@ -19913,7 +19913,7 @@ mod tests {
             .create_object("Fact", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            let obj = logic.host_object_mut(id).expect("o");
             let mut bd = BuildingData::new(BuildingType::WarFactory);
             bd.production_queue = vec![
                 ProductionItem {
@@ -19972,7 +19972,7 @@ mod tests {
             .create_object("UpU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            let obj = logic.host_object_mut(id).expect("o");
             obj.apply_upgrade_tag("UpgradeA");
             obj.apply_upgrade_tag("UpgradeB");
         }
@@ -20036,7 +20036,7 @@ mod tests {
             .expect("inf");
         {
             use crate::game_logic::{BuildingData, BuildingType};
-            let obj = logic.get_objects_mut().get_mut(&bldg).expect("b");
+            let obj = logic.host_object_mut(bldg).expect("b");
             let mut bd = BuildingData::new(BuildingType::Bunker);
             bd.garrisoned_units = vec![inf];
             bd.max_garrison = 5;
@@ -20044,7 +20044,7 @@ mod tests {
             obj.object_type = crate::game_logic::ObjectType::Building;
         }
         {
-            let obj = logic.get_objects_mut().get_mut(&inf).expect("i");
+            let obj = logic.host_object_mut(inf).expect("i");
             obj.contained_by = Some(bldg);
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -20073,7 +20073,7 @@ mod tests {
             .expect("id");
         {
             use crate::game_logic::Weapon;
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.movement.path = vec![
                 glam::Vec3::new(1.0, 0.0, 1.0),
                 glam::Vec3::new(2.0, 0.0, 2.0),
@@ -20123,7 +20123,7 @@ mod tests {
             .create_object("CbtTimeU", Team::USA, glam::Vec3::new(13.0, 0.0, 13.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.weapon_bonus_frenzy_until_frame = 90;
             obj.continuous_fire_coast_until_frame = 33;
             obj.battle_plan_sight_scalar_applied = 1.5;
@@ -20160,7 +20160,7 @@ mod tests {
             .create_object("BonusU", Team::GLA, glam::Vec3::new(20.0, 0.0, 12.0))
             .expect("src");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.weapon_bonus_enthusiastic = true;
             obj.weapon_bonus_subliminal = true;
             obj.weapon_bonus_horde = true;
@@ -20236,7 +20236,7 @@ mod tests {
             .create_object("DetectU", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.cheer_timer = 2.5;
             obj.overcharge_enabled = true;
             obj.active_weapon_slot = 2;
@@ -20293,7 +20293,7 @@ mod tests {
             .create_object("RiderX", Team::China, glam::Vec3::new(10.0, 0.0, 9.0))
             .expect("rider");
         {
-            let obj = logic.get_objects_mut().get_mut(&bus).expect("obj");
+            let obj = logic.host_object_mut(bus).expect("obj");
             obj.name = "OL-1".into();
             obj.overlord_bunker_capacity = Some(5);
             obj.passengers_allowed_to_fire = true;
@@ -20307,7 +20307,7 @@ mod tests {
             obj.is_combat_chinook_transport = true;
         }
         {
-            let obj = logic.get_objects_mut().get_mut(&rider).expect("rider");
+            let obj = logic.host_object_mut(rider).expect("rider");
             obj.contained_by = Some(bus);
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -20346,7 +20346,7 @@ mod tests {
             .expect("id");
         {
             use crate::game_logic::Weapon;
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.weapon = Some(Weapon {
                 damage: 25.0,
                 range: 150.0,
@@ -20407,7 +20407,7 @@ mod tests {
             .expect("id");
         {
             use crate::game_logic::{BuildingData, BuildingType, ProductionItem, Resources};
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.object_type = crate::game_logic::ObjectType::Building;
             let mut bd = BuildingData::new(BuildingType::Barracks);
             bd.production_queue.push(ProductionItem {
@@ -20894,7 +20894,7 @@ mod tests {
         assert!(e.disguised);
         // writeback to host via combat-status last-writer residual
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.status.stealthed = false;
             o.status.attacking = false;
             o.status.is_firing_weapon = false;
@@ -20944,7 +20944,7 @@ mod tests {
         );
         // Re-record for session path (drain consumed).
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.select();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -20963,7 +20963,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.selected, "mutation channel must set selected");
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.status.selected = false;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -20991,7 +20991,7 @@ mod tests {
             .expect("id");
         host_status_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_status_attacking(true);
             o.set_status_firing_weapon(true);
         }
@@ -21004,7 +21004,7 @@ mod tests {
             .any(|e| e.object == id && e.is_firing_weapon == Some(true)));
         // Re-record for mutation apply.
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_status_attacking(true);
             o.set_status_firing_weapon(true);
         }
@@ -21023,7 +21023,7 @@ mod tests {
         assert!(e.attacking);
         assert!(e.is_firing_weapon);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.status.attacking = false;
             o.status.is_firing_weapon = false;
         }
@@ -21054,7 +21054,7 @@ mod tests {
             .expect("id");
         host_status_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_status_stealthed(true);
             o.set_status_detected(false);
         }
@@ -21066,7 +21066,7 @@ mod tests {
             .iter()
             .any(|e| e.object == id && e.detected == Some(false)));
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_status_stealthed(true);
             o.set_status_detected(false);
         }
@@ -21085,7 +21085,7 @@ mod tests {
         assert!(e.stealthed);
         assert!(!e.detected);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.status.stealthed = false;
             o.status.detected = true;
         }
@@ -21117,7 +21117,7 @@ mod tests {
         host_status_log::clear();
         let until = logic.get_frame().saturating_add(300);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.apply_disabled_emp(until);
         }
         let events = host_status_log::drain();
@@ -21135,7 +21135,7 @@ mod tests {
         );
         let until2 = logic.get_frame().saturating_add(300);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.apply_disabled_emp(until2);
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -21150,7 +21150,7 @@ mod tests {
         assert!(shadow.apply_pending() >= 1);
         assert!(shadow.world().entity(eid).expect("e").disabled_emp);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.status.disabled_emp = false;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -21423,7 +21423,7 @@ mod tests {
             .create_object("InfC", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
             .expect("i");
         {
-            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            let o = logic.host_object_mut(bunker).expect("b");
             o.building_data = Some(BuildingData::new(BuildingType::Bunker));
             if let Some(bd) = o.building_data.as_mut() {
                 bd.max_garrison = 5;
@@ -21431,11 +21431,11 @@ mod tests {
         }
         host_contain_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            let o = logic.host_object_mut(bunker).expect("b");
             assert!(o.add_occupant(inf));
         }
         {
-            let o = logic.get_objects_mut().get_mut(&inf).expect("i");
+            let o = logic.host_object_mut(inf).expect("i");
             o.set_contained_by(Some(bunker));
         }
         let events = host_contain_log::drain();
@@ -21444,14 +21444,14 @@ mod tests {
         // Re-apply path
         host_contain_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            let o = logic.host_object_mut(bunker).expect("b");
             if let Some(bd) = o.building_data.as_mut() {
                 bd.garrisoned_units.clear();
             }
             assert!(o.add_occupant(inf));
         }
         {
-            let o = logic.get_objects_mut().get_mut(&inf).expect("i");
+            let o = logic.host_object_mut(inf).expect("i");
             o.set_contained_by(Some(bunker));
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -21475,11 +21475,11 @@ mod tests {
         assert!(shadow.world().entity(eid_b).expect("e").occupant_count >= 1);
         // Poison host then writeback via SetContain last-writer residual.
         {
-            let o = logic.get_objects_mut().get_mut(&inf).expect("i");
+            let o = logic.host_object_mut(inf).expect("i");
             o.contained_by = None;
         }
         {
-            let o = logic.get_objects_mut().get_mut(&bunker).expect("b");
+            let o = logic.host_object_mut(bunker).expect("b");
             if let Some(bd) = o.building_data.as_mut() {
                 bd.garrisoned_units.clear();
             }
@@ -21509,6 +21509,7 @@ mod tests {
     }
 
     #[test]
+    // Wave 947: channel-drive tests mutate host via host_object_mut authority.
     fn host_ai_state_log_drives_set_ai_state_channel() {
         use crate::game_logic::{host_ai_state_log, AIState, KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -21525,7 +21526,7 @@ mod tests {
             .expect("id");
         host_ai_state_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_ai_state(AIState::GuardingObject);
         }
         let events = host_ai_state_log::drain();
@@ -21535,7 +21536,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_ai_state(AIState::GuardingObject);
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -21548,7 +21549,7 @@ mod tests {
         assert!(n >= 1);
         assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 10);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.ai_state = AIState::Idle;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -21579,7 +21580,7 @@ mod tests {
             .expect("id");
         host_special_power_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.special_power_cooldown = 45.0;
             o.special_power_cooldown_remaining = 18.0;
             o.special_power_ready = false;
@@ -21597,7 +21598,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_special_power();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -21615,7 +21616,7 @@ mod tests {
         assert!((e.special_power_cooldown_remaining - 18.0).abs() < 1e-3);
         assert!((e.special_power_cooldown - 45.0).abs() < 1e-3);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.special_power_ready = true;
             o.special_power_cooldown_remaining = 0.0;
             o.special_power_cooldown = 1.0;
@@ -21649,13 +21650,13 @@ mod tests {
             .expect("id");
         host_special_power_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_special_power_ready(true);
         }
         let events = host_special_power_log::drain();
         assert!(events.iter().any(|e| e.object == id && e.ready));
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_special_power_ready(true);
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -21668,7 +21669,7 @@ mod tests {
         assert!(n >= 1);
         assert!(shadow.world().entity(eid).expect("e").special_power_ready);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.special_power_ready = false;
         }
         assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
@@ -21692,13 +21693,13 @@ mod tests {
             .expect("id");
         host_stored_supplies_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_stored_supplies(900);
         }
         let events = host_stored_supplies_log::drain();
         assert!(events.iter().any(|e| e.object == id && e.supplies == 900));
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_stored_supplies(900);
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -21711,7 +21712,7 @@ mod tests {
         assert!(n >= 1);
         assert_eq!(shadow.world().entity(eid).expect("e").stored_supplies, 900);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.stored_resources.supplies = 0;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -21747,7 +21748,7 @@ mod tests {
             .create_object("CProg", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.construction_percent = 0.25;
             o.set_status_under_construction(true);
         }
@@ -21771,7 +21772,7 @@ mod tests {
         assert!((e.construction_percent - 0.25).abs() < 1e-5);
         assert!(e.under_construction);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.construction_percent = 0.0;
             o.status.under_construction = false;
         }
@@ -21799,7 +21800,7 @@ mod tests {
             .expect("id");
         host_owner_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_team(Team::GLA);
         }
         let events = host_owner_log::drain();
@@ -21810,7 +21811,7 @@ mod tests {
         );
         // Re-set for mutation path after drain.
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_team(Team::USA);
             host_owner_log::clear();
             o.set_team(Team::GLA);
@@ -21836,7 +21837,7 @@ mod tests {
         assert_eq!(e.owner, gla_owner, "shadow owner should match GLA mapping");
         // Poison host team back to USA then writeback.
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.team = Team::USA;
             o.team_color = Team::USA.get_color();
         }
@@ -21874,7 +21875,7 @@ mod tests {
             .create_object("ProdBarracks", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
             .expect("barracks");
         {
-            let o = logic.get_objects_mut().get_mut(&barracks).expect("b");
+            let o = logic.host_object_mut(barracks).expect("b");
             let mut bd = BuildingData::new(BuildingType::Barracks);
             bd.production_queue.push(ProductionItem {
                 template_name: "ProdRanger".into(),
@@ -21914,7 +21915,7 @@ mod tests {
         );
         assert_eq!(e.production_queue_items[0].template_name, "ProdRanger");
         {
-            let o = logic.get_objects_mut().get_mut(&barracks).expect("b");
+            let o = logic.host_object_mut(barracks).expect("b");
             if let Some(bd) = o.building_data.as_mut() {
                 bd.production_queue.clear();
             }
@@ -21975,7 +21976,7 @@ mod tests {
             )
             .expect("barracks");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("b");
+            let o = logic.host_object_mut(oid).expect("b");
             let mut bd = BuildingData::new(BuildingType::Barracks);
             bd.production_queue.push(ProductionItem {
                 template_name: "ProdAuthRanger".into(),
@@ -22072,7 +22073,7 @@ mod tests {
             .expect("id");
         host_veterancy_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.gain_experience(25.0); // Elite
         }
         let events = host_veterancy_log::drain();
@@ -22083,7 +22084,7 @@ mod tests {
         );
         // Re-level for mutation path.
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.experience.level = VeterancyLevel::Rookie;
             o.experience.current = 0.0;
             host_veterancy_log::clear();
@@ -22107,7 +22108,7 @@ mod tests {
         );
         // Poison host level then writeback.
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.experience.level = VeterancyLevel::Rookie;
         }
         let wb = shadow.writeback_experience_to_host(&mut logic);
@@ -22136,7 +22137,7 @@ mod tests {
             .expect("id");
         host_status_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_force_attack(true);
             o.set_status_using_ability(true);
             o.set_status_deployed(true);
@@ -22149,7 +22150,7 @@ mod tests {
             .iter()
             .any(|e| e.object == id && e.using_ability == Some(true)));
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_force_attack(true);
             o.set_status_using_ability(true);
             o.set_status_deployed(true);
@@ -22171,7 +22172,7 @@ mod tests {
         assert!(e.using_ability);
         assert!(e.deployed);
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.force_attack = false;
             o.status.using_ability = false;
             o.status.deployed = false;
@@ -22202,7 +22203,7 @@ mod tests {
             .expect("id");
         host_status_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_status_no_collisions(true);
             o.set_status_private_captured(true);
             o.set_status_faerie_fire(true);
@@ -22217,7 +22218,7 @@ mod tests {
             .any(|e| e.object == id && e.private_captured == Some(true)));
         // Re-record for mutation apply.
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.set_status_no_collisions(true);
             o.set_status_private_captured(true);
             o.set_status_faerie_fire(true);
@@ -22243,7 +22244,7 @@ mod tests {
         assert!(e.parachuting);
         // Poison host so writeback last-writer is observable.
         {
-            let o = logic.get_objects_mut().get_mut(&id).expect("o");
+            let o = logic.host_object_mut(id).expect("o");
             o.status.no_collisions = false;
             o.status.private_captured = false;
             o.status.faerie_fire = false;
@@ -22269,7 +22270,7 @@ mod tests {
             .create_object("XpUnit", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.experience.current = 420.0;
             obj.experience.level = crate::game_logic::VeterancyLevel::Elite;
             obj.stored_resources.supplies = 1500;
@@ -22315,7 +22316,7 @@ mod tests {
             .create_object("CbtIntentU", Team::USA, glam::Vec3::new(8.0, 0.0, 4.0))
             .expect("guard");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.force_attack = true;
             obj.show_health_bar = false;
             obj.target_location = Some(glam::Vec3::new(10.0, 0.0, 10.0));
@@ -22356,7 +22357,7 @@ mod tests {
             .create_object("PwrBldg", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.object_type = crate::game_logic::ObjectType::Building;
             obj.team_color = [0.1, 0.2, 0.3, 0.9];
             obj.power_provided = 50;
@@ -22393,7 +22394,7 @@ mod tests {
             .create_object("TeamStatU", Team::China, glam::Vec3::new(2.0, 0.0, 2.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.selection_radius = 12.5;
             obj.status.moving = true;
             obj.status.attacking = true;
@@ -22429,7 +22430,7 @@ mod tests {
             .create_object("SelResU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.selected = true;
             obj.max_health = 150.0;
             obj.construction_percent = 0.4;
@@ -22727,7 +22728,7 @@ mod tests {
             .expect("id");
         host_command_set_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_command_set_override(Some("Command_DemoSuicide".into()));
         }
         let events = host_command_set_log::drain();
@@ -22739,7 +22740,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_command_set();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -22753,7 +22754,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert_eq!(e.command_set_override, "Command_DemoSuicide");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.command_set_override = None;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -22786,7 +22787,7 @@ mod tests {
             .expect("id");
         host_selection_radius_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_selection_radius(14.5);
         }
         let events = host_selection_radius_log::drain();
@@ -22798,7 +22799,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_selection_radius();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -22812,7 +22813,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!((e.selection_radius - 14.5).abs() < 1e-5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.selection_radius = 1.0;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -22842,7 +22843,7 @@ mod tests {
             .expect("id");
         host_ground_height_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_ground_height_residual(12.5, true);
         }
         let events = host_ground_height_log::drain();
@@ -22854,7 +22855,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_ground_height();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -22870,7 +22871,7 @@ mod tests {
         assert!((e.ground_height - 12.5).abs() < 1e-5);
         assert!(e.ground_height_from_terrain);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.ground_height = 0.0;
             o.ground_height_from_terrain = false;
         }
@@ -22907,7 +22908,7 @@ mod tests {
 
         host_model_mesh_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_model_mesh_residual("avtank", 1.25);
         }
         let events = host_model_mesh_log::drain();
@@ -22922,7 +22923,7 @@ mod tests {
         // Re-apply path
         host_model_mesh_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_model_mesh_residual("avtank", 1.25);
         }
         let n = shadow.apply_host_model_mesh_events(&host_model_mesh_log::drain());
@@ -22953,7 +22954,7 @@ mod tests {
 
         host_fow_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_fow_residual(0.35, 1.0, 0.5);
         }
         let events = host_fow_log::drain();
@@ -22970,7 +22971,7 @@ mod tests {
 
         host_fow_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_fow_residual(0.35, 1.0, 0.5);
         }
         let n = shadow.apply_host_fow_events(&host_fow_log::drain());
@@ -23009,7 +23010,7 @@ mod tests {
 
         host_kind_of_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_kind_of_bits_residual(bits | (1u32 << 10)); // set Hero bit residual
         }
         let events = host_kind_of_log::drain();
@@ -23023,7 +23024,7 @@ mod tests {
 
         host_kind_of_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_kind_of_bits_residual(bits | (1u32 << 10));
         }
         let n = shadow.apply_host_kind_of_events(&host_kind_of_log::drain());
@@ -23050,7 +23051,7 @@ mod tests {
             .expect("id");
         host_identity_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.name = "ScriptRanger".into();
             o.team_color = [0.1, 0.2, 0.3, 1.0];
             o.record_host_identity();
@@ -23067,7 +23068,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_identity();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23083,7 +23084,7 @@ mod tests {
         assert_eq!(e.display_name, "ScriptRanger");
         assert!((e.team_color[0] - 0.1).abs() < 1e-5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.name.clear();
             o.team_color = [0.0, 0.0, 0.0, 1.0];
         }
@@ -23118,7 +23119,7 @@ mod tests {
             .expect("id");
         host_building_type_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.building_data = Some(BuildingData::new(BuildingType::Barracks));
             o.record_host_building_type();
         }
@@ -23131,7 +23132,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_building_type();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23147,7 +23148,7 @@ mod tests {
         assert!(e.is_building);
         assert_eq!(e.building_type_ordinal, 1);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -23181,7 +23182,7 @@ mod tests {
             .expect("id");
         host_crush_vision_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.crusher_level = 2;
             o.crushable_level = 1;
             o.vision_range = 175.0;
@@ -23201,7 +23202,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_crush_vision();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23221,7 +23222,7 @@ mod tests {
         assert!((e.vision_range - 175.0).abs() < 1e-5);
         assert!((e.shroud_clearing_range - 200.0).abs() < 1e-5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.crusher_level = 0;
             o.crushable_level = 0;
             o.vision_range = 0.0;
@@ -23263,7 +23264,7 @@ mod tests {
             .expect("id");
         host_demo_mine_cheer_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.demo_suicided_detonating = true;
             o.cheer_timer = 2.5;
             o.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
@@ -23281,7 +23282,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_demo_mine_cheer();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23298,7 +23299,7 @@ mod tests {
         assert!(e.demo_suicided_detonating && e.has_mine_data);
         assert!((e.cheer_timer - 2.5).abs() < 1e-5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.demo_suicided_detonating = false;
             o.cheer_timer = 0.0;
         }
@@ -23333,7 +23334,7 @@ mod tests {
             .expect("id");
         host_model_condition_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.model_condition_bits = 0b1011;
             o.record_host_model_condition();
         }
@@ -23346,7 +23347,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_model_condition();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23360,7 +23361,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert_eq!(e.model_condition_bits, 0b1011);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.model_condition_bits = 0;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -23394,7 +23395,7 @@ mod tests {
         crate::game_logic::host_locomotor_log::clear();
         crate::game_logic::host_bounce_land_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.movement.velocity = Vec3::new(3.0, 0.0, 4.0);
             o.movement.max_speed = 12.5;
             o.movement.path = vec![Vec3::new(1.0, 0.0, 1.0), Vec3::new(2.0, 0.0, 2.0)];
@@ -23416,7 +23417,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_movement();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23438,7 +23439,7 @@ mod tests {
         assert_eq!(e.path_len, 2);
         assert_eq!(e.path_waypoints.len(), 2);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.movement.velocity = Vec3::ZERO;
             o.movement.max_speed = 1.0;
             o.movement.path.clear();
@@ -23500,7 +23501,7 @@ mod tests {
         crate::game_logic::host_rebuild_producer_log::clear();
         crate::game_logic::host_sole_healing_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.weapon = Some(Weapon {
                 damage: 33.0,
                 range: 140.0,
@@ -23534,7 +23535,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_weapon_stats();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23563,7 +23564,7 @@ mod tests {
         assert_eq!(e.weapon_ammo, 12);
         assert!((e.secondary_weapon_damage - 9.0).abs() < 1e-5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             if let Some(w) = o.weapon.as_mut() {
                 w.damage = 1.0;
                 w.range = 1.0;
@@ -23623,7 +23624,7 @@ mod tests {
             .expect("id");
         host_vision_camo_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.vision_spied_mask = 0b101;
             o.camo_friendly_opacity = 0.35;
             o.camo_stealth_look = 2;
@@ -23641,7 +23642,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_vision_camo();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23659,7 +23660,7 @@ mod tests {
         assert!((e.camo_friendly_opacity - 0.35).abs() < 1e-5);
         assert_eq!(e.camo_stealth_look, 2);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.vision_spied_mask = 0;
             o.camo_friendly_opacity = 1.0;
             o.camo_stealth_look = 0;
@@ -23707,7 +23708,7 @@ mod tests {
             .expect("id");
         host_disguise_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.disguise_as_template = Some("AmericaVehicleHumvee".into());
             o.disguise_as_team = Some(Team::USA);
             o.record_host_disguise();
@@ -23721,7 +23722,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_disguise();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23737,7 +23738,7 @@ mod tests {
         assert_eq!(e.disguise_as_template, "AmericaVehicleHumvee");
         assert_eq!(e.disguise_as_team_ordinal, 0);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.disguise_as_template = None;
             o.disguise_as_team = None;
         }
@@ -23773,7 +23774,7 @@ mod tests {
             .expect("id");
         host_overlord_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.has_overlord_gattling_addon = true;
             o.has_overlord_propaganda_addon = false;
             o.overlord_bunker_capacity = Some(4);
@@ -23793,7 +23794,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_overlord();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23812,7 +23813,7 @@ mod tests {
         assert_eq!(e.overlord_bunker_capacity, 4);
         assert!(e.is_helix_transport);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.has_overlord_gattling_addon = false;
             o.has_overlord_propaganda_addon = true;
             o.overlord_bunker_capacity = None;
@@ -23850,7 +23851,7 @@ mod tests {
         host_stealth_flags_log::clear();
         crate::game_logic::host_stealth_delay_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.innate_stealth = true;
             o.stealth_breaks_on_attack = true;
             o.stealth_breaks_on_move = false;
@@ -23872,7 +23873,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_stealth_flags();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23891,7 +23892,7 @@ mod tests {
         assert!(e.innate_stealth && e.stealth_breaks_on_attack && !e.stealth_breaks_on_move);
         assert!(e.is_tunnel_network && e.passengers_allowed_to_fire);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.innate_stealth = false;
             o.stealth_breaks_on_attack = false;
             o.stealth_breaks_on_move = true;
@@ -23943,7 +23944,7 @@ mod tests {
         host_hive_log::clear();
         crate::game_logic::host_hijacker_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.hive_slave_count = 3;
             o.hive_slave_hp = 55.0;
             o.record_host_hive();
@@ -23957,7 +23958,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_hive();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -23973,7 +23974,7 @@ mod tests {
         assert_eq!(e.hive_slave_count, 3);
         assert!((e.hive_slave_hp - 55.0).abs() < 1e-3);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.hive_slave_count = 0;
             o.hive_slave_hp = 0.0;
         }
@@ -24008,7 +24009,7 @@ mod tests {
             .expect("id");
         host_contain_capacity_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.max_transport = 5;
             let mut bd = BuildingData::new(BuildingType::Bunker);
             bd.max_garrison = 8;
@@ -24024,7 +24025,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_contain_capacity();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24040,7 +24041,7 @@ mod tests {
         assert_eq!(e.max_transport, 5);
         assert_eq!(e.max_garrison, 8);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.max_transport = 0;
             if let Some(bd) = o.building_data.as_mut() {
                 bd.max_garrison = 0;
@@ -24074,7 +24075,7 @@ mod tests {
             .expect("id");
         host_overcharge_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_overcharge_enabled(true);
         }
         let events = host_overcharge_log::drain();
@@ -24084,7 +24085,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_overcharge();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24098,7 +24099,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.overcharge_enabled);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.overcharge_enabled = false;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -24127,7 +24128,7 @@ mod tests {
             .expect("id");
         host_weapon_set_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.weapon_set_player_upgrade = true;
             o.armed_riders_upgrade_weapon_set = true;
             o.record_host_weapon_set();
@@ -24141,7 +24142,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_weapon_set();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24156,7 +24157,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!(e.weapon_set_player_upgrade && e.armed_riders_upgrade_weapon_set);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.weapon_set_player_upgrade = false;
             o.armed_riders_upgrade_weapon_set = false;
         }
@@ -24190,7 +24191,7 @@ mod tests {
         crate::game_logic::host_ai_request_log::clear();
         crate::game_logic::host_ai_decision_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_ai_attitude_i8(2);
         }
         let events = host_ai_attitude_log::drain();
@@ -24200,7 +24201,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_ai_attitude();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24214,7 +24215,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert_eq!(e.ai_attitude, 2);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.ai_attitude = -2;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -24246,7 +24247,7 @@ mod tests {
             .expect("tid");
         host_guard_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_guard_position(Some(glam::Vec3::new(3.0, 0.0, 5.0)));
             o.set_guard_target(Some(tid));
         }
@@ -24263,7 +24264,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_guard();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24280,7 +24281,7 @@ mod tests {
         assert!((gp[0] - 3.0).abs() < 1e-3 && (gp[2] - 5.0).abs() < 1e-3);
         assert_eq!(e.guard_target_host, tid.0);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.guard_position = None;
             o.guard_target = None;
         }
@@ -24321,7 +24322,7 @@ mod tests {
         crate::game_logic::host_fire_spawn_log::clear();
         crate::game_logic::host_projectile_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.continuous_fire_level = 2;
             o.continuous_fire_consecutive = 9;
             o.continuous_fire_coast_until_frame = 44;
@@ -24336,7 +24337,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_continuous_fire();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24354,7 +24355,7 @@ mod tests {
         assert_eq!(e.continuous_fire_consecutive, 9);
         assert_eq!(e.continuous_fire_coast_until_frame, 44);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.continuous_fire_level = 0;
             o.continuous_fire_consecutive = 0;
             o.continuous_fire_coast_until_frame = 0;
@@ -24399,7 +24400,7 @@ mod tests {
             .expect("id");
         host_detector_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_detector_state(true, 175.0, 12);
         }
         let events = host_detector_log::drain();
@@ -24414,7 +24415,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_detector();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24432,7 +24433,7 @@ mod tests {
         assert!((e.detection_range - 175.0).abs() < 1e-3);
         assert_eq!(e.detection_rate_frames, 12);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.is_detector = false;
             o.detection_range = 0.0;
             o.detection_rate_frames = 0;
@@ -24467,7 +24468,7 @@ mod tests {
             .expect("id");
         host_target_location_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_target_location(Some(glam::Vec3::new(11.0, 0.0, 13.0)));
         }
         let events = host_target_location_log::drain();
@@ -24482,7 +24483,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_target_location();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24497,7 +24498,7 @@ mod tests {
         let tl = e.target_location.expect("tl");
         assert!((tl[0] - 11.0).abs() < 1e-3 && (tl[2] - 13.0).abs() < 1e-3);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.target_location = None;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -24527,7 +24528,7 @@ mod tests {
             .expect("id");
         host_turret_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.turret_angle_deg = 33.0;
             o.turret_pitch_deg = 12.0;
             o.turret_holding = true;
@@ -24546,7 +24547,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_turret();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24564,7 +24565,7 @@ mod tests {
         assert!((e.turret_pitch_deg - 12.0).abs() < 1e-3);
         assert!(e.turret_holding);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.turret_angle_deg = 0.0;
             o.turret_pitch_deg = 0.0;
             o.turret_holding = false;
@@ -24612,7 +24613,7 @@ mod tests {
             .expect("id");
         host_entity_power_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_entity_power(50, 5);
         }
         let events = host_entity_power_log::drain();
@@ -24624,7 +24625,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_entity_power();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24640,7 +24641,7 @@ mod tests {
         assert_eq!(e.power_provided, 50);
         assert_eq!(e.power_consumed, 5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.power_provided = 1;
             o.power_consumed = 1;
         }
@@ -24672,7 +24673,7 @@ mod tests {
             .expect("id");
         host_weapon_slot_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_active_weapon_slot(1);
         }
         let events = host_weapon_slot_log::drain();
@@ -24682,7 +24683,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_weapon_slot();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24696,7 +24697,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert_eq!(e.active_weapon_slot, 1);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.active_weapon_slot = 0;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -24725,7 +24726,7 @@ mod tests {
             .expect("id");
         host_weapon_bonus_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.apply_weapon_bonus_frenzy(2, 999);
             o.weapon_bonus_horde = true;
             o.weapon_bonus_nationalism = true;
@@ -24747,7 +24748,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_weapon_bonus();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -24769,7 +24770,7 @@ mod tests {
         assert_eq!(e.weapon_bonus_frenzy_until_frame, 999);
         assert!((e.battle_plan_sight_scalar_applied - 1.25).abs() < 1e-5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.clear_weapon_bonus_frenzy();
             o.weapon_bonus_horde = false;
             o.weapon_bonus_nationalism = false;
@@ -24812,7 +24813,7 @@ mod tests {
 
         host_faerie_fire_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.apply_faerie_fire(1234);
         }
         let events = host_faerie_fire_log::drain();
@@ -24826,7 +24827,7 @@ mod tests {
 
         host_faerie_fire_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.apply_faerie_fire(1234);
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -24840,7 +24841,7 @@ mod tests {
         assert_eq!(e.faerie_fire_until_frame, 1234);
 
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.clear_faerie_fire();
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -24875,7 +24876,7 @@ mod tests {
 
         host_repulsor_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.arm_repulsor_countdown(60);
         }
         let events = host_repulsor_log::drain();
@@ -24889,7 +24890,7 @@ mod tests {
 
         host_repulsor_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.arm_repulsor_countdown(60);
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -24903,7 +24904,7 @@ mod tests {
         assert_eq!(e.repulsor_until_frame, 60);
 
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.repulsor_until_frame = 0;
             o.status.repulsor = false;
         }
@@ -24939,7 +24940,7 @@ mod tests {
             .create_object("RangerMv", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.movement.max_speed = 60.0;
             o.movement.velocity = glam::Vec3::ZERO;
             o.move_to(glam::Vec3::new(100.0, 0.0, 0.0));
@@ -24992,7 +24993,7 @@ mod tests {
         let _couple = ShadowCoupleGuard::enter();
         install_active_shadow_for_coupled_tick(&mut shadow);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             let _ = o.take_damage(25.0);
         }
         clear_active_shadow_for_coupled_tick();
@@ -25014,7 +25015,7 @@ mod tests {
         // Re-record for session (drained above).
         host_damage_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             let _ = o.take_damage(25.0);
         }
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
@@ -25044,7 +25045,7 @@ mod tests {
             .expect("id");
         // Seed wounded host HP without authority path (direct field for setup).
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.health.current = 40.0;
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -25053,7 +25054,7 @@ mod tests {
         let _couple = ShadowCoupleGuard::enter();
         install_active_shadow_for_coupled_tick(&mut shadow);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.heal(30.0);
         }
         clear_active_shadow_for_coupled_tick();
@@ -25070,7 +25071,7 @@ mod tests {
         );
         host_heal_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.heal(30.0);
         }
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
@@ -25104,7 +25105,7 @@ mod tests {
         let _couple = ShadowCoupleGuard::enter();
         install_active_shadow_for_coupled_tick(&mut shadow);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.gain_experience(50.0);
         }
         clear_active_shadow_for_coupled_tick();
@@ -25127,7 +25128,7 @@ mod tests {
             let _couple = ShadowCoupleGuard::enter();
             install_active_shadow_for_coupled_tick(&mut shadow);
             {
-                let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+                let o = logic.host_object_mut(oid).expect("o");
                 o.gain_experience(50.0);
             }
             clear_active_shadow_for_coupled_tick();
@@ -25184,7 +25185,7 @@ mod tests {
             )
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.movement.max_speed = 60.0;
             o.move_to(glam::Vec3::new(50.0, 0.0, 0.0));
             o.record_host_movement();
@@ -25223,7 +25224,7 @@ mod tests {
 
         host_disable_timers_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.apply_disabled_emp(500);
             o.apply_disabled_hacked(600);
             o.apply_disabled_paralyzed(700);
@@ -25242,7 +25243,7 @@ mod tests {
 
         host_disable_timers_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_disable_timers();
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -25258,7 +25259,7 @@ mod tests {
         assert_eq!(e.disabled_paralyzed_until_frame, 700);
 
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.status.disabled_emp_until_frame = 0;
             o.status.disabled_hacked_until_frame = 0;
             o.status.disabled_paralyzed_until_frame = 0;
@@ -25294,7 +25295,7 @@ mod tests {
             .expect("id");
         host_experience_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.gain_experience(42.0);
         }
         let events = host_experience_log::drain();
@@ -25306,7 +25307,7 @@ mod tests {
             events
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.record_host_experience();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -25324,7 +25325,7 @@ mod tests {
             e.experience_points
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.experience.current = 1.0;
         }
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -25352,7 +25353,7 @@ mod tests {
             .expect("id");
         host_max_health_log::clear();
         {
-            let obj = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let obj = logic.host_object_mut(oid).expect("o");
             obj.max_health = 250.0;
             obj.health.maximum = 250.0;
             obj.health.current = 200.0;
@@ -25367,7 +25368,7 @@ mod tests {
             events
         );
         {
-            let obj = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let obj = logic.host_object_mut(oid).expect("o");
             obj.record_host_max_health();
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -25381,7 +25382,7 @@ mod tests {
         let e = shadow.world().entity(eid).expect("e");
         assert!((e.max_health - 250.0).abs() < 1e-3, "max {}", e.max_health);
         {
-            let obj = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let obj = logic.host_object_mut(oid).expect("o");
             obj.max_health = 10.0;
             obj.health.maximum = 10.0;
             obj.health.current = 10.0;
@@ -25669,7 +25670,7 @@ mod tests {
             .create_object("AtkB", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("b");
         {
-            let o = logic.get_objects_mut().get_mut(&a).unwrap();
+            let o = logic.host_object_mut(a).unwrap();
             // Ensure can_attack path: weapon or kind
             o.attack_target(b);
         }
@@ -25681,7 +25682,7 @@ mod tests {
             "attack_target must log host_attack event: {events:?}"
         );
         {
-            let o = logic.get_objects_mut().get_mut(&a).unwrap();
+            let o = logic.host_object_mut(a).unwrap();
             o.stop_attack();
         }
         let clears = crate::game_logic::host_attack_log::drain();
@@ -25705,7 +25706,7 @@ mod tests {
         let b = logic
             .create_object("LogB", Team::GLA, glam::Vec3::new(15.0, 0.0, 0.0))
             .expect("b");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&a) {
+        if let Some(obj) = logic.host_object_mut(a) {
             obj.set_target(Some(b));
         }
         let evs = crate::game_logic::host_attack_log::drain();
@@ -25755,7 +25756,7 @@ mod tests {
         let b = logic
             .create_object("AtkB", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
             .expect("b");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&a) {
+        if let Some(obj) = logic.host_object_mut(a) {
             obj.set_target(Some(b));
         }
         let mut shadow = GameWorldShadow::new(64);
@@ -25832,7 +25833,7 @@ mod tests {
             .create_object("PathU", Team::USA, glam::Vec3::ZERO)
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.movement.max_speed = 20.0;
         }
         crate::game_logic::host_move_log::clear();
@@ -25871,8 +25872,7 @@ mod tests {
             "template Infantry should make object mobile"
         );
         logic
-            .get_objects_mut()
-            .get_mut(&a)
+            .host_object_mut(a)
             .unwrap()
             .set_destination(glam::Vec3::new(10.0, 0.0, 0.0));
         let ev = crate::game_logic::host_move_log::drain();
@@ -25909,7 +25909,7 @@ mod tests {
         assert!(shadow.queue_set_move_target_for_host(a, None));
         let _ = shadow.apply_pending();
         // Seed a host destination so writeback clear is observable
-        if let Some(obj) = logic.get_objects_mut().get_mut(&a) {
+        if let Some(obj) = logic.host_object_mut(a) {
             obj.movement.target_position = Some(glam::Vec3::new(50.0, 0.0, 25.0));
         }
         let n = shadow.writeback_move_targets_to_host(&mut logic);
@@ -26080,7 +26080,7 @@ mod tests {
             .create_object("MoveBrU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.movement.path = vec![
                 glam::Vec3::new(0.0, 0.0, 0.0),
                 glam::Vec3::new(50.0, 0.0, 0.0),
@@ -26113,7 +26113,7 @@ mod tests {
             .create_object("BridgeIgnU", Team::USA, glam::Vec3::ZERO)
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             // Stale bridge id must not hijack host pose/HP when bridge off.
             o.health.current = 12.0;
             o.set_position(glam::Vec3::new(3.0, 0.0, 4.0));
@@ -26138,7 +26138,7 @@ mod tests {
             .create_object("HostSoleU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.health.current = 33.0;
             o.health.maximum = 80.0;
             o.set_position(glam::Vec3::new(7.0, 0.0, 9.0));
@@ -26564,7 +26564,7 @@ mod tests {
             .create_object("PadHp", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.status.under_construction = true;
             o.construction_percent = 0.99;
             o.health.current = 50.0;
@@ -26575,7 +26575,7 @@ mod tests {
         host_heal_log::clear();
         host_construction_progress_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             let full = o.health.maximum;
             crate::game_logic::host_heal_log::record(oid, full);
             crate::game_logic::host_construction_progress_log::record(oid, 1.0, false, 0.0);
@@ -26613,7 +26613,7 @@ mod tests {
             .create_object("PadAuth", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.status.under_construction = true;
             o.construction_percent = 0.5;
         }
@@ -26713,7 +26713,7 @@ mod tests {
             .create_object("FactExit", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             if let Some(bd) = o.building_data.as_mut() {
                 bd.exit_delay_remaining = 2.5;
             }
@@ -26729,7 +26729,7 @@ mod tests {
         assert!((shadow.world().entity(eid).unwrap().exit_delay_remaining - 2.5).abs() < 1e-5);
         // Host cleared; GameWorld residual writeback restores exit delay.
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             if let Some(bd) = o.building_data.as_mut() {
                 bd.exit_delay_remaining = 0.0;
             }
@@ -26782,7 +26782,7 @@ mod tests {
             .create_object("TankBd", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.body_damage_state = HostBodyDamageType::ReallyDamaged;
         }
         host_body_damage_log::record(oid, HostBodyDamageType::ReallyDamaged.ordinal());
@@ -26796,7 +26796,7 @@ mod tests {
             "really damaged ordinal"
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.body_damage_state = HostBodyDamageType::Pristine;
         }
         assert!(shadow.writeback_body_damage_to_host(&mut logic) >= 1);
@@ -26870,7 +26870,7 @@ mod tests {
         assert!(e.has_weapon);
         // writeback last_fire onto host weapon if present
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             if o.weapon.is_none() {
                 // skip host writeback assert when template has no weapon
             } else {
@@ -26958,7 +26958,7 @@ mod tests {
             .create_object("CrushMe", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.front_crushed = true;
             o.back_crushed = false;
             o.crusher_level = 1;
@@ -26973,7 +26973,7 @@ mod tests {
         assert!(e.front_crushed);
         assert!(!e.back_crushed);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.front_crushed = false;
         }
         assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
@@ -27001,7 +27001,7 @@ mod tests {
             .create_object("WaitUnit", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.waiting_for_path = true;
             o.movement.max_speed = 12.0;
         }
@@ -27031,7 +27031,7 @@ mod tests {
         assert!(shadow.apply_host_movement_events(&host_movement_log::drain()) >= 1);
         assert!(shadow.world().entity(eid).unwrap().waiting_for_path);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.waiting_for_path = false;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
@@ -27075,7 +27075,7 @@ mod tests {
             .create_object("LocoU", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.locomotor_surfaces = 0b101; // ground|cliff
             o.is_attack_path = true;
             o.is_braking = true;
@@ -27118,7 +27118,7 @@ mod tests {
         assert_eq!(e.queue_for_path_frames, 3);
         assert_eq!(e.path_timestamp, 42);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.locomotor_surfaces = 0;
             o.is_attack_path = false;
             o.is_braking = false;
@@ -27169,7 +27169,7 @@ mod tests {
             .create_object("ShockU", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.shock_stun_frames = 30;
             o.shock_yaw_rate = 0.5;
             o.shock_pitch_rate = -0.25;
@@ -27192,7 +27192,7 @@ mod tests {
         assert!(e.shock_allow_bounce);
         assert!(e.cell_is_cliff);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.shock_stun_frames = 0;
             o.shock_yaw_rate = 0.0;
             o.shock_allow_bounce = false;
@@ -27238,7 +27238,7 @@ mod tests {
             .create_object("BlockU", Team::USA, glam::Vec3::new(14.0, 0.0, 12.0))
             .expect("other");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.cur_max_blocked_speed = 3.5;
             o.num_frames_blocked = 7;
             o.is_blocked = true;
@@ -27277,7 +27277,7 @@ mod tests {
         assert_eq!(e.move_away_from_id, Some(other.0));
         assert_eq!(e.requested_victim_id, Some(other.0));
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.cur_max_blocked_speed = f32::MAX;
             o.num_frames_blocked = 0;
             o.is_blocked = false;
@@ -27335,7 +27335,7 @@ mod tests {
             .create_object("WorkerA", Team::USA, glam::Vec3::new(24.0, 0.0, 20.0))
             .expect("worker");
         {
-            let o = logic.get_objects_mut().get_mut(&hole).expect("o");
+            let o = logic.host_object_mut(hole).expect("o");
             o.is_rebuild_hole = true;
             o.rebuild_template_name = Some("BldA".into());
             o.rebuild_ready_frame = 100;
@@ -27372,7 +27372,7 @@ mod tests {
         assert_eq!(e.producer_id, Some(hole.0));
         assert_eq!(e.construction_complete_clear_frame, 250);
         {
-            let o = logic.get_objects_mut().get_mut(&hole).expect("o");
+            let o = logic.host_object_mut(hole).expect("o");
             o.is_rebuild_hole = false;
             o.rebuild_template_name = None;
             o.rebuild_ready_frame = 0;
@@ -27426,7 +27426,7 @@ mod tests {
             .create_object("DozerA", Team::USA, glam::Vec3::new(32.0, 0.0, 30.0))
             .expect("dozer");
         {
-            let o = logic.get_objects_mut().get_mut(&tgt).expect("o");
+            let o = logic.host_object_mut(tgt).expect("o");
             o.sole_healing_benefactor = Some(dozer);
             o.sole_healing_benefactor_expiration_frame = 900;
         }
@@ -27439,7 +27439,7 @@ mod tests {
         assert_eq!(e.sole_healing_benefactor_id, Some(dozer.0));
         assert_eq!(e.sole_healing_benefactor_expiration_frame, 900);
         {
-            let o = logic.get_objects_mut().get_mut(&tgt).expect("o");
+            let o = logic.host_object_mut(tgt).expect("o");
             o.sole_healing_benefactor = None;
             o.sole_healing_benefactor_expiration_frame = 0;
         }
@@ -27475,7 +27475,7 @@ mod tests {
             .create_object("MoodU", Team::USA, glam::Vec3::new(40.0, 0.0, 40.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.idle_since_frame = 120;
             o.mood_attack_check_rate = 45;
             o.auto_acquire_when_idle = false;
@@ -27492,7 +27492,7 @@ mod tests {
         assert!(!e.auto_acquire_when_idle);
         assert_eq!(e.attack_priority_set, "Soldier");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.idle_since_frame = 0;
             o.mood_attack_check_rate = 30;
             o.auto_acquire_when_idle = true;
@@ -27528,7 +27528,7 @@ mod tests {
             .create_object("GuardU", Team::USA, glam::Vec3::new(50.0, 0.0, 50.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.guard_position = Some(glam::Vec3::new(55.0, 0.0, 55.0));
             o.guard_target = None;
             o.guard_radius = 175.0;
@@ -27543,7 +27543,7 @@ mod tests {
         let gp = e.guard_position.expect("pos");
         assert!((gp[0] - 55.0).abs() < 1e-3);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.guard_radius = 0.0;
             o.guard_position = None;
         }
@@ -27576,7 +27576,7 @@ mod tests {
             .create_object("DoorFact", Team::USA, glam::Vec3::new(60.0, 0.0, 60.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.production_door_phase = 2;
             o.production_door_phase_end_frame = 500;
             o.production_door_hold_open = true;
@@ -27591,7 +27591,7 @@ mod tests {
         assert_eq!(e.production_door_phase_end_frame, 500);
         assert!(e.production_door_hold_open);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.production_door_phase = 0;
             o.production_door_phase_end_frame = 0;
             o.production_door_hold_open = false;
@@ -27620,7 +27620,7 @@ mod tests {
             .create_object("PhysU", Team::USA, glam::Vec3::new(70.0, 0.0, 70.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.motive_frames_remaining = 12;
             o.physics_mass = 2.5;
             o.physics_accel = glam::Vec3::new(1.0, 0.0, 0.5);
@@ -27677,7 +27677,7 @@ mod tests {
         assert!((e.aerodynamic_friction - 0.05).abs() < 1e-5);
         assert!(e.immune_to_falling_damage);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.motive_frames_remaining = 0;
             o.physics_mass = 1.0;
             o.can_path_through_units = false;
@@ -27726,7 +27726,7 @@ mod tests {
             .create_object("BounceU", Team::USA, glam::Vec3::new(82.0, 0.0, 80.0))
             .expect("other");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.kill_when_resting_on_ground = true;
             o.bounce_land_events = 3;
             o.last_bounce_fall_dy = 12.0;
@@ -27763,7 +27763,7 @@ mod tests {
         assert!(!e.allow_collide_force);
         assert_eq!(e.last_collidee_id, Some(other.0));
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.kill_when_resting_on_ground = false;
             o.bounce_land_events = 0;
             o.bounce_audio_pending = 0;
@@ -27799,7 +27799,7 @@ mod tests {
             .create_object("TurU", Team::China, glam::Vec3::new(100.0, 0.0, 90.0))
             .expect("tgt");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.turret_angle_deg = 45.0;
             o.turret_pitch_deg = 10.0;
             o.turret_holding = true;
@@ -27855,7 +27855,7 @@ mod tests {
         assert_eq!(e.turret_target_host, tgt.0);
         assert_eq!(e.turret_substate, TurretSubState::Aim.ordinal());
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.turret_angle_deg = 0.0;
             o.turret_turn_rate_rad = 0.0;
             o.turret_enabled = false;
@@ -27901,7 +27901,7 @@ mod tests {
             .create_object("StlU", Team::USA, glam::Vec3::new(110.0, 0.0, 110.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.stealth_allowed_frame = 300;
             o.stealth_delay_pending = true;
             o.stealth_delay_frames = 75;
@@ -27926,7 +27926,7 @@ mod tests {
         assert!((e.camo_opacity_pulse_phase - 1.25).abs() < 1e-5);
         assert!(e.camo_net_sub_object_shown);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.stealth_delay_pending = false;
             o.stealth_allowed_frame = 0;
             o.stealth_delay_frames = 0;
@@ -27971,7 +27971,7 @@ mod tests {
             .create_object("CbtU", Team::China, glam::Vec3::new(160.0, 0.0, 130.0))
             .expect("tgt");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.pre_attack_target = Some(tgt);
             o.pre_attack_ready_at = 12.5;
             o.consecutive_shots_at_target = 3;
@@ -28015,7 +28015,7 @@ mod tests {
         assert_eq!(e.temporary_move_frames, 7);
         assert!((e.group_speed_factor - 0.85).abs() < 1e-5);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.pre_attack_target = None;
             o.attack_substate = AttackSubState::AimAtTarget;
             o.consecutive_shots_at_target = 0;
@@ -28059,7 +28059,7 @@ mod tests {
             .create_object("LocoU", Team::USA, glam::Vec3::new(150.0, 0.0, 150.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.is_approach_path = true;
             o.on_invalid_movement_terrain = true;
             o.was_airborne_last_frame = true;
@@ -28117,7 +28117,7 @@ mod tests {
         assert!((e.min_turn_speed - 5.5).abs() < 1e-5);
         assert_eq!(e.physics_turning_ordinal, 1);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.is_approach_path = false;
             o.moving_backwards = false;
             o.loco_appearance = LocomotorAppearance::Other;
@@ -28161,7 +28161,7 @@ mod tests {
             .create_object("AiU", Team::China, glam::Vec3::new(200.0, 0.0, 170.0))
             .expect("v");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.requested_victim_id = Some(victim);
             o.requested_destination = Some(glam::Vec3::new(9.0, 0.0, 8.0));
             o.prev_victim_pos = Some(glam::Vec3::new(1.0, 2.0, 3.0));
@@ -28206,7 +28206,7 @@ mod tests {
         assert_eq!(e.weapon_crate_upgrade, 2);
         assert_eq!(e.selection_flash_remaining, 15);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.requested_victim_id = None;
             o.disguise_pending_template = None;
             o.weapon_crate_upgrade = 0;
@@ -28245,7 +28245,7 @@ mod tests {
             .create_object("HjU", Team::China, glam::Vec3::new(190.0, 0.0, 180.0))
             .expect("v");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.hijack_vehicle_id = Some(vehicle);
             o.hijacker_in_vehicle = true;
             o.hijacker_update_active = true;
@@ -28277,7 +28277,7 @@ mod tests {
         assert_eq!(e.hive_slave_respawn_frame, 250);
         assert_eq!(e.next_detection_scan_frame, 33);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.hijack_vehicle_id = None;
             o.hijacker_in_vehicle = false;
             o.hive_slave_respawn_frame = 0;
@@ -28309,7 +28309,7 @@ mod tests {
             .create_object("LchU", Team::USA, glam::Vec3::new(210.0, 0.0, 210.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.leech_range_active_primary = true;
             o.leech_range_active_secondary = true;
             o.record_host_weapon_stats();
@@ -28324,7 +28324,7 @@ mod tests {
         assert!(e.leech_range_active_primary);
         assert!(e.leech_range_active_secondary);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.leech_range_active_primary = false;
             o.leech_range_active_secondary = false;
         }
@@ -28357,7 +28357,7 @@ mod tests {
             .create_object("FiU", Team::China, glam::Vec3::new(240.0, 0.0, 220.0))
             .expect("v");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.last_fire_victim_host = victim.0;
             o.last_fire_slot = 1;
             o.last_fire_damage = 42.0;
@@ -28380,7 +28380,7 @@ mod tests {
         assert_eq!(e.last_fire_frame, 285);
         assert_eq!(e.fire_intent_count, 3);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.last_fire_victim_host = 0;
             o.fire_intent_count = 0;
             o.last_fire_damage = 0.0;
@@ -28807,7 +28807,7 @@ mod tests {
         let vid = logic
             .create_object("ApE", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
             .expect("e");
-        if let Some(o) = logic.get_objects_mut().get_mut(&uid) {
+        if let Some(o) = logic.host_object_mut(uid) {
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 25.0,
@@ -28954,11 +28954,11 @@ mod tests {
         let enemy = logic
             .create_object("TcE", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
             .expect("e");
-        if let Some(c) = logic.get_objects_mut().get_mut(&crawler) {
+        if let Some(c) = logic.host_object_mut(crawler) {
             c.install_troop_crawler_transport();
             let _ = c.add_occupant(occ);
         }
-        if let Some(o) = logic.get_objects_mut().get_mut(&occ) {
+        if let Some(o) = logic.host_object_mut(occ) {
             o.set_contained_by(Some(crawler));
         }
         let ordered = logic.apply_troop_crawler_assault_deploy_for_test(crawler, enemy);
@@ -29040,7 +29040,7 @@ mod tests {
         let eid = logic
             .create_object("MdE", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
             .expect("e");
-        if let Some(o) = logic.get_objects_mut().get_mut(&mid) {
+        if let Some(o) = logic.host_object_mut(mid) {
             o.secondary_weapon = Some(Weapon {
                 damage: 20.0,
                 range: 250.0,
@@ -29117,7 +29117,7 @@ mod tests {
         let vid = logic
             .create_object("PaE", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
             .expect("e");
-        if let Some(o) = logic.get_objects_mut().get_mut(&uid) {
+        if let Some(o) = logic.host_object_mut(uid) {
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 50.0,
@@ -29189,7 +29189,7 @@ mod tests {
             .create_object("XaTo", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
             .expect("to");
         // Seed host engagement on destroyed/old victim.
-        if let Some(o) = logic.get_objects_mut().get_mut(&attacker) {
+        if let Some(o) = logic.host_object_mut(attacker) {
             o.target = Some(from);
             o.status.attacking = true;
         }
@@ -29377,7 +29377,7 @@ mod tests {
             .create_object("MaU", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
             .expect("v");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.auto_acquire_when_idle = true;
             o.ai_state = crate::game_logic::AIState::Idle;
             o.target = None;
@@ -29535,7 +29535,7 @@ mod tests {
             .find(|(_, o)| o.team == Team::USA)
             .map(|(id, _)| *id)
             .expect("usa");
-        if let Some(o) = logic.get_objects_mut().get_mut(&usa_unit) {
+        if let Some(o) = logic.host_object_mut(usa_unit) {
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 ..Weapon::default()
@@ -29607,7 +29607,7 @@ mod tests {
             .create_object("Se", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("e");
         // Seed host target as if previously engaged.
-        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+        if let Some(o) = logic.host_object_mut(oid) {
             o.target = Some(vid);
             o.status.attacking = true;
         }
@@ -29805,7 +29805,7 @@ mod tests {
         let id = logic
             .create_object("AiUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("unit");
-        if let Some(o) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.thing.template.add_kind_of(KindOf::Infantry);
             o.movement.max_speed = 30.0;
         }
@@ -29876,7 +29876,7 @@ mod tests {
         let id = logic
             .create_object("MvU", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("unit");
-        if let Some(o) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.thing.template.add_kind_of(KindOf::Infantry);
             o.movement.max_speed = 60.0;
         }
@@ -29920,7 +29920,7 @@ mod tests {
         let id = logic
             .create_object("HoleT", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("hole");
-        if let Some(h) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(h) = logic.host_object_mut(id) {
             // Simulate rebuild-hole complete residual path without dual-world.
             if crate::gameworld_shadow::gameworld_construction_authority_live() {
                 crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
@@ -30013,7 +30013,7 @@ mod tests {
             .create_object("FrU", Team::China, glam::Vec3::new(12.0, 0.0, 10.0))
             .expect("v");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.weapon = Some(Weapon {
                 damage: 15.0,
                 range: 200.0,
@@ -30049,7 +30049,7 @@ mod tests {
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
         host_fire_intent_log::clear();
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.last_fire_victim_host = 0;
             o.last_fire_frame = 0;
             o.last_fire_damage = 0.0;
@@ -30094,7 +30094,7 @@ mod tests {
         let oid = logic
             .create_object("PmU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
-        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+        if let Some(o) = logic.host_object_mut(oid) {
             // Ensure mobile residual (max_speed > 0).
             o.movement.max_speed = 20.0;
         }
@@ -30177,7 +30177,7 @@ mod tests {
         let vid = logic
             .create_object("IdE", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("e");
-        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+        if let Some(o) = logic.host_object_mut(oid) {
             o.target = Some(vid);
             o.status.attacking = true;
             o.set_ai_state(AIState::Attacking);
@@ -30281,7 +30281,7 @@ mod tests {
         let oid = logic
             .create_object("WpU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
-        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+        if let Some(o) = logic.host_object_mut(oid) {
             o.movement.max_speed = 20.0;
         }
         assert!(logic.append_unit_waypoint_for_test(oid, glam::Vec3::new(30.0, 0.0, 0.0)));
@@ -30382,7 +30382,7 @@ mod tests {
             .create_object("DieUnit", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.status.destroyed = true;
             o.status.death_type = HostDeathType::Burned;
         }
@@ -30396,7 +30396,7 @@ mod tests {
             HostDeathType::Burned.ordinal()
         );
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.status.death_type = HostDeathType::Normal;
         }
         assert!(shadow.writeback_death_type_to_host(&mut logic) >= 1);
@@ -30438,7 +30438,7 @@ mod tests {
             .create_object("RadarB", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.radar_extend_done_frame = 120;
             o.radar_extend_complete = false;
             o.radar_active = true;
@@ -30453,7 +30453,7 @@ mod tests {
         assert!(e.radar_active);
         assert!(!e.radar_extend_complete);
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.radar_active = false;
             o.radar_extend_done_frame = 0;
         }
@@ -30496,7 +30496,7 @@ mod tests {
             .create_object("SpUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.special_power_cooldown = 10.0;
             o.special_power_cooldown_remaining = 5.0;
             o.set_special_power_ready(false);
@@ -30534,7 +30534,7 @@ mod tests {
             .create_object("SpWbU", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.special_power_cooldown = 10.0;
             o.special_power_cooldown_remaining = 2.0;
             o.set_special_power_ready(false);
@@ -30546,7 +30546,7 @@ mod tests {
         assert!(shadow.apply_host_special_power_events(&events) >= 1);
         // Desync host after GameWorld apply so writeback has work.
         {
-            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.special_power_cooldown_remaining = 9.0;
         }
         assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
@@ -30576,7 +30576,7 @@ mod tests {
         // Wave 758: couple for damage_authority_live.
         let _couple = ShadowCoupleGuard::enter();
         install_active_shadow_for_coupled_tick(&mut shadow);
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             let _ = obj.take_damage(25.0);
         }
         clear_active_shadow_for_coupled_tick();
@@ -30599,7 +30599,7 @@ mod tests {
         );
         let _ = shadow.apply_host_damage_events(&events);
         // Deliberately desync host so writeback must run.
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.health.current = pre; // restore pre-damage on host
             obj.status.destroyed = false;
         }
@@ -30646,7 +30646,7 @@ mod tests {
             .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
             .expect("unit");
         let pre = logic.get_objects().get(&id).unwrap().health.current;
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             let _ = obj.take_damage(25.0);
         }
         let mid = logic.get_objects().get(&id).unwrap().health.current;
@@ -30689,7 +30689,7 @@ mod tests {
         let pre = logic.get_objects().get(&id).unwrap().health.current;
         // Wave 758: damage_authority_live needs coupled tick depth.
         let _couple = ShadowCoupleGuard::enter();
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             let dead = obj.take_damage(999.0);
             assert!(dead, "projected lethal");
             assert!(obj.status.destroyed, "destroyed flag must flip mid-frame");
@@ -30726,7 +30726,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(4096);
         shadow.sync_from_host(&logic);
         {
-            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.set_team(Team::USA);
         }
         let events = crate::game_logic::host_owner_log::drain();
@@ -30753,13 +30753,13 @@ mod tests {
             .create_object("HealT", Team::USA, glam::Vec3::ZERO)
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.health.current = 40.0;
         }
         let mut shadow = GameWorldShadow::new(4096);
         shadow.sync_from_host(&logic);
         {
-            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.health.current = 70.0;
             crate::game_logic::host_heal_log::record(id, 70.0);
         }
@@ -31161,7 +31161,7 @@ mod tests {
             .create_object("SrcB", Team::China, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("v");
         {
-            let v = logic.get_objects_mut().get_mut(&victim).unwrap();
+            let v = logic.host_object_mut(victim).unwrap();
             let _ = v.take_damage_from(25.0, Some(attacker));
             assert_eq!(v.last_damage_source, Some(attacker));
             // Damage authority defers HP; projected destroy false.
@@ -31262,7 +31262,7 @@ mod tests {
         let vid = logic
             .create_object("PsE", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("e");
-        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+        if let Some(o) = logic.host_object_mut(oid) {
             o.target = Some(vid);
             o.status.attacking = true;
         }
@@ -31576,7 +31576,7 @@ mod tests {
                 BuildingData, BuildingType, ProductionItem, ProductionKind,
             };
             use crate::game_logic::Resources;
-            let o = logic.get_objects_mut().get_mut(&fac).expect("f");
+            let o = logic.host_object_mut(fac).expect("f");
             if o.building_data.is_none() {
                 o.building_data = Some(BuildingData::new(BuildingType::Barracks));
             }
@@ -31672,7 +31672,7 @@ mod tests {
             .create_object("SellPad", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).unwrap();
+            let o = logic.host_object_mut(oid).unwrap();
             o.construction_percent = 1.0;
             o.set_status_under_construction(false);
         }
@@ -31853,7 +31853,7 @@ mod tests {
             .create_object("HealU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
         {
-            let o = logic.get_objects_mut().get_mut(&oid).unwrap();
+            let o = logic.host_object_mut(oid).unwrap();
             o.health.current = 40.0;
             o.health.maximum = 100.0;
         }

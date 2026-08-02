@@ -325,6 +325,7 @@ pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
 pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
 pub mod host_live_host_session_control_boundary_residual_wave933;
+pub mod host_live_host_shadow_host_object_mut_seal_residual_wave947;
 pub mod host_live_host_shell_no_dual_pace_residual_wave876;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_sim_timing_presentation_residual_wave893;
@@ -3125,6 +3126,13 @@ pub use host_live_host_writeback_host_object_mut_residual_wave946::{
     honesty_host_writeback_host_object_mut_nav_commands_residual_wave946,
     honesty_host_writeback_host_object_mut_residual_pack_wave946,
     simulate_live_host_writeback_host_object_mut_honesty,
+};
+
+pub use host_live_host_shadow_host_object_mut_seal_residual_wave947::{
+    honesty_host_shadow_host_object_mut_seal_method_names_residual_wave947,
+    honesty_host_shadow_host_object_mut_seal_nav_commands_residual_wave947,
+    honesty_host_shadow_host_object_mut_seal_residual_pack_wave947,
+    simulate_live_host_shadow_host_object_mut_seal_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
