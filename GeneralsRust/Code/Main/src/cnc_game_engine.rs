@@ -3986,9 +3986,7 @@ impl CnCGameEngine {
                         crate::gameworld_shadow::simulate_gameworld_authority_refresh_env()
                     }
                     "shadow" => crate::gameworld_shadow::simulate_gameworld_shadow_enable_check(),
-                    "probe" => crate::gameworld_shadow::simulate_gameworld_authority_probe(
-                        &mut self.game_logic,
-                    ),
+                    "probe" => self.host_simulate_gameworld_authority_probe(),
                     _ => crate::gameworld_shadow::simulate_gameworld_authority_prepare_defaults(),
                 };
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -20975,6 +20973,46 @@ impl CnCGameEngine {
         self.host_quick_save_from_hotkey(source)
     }
 
+    fn host_save_game_authority(
+        &mut self,
+        slot: &str,
+        save_info: &SaveGameInfo,
+    ) -> Result<(), String> {
+        // Wave 928: single save authority boundary.
+        self.save_file_manager
+            .save_game(slot, &self.game_logic, save_info)
+            .map_err(|e| format!("{e}"))
+    }
+
+    /// Wave 928: single load authority boundary.
+    #[inline]
+    fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
+        // Wave 928: single load authority boundary.
+
+        self.save_file_manager
+            .load_game(slot, &mut self.game_logic)
+            .map_err(|e| format!("{e}"))
+    }
+
+    /// Wave 928: single skirmish-config authority boundary.
+    #[inline]
+    fn host_apply_skirmish_config_authority(
+        &mut self,
+        config: &crate::skirmish_config::SkirmishMatchConfig,
+    ) -> Result<(), String> {
+        // Wave 928: single skirmish-config authority boundary.
+
+        crate::skirmish_config::apply_skirmish_config(&mut self.game_logic, config)
+    }
+
+    /// Wave 928: runtime-host GameWorld authority probe boundary.
+    #[inline]
+    fn host_simulate_gameworld_authority_probe(&mut self) -> bool {
+        // Wave 928: runtime-host GameWorld authority probe boundary.
+
+        crate::gameworld_shadow::simulate_gameworld_authority_probe(&mut self.game_logic)
+    }
+
     fn host_quick_save_from_hotkey(&mut self, source: &str) {
         // Wave 611: host residual helper.
         // Prefer presentation game_mode residual when installed.
@@ -20995,10 +21033,7 @@ impl CnCGameEngine {
             SaveFileType::QuickSave,
         );
 
-        if let Err(err) =
-            self.save_file_manager
-                .save_game("quicksave", &self.game_logic, &save_info)
-        {
+        if let Err(err) = self.host_save_game_authority("quicksave", &save_info) {
             warn!("Quick save failed for 'quicksave': {}", err);
         } else {
             info!("Quick save stored in slot 'quicksave'");
@@ -21059,10 +21094,7 @@ impl CnCGameEngine {
         let save_info =
             self.build_save_info(slot, display_name, display_name, SaveFileType::Normal);
 
-        if let Err(err) = self
-            .save_file_manager
-            .save_game(slot, &self.game_logic, &save_info)
-        {
+        if let Err(err) = self.host_save_game_authority(slot, &save_info) {
             warn!("Save failed for '{}': {}", slot, err);
         } else {
             info!("Saved game to slot '{}'", slot);
@@ -21092,7 +21124,7 @@ impl CnCGameEngine {
             self.prepare_cpp_load_screen_for_mode(self.presentation_or_live_game_mode(), true);
         }
         self.transition_to_state(GameState::Loading);
-        match self.save_file_manager.load_game(slot, &mut self.game_logic) {
+        match self.host_load_game_authority(slot) {
             Ok(save_info) => {
                 info!(
                     "Loaded save '{}' (map={}, name={})",
@@ -21258,9 +21290,7 @@ impl CnCGameEngine {
 
         if mode == GameMode::Skirmish {
             if let Some(ref config) = skirmish {
-                if let Err(e) =
-                    crate::skirmish_config::apply_skirmish_config(&mut self.game_logic, config)
-                {
+                if let Err(e) = self.host_apply_skirmish_config_authority(config) {
                     warn!("apply_skirmish_config failed: {e}; falling back to legacy start");
                     // Wave 577: host start residual via helper.
                     self.host_start_new_game_with_faction(mode, faction_team, true);
