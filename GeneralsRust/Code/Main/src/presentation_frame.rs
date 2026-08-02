@@ -7101,6 +7101,19 @@ impl PresentationFrame {
                 obj.formation_offset = form_off;
                 dirty = true;
             }
+            // Wave 999: surrender + emoticon residual last-writer.
+            if obj.is_surrendered != ent.is_surrendered {
+                obj.is_surrendered = ent.is_surrendered;
+                dirty = true;
+            }
+            if obj.emoticon_name != ent.emoticon_name {
+                obj.emoticon_name = ent.emoticon_name.clone();
+                dirty = true;
+            }
+            if obj.emoticon_frames_left != ent.emoticon_frames_left {
+                obj.emoticon_frames_left = ent.emoticon_frames_left;
+                dirty = true;
+            }
             // Wave 996: topple lean + healing icon residual last-writer.
             if (obj.topple_lean_radians - ent.topple_lean_radians).abs() > 1e-5 {
                 obj.topple_lean_radians = ent.topple_lean_radians;
@@ -7527,9 +7540,9 @@ impl PresentationFrame {
             parachute_open: ent.parachute_open,
             captured: ent.private_captured,
             prone: ent.prone_active,
-            emoticon_name: String::new(),
-            emoticon_frames_left: 0,
-            is_surrendered: false,
+            emoticon_name: ent.emoticon_name.clone(),
+            emoticon_frames_left: ent.emoticon_frames_left,
+            is_surrendered: ent.is_surrendered,
             formation_id: ent.formation_id,
             formation_offset: glam::Vec2::new(ent.formation_offset[0], ent.formation_offset[1]), // Wave 998
             over_water: ent.cell_is_underwater,
