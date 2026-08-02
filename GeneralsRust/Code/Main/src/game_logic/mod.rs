@@ -260,6 +260,7 @@ pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_mouse_presentation_only_residual_wave906;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
+pub mod host_live_host_object_lifecycle_boundary_residual_wave931;
 pub mod host_live_host_object_scan_unify_residual_wave853;
 pub mod host_live_host_observe_failclosed_residual_wave898;
 pub mod host_live_host_override_camera_follow_residual_wave891;
@@ -2997,6 +2998,13 @@ pub use host_live_host_direct_order_gamelogic_boundary_residual_wave930::{
     honesty_host_direct_order_gamelogic_boundary_nav_commands_residual_wave930,
     honesty_host_direct_order_gamelogic_boundary_residual_pack_wave930,
     simulate_live_host_direct_order_gamelogic_boundary_honesty,
+};
+
+pub use host_live_host_object_lifecycle_boundary_residual_wave931::{
+    honesty_host_object_lifecycle_boundary_method_names_residual_wave931,
+    honesty_host_object_lifecycle_boundary_nav_commands_residual_wave931,
+    honesty_host_object_lifecycle_boundary_residual_pack_wave931,
+    simulate_live_host_object_lifecycle_boundary_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
