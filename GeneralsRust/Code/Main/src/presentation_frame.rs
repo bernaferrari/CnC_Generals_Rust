@@ -7096,6 +7096,31 @@ impl PresentationFrame {
                 obj.formation_id = ent.formation_id;
                 dirty = true;
             }
+            // Wave 996: topple lean + healing icon residual last-writer.
+            if (obj.topple_lean_radians - ent.topple_lean_radians).abs() > 1e-5 {
+                obj.topple_lean_radians = ent.topple_lean_radians;
+                dirty = true;
+            }
+            let show_healing = ent.sole_healing_benefactor_expiration_frame != 0;
+            if obj.show_healing != show_healing {
+                obj.show_healing = show_healing;
+                dirty = true;
+            }
+            {
+                const STRUCTURE_BIT: u32 = 1 << 0;
+                const VEHICLE_BIT: u32 = 1 << 2;
+                let icon = if ent.kind_of_bits & STRUCTURE_BIT != 0 {
+                    1u8
+                } else if ent.kind_of_bits & VEHICLE_BIT != 0 {
+                    2u8
+                } else {
+                    0u8
+                };
+                if obj.healing_icon_type != icon {
+                    obj.healing_icon_type = icon;
+                    dirty = true;
+                }
+            }
             if (obj.camo_friendly_opacity - ent.camo_friendly_opacity).abs() > 1e-4 {
                 obj.camo_friendly_opacity = ent.camo_friendly_opacity;
                 dirty = true;
@@ -7467,7 +7492,7 @@ impl PresentationFrame {
             position: pos,
             orientation: ent.transform.orientation,
             // Wave 498: filled by overlay_host_fx_residual when host is available.
-            topple_lean_radians: 0.0,
+            topple_lean_radians: ent.topple_lean_radians,
             move_destination,
             // Wave 489: order/path/production presentation from GW entity.
             target_location: ent
@@ -7481,8 +7506,18 @@ impl PresentationFrame {
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
             producer_id: ent.producer_id.map(ObjectId), // Wave 992: GameWorld entity producer residual.
-            show_healing: false,
-            healing_icon_type: 0,
+            show_healing: ent.sole_healing_benefactor_expiration_frame != 0,
+            healing_icon_type: {
+                const STRUCTURE_BIT: u32 = 1 << 0;
+                const VEHICLE_BIT: u32 = 1 << 2;
+                if ent.kind_of_bits & STRUCTURE_BIT != 0 {
+                    1
+                } else if ent.kind_of_bits & VEHICLE_BIT != 0 {
+                    2
+                } else {
+                    0
+                }
+            },
             parachuting: ent.parachuting,
             parachute_open: ent.parachute_open,
             captured: ent.private_captured,
