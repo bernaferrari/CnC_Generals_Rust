@@ -13384,9 +13384,10 @@ mod tests {
             "move must prefer presentation/engine selection over live player roster only"
         );
         assert!(
-            window.contains("select_objects")
+            (window.contains("select_objects")
                 && (window.contains("selected_objects = ids")
-                    || window.contains("selected_objects.is_empty()")),
+                    || window.contains("selected_objects.is_empty()")))
+                || window.contains("host_set_selection"),
             "move must re-sync host player selection from presentation/engine residual"
         );
     }

@@ -284,6 +284,7 @@ pub mod host_live_host_post_writeback_complete_boundary_residual_wave938;
 pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
 pub mod host_live_host_power_plant_rods_dual_peel_residual_wave810;
 pub mod host_live_host_presentation_build_boundary_residual_wave926;
+pub mod host_live_host_presentation_selection_peel_residual_wave949;
 pub mod host_live_host_process_commands_if_needed_residual_wave914;
 pub mod host_live_host_process_sfx_world_template_peels_residual_wave915;
 pub mod host_live_host_producer_refresh_freeze_peels_residual_wave920;
@@ -3141,6 +3142,13 @@ pub use host_live_host_main_host_object_mut_seal_residual_wave948::{
     honesty_host_main_host_object_mut_seal_nav_commands_residual_wave948,
     honesty_host_main_host_object_mut_seal_residual_pack_wave948,
     simulate_live_host_main_host_object_mut_seal_honesty,
+};
+
+pub use host_live_host_presentation_selection_peel_residual_wave949::{
+    honesty_host_presentation_selection_peel_method_names_residual_wave949,
+    honesty_host_presentation_selection_peel_nav_commands_residual_wave949,
+    honesty_host_presentation_selection_peel_residual_pack_wave949,
+    simulate_live_host_presentation_selection_peel_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
