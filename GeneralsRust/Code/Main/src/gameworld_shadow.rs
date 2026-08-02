@@ -3187,7 +3187,7 @@ impl GameWorldShadow {
         }
     }
 
-    pub(crate) fn ai_state_from_ordinal(ordinal: u8) -> crate::game_logic::AIState {
+    pub fn ai_state_from_ordinal(ordinal: u8) -> crate::game_logic::AIState {
         use crate::game_logic::AIState as A;
         match ordinal {
             1 => A::Moving,
@@ -6231,20 +6231,26 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_body_damage_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let want = HostBodyDamageType::from_ordinal(ent.body_damage_state);
             if obj.body_damage_state != want {
                 let prev_ord = obj.body_damage_state.ordinal();
                 let new_ord = want.ordinal();
-                obj.body_damage_state = want;
+                // Wave 945: body-damage writeback via host writeback authority.
+                if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::BodyDamage {
+                    id: ObjectId(hid),
+                    state: want,
+                }) {
+                    continue;
+                }
                 // Wave 623: GameWorld body-damage last-write residual —
                 // host applies model/FX side effects from ready log.
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
@@ -6267,21 +6273,26 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_death_type_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let want = HostDeathType::from_ordinal(ent.death_type);
             if obj.status.death_type != want {
                 let prev = obj.status.death_type.ordinal();
                 let next = want.ordinal();
-                // Direct assign — avoid host_death_type_log re-entry during writeback.
-                obj.status.death_type = want;
+                // Wave 945: death-type writeback via host writeback authority.
+                if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::DeathType {
+                    id: ObjectId(hid),
+                    death_type: want,
+                }) {
+                    continue;
+                }
                 // Wave 632: GameWorld death-type last-write residual —
                 // host applies destroy/pilot bookkeeping from ready log.
                 ready.push((ObjectId(hid), prev, next));
@@ -6706,20 +6717,25 @@ impl GameWorldShadow {
             let Some(want_team) = self.host_team_for_gw_owner(logic, ent.owner) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_owner_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if obj.team != want_team {
                 let prev = obj.team;
-                // Direct assign to avoid re-logging host_owner_log during writeback.
-                obj.team = want_team;
-                obj.team_color = want_team.get_color();
+                // Wave 945: owner writeback via host writeback authority.
+                if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Owner {
+                    id: ObjectId(hid),
+                    team: want_team,
+                    team_color: want_team.get_color(),
+                }) {
+                    continue;
+                }
                 // Wave 629: GameWorld owner last-write residual —
                 // host applies capture side effects from ready log.
                 ready.push((ObjectId(hid), prev, want_team));
@@ -7900,23 +7916,28 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_ai_state_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let host_ord = Self::host_ai_state_ordinal(&obj.ai_state);
             if host_ord == ent.ai_state_ordinal {
                 continue;
             }
             let prev = host_ord;
             let next = ent.ai_state_ordinal;
-            // Avoid host_ai_state_log re-entry during writeback (direct assign).
-            obj.ai_state = Self::ai_state_from_ordinal(next);
+            // Wave 945: AI-state writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::AiState {
+                id: ObjectId(hid),
+                ordinal: next,
+            }) {
+                continue;
+            }
             // Wave 630: GameWorld AI-state last-write residual —
             // host applies combat-status flags from ready log.
             ready.push((ObjectId(hid), prev, next));
@@ -11526,15 +11547,15 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_special_power_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let was_ready = obj.special_power_ready;
             let changed = obj.special_power_ready != ent.special_power_ready
                 || (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining)
@@ -11544,9 +11565,15 @@ impl GameWorldShadow {
             if !changed {
                 continue;
             }
-            obj.special_power_ready = ent.special_power_ready;
-            obj.special_power_cooldown_remaining = ent.special_power_cooldown_remaining.max(0.0);
-            obj.special_power_cooldown = ent.special_power_cooldown.max(0.0);
+            // Wave 945: special-power writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::SpecialPower {
+                id: ObjectId(hid),
+                ready: ent.special_power_ready,
+                cooldown_remaining: ent.special_power_cooldown_remaining,
+                cooldown: ent.special_power_cooldown,
+            }) {
+                continue;
+            }
             // Wave 618: GameWorld sole-tick SP ready residual — host EVA/UI can drain.
             if crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled()
                 && !was_ready
@@ -11585,20 +11612,26 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_stored_supplies_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if obj.stored_resources.supplies == ent.stored_supplies {
                 continue;
             }
             let prev = obj.stored_resources.supplies;
-            obj.stored_resources.supplies = ent.stored_supplies;
+            // Wave 945: stored-supplies writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::StoredSupplies {
+                id: ObjectId(hid),
+                supplies: ent.stored_supplies,
+            }) {
+                continue;
+            }
             // Wave 641: GameWorld stored-supplies last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push((ObjectId(hid), prev, ent.stored_supplies));
@@ -12658,24 +12691,30 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_command_set_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let host = obj.command_set_override.clone().unwrap_or_default();
             if host == ent.command_set_override {
                 continue;
             }
-            obj.command_set_override = if ent.command_set_override.is_empty() {
-                None
-            } else {
-                Some(ent.command_set_override.clone())
-            };
+            // Wave 945: command-set writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::CommandSet {
+                id: ObjectId(hid),
+                override_name: if ent.command_set_override.is_empty() {
+                    None
+                } else {
+                    Some(ent.command_set_override.clone())
+                },
+            }) {
+                continue;
+            }
             // Wave 644: GameWorld command-set last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -13101,19 +13140,25 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_selection_radius_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if (obj.selection_radius - ent.selection_radius).abs() <= f32::EPSILON {
                 continue;
             }
-            obj.selection_radius = ent.selection_radius;
+            // Wave 945: selection-radius writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::SelectionRadius {
+                id: ObjectId(hid),
+                radius: ent.selection_radius,
+            }) {
+                continue;
+            }
             // Wave 655: GameWorld selection-radius last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -13389,28 +13434,29 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 755: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_faerie_fire_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let host_active = obj.is_faerie_fire();
             if host_active == ent.faerie_fire
                 && obj.faerie_fire_until_frame == ent.faerie_fire_until_frame
             {
                 continue;
             }
-            // Direct assign — avoid set_status_faerie_fire re-entry during writeback.
-            obj.status.faerie_fire = ent.faerie_fire;
-            obj.faerie_fire_until_frame = if ent.faerie_fire {
-                ent.faerie_fire_until_frame
-            } else {
-                0
-            };
+            // Wave 945: faerie-fire writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::FaerieFire {
+                id: ObjectId(hid),
+                active: ent.faerie_fire,
+                until_frame: ent.faerie_fire_until_frame,
+            }) {
+                continue;
+            }
             // Wave 676: GameWorld faerie-fire last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -13452,22 +13498,27 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 756: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_repulsor_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let host_active = obj.status.repulsor;
             if host_active == ent.repulsor && obj.repulsor_until_frame == ent.repulsor_until_frame {
                 continue;
             }
-            obj.repulsor_until_frame = ent.repulsor_until_frame;
-            // Avoid re-entrant host_repulsor_log from set_status_repulsor during writeback.
-            obj.status.repulsor = ent.repulsor;
+            // Wave 945: repulsor writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Repulsor {
+                id: ObjectId(hid),
+                active: ent.repulsor,
+                until_frame: ent.repulsor_until_frame,
+            }) {
+                continue;
+            }
             // Wave 661: GameWorld repulsor last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -13546,22 +13597,28 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_ground_height_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let changed = (obj.ground_height - ent.ground_height).abs() > f32::EPSILON
                 || obj.ground_height_from_terrain != ent.ground_height_from_terrain;
             if !changed {
                 continue;
             }
-            obj.ground_height = ent.ground_height;
-            obj.ground_height_from_terrain = ent.ground_height_from_terrain;
+            // Wave 945: ground-height writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::GroundHeight {
+                id: ObjectId(hid),
+                height: ent.ground_height,
+                from_terrain: ent.ground_height_from_terrain,
+            }) {
+                continue;
+            }
             // Wave 656: GameWorld ground-height last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -14530,19 +14587,25 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_overcharge_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if obj.overcharge_enabled == ent.overcharge_enabled {
                 continue;
             }
-            obj.overcharge_enabled = ent.overcharge_enabled;
+            // Wave 945: overcharge writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Overcharge {
+                id: ObjectId(hid),
+                enabled: ent.overcharge_enabled,
+            }) {
+                continue;
+            }
             // Wave 668: GameWorld overcharge last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -14595,19 +14658,25 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_ai_attitude_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if obj.ai_attitude == ent.ai_attitude {
                 continue;
             }
-            obj.ai_attitude = ent.ai_attitude.clamp(-2, 2);
+            // Wave 945: AI-attitude writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::AiAttitude {
+                id: ObjectId(hid),
+                attitude: ent.ai_attitude,
+            }) {
+                continue;
+            }
             // Wave 659: GameWorld AI-attitude last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -14626,15 +14695,15 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_guard_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let host_pos = obj.guard_position.map(|p| [p.x, p.y, p.z]);
             let host_tgt = obj.guard_target.map(|id| id.0).unwrap_or(0);
             let changed = host_pos != ent.guard_position
@@ -14643,15 +14712,21 @@ impl GameWorldShadow {
             if !changed {
                 continue;
             }
-            obj.guard_position = ent
-                .guard_position
-                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
-            obj.guard_target = if ent.guard_target_host == 0 {
-                None
-            } else {
-                Some(ObjectId(ent.guard_target_host))
-            };
-            obj.guard_radius = ent.guard_radius;
+            // Wave 945: guard writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Guard {
+                id: ObjectId(hid),
+                position: ent
+                    .guard_position
+                    .map(|p| glam::Vec3::new(p[0], p[1], p[2])),
+                target: if ent.guard_target_host == 0 {
+                    None
+                } else {
+                    Some(ObjectId(ent.guard_target_host))
+                },
+                radius: ent.guard_radius,
+            }) {
+                continue;
+            }
             // Wave 669: GameWorld guard last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -14816,24 +14891,30 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_detector_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let changed = obj.is_detector != ent.is_detector
                 || (obj.detection_range - ent.detection_range).abs() > 1e-4
                 || obj.detection_rate_frames != ent.detection_rate_frames;
             if !changed {
                 continue;
             }
-            obj.is_detector = ent.is_detector;
-            obj.detection_range = ent.detection_range.max(0.0);
-            obj.detection_rate_frames = ent.detection_rate_frames;
+            // Wave 945: detector writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Detector {
+                id: ObjectId(hid),
+                is_detector: ent.is_detector,
+                range: ent.detection_range,
+                rate_frames: ent.detection_rate_frames,
+            }) {
+                continue;
+            }
             // Wave 671: GameWorld detector last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -14852,15 +14933,15 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_target_location_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let host_loc = obj.target_location.map(|p| [p.x, p.y, p.z]);
             let ent_loc = ent.target_location;
             let same = match (host_loc, ent_loc) {
@@ -14875,7 +14956,13 @@ impl GameWorldShadow {
             if same {
                 continue;
             }
-            obj.target_location = ent_loc.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            // Wave 945: target-location writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::TargetLocation {
+                id: ObjectId(hid),
+                location: ent_loc.map(|p| glam::Vec3::new(p[0], p[1], p[2])),
+            }) {
+                continue;
+            }
             // Wave 672: GameWorld target-location last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -14973,21 +15060,27 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_entity_power_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if obj.power_provided == ent.power_provided && obj.power_consumed == ent.power_consumed
             {
                 continue;
             }
-            obj.power_provided = ent.power_provided;
-            obj.power_consumed = ent.power_consumed;
+            // Wave 945: entity-power writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::EntityPower {
+                id: ObjectId(hid),
+                provided: ent.power_provided,
+                consumed: ent.power_consumed,
+            }) {
+                continue;
+            }
             // Wave 674: GameWorld entity-power last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
@@ -15006,19 +15099,25 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_weapon_slot_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if obj.active_weapon_slot == ent.active_weapon_slot {
                 continue;
             }
-            obj.active_weapon_slot = ent.active_weapon_slot;
+            // Wave 945: weapon-slot writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::WeaponSlot {
+                id: ObjectId(hid),
+                slot: ent.active_weapon_slot,
+            }) {
+                continue;
+            }
             // Wave 657: GameWorld weapon-slot last-write residual —
             // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));

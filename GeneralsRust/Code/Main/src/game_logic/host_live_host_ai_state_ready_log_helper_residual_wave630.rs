@@ -157,9 +157,12 @@ pub fn honesty_host_ai_state_ready_log_helper_source_markers_residual_wave630() 
         residual_action_store(ResidualHostAiStateReadyLogHelperAction::SourceMarkers);
         return false;
     };
+    // Wave 945: AI-state assign routes through HostWritebackOp::AiState
+    // (ordinal→AIState mapping lives in apply_host_writeback_op).
     let wb_ok = wb.contains("Wave 630")
         && wb.contains("host_ai_state_ready_log::record")
-        && wb.contains("ai_state_from_ordinal");
+        && (wb.contains("ai_state_from_ordinal")
+            || (wb.contains("HostWritebackOp::AiState") && wb.contains("apply_host_writeback_op")));
     let Some(apply) = fn_body(gl, "pub fn host_apply_ai_state_ready_completions(") else {
         residual_action_store(ResidualHostAiStateReadyLogHelperAction::SourceMarkers);
         return false;

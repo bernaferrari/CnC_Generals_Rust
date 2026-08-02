@@ -3378,6 +3378,89 @@ pub enum HostWritebackOp {
         id: ObjectId,
         destination: Option<glam::Vec3>,
     },
+    /// Wave 945: AI state ordinal last-write.
+    AiState { id: ObjectId, ordinal: u8 },
+    /// Wave 945: AI attitude last-write.
+    AiAttitude { id: ObjectId, attitude: i8 },
+    /// Wave 945: owner team last-write.
+    Owner {
+        id: ObjectId,
+        team: Team,
+        team_color: [f32; 4],
+    },
+    /// Wave 945: special-power ready/cooldown last-write.
+    SpecialPower {
+        id: ObjectId,
+        ready: bool,
+        cooldown_remaining: f32,
+        cooldown: f32,
+    },
+    /// Wave 945: overcharge flag last-write.
+    Overcharge { id: ObjectId, enabled: bool },
+    /// Wave 945: active weapon slot last-write.
+    WeaponSlot { id: ObjectId, slot: u8 },
+    /// Wave 945: selection radius last-write.
+    SelectionRadius { id: ObjectId, radius: f32 },
+    /// Wave 945: entity power provided/consumed last-write.
+    EntityPower {
+        id: ObjectId,
+        provided: i32,
+        consumed: i32,
+    },
+    /// Wave 945: target location last-write.
+    TargetLocation {
+        id: ObjectId,
+        location: Option<glam::Vec3>,
+    },
+    /// Wave 945: command-set override last-write.
+    CommandSet {
+        id: ObjectId,
+        override_name: Option<String>,
+    },
+    /// Wave 945: ground height last-write.
+    GroundHeight {
+        id: ObjectId,
+        height: f32,
+        from_terrain: bool,
+    },
+    /// Wave 945: body damage state last-write.
+    BodyDamage {
+        id: ObjectId,
+        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    },
+    /// Wave 945: death type last-write.
+    DeathType {
+        id: ObjectId,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    },
+    /// Wave 945: stored supplies last-write.
+    StoredSupplies { id: ObjectId, supplies: u32 },
+    /// Wave 945: faerie-fire status last-write.
+    FaerieFire {
+        id: ObjectId,
+        active: bool,
+        until_frame: u32,
+    },
+    /// Wave 945: repulsor status last-write.
+    Repulsor {
+        id: ObjectId,
+        active: bool,
+        until_frame: u32,
+    },
+    /// Wave 945: detector residual last-write.
+    Detector {
+        id: ObjectId,
+        is_detector: bool,
+        range: f32,
+        rate_frames: u32,
+    },
+    /// Wave 945: guard residual last-write.
+    Guard {
+        id: ObjectId,
+        position: Option<glam::Vec3>,
+        target: Option<ObjectId>,
+        radius: f32,
+    },
 }
 
 impl GameLogic {
@@ -28581,6 +28664,179 @@ impl GameLogic {
                     return false;
                 };
                 obj.movement.target_position = destination;
+                true
+            }
+            HostWritebackOp::AiState { id, ordinal } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.ai_state =
+                    crate::gameworld_shadow::GameWorldShadow::ai_state_from_ordinal(ordinal);
+                true
+            }
+            HostWritebackOp::AiAttitude { id, attitude } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.ai_attitude = attitude.clamp(-2, 2);
+                true
+            }
+            HostWritebackOp::Owner {
+                id,
+                team,
+                team_color,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.team = team;
+                obj.team_color = team_color;
+                true
+            }
+            HostWritebackOp::SpecialPower {
+                id,
+                ready,
+                cooldown_remaining,
+                cooldown,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.special_power_ready = ready;
+                obj.special_power_cooldown_remaining = cooldown_remaining.max(0.0);
+                obj.special_power_cooldown = cooldown.max(0.0);
+                true
+            }
+            HostWritebackOp::Overcharge { id, enabled } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.overcharge_enabled = enabled;
+                true
+            }
+            HostWritebackOp::WeaponSlot { id, slot } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.active_weapon_slot = slot;
+                true
+            }
+            HostWritebackOp::SelectionRadius { id, radius } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.selection_radius = radius;
+                true
+            }
+            HostWritebackOp::EntityPower {
+                id,
+                provided,
+                consumed,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.power_provided = provided;
+                obj.power_consumed = consumed;
+                true
+            }
+            HostWritebackOp::TargetLocation { id, location } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.target_location = location;
+                true
+            }
+            HostWritebackOp::CommandSet { id, override_name } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.command_set_override = override_name;
+                true
+            }
+            HostWritebackOp::GroundHeight {
+                id,
+                height,
+                from_terrain,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.ground_height = height;
+                obj.ground_height_from_terrain = from_terrain;
+                true
+            }
+            HostWritebackOp::BodyDamage { id, state } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.body_damage_state = state;
+                true
+            }
+            HostWritebackOp::DeathType { id, death_type } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.status.death_type = death_type;
+                true
+            }
+            HostWritebackOp::StoredSupplies { id, supplies } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.stored_resources.supplies = supplies;
+                true
+            }
+            HostWritebackOp::FaerieFire {
+                id,
+                active,
+                until_frame,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.status.faerie_fire = active;
+                obj.faerie_fire_until_frame = if active { until_frame } else { 0 };
+                true
+            }
+            HostWritebackOp::Repulsor {
+                id,
+                active,
+                until_frame,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.repulsor_until_frame = until_frame;
+                obj.status.repulsor = active;
+                true
+            }
+            HostWritebackOp::Detector {
+                id,
+                is_detector,
+                range,
+                rate_frames,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.is_detector = is_detector;
+                obj.detection_range = range.max(0.0);
+                obj.detection_rate_frames = rate_frames;
+                true
+            }
+            HostWritebackOp::Guard {
+                id,
+                position,
+                target,
+                radius,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.guard_position = position;
+                obj.guard_target = target;
+                obj.guard_radius = radius;
                 true
             }
         }
