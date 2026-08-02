@@ -16996,6 +16996,7 @@ pub fn shadow_session_after_host_tick(
     shadow: &mut GameWorldShadow,
     logic: &mut GameLogic,
 ) -> GameWorldShadowProbe {
+    // Wave 939: ready-log drains use logic.apply_ready_log_drain_op(ReadyLogDrainOp::*).
     let _couple_guard = ShadowCoupleGuard::enter();
     // Wave 761: GW sole-expires status timers under coupled dual-tick; host peels.
     let _status_timer_exp = shadow.tick_status_timer_expirations(logic.get_frame());
@@ -17394,7 +17395,8 @@ pub fn shadow_session_after_host_tick(
     };
     // Wave 628: contain membership last-write + ready-log residual.
     let _contain_wb = shadow.writeback_contain_to_host(logic);
-    let _contain_ready = logic.host_apply_contain_ready_completions();
+    let _contain_ready =
+        logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Contain);
     // Wave 707: skip GW re-apply when post-logic eager path already ran.
     let _radar_applied = if early_radar_applied {
         0
@@ -17552,7 +17554,8 @@ pub fn shadow_session_after_host_tick(
         let _ = stepped;
         let _pw = shadow.writeback_projectiles_to_host(logic);
         // Wave 678: drain projectiles ready log after GW writeback.
-        let _w678_ready = logic.host_apply_projectiles_ready_completions();
+        let _w678_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Projectiles);
         // Hit resolution at GameWorld-integrated poses (dt=0 keeps pose stable).
         let hits = logic.resolve_projectiles_hits_only();
         let _ = hits;
@@ -17616,13 +17619,16 @@ pub fn shadow_session_after_host_tick(
         // Last-write host attack target / AI state / move from GameWorld.
         let _ = shadow.writeback_attack_targets_to_host(logic);
         // Wave 638: drain attack-target ready log after GW writeback.
-        let _atk_ready = logic.host_apply_attack_target_ready_completions();
+        let _atk_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AttackTarget);
         let _ = shadow.writeback_ai_state_to_host(logic);
         // Wave 630: drain AI-state ready log after GW writeback.
-        let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
+        let _ai_st_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiState);
         let _ = shadow.writeback_movement_to_host(logic);
         // Wave 637: drain movement ready log after GW writeback.
-        let _mv_ready = logic.host_apply_movement_ready_completions();
+        let _mv_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Movement);
     } else {
         let _ =
             shadow.apply_host_ai_decision_events(&crate::game_logic::host_ai_decision_log::drain());
@@ -17940,13 +17946,14 @@ pub fn shadow_session_after_host_tick(
     // (and host bulk resync above) settle, then writeback keeps host Object::target aligned.
     let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
     // Wave 638: drain attack-target ready log after GW writeback.
-    let _atk_ready = logic.host_apply_attack_target_ready_completions();
+    let _atk_ready =
+        logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AttackTarget);
     let _ = shadow.writeback_fire_intent_to_host(logic);
     // Wave 640: drain fire-intent ready log after GW writeback.
-    let _fi_ready = logic.host_apply_fire_intent_ready_completions();
+    let _fi_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::FireIntent);
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
     // Wave 639: drain move-target ready log after GW writeback.
-    let _mt_ready = logic.host_apply_move_target_ready_completions();
+    let _mt_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::MoveTarget);
     // Pose last-writer after all SetTransform mutations this session.
     // Mid-frame movement authority: integrate AFTER command channels, BEFORE pose writeback.
     if gameworld_movement_authority_enabled() {
@@ -17958,40 +17965,50 @@ pub fn shadow_session_after_host_tick(
     }
     let _pose_wb = shadow.writeback_transforms_to_host(logic);
     // Wave 636: drain transform ready log after GW writeback.
-    let _xf_ready = logic.host_apply_transform_ready_completions();
+    let _xf_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Transform);
     // Movement authority: always last-write velocity/path/move_target/moving after step
     // (do not gate on damage-channel auth — path frames often have empty damage logs).
     if gameworld_movement_authority_enabled() {
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         // Wave 637: drain movement ready log after GW writeback.
-        let _mv_ready = logic.host_apply_movement_ready_completions();
+        let _mv_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Movement);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _ = shadow.writeback_physics_motive_to_host(logic);
         // Wave 649: drain physics-motive ready log after GW writeback.
-        let _pm_ready = logic.host_apply_physics_motive_ready_completions();
+        let _pm_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::PhysicsMotive);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _ = shadow.writeback_bounce_land_to_host(logic);
         // Wave 650: drain bounce-land ready log after GW writeback.
-        let _bl_ready = logic.host_apply_bounce_land_ready_completions();
+        let _bl_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::BounceLand);
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
         // Wave 639: drain move-target ready log after GW writeback.
-        let _mt_ready = logic.host_apply_move_target_ready_completions();
+        let _mt_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::MoveTarget);
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
         // Wave 768: LifetimeUpdate expire → host mark-for-destruction (no dual timer).
         for id in crate::game_logic::host_lifetime_expire_log::drain() {
@@ -18855,7 +18872,8 @@ pub fn shadow_session_after_host_tick(
         logic.tick_host_systems_residuals_sole();
 
         // Wave 634: drain combat-status ready log after GW writeback.
-        let _cst_ready = logic.host_apply_combat_status_ready_completions();
+        let _cst_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatStatus);
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
     // Wave 714/937: same-frame host complete/spawn via production authority boundary after GW writeback.
@@ -18871,34 +18889,38 @@ pub fn shadow_session_after_host_tick(
     );
     let _ = shadow.writeback_body_damage_to_host(logic);
     // Wave 623: drain body-damage ready log after GW body-state writeback.
-    let _body_ready = logic.host_apply_body_damage_ready_completions();
+    let _body_ready =
+        logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::BodyDamage);
     let _ = shadow.writeback_death_type_to_host(logic);
     // Wave 632: drain death-type ready log after GW writeback.
-    let _dt_ready = logic.host_apply_death_type_ready_completions();
+    let _dt_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::DeathType);
     let _ = shadow.writeback_radar_extend_to_host(logic);
     // Wave 625: drain radar-extend ready log after GW writeback.
-    let _radar_ready = logic.host_apply_radar_extend_ready_completions();
+    let _radar_ready =
+        logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::RadarExtend);
     let _ = shadow.writeback_shock_stun_to_host(logic);
     // Wave 662: drain shock-stun ready log after GW writeback.
-    let _w662_ready = logic.host_apply_shock_stun_ready_completions();
+    let _w662_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::ShockStun);
     let _ = shadow.writeback_rebuild_producer_to_host(logic);
     // Wave 626: drain construction-complete-clear ready log after GW writeback.
-    let _ccc_ready = logic.host_apply_construction_complete_clear_ready_completions();
+    let _ccc_ready = logic
+        .apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::ConstructionCompleteClear);
     let _ = shadow.writeback_sole_healing_to_host(logic);
     // Wave 663: drain sole-healing ready log after GW writeback.
-    let _w663_ready = logic.host_apply_sole_healing_ready_completions();
+    let _w663_ready =
+        logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::SoleHealing);
     let _ = shadow.writeback_hijacker_to_host(logic);
     // Wave 647: drain hijacker ready log after GW writeback.
-    let _hj_ready = logic.host_apply_hijacker_ready_completions();
+    let _hj_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
     let _ = shadow.writeback_ai_mood_to_host(logic);
     // Wave 645: drain AI-mood ready log after GW writeback.
-    let _mood_ready = logic.host_apply_ai_mood_ready_completions();
+    let _mood_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiMood);
     let _ = shadow.writeback_ai_request_to_host(logic);
     // Wave 648: drain AI-request ready log after GW writeback.
-    let _air_ready = logic.host_apply_ai_request_ready_completions();
+    let _air_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
     let _ = shadow.writeback_hijacker_to_host(logic);
     // Wave 647: drain hijacker ready log after GW writeback.
-    let _hj_ready = logic.host_apply_hijacker_ready_completions();
+    let _hj_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     // Wave 715/938: same-frame host construction complete via post-writeback authority.
     logic.apply_post_writeback_complete_op(
@@ -18910,7 +18932,7 @@ pub fn shadow_session_after_host_tick(
     );
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     // Wave 629: drain owner-ready log after GW owner writeback.
-    let _owner_ready = logic.host_apply_owner_ready_completions();
+    let _owner_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Owner);
     let mut writebacks = 0usize;
     // HP last-writer: damage mutations and/or absolute heal SetHealth events.
     if auth && (!events.is_empty() || !heal_events.is_empty() || !experience_events.is_empty()) {
@@ -18960,207 +18982,272 @@ pub fn shadow_session_after_host_tick(
         }
         let _xp_wb = shadow.writeback_experience_to_host(logic);
         // Wave 622: drain veterancy ready log after GW XP/level writeback.
-        let _vet_ready = logic.host_apply_veterancy_ready_completions();
+        let _vet_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Veterancy);
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
         // Wave 658: drain weapon-bonus ready log after GW writeback.
-        let _w658_ready = logic.host_apply_weapon_bonus_ready_completions();
+        let _w658_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::WeaponBonus);
         let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
         // Wave 676: drain faerie-fire ready log after GW writeback.
-        let _w676_ready = logic.host_apply_faerie_fire_ready_completions();
+        let _w676_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::FaerieFire);
         let _rp_wb = shadow.writeback_repulsor_to_host(logic);
         // Wave 661: drain repulsor ready log after GW writeback.
-        let _w661_ready = logic.host_apply_repulsor_ready_completions();
+        let _w661_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Repulsor);
         let _dt_wb = shadow.writeback_disable_timers_to_host(logic);
         // Wave 677: drain disable-timers ready log after GW writeback.
-        let _w677_ready = logic.host_apply_disable_timers_ready_completions();
+        let _w677_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::DisableTimers);
         let _wslot_wb = shadow.writeback_weapon_slot_to_host(logic);
         // Wave 657: drain weapon-slot ready log after GW writeback.
-        let _w657_ready = logic.host_apply_weapon_slot_ready_completions();
+        let _w657_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::WeaponSlot);
         let _epow_wb = shadow.writeback_entity_power_to_host(logic);
         // Wave 674: drain entity-power ready log after GW writeback.
-        let _w674_ready = logic.host_apply_entity_power_ready_completions();
+        let _w674_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::EntityPower);
         let _tur_wb = shadow.writeback_turret_to_host(logic);
         // Wave 673: drain turret ready log after GW writeback.
-        let _w673_ready = logic.host_apply_turret_ready_completions();
+        let _w673_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Turret);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         // Wave 651: drain stealth-delay ready log after GW writeback.
-        let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
+        let _sd_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::StealthDelay);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
-        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
+        let _ca_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatAttack);
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
-        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
+        let _fi_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::FireIntent);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _tloc_wb = shadow.writeback_target_location_to_host(logic);
         // Wave 672: drain target-location ready log after GW writeback.
-        let _w672_ready = logic.host_apply_target_location_ready_completions();
+        let _w672_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::TargetLocation);
         let _det_wb = shadow.writeback_detector_to_host(logic);
         // Wave 671: drain detector ready log after GW writeback.
-        let _w671_ready = logic.host_apply_detector_ready_completions();
+        let _w671_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Detector);
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
         // Wave 670: drain continuous-fire ready log after GW writeback.
-        let _w670_ready = logic.host_apply_continuous_fire_ready_completions();
+        let _w670_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::ContinuousFire);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
-        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
+        let _ca_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatAttack);
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
-        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
+        let _fi_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::FireIntent);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _guard_wb = shadow.writeback_guard_to_host(logic);
         // Wave 669: drain guard ready log after GW writeback.
-        let _w669_ready = logic.host_apply_guard_ready_completions();
+        let _w669_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Guard);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
         // Wave 630: drain AI-state ready log after GW writeback.
-        let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
+        let _ai_st_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiState);
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
         // Wave 659: drain AI-attitude ready log after GW writeback.
-        let _w659_ready = logic.host_apply_ai_attitude_ready_completions();
+        let _w659_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiAttitude);
         let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
         // Wave 642: drain weapon-set ready log after GW writeback.
-        let _wset_ready = logic.host_apply_weapon_set_ready_completions();
+        let _wset_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::WeaponSet);
         let _oc_wb = shadow.writeback_overcharge_to_host(logic);
         // Wave 668: drain overcharge ready log after GW writeback.
-        let _w668_ready = logic.host_apply_overcharge_ready_completions();
+        let _w668_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Overcharge);
         let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
         let _hive_wb = shadow.writeback_hive_to_host(logic);
         // Wave 667: drain hive ready log after GW writeback.
-        let _w667_ready = logic.host_apply_hive_ready_completions();
+        let _w667_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hive);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
         // Wave 652: drain stealth-flags ready log after GW writeback.
-        let _st_ready = logic.host_apply_stealth_flags_ready_completions();
+        let _st_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::StealthFlags);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         // Wave 651: drain stealth-delay ready log after GW writeback.
-        let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
+        let _sd_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::StealthDelay);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
-        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
+        let _ca_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatAttack);
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
-        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
+        let _fi_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::FireIntent);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
         // Wave 666: drain overlord ready log after GW writeback.
-        let _w666_ready = logic.host_apply_overlord_ready_completions();
+        let _w666_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Overlord);
         let _cs_wb = shadow.writeback_command_set_to_host(logic);
         // Wave 644: drain command-set ready log after GW writeback.
-        let _cs_ready = logic.host_apply_command_set_ready_completions();
+        let _cs_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CommandSet);
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
         // Wave 653: drain disguise ready log after GW writeback.
-        let _di_ready = logic.host_apply_disguise_ready_completions();
+        let _di_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Disguise);
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         // Wave 654: drain vision-camo ready log after GW writeback.
-        let _vi_ready = logic.host_apply_vision_camo_ready_completions();
+        let _vi_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::VisionCamo);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         // Wave 651: drain stealth-delay ready log after GW writeback.
-        let _sd_ready = logic.host_apply_stealth_delay_ready_completions();
+        let _sd_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::StealthDelay);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         // Wave 643: drain combat-attack ready log after GW writeback.
-        let _ca_ready = logic.host_apply_combat_attack_ready_completions();
+        let _ca_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatAttack);
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
-        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
+        let _fi_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::FireIntent);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
         // Wave 635: drain weapon-stats ready log after GW writeback.
-        let _ws_ready = logic.host_apply_weapon_stats_ready_completions();
+        let _ws_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::WeaponStats);
         let _ = shadow.writeback_fire_intent_to_host(logic);
         // Wave 640: drain fire-intent ready log after GW writeback.
-        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
+        let _fi_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::FireIntent);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         // Wave 637: drain movement ready log after GW writeback.
-        let _mv_ready = logic.host_apply_movement_ready_completions();
+        let _mv_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Movement);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _ = shadow.writeback_physics_motive_to_host(logic);
         // Wave 649: drain physics-motive ready log after GW writeback.
-        let _pm_ready = logic.host_apply_physics_motive_ready_completions();
+        let _pm_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::PhysicsMotive);
         let _ = shadow.writeback_locomotor_to_host(logic);
         // Wave 646: drain locomotor ready log after GW writeback.
-        let _loco_ready = logic.host_apply_locomotor_ready_completions();
+        let _loco_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Locomotor);
         let _ = shadow.writeback_ai_request_to_host(logic);
         // Wave 648: drain AI-request ready log after GW writeback.
-        let _air_ready = logic.host_apply_ai_request_ready_completions();
+        let _air_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
         let _ = shadow.writeback_hijacker_to_host(logic);
         // Wave 647: drain hijacker ready log after GW writeback.
-        let _hj_ready = logic.host_apply_hijacker_ready_completions();
+        let _hj_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
         let _ = shadow.writeback_bounce_land_to_host(logic);
         // Wave 650: drain bounce-land ready log after GW writeback.
-        let _bl_ready = logic.host_apply_bounce_land_ready_completions();
+        let _bl_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::BounceLand);
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
         // Wave 655: drain selection-radius ready log after GW writeback.
-        let _w655_ready = logic.host_apply_selection_radius_ready_completions();
+        let _w655_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::SelectionRadius);
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
         // Wave 633: drain model-condition ready log after GW writeback.
-        let _mc_ready = logic.host_apply_model_condition_ready_completions();
+        let _mc_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::ModelCondition);
         let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
         // Wave 665: drain demo-mine-cheer ready log after GW writeback.
-        let _w665_ready = logic.host_apply_demo_mine_cheer_ready_completions();
+        let _w665_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::DemoMineCheer);
         let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
         // Wave 664: drain crush-vision ready log after GW writeback.
-        let _w664_ready = logic.host_apply_crush_vision_ready_completions();
+        let _w664_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CrushVision);
         let _bt_wb = shadow.writeback_building_type_to_host(logic);
         // Wave 675: drain building-type ready log after GW writeback.
-        let _w675_ready = logic.host_apply_building_type_ready_completions();
+        let _w675_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::BuildingType);
         let _id_wb = shadow.writeback_identity_to_host(logic);
         // Wave 660: drain identity ready log after GW writeback.
-        let _w660_ready = logic.host_apply_identity_ready_completions();
+        let _w660_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Identity);
         let _gh_wb = shadow.writeback_ground_height_to_host(logic);
         // Wave 656: drain ground-height ready log after GW writeback.
-        let _w656_ready = logic.host_apply_ground_height_ready_completions();
+        let _w656_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::GroundHeight);
 
         let _cst_wb = shadow.writeback_combat_status_to_host(logic);
         // Wave 634: drain combat-status ready log after GW writeback.
-        let _cst_ready = logic.host_apply_combat_status_ready_completions();
+        let _cst_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatStatus);
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
             events.len(),
@@ -19185,13 +19272,16 @@ pub fn shadow_session_after_host_tick(
         }
         econ_wb = shadow.writeback_economy_to_host(logic);
         // Wave 631: drain economy ready log after GW writeback.
-        let _econ_ready = logic.host_apply_economy_ready_completions();
+        let _econ_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Economy);
         let _upg_wb = shadow.writeback_completed_upgrades_to_host(logic);
         // Wave 624: drain upgrade-ready log after GW completed-upgrade writeback.
-        let _upg_ready = logic.host_apply_upgrade_ready_completions();
+        let _upg_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Upgrade);
         let _ss_wb = shadow.writeback_stored_supplies_to_host(logic);
         // Wave 641: drain stored-supplies ready log after GW writeback.
-        let _ss_ready = logic.host_apply_stored_supplies_ready_completions();
+        let _ss_ready =
+            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::StoredSupplies);
     } else {
         // Avoid unbounded growth when economy authority off.
         let _ = crate::game_logic::host_economy_log::drain();

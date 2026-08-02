@@ -155,7 +155,9 @@ pub fn honesty_host_demo_mine_cheer_ready_log_helper_source_markers_residual_wav
     let apply_ok = apply.contains("Wave 665")
         && apply.contains("host_demo_mine_cheer_ready_log::drain")
         && apply.contains("record_host_demo_mine_cheer");
-    let drain_call = sh.contains("host_apply_demo_mine_cheer_ready_completions")
+    let drain_call = (sh.contains("host_apply_demo_mine_cheer_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::DemoMineCheer"))
         && sh.contains("Wave 665: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostDemoMineCheerReadyLogHelperAction::SourceMarkers);

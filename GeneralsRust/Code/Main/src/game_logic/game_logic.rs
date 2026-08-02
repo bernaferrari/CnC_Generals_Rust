@@ -3136,6 +3136,67 @@ pub enum PostWritebackCompleteOp {
     SpecialPowerReadyAfterWriteback,
 }
 
+/// Wave 939: post-writeback ready-log drain authority payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadyLogDrainOp {
+    Contain,
+    Projectiles,
+    AttackTarget,
+    AiState,
+    Movement,
+    FireIntent,
+    MoveTarget,
+    Transform,
+    Locomotor,
+    AiRequest,
+    Hijacker,
+    PhysicsMotive,
+    BounceLand,
+    CombatStatus,
+    BodyDamage,
+    DeathType,
+    RadarExtend,
+    ShockStun,
+    ConstructionCompleteClear,
+    SoleHealing,
+    AiMood,
+    Owner,
+    Veterancy,
+    WeaponBonus,
+    FaerieFire,
+    Repulsor,
+    DisableTimers,
+    WeaponSlot,
+    EntityPower,
+    Turret,
+    StealthDelay,
+    CombatAttack,
+    TargetLocation,
+    Detector,
+    ContinuousFire,
+    Guard,
+    AiAttitude,
+    WeaponSet,
+    Overcharge,
+    Hive,
+    StealthFlags,
+    Overlord,
+    CommandSet,
+    Disguise,
+    VisionCamo,
+    WeaponStats,
+    SelectionRadius,
+    ModelCondition,
+    DemoMineCheer,
+    CrushVision,
+    BuildingType,
+    Identity,
+    GroundHeight,
+    Economy,
+    Upgrade,
+    StoredSupplies,
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27790,6 +27851,73 @@ impl GameLogic {
             PostWritebackCompleteOp::SpecialPowerReadyAfterWriteback => {
                 self.host_apply_special_power_ready_after_writeback();
             }
+        }
+    }
+
+    /// Wave 939: single ready-log drain authority boundary (shadow post-writeback).
+    #[inline]
+    pub fn apply_ready_log_drain_op(&mut self, op: ReadyLogDrainOp) -> usize {
+        match op {
+            ReadyLogDrainOp::Contain => self.host_apply_contain_ready_completions(),
+            ReadyLogDrainOp::Projectiles => self.host_apply_projectiles_ready_completions(),
+            ReadyLogDrainOp::AttackTarget => self.host_apply_attack_target_ready_completions(),
+            ReadyLogDrainOp::AiState => self.host_apply_ai_state_ready_completions(),
+            ReadyLogDrainOp::Movement => self.host_apply_movement_ready_completions(),
+            ReadyLogDrainOp::FireIntent => self.host_apply_fire_intent_ready_completions(),
+            ReadyLogDrainOp::MoveTarget => self.host_apply_move_target_ready_completions(),
+            ReadyLogDrainOp::Transform => self.host_apply_transform_ready_completions(),
+            ReadyLogDrainOp::Locomotor => self.host_apply_locomotor_ready_completions(),
+            ReadyLogDrainOp::AiRequest => self.host_apply_ai_request_ready_completions(),
+            ReadyLogDrainOp::Hijacker => self.host_apply_hijacker_ready_completions(),
+            ReadyLogDrainOp::PhysicsMotive => self.host_apply_physics_motive_ready_completions(),
+            ReadyLogDrainOp::BounceLand => self.host_apply_bounce_land_ready_completions(),
+            ReadyLogDrainOp::CombatStatus => self.host_apply_combat_status_ready_completions(),
+            ReadyLogDrainOp::BodyDamage => self.host_apply_body_damage_ready_completions(),
+            ReadyLogDrainOp::DeathType => self.host_apply_death_type_ready_completions(),
+            ReadyLogDrainOp::RadarExtend => self.host_apply_radar_extend_ready_completions(),
+            ReadyLogDrainOp::ShockStun => self.host_apply_shock_stun_ready_completions(),
+            ReadyLogDrainOp::ConstructionCompleteClear => {
+                self.host_apply_construction_complete_clear_ready_completions()
+            }
+            ReadyLogDrainOp::SoleHealing => self.host_apply_sole_healing_ready_completions(),
+            ReadyLogDrainOp::AiMood => self.host_apply_ai_mood_ready_completions(),
+            ReadyLogDrainOp::Owner => self.host_apply_owner_ready_completions(),
+            ReadyLogDrainOp::Veterancy => self.host_apply_veterancy_ready_completions(),
+            ReadyLogDrainOp::WeaponBonus => self.host_apply_weapon_bonus_ready_completions(),
+            ReadyLogDrainOp::FaerieFire => self.host_apply_faerie_fire_ready_completions(),
+            ReadyLogDrainOp::Repulsor => self.host_apply_repulsor_ready_completions(),
+            ReadyLogDrainOp::DisableTimers => self.host_apply_disable_timers_ready_completions(),
+            ReadyLogDrainOp::WeaponSlot => self.host_apply_weapon_slot_ready_completions(),
+            ReadyLogDrainOp::EntityPower => self.host_apply_entity_power_ready_completions(),
+            ReadyLogDrainOp::Turret => self.host_apply_turret_ready_completions(),
+            ReadyLogDrainOp::StealthDelay => self.host_apply_stealth_delay_ready_completions(),
+            ReadyLogDrainOp::CombatAttack => self.host_apply_combat_attack_ready_completions(),
+            ReadyLogDrainOp::TargetLocation => self.host_apply_target_location_ready_completions(),
+            ReadyLogDrainOp::Detector => self.host_apply_detector_ready_completions(),
+            ReadyLogDrainOp::ContinuousFire => self.host_apply_continuous_fire_ready_completions(),
+            ReadyLogDrainOp::Guard => self.host_apply_guard_ready_completions(),
+            ReadyLogDrainOp::AiAttitude => self.host_apply_ai_attitude_ready_completions(),
+            ReadyLogDrainOp::WeaponSet => self.host_apply_weapon_set_ready_completions(),
+            ReadyLogDrainOp::Overcharge => self.host_apply_overcharge_ready_completions(),
+            ReadyLogDrainOp::Hive => self.host_apply_hive_ready_completions(),
+            ReadyLogDrainOp::StealthFlags => self.host_apply_stealth_flags_ready_completions(),
+            ReadyLogDrainOp::Overlord => self.host_apply_overlord_ready_completions(),
+            ReadyLogDrainOp::CommandSet => self.host_apply_command_set_ready_completions(),
+            ReadyLogDrainOp::Disguise => self.host_apply_disguise_ready_completions(),
+            ReadyLogDrainOp::VisionCamo => self.host_apply_vision_camo_ready_completions(),
+            ReadyLogDrainOp::WeaponStats => self.host_apply_weapon_stats_ready_completions(),
+            ReadyLogDrainOp::SelectionRadius => {
+                self.host_apply_selection_radius_ready_completions()
+            }
+            ReadyLogDrainOp::ModelCondition => self.host_apply_model_condition_ready_completions(),
+            ReadyLogDrainOp::DemoMineCheer => self.host_apply_demo_mine_cheer_ready_completions(),
+            ReadyLogDrainOp::CrushVision => self.host_apply_crush_vision_ready_completions(),
+            ReadyLogDrainOp::BuildingType => self.host_apply_building_type_ready_completions(),
+            ReadyLogDrainOp::Identity => self.host_apply_identity_ready_completions(),
+            ReadyLogDrainOp::GroundHeight => self.host_apply_ground_height_ready_completions(),
+            ReadyLogDrainOp::Economy => self.host_apply_economy_ready_completions(),
+            ReadyLogDrainOp::Upgrade => self.host_apply_upgrade_ready_completions(),
+            ReadyLogDrainOp::StoredSupplies => self.host_apply_stored_supplies_ready_completions(),
         }
     }
 

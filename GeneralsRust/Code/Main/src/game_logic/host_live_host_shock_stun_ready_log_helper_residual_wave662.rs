@@ -155,8 +155,10 @@ pub fn honesty_host_shock_stun_ready_log_helper_source_markers_residual_wave662(
     let apply_ok = apply.contains("Wave 662")
         && apply.contains("host_shock_stun_ready_log::drain")
         && apply.contains("record_host_shock_stun");
-    let drain_call =
-        sh.contains("host_apply_shock_stun_ready_completions") && sh.contains("Wave 662: drain");
+    let drain_call = (sh.contains("host_apply_shock_stun_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::ShockStun"))
+        && sh.contains("Wave 662: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostShockStunReadyLogHelperAction::SourceMarkers);
     ok

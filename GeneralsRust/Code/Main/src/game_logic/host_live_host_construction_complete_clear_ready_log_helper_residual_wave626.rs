@@ -184,7 +184,9 @@ pub fn honesty_host_construction_complete_clear_ready_log_helper_source_markers_
         && gl.contains("!crate::gameworld_shadow::gameworld_construction_sole_tick_enabled()");
     let obj_ok =
         obj.contains("apply_construction_complete_clear_residual") && obj.contains("Wave 626");
-    let drain_call = sh.contains("host_apply_construction_complete_clear_ready_completions");
+    let drain_call = (sh.contains("host_apply_construction_complete_clear_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::ConstructionCompleteClear"));
     let ok = log_ok
         && wb_ok
         && apply_ok

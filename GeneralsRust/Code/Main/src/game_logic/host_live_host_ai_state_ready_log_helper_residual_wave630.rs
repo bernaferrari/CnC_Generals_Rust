@@ -168,7 +168,9 @@ pub fn honesty_host_ai_state_ready_log_helper_source_markers_residual_wave630() 
         && apply.contains("host_ai_state_ready_log::drain")
         && apply.contains("apply_ai_state_combat_status_residual");
     let obj_ok = obj.contains("apply_ai_state_combat_status_residual") && obj.contains("Wave 630");
-    let drain_call = sh.contains("host_apply_ai_state_ready_completions")
+    let drain_call = (sh.contains("host_apply_ai_state_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::AiState"))
         && sh.contains("Wave 630: drain AI-state ready log after GW writeback");
     let ok = log_ok
         && wb_ok

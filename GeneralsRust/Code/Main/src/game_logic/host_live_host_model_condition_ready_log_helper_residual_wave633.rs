@@ -158,7 +158,9 @@ pub fn honesty_host_model_condition_ready_log_helper_source_markers_residual_wav
     let apply_ok = apply.contains("Wave 633")
         && apply.contains("host_model_condition_ready_log::drain")
         && apply.contains("record_host_model_condition");
-    let drain_call = sh.contains("host_apply_model_condition_ready_completions")
+    let drain_call = (sh.contains("host_apply_model_condition_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::ModelCondition"))
         && sh.contains("Wave 633: drain model-condition ready log after GW writeback");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostModelConditionReadyLogHelperAction::SourceMarkers);

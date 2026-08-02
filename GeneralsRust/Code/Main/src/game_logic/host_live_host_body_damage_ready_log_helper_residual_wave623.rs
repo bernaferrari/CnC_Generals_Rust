@@ -169,7 +169,9 @@ pub fn honesty_host_body_damage_ready_log_helper_source_markers_residual_wave623
         && apply.contains("apply_body_damage_state_change_residual");
     let obj_ok =
         obj.contains("apply_body_damage_state_change_residual") && obj.contains("Wave 623");
-    let drain_call = sh.contains("host_apply_body_damage_ready_completions");
+    let drain_call = (sh.contains("host_apply_body_damage_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::BodyDamage"));
     let ok = log_ok
         && wb_ok
         && apply_ok

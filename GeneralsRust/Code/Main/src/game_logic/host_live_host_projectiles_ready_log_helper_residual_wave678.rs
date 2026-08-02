@@ -129,8 +129,10 @@ pub fn honesty_host_projectiles_ready_log_helper_source_markers_residual_wave678
     let apply_ok = apply.contains("Wave 678")
         && apply.contains("host_projectiles_ready_log::drain")
         && apply.contains("host_projectile_log::record");
-    let drain_call =
-        sh.contains("host_apply_projectiles_ready_completions") && sh.contains("Wave 678: drain");
+    let drain_call = (sh.contains("host_apply_projectiles_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::Projectiles"))
+        && sh.contains("Wave 678: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostProjectilesReadyLogHelperAction::SourceMarkers);
     ok

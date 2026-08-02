@@ -155,8 +155,10 @@ pub fn honesty_host_stealth_flags_ready_log_helper_source_markers_residual_wave6
     let apply_ok = apply.contains("Wave 652")
         && apply.contains("host_stealth_flags_ready_log::drain")
         && apply.contains("record_host_stealth_flags");
-    let drain_call =
-        sh.contains("host_apply_stealth_flags_ready_completions") && sh.contains("Wave 652: drain");
+    let drain_call = (sh.contains("host_apply_stealth_flags_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::StealthFlags"))
+        && sh.contains("Wave 652: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostStealthFlagsReadyLogHelperAction::SourceMarkers);
     ok

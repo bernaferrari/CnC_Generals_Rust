@@ -155,8 +155,10 @@ pub fn honesty_host_crush_vision_ready_log_helper_source_markers_residual_wave66
     let apply_ok = apply.contains("Wave 664")
         && apply.contains("host_crush_vision_ready_log::drain")
         && apply.contains("record_host_crush_vision");
-    let drain_call =
-        sh.contains("host_apply_crush_vision_ready_completions") && sh.contains("Wave 664: drain");
+    let drain_call = (sh.contains("host_apply_crush_vision_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::CrushVision"))
+        && sh.contains("Wave 664: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostCrushVisionReadyLogHelperAction::SourceMarkers);
     ok

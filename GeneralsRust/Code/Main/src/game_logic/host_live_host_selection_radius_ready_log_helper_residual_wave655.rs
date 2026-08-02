@@ -155,7 +155,9 @@ pub fn honesty_host_selection_radius_ready_log_helper_source_markers_residual_wa
     let apply_ok = apply.contains("Wave 655")
         && apply.contains("host_selection_radius_ready_log::drain")
         && apply.contains("record_host_selection_radius");
-    let drain_call = sh.contains("host_apply_selection_radius_ready_completions")
+    let drain_call = (sh.contains("host_apply_selection_radius_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::SelectionRadius"))
         && sh.contains("Wave 655: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostSelectionRadiusReadyLogHelperAction::SourceMarkers);

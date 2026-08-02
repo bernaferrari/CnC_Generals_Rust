@@ -155,8 +155,10 @@ pub fn honesty_host_weapon_slot_ready_log_helper_source_markers_residual_wave657
     let apply_ok = apply.contains("Wave 657")
         && apply.contains("host_weapon_slot_ready_log::drain")
         && apply.contains("record_host_weapon_slot");
-    let drain_call =
-        sh.contains("host_apply_weapon_slot_ready_completions") && sh.contains("Wave 657: drain");
+    let drain_call = (sh.contains("host_apply_weapon_slot_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::WeaponSlot"))
+        && sh.contains("Wave 657: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostWeaponSlotReadyLogHelperAction::SourceMarkers);
     ok

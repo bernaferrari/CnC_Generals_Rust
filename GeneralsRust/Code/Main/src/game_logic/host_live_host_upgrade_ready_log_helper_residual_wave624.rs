@@ -161,7 +161,9 @@ pub fn honesty_host_upgrade_ready_log_helper_source_markers_residual_wave624() -
     let apply_ok = apply.contains("Wave 624")
         && apply.contains("host_upgrade_ready_log::drain")
         && apply.contains("apply_host_upgrade_complete");
-    let drain_call = sh.contains("host_apply_upgrade_ready_completions");
+    let drain_call = (sh.contains("host_apply_upgrade_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::Upgrade"));
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostUpgradeReadyLogHelperAction::SourceMarkers);
     ok

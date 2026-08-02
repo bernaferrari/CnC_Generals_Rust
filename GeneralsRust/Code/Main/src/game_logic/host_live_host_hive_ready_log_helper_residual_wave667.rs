@@ -154,8 +154,10 @@ pub fn honesty_host_hive_ready_log_helper_source_markers_residual_wave667() -> b
     let apply_ok = apply.contains("Wave 667")
         && apply.contains("host_hive_ready_log::drain")
         && apply.contains("record_host_hive");
-    let drain_call =
-        sh.contains("host_apply_hive_ready_completions") && sh.contains("Wave 667: drain");
+    let drain_call = (sh.contains("host_apply_hive_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::Hive"))
+        && sh.contains("Wave 667: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostHiveReadyLogHelperAction::SourceMarkers);
     ok

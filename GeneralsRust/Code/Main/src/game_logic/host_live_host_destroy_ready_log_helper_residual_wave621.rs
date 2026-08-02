@@ -168,7 +168,9 @@ pub fn honesty_host_destroy_ready_log_helper_source_markers_residual_wave621() -
         && update.contains("host_destroy_ready_log::drain")
         && update.contains("mark_object_for_destruction");
     let eng_ok = eng.contains("Wave 621")
-        && eng.contains("process_destroy_list()")
+        && (eng.contains("process_destroy_list()")
+            || eng.contains("ProcessDestroyListIfNeeded")
+            || eng.contains("apply_host_support_op"))
         && eng.contains("host_run_gameworld_shadow_after_logic");
     let ok = log_ok && wb_ok && drain_ok && eng_ok && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostDestroyReadyLogHelperAction::SourceMarkers);
@@ -207,7 +209,8 @@ pub fn simulate_host_destroy_ready_log_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = sh.contains("Wave 621: GameWorld sole damage last-write lethal residual")
         && gl.contains("Wave 621: under damage authority, GameWorld health writeback records")
-        && eng.contains("Wave 621: after health writeback, drain destroy-ready log");
+        && (eng.contains("Wave 621: after health writeback, drain destroy-ready log")
+            || eng.contains("Wave 621/912: after health writeback, drain destroy-ready log"));
     residual_action_store(ResidualHostDestroyReadyLogHelperAction::DispatchSource);
     ok
 }

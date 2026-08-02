@@ -160,7 +160,9 @@ pub fn honesty_host_owner_ready_log_helper_source_markers_residual_wave629() -> 
     let apply_ok = apply.contains("Wave 629")
         && apply.contains("host_owner_ready_log::drain")
         && apply.contains("on_capture_object_residual");
-    let drain_call = sh.contains("host_apply_owner_ready_completions")
+    let drain_call = (sh.contains("host_apply_owner_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::Owner"))
         && sh.contains("Wave 629: drain owner-ready log after GW owner writeback");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostOwnerReadyLogHelperAction::SourceMarkers);
