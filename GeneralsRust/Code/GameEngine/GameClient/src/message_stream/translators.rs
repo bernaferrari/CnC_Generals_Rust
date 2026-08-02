@@ -71,8 +71,24 @@ fn selection_any_local_object_can_target<F>(
 where
     F: FnMut(&gamelogic::object::Object, &gamelogic::object::Object) -> bool,
 {
-    // Wave 249: host path — empty dual-world registry cannot answer selection queries.
-    if selection.is_empty() || dual_world_registry_unavailable() {
+    if selection.is_empty() {
+        return false;
+    }
+    // Wave 975: host empty dual-world → presentation catalog residual.
+    // ActionManager dual-world can_do is unavailable; residual answers "local selection
+    // has a unit and target is known" so command-hint / context paths can proceed.
+    // Authoritative command issuance remains Main presentation-command peels.
+    if dual_world_registry_unavailable() {
+        let Some(_target) = translator_catalog_entry(target_id) else {
+            return false;
+        };
+        for &id in selection {
+            if let Some(sel) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&sel) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
@@ -114,6 +130,29 @@ fn selection_can_enter_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
+    // Wave 975: host empty dual-world → presentation catalog residual.
+    if dual_world_registry_unavailable() {
+        let Some(target) = translator_catalog_entry(target_id) else {
+            return false;
+        };
+        // Transport/garrison residual: selectable structure/container kinds.
+        let transportish = translator_entry_has_kind(&target, "Structure")
+            || translator_entry_has_kind(&target, "Transport")
+            || translator_entry_has_kind(&target, "Vehicle")
+            || target.selectable;
+        if !transportish {
+            return false;
+        }
+        for &id in selection {
+            if let Some(sel) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&sel) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
     };
@@ -158,6 +197,32 @@ fn selection_can_repair_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
+    // Wave 975: host empty dual-world → presentation catalog residual.
+    if dual_world_registry_unavailable() {
+        let Some(target) = translator_catalog_entry(target_id) else {
+            return false;
+        };
+        // Dozer repair residual: local selection vs damaged structure/vehicle residual.
+        let repairable = translator_entry_has_kind(&target, "Structure")
+            || translator_entry_has_kind(&target, "Vehicle")
+            || translator_entry_has_kind(&target, "Dozer");
+        if !repairable {
+            return false;
+        }
+        for &id in selection {
+            if let Some(sel) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&sel)
+                    && (translator_entry_has_kind(&sel, "Dozer")
+                        || translator_entry_has_kind(&sel, "Vehicle")
+                        || sel.selectable)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
     };
@@ -304,6 +369,28 @@ fn selection_can_pickup_crate_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> Option<Coord3D> {
+    // Wave 975: host empty dual-world → presentation catalog residual.
+    if dual_world_registry_unavailable() {
+        let Some(target) = translator_catalog_entry(target_id) else {
+            return None;
+        };
+        if !translator_entry_has_kind(&target, "Crate") {
+            return None;
+        }
+        for &id in selection {
+            if let Some(sel) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&sel) {
+                    return Some(Coord3D::new(
+                        target.position[0],
+                        target.position[1],
+                        target.position[2],
+                    ));
+                }
+            }
+        }
+        return None;
+    }
+
     let target = OBJECT_REGISTRY.get_object(target_id)?;
     let target_guard = target.read().ok()?;
     if !target_guard.is_kind_of(KindOf::Crate)
@@ -385,6 +472,26 @@ fn selection_can_resume_construction_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
+    // Wave 975: host empty dual-world → presentation catalog residual.
+    if dual_world_registry_unavailable() {
+        let Some(target) = translator_catalog_entry(target_id) else {
+            return false;
+        };
+        if !(translator_entry_has_kind(&target, "Structure") || target.selectable) {
+            return false;
+        }
+        for &id in selection {
+            if let Some(sel) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&sel)
+                    && (translator_entry_has_kind(&sel, "Dozer") || sel.selectable)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
     };
@@ -1437,6 +1544,35 @@ fn selection_attack_result(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> CanAttackResult {
+    // Wave 975: host empty dual-world → presentation catalog residual.
+    if dual_world_registry_unavailable() {
+        let Some(target) = translator_catalog_entry(target_id) else {
+            return CanAttackResult::NotPossible;
+        };
+        // Enemy/neutral residual → Possible; ally → NotPossible.
+        let local = translator_local_team_name();
+        if local.is_empty() {
+            return CanAttackResult::NotPossible;
+        }
+        if target.team_name == local {
+            return CanAttackResult::NotPossible;
+        }
+        let mut any_local = false;
+        for &id in selection {
+            if let Some(sel) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&sel) {
+                    any_local = true;
+                    break;
+                }
+            }
+        }
+        return if any_local {
+            CanAttackResult::Possible
+        } else {
+            CanAttackResult::NotPossible
+        };
+    }
+
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return CanAttackResult::NotPossible;
     };
