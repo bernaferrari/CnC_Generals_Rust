@@ -162,6 +162,14 @@ pub struct PresentationDrawableSync {
     pub veterancy_level: u8,
     pub under_construction: bool,
     pub construction_percent: f32,
+    /// Wave 972: icon-pip residual (ammo/contain/status).
+    pub ammo_pip_total: u8,
+    pub ammo_pip_full: u8,
+    pub occupant_count: u8,
+    pub max_garrison: u8,
+    pub disabled: bool,
+    pub is_carbomb: bool,
+    pub weapon_bonus_enthusiastic: bool,
 }
 
 /// Wave 269: host-only path has no dual-world factory objects.
@@ -3433,6 +3441,13 @@ impl GameClient {
                 veterancy_level: 0,
                 under_construction: false,
                 construction_percent: 0.0,
+                ammo_pip_total: 0,
+                ammo_pip_full: 0,
+                occupant_count: 0,
+                max_garrison: 0,
+                disabled: false,
+                is_carbomb: false,
+                weapon_bonus_enthusiastic: false,
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -3559,6 +3574,13 @@ impl GameClient {
             e.veterancy_level,
             e.under_construction,
             e.construction_percent,
+            e.ammo_pip_total,
+            e.ammo_pip_full,
+            e.occupant_count,
+            e.max_garrison,
+            e.disabled,
+            e.is_carbomb,
+            e.weapon_bonus_enthusiastic,
         );
     }
 
