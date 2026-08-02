@@ -875,6 +875,9 @@ pub struct PresentationUnitCatalogEntry {
     pub special_power_ready: bool,
     /// Wave 979: airborne residual for host plane-camera lock.
     pub airborne_target: bool,
+    /// Wave 981: FOW residual for host command-hint shroud projection.
+    /// Maps presentation ObjectVisibility → ObjectShroudStatus discriminant.
+    pub shroud_status: ObjectShroudStatus,
 }
 
 pub struct InGameUI {
@@ -4977,8 +4980,16 @@ impl InGameUI {
     /// Wave 969: attack-hint shroud residual (None when host dual-world empty).
     fn hover_target_shroud_for_command_hint(&self) -> Option<ObjectShroudStatus> {
         let id = self.moused_over_drawable_id;
-        if id == Self::INVALID_DRAWABLE_ID || dual_world_registry_unavailable() {
+        if id == Self::INVALID_DRAWABLE_ID {
             return None;
+        }
+        // Wave 981: host empty dual-world → presentation catalog FOW residual.
+        if dual_world_registry_unavailable() {
+            return self
+                .presentation_unit_catalog
+                .iter()
+                .find(|e| e.object_id == id)
+                .map(|e| e.shroud_status);
         }
         OBJECT_REGISTRY.get_object(id).and_then(|obj| {
             obj.read()

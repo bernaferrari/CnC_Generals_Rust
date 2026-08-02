@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::hint::black_box;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::time::Instant;
 
@@ -57,6 +58,37 @@ use gamelogic::scripting::engine::get_script_engine;
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     gamelogic::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
+/// Wave 981: host presentation drawable TOD residual (no OBJECT_REGISTRY).
+/// Meta stores pending TOD; GameClient presentation shell drains + applies.
+static HOST_PENDING_TOD_RESIDUAL: AtomicU8 = AtomicU8::new(0xFF);
+
+/// Map meta TimeOfDay to residual tag (0xFF = none).
+fn tod_residual_tag(tod: TimeOfDay) -> u8 {
+    match tod {
+        TimeOfDay::Morning => 0,
+        TimeOfDay::Afternoon => 1,
+        TimeOfDay::Evening => 2,
+        TimeOfDay::Night => 3,
+        TimeOfDay::Invalid => 0xFE,
+    }
+}
+
+fn queue_host_drawable_tod_residual(time_of_day: TimeOfDay) {
+    HOST_PENDING_TOD_RESIDUAL.store(tod_residual_tag(time_of_day), Ordering::SeqCst);
+}
+
+/// Drain pending host TOD residual for presentation shell apply.
+pub fn take_host_drawable_tod_residual() -> Option<TimeOfDay> {
+    let tag = HOST_PENDING_TOD_RESIDUAL.swap(0xFF, Ordering::SeqCst);
+    match tag {
+        0 => Some(TimeOfDay::Morning),
+        1 => Some(TimeOfDay::Afternoon),
+        2 => Some(TimeOfDay::Evening),
+        3 => Some(TimeOfDay::Night),
+        _ => None,
+    }
 }
 
 const MOD_CTRL: u32 = 1;
@@ -1646,9 +1678,9 @@ fn map_meta_time_of_day_to_logic_time_of_day(time_of_day: TimeOfDay) -> LogicTim
 fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
     let mapped = map_meta_time_of_day_to_logic_time_of_day(time_of_day);
     let mut applied = 0usize;
-    // Wave 345: empty dual-world → host presentation residual only.
-    // Main presentation shell owns drawable TOD when registry is empty.
+    // Wave 981: empty dual-world → host presentation drawable TOD residual.
     if dual_world_registry_unavailable() {
+        queue_host_drawable_tod_residual(time_of_day);
         let _ = (mapped, applied);
         return;
     }

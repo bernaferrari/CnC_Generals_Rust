@@ -1121,6 +1121,25 @@ impl ControlBar {
         context: &mut ControlBarContext,
         producer_id: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // Wave 981: host empty dual-world keeps presentation residual queue/portrait.
+        if Self::dual_world_registry_unavailable() {
+            if self.portrait_state.production_progress.is_some()
+                || self.portrait_state.production_template.is_some()
+                || !self.build_queue_data.is_empty()
+            {
+                self.displayed_queue_count = self
+                    .displayed_queue_count
+                    .max(self.build_queue_data.len())
+                    .max(if self.portrait_state.production_progress.is_some() {
+                        1
+                    } else {
+                        0
+                    });
+            }
+            let _ = producer_id;
+            return Ok(());
+        }
+
         self.build_queue_data.clear();
         context.construction_queue.clear();
 

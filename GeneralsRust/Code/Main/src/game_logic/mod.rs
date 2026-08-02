@@ -231,6 +231,7 @@ pub mod host_live_host_flashbang_comanche_helix_dual_peel_residual_wave804;
 pub mod host_live_host_float_update_dual_peel_residual_wave783;
 pub mod host_live_host_force_reload_dual_peel_residual_wave763;
 pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
+pub mod host_live_host_fow_tod_residual_wave981;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
 pub mod host_live_host_gamelogic_borrow_boundary_residual_wave935;
@@ -3397,6 +3398,13 @@ pub use host_live_host_weapon_ui_text_residual_wave980::{
     honesty_host_weapon_ui_text_residual_nav_commands_residual_wave980,
     honesty_host_weapon_ui_text_residual_residual_pack_wave980,
     simulate_live_host_weapon_ui_text_residual_honesty,
+};
+
+pub use host_live_host_fow_tod_residual_wave981::{
+    honesty_host_fow_tod_residual_method_names_residual_wave981,
+    honesty_host_fow_tod_residual_nav_commands_residual_wave981,
+    honesty_host_fow_tod_residual_residual_pack_wave981,
+    simulate_live_host_fow_tod_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
