@@ -1582,6 +1582,12 @@ impl InGameUI {
             {
                 return false;
             }
+            // Wave 989: ALLOW_SURRENDER is off in retail ZH (no CAN_SURRENDER/PRISON KindOf).
+            // Prisoner-required SP targeting residual is fail-closed on host empty dual-world.
+            if options.contains(SpecialPowerCommandOption::NEED_TARGET_PRISONER) {
+                let _ = target;
+                return false;
+            }
             let _ = power_id;
             return true;
         }
