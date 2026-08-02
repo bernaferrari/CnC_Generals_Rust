@@ -2807,6 +2807,7 @@ pub enum AttackAimResult {
     Failure,
 }
 
+// Wave 959: internal host_object idiom (legacy get_object/find_object aliases only).
 impl GameLogic {
     fn seed_sample_objectives() -> Vec<ObjectiveDisplay> {
         vec![
@@ -24444,7 +24445,7 @@ impl GameLogic {
         )> = Vec::new();
         for id in crate_ids {
             // Forget destroyed crates.
-            let Some(obj) = self.find_object(id) else {
+            let Some(obj) = self.host_object(id) else {
                 self.host_money_crates.forget(id);
                 continue;
             };
@@ -24666,7 +24667,7 @@ impl GameLogic {
                 let pos = self
                     .find_object(crate_id)
                     .map(|o| o.get_position())
-                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
                 self.queue_audio_event(
                     AudioEventRequest::new("CrateShroud")
@@ -24689,7 +24690,7 @@ impl GameLogic {
                 let pos = self
                     .find_object(crate_id)
                     .map(|o| o.get_position())
-                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
                 self.queue_audio_event(
                     AudioEventRequest::new("CrateHeal")
@@ -24716,7 +24717,7 @@ impl GameLogic {
                 let pos = self
                     .find_object(crate_id)
                     .map(|o| o.get_position())
-                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
                 self.queue_audio_event(
                     AudioEventRequest::new("CrateFreeUnit")
@@ -24743,7 +24744,7 @@ impl GameLogic {
                 let pos = self
                     .find_object(crate_id)
                     .map(|o| o.get_position())
-                    .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                    .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
                 self.queue_audio_event(
                     AudioEventRequest::new("CratePromote")
@@ -24788,7 +24789,7 @@ impl GameLogic {
             let pos = self
                 .find_object(crate_id)
                 .map(|o| o.get_position())
-                .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
+                .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                 .unwrap_or(Vec3::ZERO);
             // ExecuteAnimation MoneyPickUp residual presentation descriptor.
             let anim =
@@ -26104,7 +26105,7 @@ impl GameLogic {
                     position: [position.x, position.y, position.z],
                 },
             );
-            if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+            if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                 obj.record_model_mesh_from_template();
                 obj.record_kind_of_bits_from_template();
             }
@@ -26189,7 +26190,7 @@ impl GameLogic {
             );
             // Wave 199: GameWorld SetConstruction sole-tick / progress last-writer.
             crate::game_logic::host_construction_progress_log::record(id, 0.0, true, 0.0);
-            if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+            if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                 obj.record_model_mesh_from_template();
                 obj.record_kind_of_bits_from_template();
             }
@@ -27392,7 +27393,7 @@ impl GameLogic {
         object_id: ObjectId,
         power: &crate::command_system::SpecialPowerType,
     ) -> bool {
-        let Some(obj) = self.get_object(object_id) else {
+        let Some(obj) = self.host_object(object_id) else {
             return false;
         };
         if !obj.is_alive() {
@@ -27439,7 +27440,7 @@ impl GameLogic {
         if !self.is_special_power_ready_for(object_id, power) {
             return false;
         }
-        let team = match self.get_object(object_id) {
+        let team = match self.host_object(object_id) {
             Some(o) => o.team,
             None => return false,
         };
@@ -27448,7 +27449,7 @@ impl GameLogic {
                 power,
             )
             .unwrap_or_else(|| {
-                self.get_object(object_id)
+                self.host_object(object_id)
                     .map(|o| o.special_power_cooldown)
                     .unwrap_or(10.0)
             });
@@ -27471,7 +27472,7 @@ impl GameLogic {
                 }
                 obj.refresh_special_power_aggregate_cooldown();
             }
-        } else if let Some(obj) = self.get_object_mut(object_id) {
+        } else if let Some(obj) = self.host_object_mut(object_id) {
             obj.consume_special_power_charge(power);
         }
         true
@@ -28227,7 +28228,7 @@ impl GameLogic {
                 amount,
                 death_type,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&object) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&object) {
                     let _ = obj.take_damage_from_typed_death(
                         amount,
                         None,
@@ -28242,7 +28243,7 @@ impl GameLogic {
                 refresh_model_condition,
                 mark_destroy,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     obj.health.current = 0.0;
                     obj.status.destroyed = true;
                     if let Some(dt) = death_type {
@@ -28261,7 +28262,7 @@ impl GameLogic {
                 weapon,
                 overwrite,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     if overwrite || obj.pending_fire_when_damaged_weapon.is_none() {
                         obj.pending_fire_when_damaged_weapon = Some(weapon);
                     }
@@ -28274,7 +28275,7 @@ impl GameLogic {
                 clear,
                 mark_destroy_team,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     if let Some(pos) = position {
                         obj.set_position(pos);
                     }
@@ -28383,7 +28384,7 @@ impl GameLogic {
                 }
             }
             HostResidualMutationOp::DestroyBomb { id, mark_destroy } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     obj.health.current = 0.0;
                     obj.status.destroyed = true;
                 }
@@ -28396,7 +28397,7 @@ impl GameLogic {
                 bits,
                 count_update,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     let before = obj.model_condition_bits;
                     obj.model_condition_bits = bits;
                     if count_update && obj.model_condition_bits != before {
@@ -28409,7 +28410,7 @@ impl GameLogic {
                 id,
                 model_condition_bits,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     obj.model_condition_bits = model_condition_bits;
                     obj.power_plant_rods_done_frame = 0;
                     obj.power_plant_rods_extended = true;
@@ -28422,7 +28423,7 @@ impl GameLogic {
                 was_horde,
                 grant,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     let was = obj.weapon_bonus_horde;
                     obj.weapon_bonus_horde = now_horde;
                     obj.record_host_weapon_bonus();
@@ -28474,7 +28475,7 @@ impl GameLogic {
                 slaves_alive,
                 slaves_hp,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     obj.hive_slave_count = hive_slave_count;
                     obj.hive_slave_hp = hive_slave_hp;
                     obj.hive_slave_respawn_frame = hive_slave_respawn_frame;
@@ -28492,7 +28493,7 @@ impl GameLogic {
                 position,
                 sticky_follow_tick,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     obj.set_position(position);
                 }
                 if sticky_follow_tick {
@@ -28505,7 +28506,7 @@ impl GameLogic {
                 target,
                 kind,
             } => {
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     obj.producer_id = Some(producer);
                     let parachuting = matches!(kind, SpawnedPayloadKind::ParadropParachute);
                     match kind {
@@ -28557,7 +28558,7 @@ impl GameLogic {
             }
             HostResidualMutationOp::ApplyRawHpDamage { id, amount } => {
                 // Wave 943: host-only damage fallback (no shadow entity).
-                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     if obj.status.destroyed {
                         // already dead
                     } else {
@@ -28611,7 +28612,7 @@ impl GameLogic {
                 maximum,
                 destroy,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 let max = maximum.max(1.0);
@@ -28626,7 +28627,7 @@ impl GameLogic {
                 true
             }
             HostWritebackOp::Experience { id, points, level } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 if let Some(pts) = points {
@@ -28642,7 +28643,7 @@ impl GameLogic {
                 position,
                 orientation,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.set_position(position);
@@ -28654,7 +28655,7 @@ impl GameLogic {
                 target,
                 clear_target_location,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.target = target;
@@ -28664,14 +28665,14 @@ impl GameLogic {
                 true
             }
             HostWritebackOp::MoveTarget { id, destination } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.movement.target_position = destination;
                 true
             }
             HostWritebackOp::AiState { id, ordinal } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.ai_state =
@@ -28679,7 +28680,7 @@ impl GameLogic {
                 true
             }
             HostWritebackOp::AiAttitude { id, attitude } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.ai_attitude = attitude.clamp(-2, 2);
@@ -28690,7 +28691,7 @@ impl GameLogic {
                 team,
                 team_color,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.team = team;
@@ -28703,7 +28704,7 @@ impl GameLogic {
                 cooldown_remaining,
                 cooldown,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.special_power_ready = ready;
@@ -28712,21 +28713,21 @@ impl GameLogic {
                 true
             }
             HostWritebackOp::Overcharge { id, enabled } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.overcharge_enabled = enabled;
                 true
             }
             HostWritebackOp::WeaponSlot { id, slot } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.active_weapon_slot = slot;
                 true
             }
             HostWritebackOp::SelectionRadius { id, radius } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.selection_radius = radius;
@@ -28737,7 +28738,7 @@ impl GameLogic {
                 provided,
                 consumed,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.power_provided = provided;
@@ -28745,14 +28746,14 @@ impl GameLogic {
                 true
             }
             HostWritebackOp::TargetLocation { id, location } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.target_location = location;
                 true
             }
             HostWritebackOp::CommandSet { id, override_name } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.command_set_override = override_name;
@@ -28763,7 +28764,7 @@ impl GameLogic {
                 height,
                 from_terrain,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.ground_height = height;
@@ -28771,21 +28772,21 @@ impl GameLogic {
                 true
             }
             HostWritebackOp::BodyDamage { id, state } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.body_damage_state = state;
                 true
             }
             HostWritebackOp::DeathType { id, death_type } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.status.death_type = death_type;
                 true
             }
             HostWritebackOp::StoredSupplies { id, supplies } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.stored_resources.supplies = supplies;
@@ -28796,7 +28797,7 @@ impl GameLogic {
                 active,
                 until_frame,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.status.faerie_fire = active;
@@ -28808,7 +28809,7 @@ impl GameLogic {
                 active,
                 until_frame,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.repulsor_until_frame = until_frame;
@@ -28821,7 +28822,7 @@ impl GameLogic {
                 range,
                 rate_frames,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.is_detector = is_detector;
@@ -28835,7 +28836,7 @@ impl GameLogic {
                 target,
                 radius,
             } => {
-                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.guard_position = position;
@@ -28854,7 +28855,7 @@ impl GameLogic {
         id: ObjectId,
         f: impl FnOnce(&mut crate::game_logic::object::Object) -> R,
     ) -> Option<R> {
-        let obj = self.get_objects_mut().get_mut(&id)?;
+        let obj = self.host_objects_mut().get_mut(&id)?;
         Some(f(obj))
     }
 
@@ -60400,7 +60401,7 @@ impl GameLogic {
         let spawned_id = self.create_object(SPY_DRONE_TEMPLATE, team, location);
         let spawn_ok = spawned_id.is_some();
         if let Some(id) = spawned_id {
-            if let Some(obj) = self.get_object_mut(id) {
+            if let Some(obj) = self.host_object_mut(id) {
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
                 Self::write_object_health_authority_aware(obj, SPY_DRONE_MAX_HEALTH);
                 // Innate stealth residual (StealthUpdate InnateStealth=Yes).
@@ -78992,7 +78993,7 @@ mod tests {
             .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         {
-            let o = logic.find_object_mut(planter).unwrap();
+            let o = logic.host_object_mut(planter).unwrap();
             o.applied_upgrades
                 .insert(UPGRADE_GLA_REBEL_BOOBY_TRAP.to_string());
         }
@@ -79015,7 +79016,7 @@ mod tests {
         }
 
         assert!(logic.honesty_booby_trap_special_object_ok());
-        let charge = logic.find_object(cid).unwrap();
+        let charge = logic.host_object(cid).unwrap();
         assert_eq!(charge.template_name, BOOBY_TRAP_OBJECT);
         assert!(charge.booby_trap_special);
         assert_eq!(charge.booby_trap_attached_to, Some(structure));
@@ -79026,7 +79027,7 @@ mod tests {
             s.set_position(Vec3::new(40.0, 0.0, 20.0));
         }
         logic.update_booby_trap_special_attachments();
-        let cpos = logic.find_object(cid).unwrap().get_position();
+        let cpos = logic.host_object(cid).unwrap().get_position();
         assert!((cpos.x - 40.0).abs() < 0.1 && (cpos.z - 20.0).abs() < 0.1);
 
         // Detonate destroys special object.
@@ -79069,7 +79070,7 @@ mod tests {
             )
             .unwrap();
         {
-            let o = logic.find_object_mut(heli).unwrap();
+            let o = logic.host_object_mut(heli).unwrap();
             o.applied_upgrades
                 .insert(UPGRADE_COMANCHE_ROCKET_PODS.to_string());
             o.secondary_weapon =
@@ -79092,10 +79093,10 @@ mod tests {
             .spawn_comanche_rocket_pod_projectile(heli, from, aim, shot)
             .expect("rocket");
         assert!(logic.honesty_comanche_rocket_pod_projectile_ok());
-        let proj = logic.find_object(pid).unwrap();
+        let proj = logic.host_object(pid).unwrap();
         assert_eq!(proj.template_name, COMANCHE_ROCKET_POD_PROJECTILE);
         assert!(proj.comanche_rocket_pod_projectile);
-        let hp_before = logic.find_object(tgt).unwrap().health.current;
+        let hp_before = logic.host_object(tgt).unwrap().health.current;
         let (hits, _) = logic.apply_comanche_rocket_pod_area_at(aim, Some(heli));
         assert!(hits >= 1);
         let hp_after = logic
@@ -79144,12 +79145,12 @@ mod tests {
             )
             .expect("stealth fighter");
         assert!(is_stealth_fighter_template(
-            &logic.find_object(sf).unwrap().template_name
+            &logic.host_object(sf).unwrap().template_name
         ));
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .expect("enemy");
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_stealth_jet_missile_projectile(
@@ -79160,7 +79161,7 @@ mod tests {
             )
             .expect("missile");
         {
-            let m = logic.find_object(pid).expect("missile obj");
+            let m = logic.host_object(pid).expect("missile obj");
             assert_eq!(m.template_name, STEALTH_JET_MISSILE_PROJECTILE);
             assert!(m.stealth_jet_missile_projectile);
             assert!(m.stealth_jet_missile_aim.is_some());
@@ -79218,7 +79219,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(120.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_mig_missile_projectile(
@@ -79229,7 +79230,7 @@ mod tests {
             )
             .expect("missile");
         {
-            let o = logic.find_object(pid).unwrap();
+            let o = logic.host_object(pid).unwrap();
             assert_eq!(o.template_name, MIG_PROJECTILE);
             assert!(o.mig_missile_projectile);
         }
@@ -79292,7 +79293,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(80.0, 0.0, 0.0);
 
@@ -79300,7 +79301,7 @@ mod tests {
             .spawn_flashbang_grenade_projectile(src, from, aim, Some(enemy))
             .expect("grenade");
         let frames = {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, FLASHBANG_GRENADE_PROJECTILE);
             assert!(m.flashbang_grenade_projectile);
             // ScatterRadius residual may offset aim; flight frames follow the scattered aim.
@@ -79365,14 +79366,14 @@ mod tests {
             .create_object("ChinaVehicleHelix", Team::China, Vec3::new(0.0, 50.0, 0.0))
             .unwrap();
         {
-            let h = logic.find_object_mut(helix_id).unwrap();
+            let h = logic.host_object_mut(helix_id).unwrap();
             h.applied_upgrades
                 .insert("Upgrade_HelixNapalmBomb".to_string());
         }
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .unwrap();
-        let enemy_hp = logic.find_object(enemy).unwrap().health.current;
+        let enemy_hp = logic.host_object(enemy).unwrap().health.current;
 
         let zone = logic
             .activate_helix_napalm_bomb(helix_id, Vec3::new(5.0, 0.0, 0.0))
@@ -79386,7 +79387,7 @@ mod tests {
             .map(|(id, _)| *id)
             .expect("bomb");
         {
-            let b = logic.find_object(bomb_id).unwrap();
+            let b = logic.host_object(bomb_id).unwrap();
             assert!(
                 b.template_name == NAPALM_BOMB_PROJECTILE
                     || b.template_name.to_ascii_lowercase().contains("napalm")
@@ -79457,7 +79458,7 @@ mod tests {
             .spawn_weapon_laser_beam_object(AVENGER_LASER_NAME, shooter, Some(target), from, to)
             .expect("AvengerLaserBeam");
         assert!(logic.honesty_weapon_laser_beam_object_ok());
-        let beam = logic.find_object(bid).unwrap();
+        let beam = logic.host_object(bid).unwrap();
         assert_eq!(beam.template_name, AVENGER_LASER_NAME);
         assert!(beam.weapon_laser_beam);
         assert_eq!(beam.producer_id, Some(shooter));
@@ -79540,7 +79541,7 @@ mod tests {
             .find(|o| o.angry_mob_member)
             .unwrap()
             .id;
-        let mpos = logic.find_object(mid).unwrap().get_position();
+        let mpos = logic.host_object(mid).unwrap().get_position();
         assert!((mpos.x - 50.0).abs() < 20.0 && (mpos.z - 20.0).abs() < 20.0);
 
         // Nexus death destroys members.
@@ -79580,7 +79581,7 @@ mod tests {
             .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 40.0, 0.0))
             .unwrap();
         {
-            let o = logic.find_object_mut(air).unwrap();
+            let o = logic.host_object_mut(air).unwrap();
             o.applied_upgrades
                 .insert(UPGRADE_AMERICA_COUNTERMEASURES.to_string());
         }
@@ -79647,7 +79648,7 @@ mod tests {
         let building = logic
             .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(building).unwrap().health.current;
+        let hp_before = logic.host_object(building).unwrap().health.current;
 
         let mid = logic.aurora_bombs.queue(
             HostAuroraBombKind::FuelAir,
@@ -79672,7 +79673,7 @@ mod tests {
         assert!(gas.fuel_air_gas_slow_death.is_some());
         let gid = gas.id;
         // Immediate blast should not have nuked the building before gas SlowDeath FINAL.
-        let hp_mid = logic.find_object(building).unwrap().health.current;
+        let hp_mid = logic.host_object(building).unwrap().health.current;
         assert_eq!(
             hp_mid, hp_before,
             "gas path defers primary blast to SlowDeath"
@@ -79795,7 +79796,7 @@ mod tests {
             )
             .expect("TimedC4");
         {
-            let c = logic.find_object(timed).unwrap();
+            let c = logic.host_object(timed).unwrap();
             assert_eq!(c.template_name, BURTON_TIMED_CHARGE_OBJECT);
             let md = c.mine_data.as_ref().unwrap();
             assert_eq!(md.attached_to, Some(targets[0]));
@@ -79812,7 +79813,7 @@ mod tests {
             )
             .expect("RemoteC4");
         assert_eq!(
-            logic.find_object(remote).unwrap().template_name,
+            logic.host_object(remote).unwrap().template_name,
             BURTON_REMOTE_CHARGE_OBJECT
         );
 
@@ -79836,7 +79837,7 @@ mod tests {
             )
             .expect("TNT");
         {
-            let c = logic.find_object(tnt).unwrap();
+            let c = logic.host_object(tnt).unwrap();
             assert_eq!(c.template_name, TANK_HUNTER_TNT_OBJECT);
             let md = c.mine_data.as_ref().unwrap();
             assert_eq!(
@@ -79888,7 +79889,7 @@ mod tests {
             .find_object(remote)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
-        assert!(logic.find_object(timed).unwrap().is_alive());
+        assert!(logic.host_object(timed).unwrap().is_alive());
         let _ = BURTON_MAX_TIMED_CHARGES;
     }
 
@@ -81917,7 +81918,7 @@ mod tests {
             .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("tech");
         {
-            let t = logic.find_object_mut(tech).unwrap();
+            let t = logic.host_object_mut(tech).unwrap();
             t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
             logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
         }
@@ -81995,7 +81996,7 @@ mod tests {
             .expect("enemy");
         // Ensure enemy has a weapon residual so jam candidates include it.
         {
-            let o = logic.find_object_mut(enemy).unwrap();
+            let o = logic.host_object_mut(enemy).unwrap();
             o.weapon = Some(Weapon {
                 damage: 25.0,
                 range: 150.0,
@@ -82007,7 +82008,7 @@ mod tests {
         // Align to laser pulse cadence.
         logic.frame = ECM_VEHICLE_DISABLER_DELAY_FRAMES;
         logic.update_ecm_jam_field();
-        assert!(logic.find_object(enemy).unwrap().status.weapons_jammed);
+        assert!(logic.host_object(enemy).unwrap().status.weapons_jammed);
         assert!(logic.honesty_ecm_jam_ok());
         assert!(
             logic.honesty_ecm_laser_ok(),
@@ -86951,7 +86952,7 @@ mod tests {
 
         assert!(logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id)));
         advance_battle_plan_door_to_active(&mut logic);
-        assert!(logic.find_object(sc_id).unwrap().weapon.is_some());
+        assert!(logic.host_object(sc_id).unwrap().weapon.is_some());
 
         // Ready weapon.
         if let Some(o) = logic.objects.get_mut(&sc_id) {
@@ -88464,9 +88465,9 @@ mod tests {
             .get_objects()
             .values()
             .any(|o| o.gps_scrambler_marker && o.template_name == GPS_SCRAMBLER_INVISIBLE_MARKER));
-        assert!(logic.find_object(near).unwrap().is_effectively_stealthed());
+        assert!(logic.host_object(near).unwrap().is_effectively_stealthed());
         assert!(
-            !logic.find_object(far).unwrap().is_effectively_stealthed(),
+            !logic.host_object(far).unwrap().is_effectively_stealthed(),
             "far unit outside StartRadius should not be stealthed yet"
         );
         for _ in 0..GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL {
@@ -88474,7 +88475,7 @@ mod tests {
         }
         assert!(logic.gps_scramblers.grow_pulses >= 1);
         assert!(
-            logic.find_object(far).unwrap().is_effectively_stealthed(),
+            logic.host_object(far).unwrap().is_effectively_stealthed(),
             "far unit should receive stealth as radius grows"
         );
         assert!(logic.gps_scramblers.honesty_grow_ok());
@@ -88677,12 +88678,12 @@ mod tests {
         let foe = logic
             .create_object("AmericaTankCrusader", Team::USA, Vec3::new(140.0, 0.0, 0.0))
             .unwrap();
-        assert!(!logic.find_object(foe).unwrap().is_disabled());
+        assert!(!logic.host_object(foe).unwrap().is_disabled());
         assert!(logic.activate_emp_pulse(1, Vec3::new(140.0, 0.0, 0.0), Some(cc_id)));
         assert!(logic.emp_pulse_flight_reg.transports_spawned >= 1);
         // Not yet disabled until bomb impact.
         assert!(
-            !logic.find_object(foe).unwrap().is_disabled()
+            !logic.host_object(foe).unwrap().is_disabled()
                 || logic.emp_pulses().activation_count() == 0
         );
         for f in 0..400 {
@@ -88770,7 +88771,7 @@ mod tests {
         let foe = logic
             .create_object("AmericaTankCrusader", Team::USA, Vec3::new(150.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         let jet = logic
             .spawn_anthrax_bomb_flight(cc_id, Vec3::new(150.0, 0.0, 0.0))
             .expect("cargo");
@@ -88835,10 +88836,10 @@ mod tests {
             .and_then(|m| m.tunnel_start_object)
             .expect("start id");
         assert_eq!(
-            logic.find_object(start_id).unwrap().template_name,
+            logic.host_object(start_id).unwrap().template_name,
             SNEAK_ATTACK_TUNNEL_START_TEMPLATE
         );
-        assert!(logic.find_object(start_id).unwrap().sneak_tunnel_start);
+        assert!(logic.host_object(start_id).unwrap().sneak_tunnel_start);
         // Advance to tunnel spawn; Start is destroyed and tunnel appears.
         for f in 0..=160 {
             logic.frame = f;
@@ -88878,7 +88879,7 @@ mod tests {
         let foe = logic
             .create_object("AmericaTankCrusader", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         let id = logic
             .queue_sneak_attack(
                 &SpecialPowerType::SneakAttack,
@@ -89552,7 +89553,7 @@ mod tests {
                 glam::Vec3::new(100.0, 0.0, 100.0),
             )
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
             // Orient for deterministic natural rally residual.
             o.thing.set_orientation(0.0);
@@ -89639,7 +89640,7 @@ mod tests {
             modifier_keys: ModifierKeys::default(),
         });
         logic.process_commands();
-        let o = logic.get_object(id).expect("alive");
+        let o = logic.host_object(id).expect("alive");
         assert!(
             matches!(
                 o.ai_state,
@@ -89681,7 +89682,7 @@ mod tests {
         let bid = logic
             .create_object("ChinaBarracks", Team::China, glam::Vec3::ZERO)
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
         }
         assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
@@ -89837,7 +89838,7 @@ mod tests {
             .create_object("TestAirfield", Team::USA, glam::Vec3::ZERO)
             .expect("af");
         // Force Airfield building type residual.
-        if let Some(o) = logic.get_object_mut(af) {
+        if let Some(o) = logic.host_object_mut(af) {
             o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Airfield));
         }
         assert_eq!(logic.can_make_unit(af, "TestRaptor"), CANMAKE_OK);
@@ -89851,12 +89852,12 @@ mod tests {
                     glam::Vec3::new(10.0 * (i as f32 + 1.0), 0.0, 0.0),
                 )
                 .expect("jet");
-            if let Some(jet) = logic.get_object_mut(j) {
+            if let Some(jet) = logic.host_object_mut(j) {
                 jet.set_contained_by(Some(af));
                 jet.set_ai_state(AIState::Docked);
                 jet.producer_id = Some(af);
             }
-            if let Some(a) = logic.get_object_mut(af) {
+            if let Some(a) = logic.host_object_mut(af) {
                 if let Some(b) = a.building_data.as_mut() {
                     b.garrisoned_units.push(j);
                 }
@@ -89903,14 +89904,14 @@ mod tests {
             p.resources.supplies = 100_000;
         }
         // Disabled factory residual.
-        if let Some(o) = logic.get_object_mut(barracks) {
+        if let Some(o) = logic.host_object_mut(barracks) {
             o.set_status_disabled_underpowered(true);
         }
         assert_eq!(
             logic.can_make_unit(barracks, "TestInfantry"),
             CANMAKE_FACTORY_IS_DISABLED
         );
-        if let Some(o) = logic.get_object_mut(barracks) {
+        if let Some(o) = logic.host_object_mut(barracks) {
             o.set_status_disabled_underpowered(false);
         }
 
@@ -94491,7 +94492,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
         {
-            let camp_obj = logic.find_object_mut(caster).unwrap();
+            let camp_obj = logic.host_object_mut(caster).unwrap();
             // C++ ContainModule getContainCount residual (contained_units path).
             if let Some(b) = camp_obj.building_data.as_mut() {
                 b.garrisoned_units.push(c1);
@@ -94737,7 +94738,7 @@ mod tests {
             .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("dragon");
         {
-            let o = logic.find_object_mut(caster).unwrap();
+            let o = logic.host_object_mut(caster).unwrap();
             o.apply_upgrade_tag(UPGRADE_CHINA_BLACK_NAPALM);
         }
 
@@ -94768,7 +94769,7 @@ mod tests {
         let victim = logic
             .create_object("AmericaInfantryRanger", Team::USA, seg_pos)
             .expect("victim");
-        let hp_before = logic.find_object(victim).unwrap().health.current;
+        let hp_before = logic.host_object(victim).unwrap().health.current;
         logic.update_firewalls();
         let hp_after = logic
             .find_object(victim)
@@ -94811,9 +94812,9 @@ mod tests {
             .find(|(_, o)| o.firewall_segment)
             .map(|(id, _)| *id)
             .expect("segment object");
-        let before = logic.find_object(seg_id).unwrap().get_position();
+        let before = logic.host_object(seg_id).unwrap().get_position();
         logic.update_firewall_segment_objects();
-        let after = logic.find_object(seg_id).unwrap().get_position();
+        let after = logic.host_object(seg_id).unwrap().get_position();
         assert!(
             (after.x - before.x - FIREWALL_INCH_PER_FRAME).abs() < 0.01,
             "segment should inch forward +X, before={before:?} after={after:?}"
@@ -95302,7 +95303,7 @@ mod tests {
             .expect("spawn molotov");
         assert!(logic.honesty_angry_mob_projectile_ok());
         assert_eq!(
-            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            logic.host_object(mid).map(|o| o.template_name.as_str()),
             Some(ANGRY_MOB_MOLOTOV_PROJECTILE)
         );
 
@@ -98758,7 +98759,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("hijacker");
         {
-            let h = logic.find_object_mut(hijacker).unwrap();
+            let h = logic.host_object_mut(hijacker).unwrap();
             h.template_name = "GLAInfantryHijacker".into();
             h.set_ai_state(AIState::Idle);
         }
@@ -98811,11 +98812,11 @@ mod tests {
             .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("cc");
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.status.under_construction = true;
         }
         logic.notify_structure_construction_complete(id);
-        let o = logic.find_object(id).unwrap();
+        let o = logic.host_object(id).unwrap();
         assert!(
             has_preorder_model_bit(o.model_condition_bits),
             "PREORDER bit {MC_BIT_PREORDER} must be set"
@@ -98826,11 +98827,11 @@ mod tests {
         logic.set_player_did_preorder(Team::USA, false);
         // Force clear path: clear bit then re-notify.
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.model_condition_bits |= 1u128 << MC_BIT_PREORDER;
         }
         logic.notify_structure_construction_complete(id);
-        let o = logic.find_object(id).unwrap();
+        let o = logic.host_object(id).unwrap();
         assert!(!has_preorder_model_bit(o.model_condition_bits));
     }
 
@@ -98890,7 +98891,7 @@ mod tests {
         let transport = logic
             .execute_ocl_special_power("SuperweaponDaisyCutter", id, Vec3::new(300.0, 0.0, 300.0))
             .expect("transport");
-        let t = logic.find_object(transport).expect("t");
+        let t = logic.host_object(transport).expect("t");
         assert!(
             t.template_name.contains("B3") || t.template_name.contains("B52"),
             "MOAB/Daisy transport residual got {}",
@@ -98934,7 +98935,7 @@ mod tests {
         let transport = logic
             .execute_ocl_special_power("SuperweaponLeafletDrop", id, Vec3::new(250.0, 0.0, 250.0))
             .expect("leaflet transport");
-        let t = logic.find_object(transport).unwrap();
+        let t = logic.host_object(transport).unwrap();
         assert!(t.template_name.contains("B52"));
         assert_eq!(
             logic.ocl_special_power_reg.payloads_spawned, before_payload,
@@ -98962,7 +98963,7 @@ mod tests {
         let drone = logic
             .execute_ocl_special_power("SpecialPowerSpyDrone", id, Vec3::new(80.0, 0.0, 80.0))
             .expect("drone");
-        let d = logic.find_object(drone).unwrap();
+        let d = logic.host_object(drone).unwrap();
         assert!(d.template_name.contains("SpyDrone"));
         assert!(logic.ocl_special_power_reg.create_objects_spawned >= 1);
     }
@@ -98985,7 +98986,7 @@ mod tests {
             .is_some());
         assert!(logic.set_smart_bomb_target(id, Vec3::new(100.0, 0.0, 0.0)));
         logic.update_smart_bomb_target_homing();
-        let p = logic.find_object(id).unwrap().get_position();
+        let p = logic.host_object(id).unwrap().get_position();
         assert!(p.x > 0.5 && p.x < 2.0, "1% course fudge got x={}", p.x);
         assert!((p.y - 80.0).abs() < 0.1, "altitude preserved");
         assert!(logic.smart_bomb_target_homing_reg.steers >= 1);
@@ -99028,12 +99029,12 @@ mod tests {
         let ship = logic
             .initiate_spectre_gunship_deployment(cc, target)
             .expect("gunship spawn");
-        let g = logic.find_object(ship).expect("ship obj");
+        let g = logic.host_object(ship).expect("ship obj");
         assert!(g.template_name.contains("Spectre") || g.template_name == SPECTRE_GUNSHIP_TEMPLATE);
         assert!((g.get_position().y - SPECTRE_PREFERRED_ELEVATION).abs() < 0.1);
         assert_eq!(g.producer_id, Some(cc));
         assert_eq!(
-            logic.find_object(cc).and_then(|o| o
+            logic.host_object(cc).and_then(|o| o
                 .spectre_gunship_deployment
                 .as_ref()
                 .and_then(|d| d.gunship_id)),
@@ -99057,14 +99058,14 @@ mod tests {
             .create_object("AmericaCheckpoint", Team::USA, Vec3::ZERO)
             .expect("gate");
         {
-            let g = logic.find_object_mut(gate).unwrap();
+            let g = logic.host_object_mut(gate).unwrap();
             g.vision_range = 150.0;
             if let Some(cp) = g.checkpoint_update.as_mut() {
                 cp.vision_range = 150.0;
                 cp.scan_delay = 0;
             }
         }
-        assert!(logic.find_object(gate).unwrap().checkpoint_update.is_some());
+        assert!(logic.host_object(gate).unwrap().checkpoint_update.is_some());
 
         let ally = logic
             .create_object("TestInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0))
@@ -99085,7 +99086,7 @@ mod tests {
             .expect("enemy");
         let _ = enemy;
         {
-            let g = logic.find_object_mut(gate).unwrap();
+            let g = logic.host_object_mut(gate).unwrap();
             if let Some(cp) = g.checkpoint_update.as_mut() {
                 cp.scan_delay = 0;
             }
@@ -99118,13 +99119,13 @@ mod tests {
         let id = logic
             .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("storm");
-        assert!(logic.find_object(id).unwrap().radius_decal_update.is_some());
+        assert!(logic.host_object(id).unwrap().radius_decal_update.is_some());
         assert!(logic.radius_decal_update_reg.installed >= 1);
 
         let target = Vec3::new(400.0, 0.0, 200.0);
         assert!(logic.create_delivery_radius_decal(id, target));
         {
-            let o = logic.find_object(id).unwrap();
+            let o = logic.host_object(id).unwrap();
             let rd = o.radius_decal_update.as_ref().unwrap();
             assert!(!rd.delivery_decal.is_empty());
             assert!((rd.delivery_decal.radius - SCUD_STORM_DELIVERY_DECAL_RADIUS).abs() < 0.1);
@@ -99153,7 +99154,7 @@ mod tests {
 
         // Attack ends → killWhenNoLongerAttacking clears decal.
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.status.attacking = false;
             o.ai_state = crate::game_logic::AIState::Idle;
         }
@@ -99182,7 +99183,7 @@ mod tests {
         let id = logic
             .create_object("CivilianVehicleFerry", Team::Neutral, Vec3::ZERO)
             .expect("ferry");
-        assert!(logic.find_object(id).unwrap().float_update.is_some());
+        assert!(logic.host_object(id).unwrap().float_update.is_some());
         logic.set_current_frame(50);
         logic.update_float_update();
         let yaw = logic
@@ -99206,7 +99207,7 @@ mod tests {
             Vec3::new(2.0, 0.0, 0.0),
         );
         assert_eq!(ids.len(), 3);
-        let o = logic.find_object(ids[0]).unwrap();
+        let o = logic.host_object(ids[0]).unwrap();
         assert!(
             o.movement.velocity.length() > 0.5,
             "debris should receive disposition force"
@@ -99234,9 +99235,9 @@ mod tests {
                 Vec3::new(0.0, 5.0, 0.0),
             )
             .unwrap();
-        let v0 = logic.find_object(id).unwrap().movement.velocity;
+        let v0 = logic.host_object(id).unwrap().movement.velocity;
         assert!(logic.apply_ocl_random_force(id));
-        let v1 = logic.find_object(id).unwrap().movement.velocity;
+        let v1 = logic.host_object(id).unwrap().movement.velocity;
         assert!(
             (v1 - v0).length() > 1.0,
             "ApplyRandomForce should impulse velocity"
@@ -99270,7 +99271,7 @@ mod tests {
         let foe = logic
             .create_object("GLATankScorpion", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         for f in 0..=35 {
             logic.frame = f;
             logic.update_fuel_air_gas_slow_death();
@@ -99344,7 +99345,7 @@ mod tests {
             )
             .expect("b3");
         assert_eq!(
-            logic.find_object(jet).unwrap().template_name,
+            logic.host_object(jet).unwrap().template_name,
             "AmericaJetB3"
         );
         assert!(logic.daisy_cutter_flight_reg.moab_transports_spawned >= 1);
@@ -99378,7 +99379,7 @@ mod tests {
         let foe = logic
             .create_object("GLATankScorpion", Team::GLA, Vec3::new(160.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         let jet = logic
             .spawn_daisy_cutter_flight(
                 cc_id,
@@ -99618,7 +99619,7 @@ mod tests {
                 CarpetBombFactionTier::China,
             )
             .expect("china bomber");
-        let name = logic.find_object(transport).unwrap().template_name.clone();
+        let name = logic.host_object(transport).unwrap().template_name.clone();
         assert_eq!(name, "ChinaJetCarpetBomber");
         assert_eq!(
             logic.carpet_bomb_flight_reg.bombs_scheduled,
@@ -99653,7 +99654,7 @@ mod tests {
                 CarpetBombFactionTier::AirForce,
             )
             .expect("airf bomber");
-        let name = logic.find_object(transport).unwrap().template_name.clone();
+        let name = logic.host_object(transport).unwrap().template_name.clone();
         assert_eq!(name, "AirF_AmericaJetB3");
         assert_eq!(
             logic.carpet_bomb_flight_reg.bombs_scheduled,
@@ -99679,7 +99680,7 @@ mod tests {
         let foe = logic
             .create_object("GLATankScorpion", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         let transport = logic
             .spawn_carpet_bomb_flight(
                 cc_id,
@@ -99730,7 +99731,7 @@ mod tests {
         let foe = logic
             .create_object("AmericaTankCrusader", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         assert!(logic.execute_ocl_attack(
             "SUPERWEAPON_ScudStorm",
             storm_id,
@@ -99785,7 +99786,7 @@ mod tests {
         let foe = logic
             .create_object("AmericaTankCrusader", Team::USA, Vec3::new(100.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         assert!(logic.execute_ocl_attack(
             "SUPERWEAPON_ScudStorm",
             storm_id,
@@ -99846,7 +99847,7 @@ mod tests {
         let foe = logic
             .create_object("GLATankScorpion", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .unwrap();
-        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let hp0 = logic.host_object(foe).unwrap().health.current;
         let proj = logic
             .execute_ocl_fire_weapon(
                 "SUPERWEAPON_CruiseMissile",
@@ -99944,7 +99945,7 @@ mod tests {
         for f in 0..600 {
             logic.frame = f;
             logic.update_neutron_missile_flights();
-            if logic.find_object(proj).is_none()
+            if logic.host_object(proj).is_none()
                 || logic
                     .find_object(proj)
                     .map(|o| !o.is_alive())
@@ -100007,7 +100008,7 @@ mod tests {
                 Vec3::new(400.0, 0.0, 400.0),
             )
             .expect("neutron proj");
-        let p = logic.find_object(proj).unwrap();
+        let p = logic.host_object(proj).unwrap();
         assert!(p.template_name.contains("NeutronMissile"));
         assert!(logic.ocl_fire_weapon_attack_reg.projectiles_spawned >= 1);
         assert!(logic.honesty_ocl_fire_weapon_attack_ok());
@@ -100030,7 +100031,7 @@ mod tests {
             Vec3::new(300.0, 0.0, 300.0)
         ));
         assert_eq!(logic.ocl_fire_weapon_attack_reg.last_attack_shots, 9);
-        let o = logic.find_object(id).unwrap();
+        let o = logic.host_object(id).unwrap();
         assert!(o
             .fire_weapon_power
             .as_ref()
@@ -100053,9 +100054,9 @@ mod tests {
         let id = logic
             .create_object("GLAInfantryWorker", Team::GLA, Vec3::ZERO)
             .expect("worker");
-        assert!(logic.find_object(id).unwrap().prone_update.is_some());
+        assert!(logic.host_object(id).unwrap().prone_update.is_some());
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             if let Some(pu) = o.prone_update.as_mut() {
                 pu.damage_to_frames_ratio = PRONE_GLA_DAMAGE_TO_FRAMES_RATIO;
             }
@@ -100090,9 +100091,9 @@ mod tests {
         let id = logic
             .create_object("TestTank", Team::USA, Vec3::ZERO)
             .expect("tank");
-        assert_eq!(logic.find_object(id).unwrap().shroud_range, 0.0);
+        assert_eq!(logic.host_object(id).unwrap().shroud_range, 0.0);
         assert!(logic.apply_active_shroud_upgrade(id, 175.0));
-        assert!((logic.find_object(id).unwrap().shroud_range - 175.0).abs() < 0.01);
+        assert!((logic.host_object(id).unwrap().shroud_range - 175.0).abs() < 0.01);
         assert!(logic.active_shroud_upgrade_reg.applies >= 1);
         assert!(logic.honesty_active_shroud_upgrade_ok());
     }
@@ -100113,17 +100114,17 @@ mod tests {
         let id = logic
             .create_object("GLAVehicleBattleBus", Team::GLA, Vec3::ZERO)
             .expect("bus");
-        assert!(logic.find_object(id).unwrap().animation_steering.is_some());
+        assert!(logic.host_object(id).unwrap().animation_steering.is_some());
         assert!(logic.animation_steering_reg.installed >= 1);
 
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.physics_turning = PhysicsTurningType::TurnNegative;
         }
         logic.set_current_frame(0);
         logic.update_animation_steering();
         assert_eq!(
-            logic.find_object(id).and_then(|o| o
+            logic.host_object(id).and_then(|o| o
                 .animation_steering
                 .as_ref()
                 .and_then(|a| a.active_condition.clone())),
@@ -100131,13 +100132,13 @@ mod tests {
         );
 
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.physics_turning = PhysicsTurningType::TurnNone;
         }
         logic.set_current_frame(u64::from(BATTLE_BUS_MIN_TRANSITION_FRAMES));
         logic.update_animation_steering();
         assert_eq!(
-            logic.find_object(id).and_then(|o| o
+            logic.host_object(id).and_then(|o| o
                 .animation_steering
                 .as_ref()
                 .and_then(|a| a.active_condition.clone())),
@@ -100160,14 +100161,14 @@ mod tests {
             .create_object("ChinaHelix", Team::China, Vec3::ZERO)
             .expect("helix");
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.is_helix_transport = true;
             o.passengers_allowed_to_fire = false;
         }
         let n =
             logic.apply_passengers_fire_upgrade_to_team(Team::China, UPGRADE_HELIX_BATTLE_BUNKER);
         assert!(n >= 1);
-        assert!(logic.find_object(id).unwrap().passengers_allowed_to_fire);
+        assert!(logic.host_object(id).unwrap().passengers_allowed_to_fire);
         assert!(logic.passengers_fire_upgrade_reg.applies >= 1);
         assert!(logic.honesty_passengers_fire_upgrade_ok());
     }
@@ -100188,14 +100189,14 @@ mod tests {
             .create_object("AmericaWallSegment", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("wall");
         {
-            let w = logic.find_object_mut(wall).unwrap();
+            let w = logic.host_object_mut(wall).unwrap();
             if let Some(en) = w.enemy_near.as_mut() {
                 en.vision_range = 200.0;
                 en.scan_delay = 0;
             }
             w.vision_range = 200.0;
         }
-        assert!(logic.find_object(wall).unwrap().enemy_near.is_some());
+        assert!(logic.host_object(wall).unwrap().enemy_near.is_some());
 
         let enemy = logic
             .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -100234,11 +100235,11 @@ mod tests {
         let id = logic
             .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("cc");
-        assert!(logic.find_object(id).unwrap().base_regenerate.is_some());
+        assert!(logic.host_object(id).unwrap().base_regenerate.is_some());
         assert!(logic.base_regenerate_reg.installed >= 1);
 
         {
-            let o = logic.find_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.health.current = 500.0;
             o.status.under_construction = false;
         }
@@ -100246,7 +100247,7 @@ mod tests {
         logic.notify_base_regenerate_damage(id, false);
         // Immediately after damage: still delayed.
         logic.update_base_regenerate();
-        let mid = logic.find_object(id).unwrap().health.current;
+        let mid = logic.host_object(id).unwrap().health.current;
         assert!(
             (mid - 500.0).abs() < 0.01,
             "no heal during delay, got {mid}"
@@ -100256,7 +100257,7 @@ mod tests {
         let wake = BASE_REGEN_DELAY_FRAMES;
         logic.set_current_frame(u64::from(wake));
         logic.update_base_regenerate();
-        let after = logic.find_object(id).unwrap().health.current;
+        let after = logic.host_object(id).unwrap().health.current;
         assert!(after > 500.0, "must heal after delay (after={after})");
         assert!(logic.base_regenerate_reg.heal_ticks >= 1);
         assert!(logic.honesty_base_regenerate_ok());
@@ -100285,14 +100286,14 @@ mod tests {
                 Vec3::new(TREE_SPREAD_TRY_RANGE * 0.5, 0.0, 0.0),
             )
             .expect("b");
-        assert!(logic.find_object(a).unwrap().has_fire_spread());
-        assert!(logic.find_object(b).unwrap().has_fire_spread());
+        assert!(logic.host_object(a).unwrap().has_fire_spread());
+        assert!(logic.host_object(b).unwrap().has_fire_spread());
         assert!(logic.fire_spread_reg.installed >= 2);
 
         assert!(logic.ignite_object_fire_spread(a));
         // Force spread due immediately.
         {
-            let o = logic.find_object_mut(a).unwrap();
+            let o = logic.host_object_mut(a).unwrap();
             if let Some(fs) = o.fire_spread.as_mut() {
                 fs.next_spread_frame = 0;
             }
@@ -100358,13 +100359,13 @@ mod tests {
         let b = logic
             .create_object("AvalancheChunk", Team::Neutral, Vec3::new(20.0, 10.0, 0.0))
             .expect("chunk b");
-        assert!(logic.find_object(a).unwrap().has_tensile_formation());
-        assert!(logic.find_object(b).unwrap().has_tensile_formation());
+        assert!(logic.host_object(a).unwrap().has_tensile_formation());
+        assert!(logic.host_object(b).unwrap().has_tensile_formation());
         assert!(logic.tensile_formation_registry().members_installed >= 2);
 
         // Damage A to BODY_DAMAGED residual → enable formation.
         {
-            let o = logic.find_object_mut(a).unwrap();
+            let o = logic.host_object_mut(a).unwrap();
             o.health.current = 50.0;
         }
         logic.set_current_frame(30);
@@ -100381,7 +100382,7 @@ mod tests {
 
         // Advance life to rubble.
         {
-            let o = logic.find_object_mut(a).unwrap();
+            let o = logic.host_object_mut(a).unwrap();
             if let Some(tf) = o.tensile_formation.as_mut() {
                 tf.enabled = true;
                 tf.life = TENSILE_LIFE_MAX;
@@ -102226,7 +102227,7 @@ mod tests {
             .expect("vic");
         // Arm attacker with a residual weapon for apply_damage path.
         {
-            let o = logic.get_object_mut(attacker).unwrap();
+            let o = logic.host_object_mut(attacker).unwrap();
             o.weapon = Some(crate::game_logic::Weapon {
                 damage: 10.0,
                 range: 200.0,
@@ -102243,9 +102244,9 @@ mod tests {
                 splash_radius: 0.0,
             });
         }
-        assert!(logic.get_object(attacker).unwrap().target.is_none());
-        let weapon = logic.get_object(attacker).and_then(|o| o.weapon.clone());
-        let pos = logic.get_object(attacker).unwrap().get_position();
+        assert!(logic.host_object(attacker).unwrap().target.is_none());
+        let weapon = logic.host_object(attacker).and_then(|o| o.weapon.clone());
+        let pos = logic.host_object(attacker).unwrap().get_position();
         let _ =
             logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0);
         // Decision channel logged; host target still empty until shadow writeback.
@@ -102254,13 +102255,13 @@ mod tests {
             !events.is_empty(),
             "residual auto-fire must emit AI decision events under AI_DECISION_AUTHORITY"
         );
-        assert!(logic.get_object(attacker).unwrap().target.is_none());
+        assert!(logic.host_object(attacker).unwrap().target.is_none());
 
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
-        assert_eq!(logic.get_object(attacker).unwrap().target, Some(victim));
+        assert_eq!(logic.host_object(attacker).unwrap().target, Some(victim));
 
         end_shadow_coupled_tick();
         match prev_d {
@@ -104881,7 +104882,7 @@ mod tests {
             )
             .expect("bldg");
         {
-            let o = logic.find_object_mut(mw).unwrap();
+            let o = logic.host_object_mut(mw).unwrap();
             o.status.attacking = true;
             o.target = Some(bldg);
         }
@@ -104946,7 +104947,7 @@ mod tests {
         let _ = mw;
         // Align frame to emitter cadence.
         logic.frame = HOST_MICROWAVE_EMITTER_DELAY_FRAMES;
-        let hp_before = logic.find_object(inf).unwrap().health.current;
+        let hp_before = logic.host_object(inf).unwrap().health.current;
         logic.update_microwave_emitter_field();
         let hp_after = logic
             .find_object(inf)
@@ -106145,7 +106146,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(250.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let aim = Vec3::new(250.0, 0.0, 0.0);
         let from = Vec3::new(0.0, 0.0, 0.0);
@@ -106153,7 +106154,7 @@ mod tests {
             .spawn_scud_launcher_missile_projectile(launcher, from, aim, None, false)
             .expect("scud missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, SCUD_PROJECTILE);
             assert!(m.scud_launcher_missile_projectile);
             assert!(m.scud_launcher_missile_fuel_expires_frame.is_some());
@@ -106215,7 +106216,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_tomahawk_missile_projectile(
@@ -106226,7 +106227,7 @@ mod tests {
             )
             .expect("tomahawk missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, TOMAHAWK_MISSILE_PROJECTILE);
             assert!(m.tomahawk_missile_projectile);
             assert!(m.tomahawk_missile_fuel_expires_frame.is_some());
@@ -106285,12 +106286,12 @@ mod tests {
             .map(|(id, _)| *id)
             .expect("aurora bomb projectile");
         {
-            let b = logic.find_object(pid).unwrap();
+            let b = logic.host_object(pid).unwrap();
             assert_eq!(b.template_name, AURORA_BOMB_PROJECTILE);
             assert!(b.get_position().y > 50.0);
             assert_eq!(b.aurora_bomb_mission_id, Some(mid));
         }
-        let start = logic.find_object(pid).unwrap().get_position();
+        let start = logic.host_object(pid).unwrap().get_position();
         for _ in 0..20 {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_aurora_bomb_projectiles();
@@ -106333,7 +106334,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(120.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_rocket_buggy_missile_projectile(
@@ -106344,7 +106345,7 @@ mod tests {
             )
             .expect("buggy missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, BUGGY_MISSILE_PROJECTILE);
             assert!(m.rocket_buggy_missile_projectile);
         }
@@ -106418,20 +106419,20 @@ mod tests {
             )
             .expect("neutron shell");
         {
-            let s = logic.find_object(pid).unwrap();
+            let s = logic.host_object(pid).unwrap();
             assert_eq!(s.template_name, NEUTRON_CANNON_SHELL_PROJECTILE);
             assert!(s.neutron_cannon_shell_projectile);
             assert!(s.neutron_shell_flight_frames >= 8);
         }
         assert!(logic.honesty_neutron_shell_projectile_ok());
 
-        let start_y = logic.find_object(pid).unwrap().get_position().y;
+        let start_y = logic.host_object(pid).unwrap().get_position().y;
         let mut apex = start_y;
-        let frames = logic.find_object(pid).unwrap().neutron_shell_flight_frames + 2;
+        let frames = logic.host_object(pid).unwrap().neutron_shell_flight_frames + 2;
         for _ in 0..frames {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_neutron_cannon_shell_projectiles();
-            if let Some(s) = logic.find_object(pid) {
+            if let Some(s) = logic.host_object(pid) {
                 apex = apex.max(s.get_position().y);
                 if !s.neutron_cannon_shell_projectile {
                     break;
@@ -106486,7 +106487,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_rpg_trooper_missile_projectile(
@@ -106497,7 +106498,7 @@ mod tests {
             )
             .expect("rpg missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, TUNNEL_DEFENDER_MISSILE);
             assert!(m.rpg_trooper_missile_projectile);
         }
@@ -106556,7 +106557,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_tank_hunter_missile_projectile(
@@ -106567,7 +106568,7 @@ mod tests {
             )
             .expect("tank hunter missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, TANK_HUNTER_PROJECTILE);
             assert!(m.tank_hunter_missile_projectile);
         }
@@ -106628,7 +106629,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_missile_defender_missile_projectile(
@@ -106640,7 +106641,7 @@ mod tests {
             )
             .expect("md missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, MISSILE_DEFENDER_MISSILE);
             assert!(m.missile_defender_missile_projectile);
             assert!(!m.missile_defender_missile_laser_slot);
@@ -106696,7 +106697,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(80.0, 0.0, 0.0);
         let frames = scorpion_shell_flight_frames(from, aim);
@@ -106705,7 +106706,7 @@ mod tests {
             .spawn_scorpion_shell_projectile(src, from, aim, None, 0)
             .expect("shell");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, SCORPION_TANK_SHELL);
             assert!(m.scorpion_shell_projectile);
             assert_eq!(m.scorpion_shell_flight_frames, frames);
@@ -106770,7 +106771,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(200.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(200.0, 0.0, 0.0);
         let frames = nuke_shell_flight_frames(from, aim);
@@ -106779,7 +106780,7 @@ mod tests {
             .spawn_nuke_cannon_shell_projectile(src, from, aim, None)
             .expect("nuke shell");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, NUKE_CANNON_PROJECTILE);
             assert!(m.nuke_cannon_shell_projectile);
             assert_eq!(m.nuke_shell_flight_frames, frames);
@@ -106836,7 +106837,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(80.0, 0.0, 0.0);
         let frames = usa_tank_shell_flight_frames(from, aim, CRUSADER_WEAPON_SPEED);
@@ -106845,7 +106846,7 @@ mod tests {
             .spawn_usa_tank_shell_projectile(src, from, aim, CRUSADER_WEAPON_SPEED, Some(enemy))
             .expect("shell");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, USA_TANK_GUN_PROJECTILE);
             assert!(m.usa_tank_shell_projectile);
             assert_eq!(m.usa_tank_shell_flight_frames, frames);
@@ -106904,7 +106905,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(80.0, 0.0, 0.0);
         let frames = battlemaster_shell_flight_frames(from, aim);
@@ -106913,7 +106914,7 @@ mod tests {
             .spawn_battlemaster_shell_projectile(src, from, aim, Some(enemy))
             .expect("shell");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, BATTLE_MASTER_PROJECTILE);
             assert!(m.battlemaster_shell_projectile);
             assert_eq!(m.battlemaster_shell_flight_frames, frames);
@@ -106968,7 +106969,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(90.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(90.0, 0.0, 0.0);
         let frames = overlord_shell_flight_frames(from, aim);
@@ -106977,7 +106978,7 @@ mod tests {
             .spawn_overlord_shell_projectile(src, from, aim, Some(enemy))
             .expect("shell");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, OVERLORD_PROJECTILE);
             assert!(m.overlord_shell_projectile);
             assert_eq!(m.overlord_shell_flight_frames, frames);
@@ -107100,7 +107101,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(100.0, 0.0, 0.0);
         let frames = inferno_shell_flight_frames(from, aim);
@@ -107109,7 +107110,7 @@ mod tests {
             .spawn_inferno_shell_projectile(src, from, aim, Some(enemy), false)
             .expect("shell");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, INFERNO_CANNON_PROJECTILE);
             assert!(m.inferno_shell_projectile);
             assert_eq!(m.inferno_shell_flight_frames, frames);
@@ -107169,7 +107170,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(80.0, 0.0, 0.0);
         let frames = marauder_shell_flight_frames(from, aim, MARAUDER_SPEED_TIER0);
@@ -107178,7 +107179,7 @@ mod tests {
             .spawn_marauder_shell_projectile(src, from, aim, Some(enemy), MARAUDER_SPEED_TIER0)
             .expect("shell");
         {
-            let s = logic.find_object(pid).unwrap();
+            let s = logic.host_object(pid).unwrap();
             assert_eq!(s.template_name, MARAUDER_TANK_SHELL);
             assert!(s.marauder_shell_projectile);
             assert_eq!(s.marauder_shell_flight_frames, frames);
@@ -107234,7 +107235,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(150.0, 0.0, 0.0);
         let speed = fire_base_scaled_weapon_speed(from, aim);
@@ -107246,7 +107247,7 @@ mod tests {
             .spawn_fire_base_shell_projectile(src, from, aim, Some(enemy))
             .expect("shell");
         {
-            let s = logic.find_object(pid).unwrap();
+            let s = logic.host_object(pid).unwrap();
             assert_eq!(s.template_name, FIRE_BASE_PROJECTILE);
             assert!(s.fire_base_shell_projectile);
             assert_eq!(s.fire_base_shell_flight_frames, frames);
@@ -107301,7 +107302,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(120.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_raptor_missile_projectile(
@@ -107312,7 +107313,7 @@ mod tests {
             )
             .expect("missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, RAPTOR_PROJECTILE);
             assert!(m.raptor_missile_projectile);
         }
@@ -107367,7 +107368,7 @@ mod tests {
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
             .unwrap();
-        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
 
         let pid = logic
             .spawn_scorpion_missile_projectile(
@@ -107379,7 +107380,7 @@ mod tests {
             )
             .expect("missile");
         {
-            let m = logic.find_object(pid).unwrap();
+            let m = logic.host_object(pid).unwrap();
             assert_eq!(m.template_name, SCORPION_MISSILE);
             assert!(m.scorpion_missile_projectile);
         }
@@ -107448,7 +107449,7 @@ mod tests {
             .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("technical");
         {
-            let t = logic.find_object_mut(tech).expect("tech mut");
+            let t = logic.host_object_mut(tech).expect("tech mut");
             t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
             logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
         }
@@ -107474,7 +107475,7 @@ mod tests {
             .expect("spawn shell");
         assert!(logic.honesty_technical_cannon_shell_projectile_ok());
         assert_eq!(
-            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            logic.host_object(mid).map(|o| o.template_name.as_str()),
             Some(TECH_CANNON_SHELL_PROJECTILE)
         );
 
@@ -107558,7 +107559,7 @@ mod tests {
             .expect("technical");
         {
             // Force Tier Two RPG residual.
-            let t = logic.find_object_mut(tech).expect("tech mut");
+            let t = logic.host_object_mut(tech).expect("tech mut");
             t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO");
             logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::Two);
         }
@@ -107577,7 +107578,7 @@ mod tests {
             .expect("spawn rpg");
         assert!(logic.honesty_technical_rpg_missile_projectile_ok());
         assert_eq!(
-            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            logic.host_object(mid).map(|o| o.template_name.as_str()),
             Some(TECHNICAL_RPG_MISSILE)
         );
 
@@ -107857,7 +107858,7 @@ mod tests {
             .expect("spawn stream");
         assert!(logic.honesty_toxin_stream_projectile_ok());
         assert_eq!(
-            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            logic.host_object(mid).map(|o| o.template_name.as_str()),
             Some(TOXIN_STREAM_PROJECTILE)
         );
         let snap = logic.projectile_stream_snapshot();
@@ -108715,7 +108716,7 @@ mod tests {
         // Remove infantry so acquire prefers tank.
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         for f in 100..160u64 {
             logic.set_current_frame(f);
             logic.update_combat(&[hf, tank], LOGIC_FRAME_TIMESTEP);
@@ -114321,7 +114322,7 @@ mod tests {
             .expect("spawn flame");
         assert!(logic.honesty_dragon_flame_projectile_ok());
         assert_eq!(
-            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            logic.host_object(mid).map(|o| o.template_name.as_str()),
             Some(DRAGON_FLAME_PROJECTILE)
         );
         // Stream registry seeded at launch.
@@ -115607,7 +115608,7 @@ mod tests {
             )
             .expect("humvee");
         {
-            let h = logic.find_object_mut(humvee_id).expect("humvee mut");
+            let h = logic.host_object_mut(humvee_id).expect("humvee mut");
             h.apply_upgrade_tag(UPGRADE_AMERICA_TOW);
             // Equip secondary TOW residual.
             if let Some(w) = h.weapon.as_mut() {
@@ -115633,7 +115634,7 @@ mod tests {
             .expect("spawn ground TOW");
         assert!(logic.honesty_humvee_tow_missile_projectile_ok());
         assert_eq!(
-            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            logic.host_object(mid).map(|o| o.template_name.as_str()),
             Some(HUMVEE_MISSILE_PROJECTILE)
         );
 
@@ -119281,7 +119282,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("orig");
-        if let Some(o) = logic.get_object_mut(orig) {
+        if let Some(o) = logic.host_object_mut(orig) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
@@ -119294,13 +119295,13 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("recon");
-        if let Some(o) = logic.get_object_mut(rid) {
+        if let Some(o) = logic.host_object_mut(rid) {
             o.set_status_under_construction(true);
             o.set_status_reconstructing(true);
             o.producer_id = Some(hole);
             o.construction_percent = 0.3;
         }
-        if let Some(h) = logic.get_object_mut(hole) {
+        if let Some(h) = logic.host_object_mut(hole) {
             h.rebuild_reconstructing_id = Some(rid);
             h.set_status_masked(true);
         }
@@ -119311,14 +119312,14 @@ mod tests {
                 glam::Vec3::new(20.0, 0.0, 0.0),
             )
             .expect("atk");
-        if let Some(a) = logic.get_object_mut(aid) {
+        if let Some(a) = logic.host_object_mut(aid) {
             a.set_ai_state(AIState::Attacking);
             a.target = Some(rid);
         }
         assert!(logic.handle_reconstructing_death(rid));
         assert!(logic.rebuild_hole_recon_deaths > 0);
-        assert_eq!(logic.get_object(aid).unwrap().target, Some(hole));
-        let h = logic.get_object(hole).unwrap();
+        assert_eq!(logic.host_object(aid).unwrap().target, Some(hole));
+        let h = logic.host_object(hole).unwrap();
         assert!(h.rebuild_reconstructing_id.is_none());
         assert!(!h.status.masked);
         assert!(h.rebuild_ready_frame > 0);
@@ -119346,7 +119347,7 @@ mod tests {
                     glam::Vec3::new(0.0, 0.0, 0.0),
                 )
                 .expect("s");
-            if let Some(o) = logic.get_object_mut(sid) {
+            if let Some(o) = logic.host_object_mut(sid) {
                 o.set_status_under_construction(false);
                 o.construction_percent = 1.0;
             }
@@ -119355,14 +119356,14 @@ mod tests {
         let bid = logic
             .create_object("TimedC4Charge", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
             .expect("bomb");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             let mut md = HostMineData::new(HostMineKind::TimedDemoCharge);
             md.attached_to = Some(hole);
             o.mine_data = Some(md);
         }
         // Force reconstruct path.
         let now = logic.frame.max(1);
-        if let Some(h) = logic.get_object_mut(hole) {
+        if let Some(h) = logic.host_object_mut(hole) {
             h.rebuild_ready_frame = now;
         }
         logic.frame = now;
@@ -119403,7 +119404,7 @@ mod tests {
         let sid = logic
             .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("b");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
@@ -119414,13 +119415,13 @@ mod tests {
                 glam::Vec3::new(20.0, 0.0, 0.0),
             )
             .expect("a");
-        if let Some(a) = logic.get_object_mut(aid) {
+        if let Some(a) = logic.host_object_mut(aid) {
             a.set_ai_state(AIState::Attacking);
             a.target = Some(sid);
         }
         let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
         assert!(logic.rebuild_hole_attack_transfers > 0);
-        assert_eq!(logic.get_object(aid).unwrap().target, Some(hole));
+        assert_eq!(logic.host_object(aid).unwrap().target, Some(hole));
         // Reconstructing cancel residual: no refund.
         if let Some(p) = logic.get_player_mut(0) {
             p.resources.supplies = 1000;
@@ -119429,14 +119430,14 @@ mod tests {
         let rid = logic
             .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("recon");
-        if let Some(o) = logic.get_object_mut(rid) {
+        if let Some(o) = logic.host_object_mut(rid) {
             o.set_status_under_construction(true);
             o.set_status_reconstructing(true);
             o.construction_percent = 0.2;
         }
         // Simulate cancel refund policy.
         let refund = {
-            let o = logic.get_object(rid).unwrap();
+            let o = logic.host_object(rid).unwrap();
             if o.status.reconstructing {
                 0
             } else {
@@ -119463,12 +119464,12 @@ mod tests {
                 glam::Vec3::new(50.0, 0.0, 50.0),
             )
             .expect("tn");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
-        assert!(logic.get_object(hole).unwrap().is_rebuild_hole);
+        assert!(logic.host_object(hole).unwrap().is_rebuild_hole);
         assert_eq!(
             logic
                 .get_object(hole)
@@ -119479,14 +119480,14 @@ mod tests {
         );
         assert!(logic.rebuild_hole_spawns > 0);
         // Heal residual while waiting.
-        if let Some(h) = logic.get_object_mut(hole) {
+        if let Some(h) = logic.host_object_mut(hole) {
             h.health.current = 100.0;
         }
         logic.update_rebuild_holes();
         assert!(logic.honesty_rebuild_hole_heal_ok());
         // Force ready → worker + reconstructing building; hole stays masked.
         let now = logic.frame.max(1);
-        if let Some(h) = logic.get_object_mut(hole) {
+        if let Some(h) = logic.host_object_mut(hole) {
             h.rebuild_ready_frame = now;
         }
         logic.frame = now;
@@ -119499,16 +119500,16 @@ mod tests {
         assert!(h.status.masked);
         let rid = h.rebuild_reconstructing_id.expect("recon id");
         let wid = h.rebuild_worker_id.expect("worker id");
-        assert!(logic.get_object(wid).unwrap().status.unselectable);
-        assert!(logic.get_object(rid).unwrap().status.under_construction);
-        assert!(logic.get_object(rid).unwrap().status.reconstructing);
+        assert!(logic.host_object(wid).unwrap().status.unselectable);
+        assert!(logic.host_object(rid).unwrap().status.under_construction);
+        assert!(logic.host_object(rid).unwrap().status.reconstructing);
         // Complete construction → hole removed.
-        if let Some(b) = logic.get_object_mut(rid) {
+        if let Some(b) = logic.host_object_mut(rid) {
             b.set_status_under_construction(false);
             b.construction_percent = 1.0;
         }
         logic.update_rebuild_holes();
-        assert!(logic.get_object(hole).is_none());
+        assert!(logic.host_object(hole).is_none());
         assert!(logic.rebuild_hole_completes > 0);
         assert!(logic.honesty_rebuild_hole_ok());
     }
@@ -119529,7 +119530,7 @@ mod tests {
             .create_object("AmericaAirfield", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("af");
         // Hold open starts door cycle.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_production_door_hold_open(true, 0);
             assert!(o.production_door_hold_open);
             assert_eq!(o.production_door_phase, 1);
@@ -119570,7 +119571,7 @@ mod tests {
         let id = logic
             .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("b");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.start_production_door_cycle(0);
             assert_eq!(o.production_door_phase, 1);
             assert!(host_model_condition_has(
@@ -119630,7 +119631,7 @@ mod tests {
                 glam::Vec3::new(10.0, 0.0, 0.0),
             )
             .expect("mine");
-        if let Some(o) = logic.get_object_mut(mid) {
+        if let Some(o) = logic.host_object_mut(mid) {
             o.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
         }
         let did = logic
@@ -119640,14 +119641,14 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("dozer");
-        if let Some(o) = logic.get_object_mut(did) {
+        if let Some(o) = logic.host_object_mut(did) {
             o.set_ai_state(AIState::Idle);
             o.idle_since_frame = 1;
         }
         crate::game_logic::host_ai_decision_log::clear();
         logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         logic.update_dozer_bored_repair();
-        let d = logic.get_object(did).expect("d");
+        let d = logic.host_object(did).expect("d");
         assert!(logic.honesty_dozer_bored_mine_clear_ok());
         // Mine-clear engagement is decision-authority last-write (default on):
         // AttackTarget + SetAIState(Attacking) logged; host target/ai_state not mutated.
@@ -119707,7 +119708,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.health.current = 400.0;
@@ -119719,19 +119720,19 @@ mod tests {
                 glam::Vec3::new(5.0, 0.0, 0.0),
             )
             .expect("dozer");
-        if let Some(o) = logic.get_object_mut(did) {
+        if let Some(o) = logic.host_object_mut(did) {
             o.set_ai_state(AIState::Idle);
             o.idle_since_frame = 1;
         }
         // Before bored time: no assign.
         logic.frame = 50;
         logic.update_dozer_bored_repair();
-        assert_eq!(logic.get_object(did).unwrap().ai_state, AIState::Idle);
+        assert_eq!(logic.host_object(did).unwrap().ai_state, AIState::Idle);
         // After bored time (150f).
         crate::game_logic::host_ai_decision_log::clear();
         logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         logic.update_dozer_bored_repair();
-        let d = logic.get_object(did).expect("d");
+        let d = logic.host_object(did).expect("d");
         // Host residual association still stores the repair target.
         assert_eq!(d.target, Some(sid));
         assert!(logic.honesty_dozer_bored_repair_ok());
@@ -119783,7 +119784,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.health.current = 200.0;
@@ -119805,30 +119806,30 @@ mod tests {
         logic.frame = 10;
         // First dozer claims sole heal.
         let ok1 = {
-            let o = logic.get_object_mut(sid).unwrap();
+            let o = logic.host_object_mut(sid).unwrap();
             o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 10)
         };
         assert!(ok1);
         // Second dozer rejected while claim active.
         let ok2 = {
-            let o = logic.get_object_mut(sid).unwrap();
+            let o = logic.host_object_mut(sid).unwrap();
             o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 10)
         };
         assert!(!ok2);
         // Same dozer can heal again within claim.
         let ok1b = {
-            let o = logic.get_object_mut(sid).unwrap();
+            let o = logic.host_object_mut(sid).unwrap();
             o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 11)
         };
         assert!(ok1b);
         // After expiration (strict now > expiry; claim at 11 → expiry 13 → open at 14).
         let ok2b = {
-            let o = logic.get_object_mut(sid).unwrap();
+            let o = logic.host_object_mut(sid).unwrap();
             o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 14)
         };
         assert!(ok2b);
         assert_eq!(
-            logic.get_object(sid).unwrap().sole_healing_benefactor,
+            logic.host_object(sid).unwrap().sole_healing_benefactor,
             Some(d2)
         );
     }
@@ -119863,7 +119864,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.health.current = 100.0; // damaged
@@ -119875,14 +119876,14 @@ mod tests {
                 glam::Vec3::new(2.0, 0.0, 0.0),
             )
             .expect("dozer");
-        if let Some(o) = logic.get_object_mut(did) {
+        if let Some(o) = logic.host_object_mut(did) {
             o.set_ai_state(AIState::Repairing);
             o.target = Some(sid);
             assert!(o.can_construct(), "dozer must can_construct");
             assert!(o.can_repair(), "dozer must can_repair");
         }
         logic.update_actively_constructing_model_conditions();
-        let d = logic.get_object(did).unwrap();
+        let d = logic.host_object(did).unwrap();
         assert!(
             host_model_condition_has(d.model_condition_bits, actively_constructing_model_bit()),
             "bits={:#x} bit={} can={} state={:?}",
@@ -119892,20 +119893,20 @@ mod tests {
             d.ai_state,
         );
         // Simulate complete residual messaging path.
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.health.current = o.health.maximum;
         }
         // Fire complete residual by calling internal path via heal-to-full frames.
         // Use many update_simulation steps with Repairing in range.
         for _ in 0..5 {
             // Manually apply complete residual similar to AI branch.
-            if let Some(t) = logic.get_object(sid) {
+            if let Some(t) = logic.host_object(sid) {
                 if t.health.current >= t.health.maximum - 0.01 {
                     let pos = t.get_position();
                     let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
                     logic.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                     logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
-                    if let Some(d) = logic.get_object_mut(did) {
+                    if let Some(d) = logic.host_object_mut(did) {
                         d.set_target(None);
                         d.set_ai_state(AIState::Idle);
                         d.set_actively_constructing(false);
@@ -119915,7 +119916,7 @@ mod tests {
             }
         }
         assert!(logic.honesty_repair_complete_ok());
-        let d = logic.get_object(did).expect("d");
+        let d = logic.host_object(did).expect("d");
         assert_eq!(d.ai_state, AIState::Idle);
         assert!(!host_model_condition_has(
             d.model_condition_bits,
@@ -119955,7 +119956,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(true);
             o.construction_percent = 0.35;
             o.set_under_construction_model_conditions(false); // awaiting
@@ -119969,14 +119970,14 @@ mod tests {
             .expect("dozer");
         assert!(logic.resume_construction(&[did], sid));
         assert!(logic.honesty_resume_construction_ok());
-        let d = logic.get_object(did).expect("d");
+        let d = logic.host_object(did).expect("d");
         assert_eq!(d.ai_state, AIState::Constructing);
         assert_eq!(d.target, Some(sid));
         assert!(host_model_condition_has(
             d.model_condition_bits,
             actively_constructing_model_bit()
         ));
-        let s = logic.get_object(sid).expect("s");
+        let s = logic.host_object(sid).expect("s");
         assert!(host_model_condition_has(
             s.model_condition_bits,
             partially_constructed_model_bit()
@@ -119996,7 +119997,7 @@ mod tests {
         assert!(!logic.can_resume_construction_of(did2, sid));
         assert!(!logic.resume_construction(&[did2], sid));
         // Completed structure rejects resume.
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(false);
         }
         assert!(!logic.can_resume_construction_of(did, sid));
@@ -120033,7 +120034,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(true);
             o.construction_percent = 0.4;
         }
@@ -120044,17 +120045,17 @@ mod tests {
                 glam::Vec3::new(5.0, 0.0, 0.0),
             )
             .expect("dozer");
-        if let Some(o) = logic.get_object_mut(did) {
+        if let Some(o) = logic.host_object_mut(did) {
             o.set_ai_state(AIState::Constructing);
             o.target = Some(sid);
             o.set_actively_constructing(true);
         }
         assert!(host_model_condition_has(
-            logic.get_object(did).unwrap().model_condition_bits,
+            logic.host_object(did).unwrap().model_condition_bits,
             actively_constructing_model_bit()
         ));
         logic.cancel_dozers_building(sid);
-        let d = logic.get_object(did).expect("d");
+        let d = logic.host_object(did).expect("d");
         assert_eq!(d.ai_state, AIState::Idle);
         assert!(d.target.is_none());
         assert!(!host_model_condition_has(
@@ -120089,7 +120090,7 @@ mod tests {
             .expect("pp");
         logic.frame = 10;
         logic.notify_structure_construction_complete(id);
-        let o = logic.get_object(id).expect("o");
+        let o = logic.host_object(id).expect("o");
         assert!(host_model_condition_has(
             o.model_condition_bits,
             construction_complete_model_bit()
@@ -120101,21 +120102,21 @@ mod tests {
         // Before duration elapses: bit remains.
         let before = 10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL - 1;
         logic.frame = before;
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             assert!(!o.tick_construction_complete_clear(before));
         }
         assert!(host_model_condition_has(
-            logic.get_object(id).unwrap().model_condition_bits,
+            logic.host_object(id).unwrap().model_condition_bits,
             construction_complete_model_bit()
         ));
         // At deadline: clear.
         let at = 10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL;
         logic.frame = at;
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             assert!(o.tick_construction_complete_clear(at));
         }
         assert!(!host_model_condition_has(
-            logic.get_object(id).unwrap().model_condition_bits,
+            logic.host_object(id).unwrap().model_condition_bits,
             construction_complete_model_bit()
         ));
         assert_eq!(
@@ -120691,7 +120692,7 @@ mod tests {
                 glam::Vec3::new(100.0, 0.0, 0.0),
             )
             .expect("strategy");
-        assert!(logic.get_object(sc).unwrap().is_constructed());
+        assert!(logic.host_object(sc).unwrap().is_constructed());
         assert!(
             logic
                 .create_object_under_construction(
@@ -120750,7 +120751,7 @@ mod tests {
             )
             .expect("puc");
         // Start mid-recharge residual.
-        if let Some(o) = logic.get_object_mut(puc) {
+        if let Some(o) = logic.host_object_mut(puc) {
             o.thing.template.add_kind_of(KindOf::Powered);
             o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 100.0);
@@ -120759,7 +120760,7 @@ mod tests {
             o.set_status_disabled_underpowered(false);
         }
         // Tick while enabled: countdown advances.
-        if let Some(o) = logic.get_object_mut(puc) {
+        if let Some(o) = logic.host_object_mut(puc) {
             let _ = o.tick_timers(10.0);
             let rem = o
                 .special_power_cooldowns
@@ -120769,7 +120770,7 @@ mod tests {
             assert!((rem - 90.0).abs() < 0.01, "advanced to {rem}");
         }
         // Disable (underpowered residual) → freeze.
-        if let Some(o) = logic.get_object_mut(puc) {
+        if let Some(o) = logic.host_object_mut(puc) {
             o.set_status_disabled_underpowered(true);
             let _ = o.tick_timers(50.0);
             let rem = o
@@ -120783,7 +120784,7 @@ mod tests {
             );
         }
         // Re-enable → resume.
-        if let Some(o) = logic.get_object_mut(puc) {
+        if let Some(o) = logic.host_object_mut(puc) {
             o.set_status_disabled_underpowered(false);
             let _ = o.tick_timers(5.0);
             let rem = o
@@ -120821,7 +120822,7 @@ mod tests {
             )
             .expect("puc");
         // Express ready (skip full recharge for fire gate residual).
-        if let Some(o) = logic.get_object_mut(puc) {
+        if let Some(o) = logic.host_object_mut(puc) {
             o.special_power_cooldowns
                 .remove(&SpecialPowerType::ParticleCannon);
             o.special_power_cooldown_remaining = 0.0;
@@ -120837,7 +120838,7 @@ mod tests {
         // No power plants + PUC drain → underpowered after update.
         logic.update();
         {
-            let o = logic.get_object(puc).expect("puc");
+            let o = logic.host_object(puc).expect("puc");
             assert!(
                 o.status.disabled_underpowered,
                 "PUC underpowered without plants"
@@ -120868,14 +120869,14 @@ mod tests {
                 glam::Vec3::new(50.0, 0.0, 0.0),
             )
             .expect("plant");
-        if let Some(o) = logic.get_object_mut(plant_id) {
+        if let Some(o) = logic.host_object_mut(plant_id) {
             o.power_provided = 20; // cover PUC 10 + plant self residual
             o.power_consumed = 0;
         }
         // Clear SW drain residual for margin, or keep and use 20.
         logic.update();
         {
-            let o = logic.get_object(puc).expect("puc");
+            let o = logic.host_object(puc).expect("puc");
             assert!(!o.status.disabled_underpowered, "powered again after plant");
         }
         assert!(logic.is_special_power_ready_for(puc, &SpecialPowerType::ParticleCannon));
@@ -120921,7 +120922,7 @@ mod tests {
         let expected =
             special_power_reload_seconds(&SpecialPowerType::ParticleCannon).expect("puc reload");
         {
-            let o = logic.get_object(puc).expect("puc obj");
+            let o = logic.host_object(puc).expect("puc obj");
             assert!(
                 !o.is_special_power_ready(&SpecialPowerType::ParticleCannon),
                 "PUC must start recharging, not ready-now"
@@ -120946,7 +120947,7 @@ mod tests {
             )
             .expect("scud uc");
         {
-            let o = logic.get_object(scud_uc).expect("scud");
+            let o = logic.host_object(scud_uc).expect("scud");
             // Under construction: not yet recharging (or ready default).
             assert!(
                 o.is_special_power_ready(&SpecialPowerType::ScudStorm)
@@ -120958,14 +120959,14 @@ mod tests {
             );
         }
         // Finish construction residual.
-        if let Some(o) = logic.get_object_mut(scud_uc) {
+        if let Some(o) = logic.host_object_mut(scud_uc) {
             o.construction_percent = 1.0;
             o.set_status_under_construction(false);
         }
         logic.notify_structure_construction_complete(scud_uc);
         let scud_cd = special_power_reload_seconds(&SpecialPowerType::ScudStorm).unwrap();
         {
-            let o = logic.get_object(scud_uc).expect("scud done");
+            let o = logic.host_object(scud_uc).expect("scud done");
             assert!(!o.is_special_power_ready(&SpecialPowerType::ScudStorm));
             let rem = o
                 .special_power_cooldowns
@@ -120984,7 +120985,7 @@ mod tests {
             .expect("nuke");
         let nuke_cd = special_power_reload_seconds(&SpecialPowerType::NuclearMissile).unwrap();
         {
-            let o = logic.get_object(nuke).unwrap();
+            let o = logic.host_object(nuke).unwrap();
             assert!(!o.is_special_power_ready(&SpecialPowerType::NuclearMissile));
             let rem = o
                 .special_power_cooldowns
@@ -121020,7 +121021,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("plant");
-        if let Some(o) = logic.get_object_mut(plant_id) {
+        if let Some(o) = logic.host_object_mut(plant_id) {
             // Explicit plant residual (BuildingType::PowerPlant default is also 10).
             o.power_provided = 10;
             o.power_consumed = 0;
@@ -121048,7 +121049,7 @@ mod tests {
             )
             .expect("puc");
         {
-            let o = logic.get_object(puc).expect("puc obj");
+            let o = logic.host_object(puc).expect("puc obj");
             assert_eq!(o.power_provided, 0, "PUC does not produce");
             assert_eq!(
                 o.power_consumed,
@@ -121060,7 +121061,7 @@ mod tests {
             .create_object(GLA_SCUD_STORM, Team::USA, glam::Vec3::new(100.0, 0.0, 0.0))
             .expect("scud");
         {
-            let o = logic.get_object(scud).expect("scud obj");
+            let o = logic.host_object(scud).expect("scud obj");
             assert_eq!(o.power_provided, 0);
             assert_eq!(o.power_consumed, 0, "Scud Storm unpowered residual");
         }
@@ -121072,7 +121073,7 @@ mod tests {
             )
             .expect("nuke");
         {
-            let o = logic.get_object(nuke).expect("nuke obj");
+            let o = logic.host_object(nuke).expect("nuke obj");
             assert_eq!(o.power_consumed, SUPERWEAPON_ENERGY_DRAIN.abs());
         }
 
@@ -121135,7 +121136,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("first SW");
-        assert!(logic.get_object(first).is_some());
+        assert!(logic.host_object(first).is_some());
         // Second SW of any Superweapon link key blocked.
         assert!(
             logic
@@ -121253,11 +121254,11 @@ mod tests {
                 glam::Vec3::new(50.0, 0.0, 0.0),
             )
             .expect("plant");
-        if let Some(o) = logic.get_object_mut(pid) {
+        if let Some(o) = logic.host_object_mut(pid) {
             o.power_provided = 20;
             o.power_consumed = 0;
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_status_disabled_underpowered(false);
             o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 0.05);
@@ -121266,7 +121267,7 @@ mod tests {
         }
         assert!(!logic.honesty_eva_superweapon_ready_ok());
         // Object tick_timers edge → try_eva_superweapon_ready residual.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             let became = o.tick_timers(0.1);
             assert!(became, "PUC must become ready");
         }
@@ -121312,7 +121313,7 @@ mod tests {
         let id = logic
             .create_object(AMERICA_PARTICLE_CANNON_UPLINK, Team::USA, glam::Vec3::ZERO)
             .expect("puc");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.special_power_cooldowns
                 .insert(SpecialPowerType::ParticleCannon, 123.0);
             o.special_power_cooldown_remaining = 123.0;
@@ -121391,7 +121392,7 @@ mod tests {
             )
             .expect("victim");
         // Attribute kill to USA team residual (scoreTheKill killer team).
-        if let Some(v) = logic.get_object_mut(victim) {
+        if let Some(v) = logic.host_object_mut(victim) {
             v.last_damage_source = Some(killer);
         }
         let skill_before = logic
@@ -121498,7 +121499,7 @@ mod tests {
             .create_object("AmericaAirfield", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("af");
         // Ensure constructed residual for dock.
-        if let Some(o) = logic.get_object_mut(af_id) {
+        if let Some(o) = logic.host_object_mut(af_id) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
@@ -121511,7 +121512,7 @@ mod tests {
             )
             .expect("raptor");
         {
-            let o = logic.get_object_mut(air).unwrap();
+            let o = logic.host_object_mut(air).unwrap();
             o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
             o.set_ai_state(AIState::Docked);
             o.set_contained_by(Some(af_id));
@@ -121569,7 +121570,7 @@ mod tests {
             )
             .expect("raptor");
         {
-            let o = logic.get_object_mut(air).unwrap();
+            let o = logic.host_object_mut(air).unwrap();
             o.set_position(glam::Vec3::new(0.0, 20.0, 0.0));
             o.status.airborne_target = true;
             o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
@@ -121601,7 +121602,7 @@ mod tests {
             ..Weapon::default()
         };
         let air_pos = glam::Vec3::new(0.0, 20.0, 0.0);
-        let hp0 = logic.get_object(air).unwrap().health.current;
+        let hp0 = logic.host_object(air).unwrap().health.current;
         for i in 0..60u32 {
             let pid = logic.combat_system.fire_projectile_ex(
                 glam::Vec3::new(100.0, 20.0, 0.0),
@@ -121706,7 +121707,7 @@ mod tests {
             p.unlock_science(SPY_DRONE_REQUIRED_SCIENCE);
         }
         assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpyDrone));
-        let before = logic.get_objects().len();
+        let before = logic.host_objects().len();
         assert!(logic.activate_spy_drone(
             0,
             Team::USA,
@@ -121715,7 +121716,7 @@ mod tests {
         ));
         assert!(logic.honesty_spy_drone_activate_ok());
         assert!(logic.honesty_spy_drone_spawn_ok());
-        assert!(logic.get_objects().len() > before);
+        assert!(logic.host_objects().len() > before);
         let drone = logic
             .get_objects()
             .values()
@@ -121830,10 +121831,10 @@ mod tests {
         );
         // Tick 240s clears shared residual.
         logic.tick_shared_special_power_timers(240.0);
-        if let Some(o) = logic.get_object_mut(cc1) {
+        if let Some(o) = logic.host_object_mut(cc1) {
             let _ = o.tick_timers(240.0);
         }
-        if let Some(o) = logic.get_object_mut(cc2) {
+        if let Some(o) = logic.host_object_mut(cc2) {
             let _ = o.tick_timers(240.0);
         }
         assert!(logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike));
@@ -121857,7 +121858,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("cc");
-        let o = logic.get_object_mut(id).unwrap();
+        let o = logic.host_object_mut(id).unwrap();
         assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
         assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
         o.consume_special_power_charge(&SpecialPowerType::Airstrike);
@@ -121923,7 +121924,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("cc");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
             o.consume_special_power_charge(&SpecialPowerType::Airstrike);
             assert!(!o.special_power_ready);
@@ -122127,7 +122128,7 @@ mod tests {
                 glam::Vec3::new(50.0, 0.0, 0.0),
             )
             .expect("md");
-        if let Some(o) = logic.get_object_mut(md_id) {
+        if let Some(o) = logic.host_object_mut(md_id) {
             o.weapon = Some(missile_defender_primary_weapon());
             o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
         }
@@ -122173,7 +122174,7 @@ mod tests {
             )
             .unwrap();
         {
-            let o = logic.find_object_mut(shooter).unwrap();
+            let o = logic.host_object_mut(shooter).unwrap();
             o.weapon = Some(missile_defender_primary_weapon());
             o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
         }
@@ -122240,7 +122241,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("md");
-        if let Some(o) = logic.get_object_mut(src) {
+        if let Some(o) = logic.host_object_mut(src) {
             o.weapon = Some(missile_defender_primary_weapon());
             o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
             o.active_weapon_slot = 0;
@@ -122254,7 +122255,7 @@ mod tests {
             .expect("enemy");
 
         assert!(logic.activate_missile_defender_laser_guided(src, tgt));
-        let o = logic.get_object(src).unwrap();
+        let o = logic.host_object(src).unwrap();
         assert_eq!(o.active_weapon_slot, 1);
         assert_eq!(o.target, Some(tgt));
         assert!(logic.missile_defender_residual_laser_specials >= 1);
@@ -122337,7 +122338,7 @@ mod tests {
         assert!(logic
             .activate_helix_napalm_bomb(src, glam::Vec3::new(10.0, 0.0, 0.0))
             .is_none());
-        if let Some(o) = logic.get_object_mut(src) {
+        if let Some(o) = logic.host_object_mut(src) {
             o.apply_upgrade_tag(UPGRADE_HELIX_NUKE_BOMB);
         }
         let _e = logic
@@ -122792,7 +122793,7 @@ mod tests {
             )
             .expect("tank");
         // Damage vehicle so repair has a target.
-        if let Some(o) = logic.get_object_mut(veh) {
+        if let Some(o) = logic.host_object_mut(veh) {
             let _ = o.take_damage(100.0);
         }
         assert!(logic.activate_frenzy(
@@ -123380,13 +123381,13 @@ mod tests {
             )
             .expect("ranger");
         let before = {
-            let o = logic.get_object(id).unwrap();
+            let o = logic.host_object(id).unwrap();
             apply_residual_armor(o, DamageType::Toxin, 100.0)
         };
         let n = logic.apply_chemical_suits_to_team(Team::USA, UPGRADE_AMERICA_CHEMICAL_SUITS);
         assert!(n >= 1);
         let after = {
-            let o = logic.get_object(id).unwrap();
+            let o = logic.host_object(id).unwrap();
             apply_residual_armor(o, DamageType::Toxin, 100.0)
         };
         // Chem suit poison coeff 0.20 vs human default (higher).
@@ -123472,11 +123473,11 @@ mod tests {
         let bid = logic
             .create_object("GLABlackMarket", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("bm");
-        let before = logic.get_object(bid).unwrap().max_health;
+        let before = logic.host_object(bid).unwrap().max_health;
         let n_f =
             logic.apply_fortified_structure_to_team(Team::GLA, UPGRADE_GLA_FORTIFIED_STRUCTURE);
         assert_eq!(n_f, 1);
-        let after = logic.get_object(bid).unwrap().max_health;
+        let after = logic.host_object(bid).unwrap().max_health;
         assert!((after - before - FORTIFIED_STRUCTURE_ADD_MAX_HEALTH).abs() < 0.1);
 
         let mut cc = ThingTemplate::new("AmericaCommandCenter");
@@ -123536,19 +123537,19 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("drone");
-        let before = logic.get_object(did).unwrap().max_health;
+        let before = logic.host_object(did).unwrap().max_health;
         let n_d = logic.apply_drone_armor_to_team(Team::USA, UPGRADE_AMERICA_DRONE_ARMOR);
         assert_eq!(n_d, 1);
-        let after = logic.get_object(did).unwrap().max_health;
+        let after = logic.host_object(did).unwrap().max_health;
         assert!((after - before - drone_armor_add_max_health(SlaveDroneKind::Battle)).abs() < 0.1);
 
         let mid = logic
             .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
             .expect("mig");
-        let mb = logic.get_object(mid).unwrap().max_health;
+        let mb = logic.host_object(mid).unwrap().max_health;
         let n_a = logic.apply_aircraft_armor_to_team(Team::China, UPGRADE_CHINA_AIRCRAFT_ARMOR);
         assert_eq!(n_a, 1);
-        let ma = logic.get_object(mid).unwrap().max_health;
+        let ma = logic.host_object(mid).unwrap().max_health;
         assert!((ma - mb - MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).abs() < 0.1);
     }
 
@@ -123809,7 +123810,7 @@ mod tests {
         let n_u = logic.apply_uranium_shells_to_team(Team::China, UPGRADE_CHINA_URANIUM_SHELLS);
         assert!(n_u >= 1);
         assert!(has_uranium_shells_upgrade(
-            &logic.get_object(bid).unwrap().applied_upgrades
+            &logic.host_object(bid).unwrap().applied_upgrades
         ));
 
         let n_b = logic.apply_black_napalm_to_team(Team::China, "Upgrade_ChinaBlackNapalm");
@@ -123855,14 +123856,14 @@ mod tests {
 
         let n_s = logic.apply_scorpion_rocket_to_team(Team::GLA, UPGRADE_GLA_SCORPION_ROCKET);
         assert_eq!(n_s, 1);
-        let s = logic.get_object(sid).unwrap();
+        let s = logic.host_object(sid).unwrap();
         assert!(has_scorpion_rocket_upgrade(&s.applied_upgrades));
         assert!(s.secondary_weapon.is_some());
 
         let n_r = logic.apply_laser_missiles_to_team(Team::USA, UPGRADE_AMERICA_LASER_MISSILES);
         assert_eq!(n_r, 1);
         assert!(is_raptor_template(
-            &logic.get_object(rid).unwrap().template_name
+            &logic.host_object(rid).unwrap().template_name
         ));
         assert!(logic
             .get_object(rid)
@@ -123926,7 +123927,7 @@ mod tests {
             .apply_subliminal_messaging_to_team(Team::China, UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
         assert_eq!(n, 1);
         assert!(logic.subliminal_messaging_upgrades > 0);
-        let t = logic.get_object(id).unwrap();
+        let t = logic.host_object(id).unwrap();
         assert!(t.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
         assert!(logic
             .players
@@ -123975,12 +123976,12 @@ mod tests {
                 glam::Vec3::new(40.0, 0.0, 0.0),
             )
             .expect("china plant");
-        if let Some(o) = logic.get_object_mut(aid) {
+        if let Some(o) = logic.host_object_mut(aid) {
             o.power_provided = 5;
             o.construction_percent = 1.0;
             o.set_status_under_construction(false);
         }
-        if let Some(o) = logic.get_object_mut(cid) {
+        if let Some(o) = logic.host_object_mut(cid) {
             o.power_provided = 10;
             o.construction_percent = 1.0;
             o.set_status_under_construction(false);
@@ -123990,10 +123991,10 @@ mod tests {
             .apply_advanced_control_rods_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
         assert_eq!(n, 1);
         assert!(logic.control_rods_upgrades > 0);
-        let usa = logic.get_object(aid).unwrap();
+        let usa = logic.host_object(aid).unwrap();
         assert_eq!(usa.power_provided, 5 + AMERICA_POWER_ENERGY_BONUS);
         assert!(usa.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS));
-        let ch = logic.get_object(cid).unwrap();
+        let ch = logic.host_object(cid).unwrap();
         assert_eq!(
             ch.power_provided, 10,
             "China plant must not get America rods"
@@ -124025,35 +124026,35 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("plant");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.power_provided = 10;
             o.construction_percent = 1.0;
             o.set_status_under_construction(false);
         }
         assert!(logic.toggle_overcharge_object(id));
         assert!(logic.overcharge_toggles > 0);
-        let after_on = logic.get_object(id).unwrap();
+        let after_on = logic.host_object(id).unwrap();
         assert!(after_on.overcharge_enabled);
         assert_eq!(after_on.power_provided, 10 + CHINA_POWER_ENERGY_BONUS);
 
         // Drain: 3%/sec * 1000 HP = 30 HP/sec. At 0.2 threshold need 800 damage → ~26.7s.
         // Accelerate by setting HP just above threshold then one tick.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.health.current = 250.0; // 25% — above 20%
         }
         // One second of drain at 3% of 1000 = 30 → 220 HP (22%) still above.
         logic.update_overcharge_drain(1.0);
         assert!(logic.overcharge_drain_ticks > 0);
-        let mid = logic.get_object(id).unwrap();
+        let mid = logic.host_object(id).unwrap();
         assert!(mid.overcharge_enabled);
         assert!(mid.health.current < 250.0);
 
         // Drop below 20% via drain.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.health.current = 210.0; // 21%
         }
         logic.update_overcharge_drain(1.0); // -30 → 180 = 18%
-        let end = logic.get_object(id).unwrap();
+        let end = logic.host_object(id).unwrap();
         assert!(!end.overcharge_enabled, "must auto-disable below threshold");
         assert!(logic.overcharge_exhaustions > 0);
         assert_eq!(end.power_provided, 10);
@@ -124080,14 +124081,14 @@ mod tests {
         let id = logic
             .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("barracks");
-        assert!(!logic.get_object(id).unwrap().is_private_captured());
+        assert!(!logic.host_object(id).unwrap().is_private_captured());
 
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_team(Team::GLA);
         }
         logic.on_capture_object_residual(id, Team::USA, Team::GLA);
 
-        assert!(logic.get_object(id).unwrap().is_private_captured());
+        assert!(logic.host_object(id).unwrap().is_private_captured());
         let captured = logic
             .players
             .get(&1)
@@ -124124,19 +124125,19 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("car");
-        if let Some(c) = logic.get_object_mut(cid) {
+        if let Some(c) = logic.host_object_mut(cid) {
             c.apply_convert_to_car_bomb();
         }
         let sid = logic
             .create_object("GLABarracks", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
             .expect("shack");
-        let before_hp = logic.get_object(sid).unwrap().health.current;
+        let before_hp = logic.host_object(sid).unwrap().health.current;
 
         assert!(logic.maybe_detonate_carbomb_on_unmanned(cid));
         assert!(logic.carbomb_unmanned_detonations > 0);
         // Car destroyed.
         assert!(
-            logic.get_object(cid).is_none()
+            logic.host_object(cid).is_none()
                 || logic
                     .get_object(cid)
                     .map(|o| !o.is_alive() || o.status.destroyed)
@@ -124144,7 +124145,7 @@ mod tests {
         );
         // Nearby structure should take splash residual.
         logic.process_destroy_list();
-        if let Some(s) = logic.get_object(sid) {
+        if let Some(s) = logic.host_object(sid) {
             assert!(
                 s.health.current < before_hp || !s.is_alive(),
                 "car bomb splash must damage nearby structure"
@@ -124181,7 +124182,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("humvee");
-        if let Some(v) = logic.get_object_mut(vid) {
+        if let Some(v) = logic.host_object_mut(vid) {
             v.apply_kill_pilot_unmanned();
             v.set_team(Team::Neutral);
         }
@@ -124192,19 +124193,22 @@ mod tests {
                 glam::Vec3::new(1.0, 0.0, 0.0),
             )
             .expect("ranger");
-        if let Some(i) = logic.get_object_mut(iid) {
+        if let Some(i) = logic.host_object_mut(iid) {
             i.experience.level = VeterancyLevel::Veteran;
         }
 
         assert!(logic.try_infantry_unmanned_reclaim(iid, vid));
         assert!(logic.unmanned_reclaims > 0);
         // destroy_object may defer removal to end-of-frame residual.
-        let infantry_gone = logic.get_object(iid).map(|o| !o.is_alive()).unwrap_or(true);
+        let infantry_gone = logic
+            .host_object(iid)
+            .map(|o| !o.is_alive())
+            .unwrap_or(true);
         assert!(
             infantry_gone,
             "pilot infantry must be destroyed/dead after reclaim"
         );
-        let v = logic.get_object(vid).expect("vehicle survives");
+        let v = logic.host_object(vid).expect("vehicle survives");
         assert!(!v.status.disabled_unmanned);
         assert_eq!(v.team, Team::USA);
         assert_eq!(v.experience.level, VeterancyLevel::Veteran);
@@ -124232,25 +124236,34 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("oil");
-        assert!(!logic.get_object(id).unwrap().has_captured_model_condition());
+        assert!(!logic
+            .host_object(id)
+            .unwrap()
+            .has_captured_model_condition());
 
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_team(Team::USA);
         }
         logic.on_capture_object_residual(id, Team::Neutral, Team::USA);
         assert!(logic.capture_tech_model_updates > 0);
         assert!(
-            logic.get_object(id).unwrap().has_captured_model_condition(),
+            logic
+                .host_object(id)
+                .unwrap()
+                .has_captured_model_condition(),
             "playable owner must set CAPTURED model condition"
         );
 
         // Return to neutral clears.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_team(Team::Neutral);
         }
         logic.on_capture_object_residual(id, Team::USA, Team::Neutral);
         assert!(
-            !logic.get_object(id).unwrap().has_captured_model_condition(),
+            !logic
+                .host_object(id)
+                .unwrap()
+                .has_captured_model_condition(),
             "neutral owner must clear CAPTURED"
         );
     }
@@ -124287,7 +124300,7 @@ mod tests {
         assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
 
         // Flip ownership then onCapture residual.
-        if let Some(o) = logic.get_object_mut(tnl) {
+        if let Some(o) = logic.host_object_mut(tnl) {
             o.set_team(Team::USA);
         }
         logic.on_capture_object_residual(tnl, Team::GLA, Team::USA);
@@ -124295,7 +124308,7 @@ mod tests {
         assert!(logic.capture_tunnel_transfers > 0);
         assert!(logic.capture_tunnel_last_ejects > 0);
         assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
-        let unit = logic.get_object(uid).expect("rebel");
+        let unit = logic.host_object(uid).expect("rebel");
         assert!(unit.contained_by.is_none());
         assert_eq!(unit.ai_state, AIState::Idle);
         // Passenger keeps old team.
@@ -124339,7 +124352,7 @@ mod tests {
             .expect("rebel");
         assert!(logic.tunnel_network.record_enter(Team::GLA, uid, t1));
 
-        if let Some(o) = logic.get_object_mut(t1) {
+        if let Some(o) = logic.host_object_mut(t1) {
             o.set_team(Team::USA);
         }
         logic.on_capture_object_residual(t1, Team::GLA, Team::USA);
@@ -124378,7 +124391,7 @@ mod tests {
             p.selected_objects.push(id);
         }
         // Flip ownership first (C++ order: setTeam then onCapture).
-        if let Some(obj) = logic.get_object_mut(id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.set_team(Team::GLA);
             obj.set_ai_state(AIState::Attacking);
             obj.set_status_attacking(true);
@@ -124386,7 +124399,7 @@ mod tests {
 
         logic.on_capture_object_residual(id, Team::USA, Team::GLA);
 
-        let obj = logic.get_object(id).expect("barracks");
+        let obj = logic.host_object(id).expect("barracks");
         assert_eq!(obj.ai_state, AIState::Idle);
         assert!(!obj.status.attacking);
         assert!(
@@ -124446,16 +124459,16 @@ mod tests {
                 glam::Vec3::new(1.0, 0.0, 0.0),
             )
             .expect("ranger");
-        if let Some(t) = logic.get_object_mut(tid) {
+        if let Some(t) = logic.host_object_mut(tid) {
             assert!(t.add_occupant(rid));
         }
-        if let Some(r) = logic.get_object_mut(rid) {
+        if let Some(r) = logic.host_object_mut(rid) {
             r.set_contained_by(Some(tid));
             r.set_ai_state(AIState::Docked);
         }
         logic.on_capture_kick_passengers(tid, Team::USA, Team::GLA);
         assert!(logic.capture_kick_outs > 0);
-        let r = logic.get_object(rid).expect("ranger");
+        let r = logic.host_object(rid).expect("ranger");
         assert!(r.contained_by.is_none());
         assert_eq!(r.ai_state, AIState::Idle);
         assert_eq!(r.team, Team::USA); // passenger keeps team
@@ -124499,7 +124512,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("tn");
-        if let Some(o) = logic.get_object_mut(tid) {
+        if let Some(o) = logic.host_object_mut(tid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
@@ -124511,7 +124524,7 @@ mod tests {
         assert!(logic.start_sell_object(tid));
         assert!(logic.sell_tunnel_last_ejects > 0);
         assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
-        let u = logic.get_object(uid).expect("ejected");
+        let u = logic.host_object(uid).expect("ejected");
         assert!(u.contained_by.is_none());
         assert_eq!(u.ai_state, AIState::Idle);
     }
@@ -124549,7 +124562,7 @@ mod tests {
         let bid = logic
             .create_object("AmericaBunker", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("bunker");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             if let Some(bd) = o.building_data.as_mut() {
@@ -124563,16 +124576,16 @@ mod tests {
                 glam::Vec3::new(1.0, 0.0, 0.0),
             )
             .expect("ranger");
-        if let Some(b) = logic.get_object_mut(bid) {
+        if let Some(b) = logic.host_object_mut(bid) {
             assert!(b.add_occupant(rid));
         }
-        if let Some(r) = logic.get_object_mut(rid) {
+        if let Some(r) = logic.host_object_mut(rid) {
             r.set_contained_by(Some(bid));
             r.set_ai_state(AIState::Garrisoned);
         }
         assert!(logic.start_sell_object(bid));
         assert!(logic.sell_passengers_ejected > 0);
-        let r = logic.get_object(rid).expect("ranger ejected");
+        let r = logic.host_object(rid).expect("ranger ejected");
         assert!(r.contained_by.is_none());
         assert_eq!(r.ai_state, AIState::Idle);
 
@@ -124584,7 +124597,7 @@ mod tests {
                 glam::Vec3::new(100.0, 0.0, 0.0),
             )
             .expect("af");
-        if let Some(o) = logic.get_object_mut(afid) {
+        if let Some(o) = logic.host_object_mut(afid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
@@ -124595,19 +124608,19 @@ mod tests {
                 glam::Vec3::new(100.0, 0.0, 0.0),
             )
             .expect("jet");
-        if let Some(j) = logic.get_object_mut(jid) {
+        if let Some(j) = logic.host_object_mut(jid) {
             j.object_type = ObjectType::Aircraft;
             j.set_contained_by(Some(afid));
             j.set_ai_state(AIState::Docked);
             j.status.airborne_target = false;
         }
-        if let Some(a) = logic.get_object_mut(afid) {
+        if let Some(a) = logic.host_object_mut(afid) {
             let _ = a.add_occupant(jid);
         }
         assert!(logic.start_sell_object(afid));
         logic.process_destroy_list();
         assert!(logic.sell_parked_units_killed > 0);
-        assert!(logic.get_object(jid).is_none());
+        assert!(logic.host_object(jid).is_none());
     }
 
     #[test]
@@ -124634,14 +124647,14 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
         let mid = logic
             .create_object("StandardMine", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
             .expect("mine");
-        if let Some(o) = logic.get_object_mut(mid) {
+        if let Some(o) = logic.host_object_mut(mid) {
             let mut md = HostMineData::new(HostMineKind::LandMine);
             md.producer_id = Some(sid);
             o.mine_data = Some(md);
@@ -124649,7 +124662,7 @@ mod tests {
         }
         assert!(logic.start_sell_object(sid));
         logic.process_destroy_list();
-        assert!(logic.get_object(mid).is_none() || logic.sell_owned_mines_destroyed > 0);
+        assert!(logic.host_object(mid).is_none() || logic.sell_owned_mines_destroyed > 0);
         // Mine should be marked for destroy
         assert!(logic.sell_owned_mines_destroyed > 0);
     }
@@ -124674,18 +124687,18 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_status_under_construction(true);
             o.construction_percent = 0.5;
         }
         assert!(!logic.start_sell_object(id));
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.set_status_reconstructing(true);
         }
         assert!(!logic.start_sell_object(id));
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_status_reconstructing(false);
         }
         assert!(logic.start_sell_object(id));
@@ -124720,7 +124733,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             o.status.selected = true;
@@ -124731,7 +124744,7 @@ mod tests {
         }
         assert!(logic.start_sell_object(id));
         assert!(logic.is_object_being_sold(id));
-        let o = logic.get_object(id).expect("sold start");
+        let o = logic.host_object(id).expect("sold start");
         assert!(o.status.sold);
         assert!(o.status.unselectable);
         assert!(!o.status.selected);
@@ -124758,11 +124771,11 @@ mod tests {
             logic.update_sell_list();
             // C++ processDestroyList residual after BuildAssistant::update.
             logic.process_destroy_list();
-            if logic.get_object(id).is_none() {
+            if logic.host_object(id).is_none() {
                 break;
             }
         }
-        assert!(logic.get_object(id).is_none(), "sold object destroyed");
+        assert!(logic.host_object(id).is_none(), "sold object destroyed");
         assert!(logic.honesty_sell_process_ok());
         // Refund 50% of 800 = 400 with default sell percentage.
         let money = logic
@@ -124807,7 +124820,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("dozer");
-        if let Some(o) = logic.get_object_mut(did) {
+        if let Some(o) = logic.host_object_mut(did) {
             o.set_ai_state(AIState::Constructing);
         }
         let bid = logic
@@ -124817,7 +124830,7 @@ mod tests {
                 glam::Vec3::new(20.0, 0.0, 0.0),
             )
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
             if let Some(bd) = o.building_data.as_mut() {
@@ -124839,32 +124852,32 @@ mod tests {
         }
         logic.update_actively_constructing_model_conditions();
         assert!(logic.honesty_actively_constructing_ok());
-        let d = logic.get_object(did).expect("d");
+        let d = logic.host_object(did).expect("d");
         assert!(host_model_condition_has(
             d.model_condition_bits,
             actively_constructing_model_bit()
         ));
-        let b = logic.get_object(bid).expect("b");
+        let b = logic.host_object(bid).expect("b");
         assert!(
             host_model_condition_has(b.model_condition_bits, actively_constructing_model_bit()),
             "factory with queue should be ACTIVELY_CONSTRUCTING"
         );
         // Clear when idle / empty queue.
-        if let Some(o) = logic.get_object_mut(did) {
+        if let Some(o) = logic.host_object_mut(did) {
             o.set_ai_state(AIState::Idle);
         }
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             if let Some(bd) = o.building_data.as_mut() {
                 bd.production_queue.clear();
             }
         }
         logic.update_actively_constructing_model_conditions();
-        let d = logic.get_object(did).expect("d2");
+        let d = logic.host_object(did).expect("d2");
         assert!(!host_model_condition_has(
             d.model_condition_bits,
             actively_constructing_model_bit()
         ));
-        let b = logic.get_object(bid).expect("b2");
+        let b = logic.host_object(bid).expect("b2");
         assert!(!host_model_condition_has(
             b.model_condition_bits,
             actively_constructing_model_bit()
@@ -124900,15 +124913,15 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_status_under_construction(true);
             o.construction_percent = 0.1;
         }
         // No dozer → awaiting
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_under_construction_model_conditions(false);
         }
-        let o = logic.get_object(sid).expect("o");
+        let o = logic.host_object(sid).expect("o");
         assert!(host_model_condition_has(
             o.model_condition_bits,
             partially_constructed_model_bit()
@@ -124922,10 +124935,10 @@ mod tests {
             actively_being_constructed_model_bit()
         ));
         // With dozer active residual
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.set_under_construction_model_conditions(true);
         }
-        let o = logic.get_object(sid).expect("o2");
+        let o = logic.host_object(sid).expect("o2");
         assert!(host_model_condition_has(
             o.model_condition_bits,
             actively_being_constructed_model_bit()
@@ -124935,11 +124948,11 @@ mod tests {
             awaiting_construction_model_bit()
         ));
         // Complete clears under-construction bits then sets complete.
-        if let Some(o) = logic.get_object_mut(sid) {
+        if let Some(o) = logic.host_object_mut(sid) {
             o.clear_under_construction_model_conditions();
             o.set_construction_complete_condition();
         }
-        let o = logic.get_object(sid).expect("o3");
+        let o = logic.host_object(sid).expect("o3");
         assert!(!host_model_condition_has(
             o.model_condition_bits,
             partially_constructed_model_bit()
@@ -125002,12 +125015,12 @@ mod tests {
 
         // Door cycle residual on producer.
         let frame = logic.frame;
-        if let Some(b) = logic.get_object_mut(bid) {
+        if let Some(b) = logic.host_object_mut(bid) {
             b.start_production_door_cycle(frame);
         }
         logic.production_door_cycles = logic.production_door_cycles.saturating_add(1);
         assert!(logic.honesty_production_door_cycle_ok());
-        let b = logic.get_object(bid).expect("b");
+        let b = logic.host_object(bid).expect("b");
         assert!(host_model_condition_has(
             b.model_condition_bits,
             door_1_opening_model_bit()
@@ -125038,7 +125051,7 @@ mod tests {
             .expect("cc");
         logic.maybe_start_radar_extend(id);
         assert!(logic.honesty_radar_extend_start_ok());
-        let obj = logic.get_object(id).expect("o");
+        let obj = logic.host_object(id).expect("o");
         assert!(host_model_condition_has(
             obj.model_condition_bits,
             radar_extending_model_bit()
@@ -125048,10 +125061,10 @@ mod tests {
         // Advance past extend window.
         logic.frame = RADAR_EXTEND_TIME_FRAMES_RESIDUAL.saturating_add(1);
         let frame = logic.frame;
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             assert!(o.tick_radar_extend(frame));
         }
-        let obj = logic.get_object(id).expect("o2");
+        let obj = logic.host_object(id).expect("o2");
         assert!(obj.radar_extend_complete);
         assert!(host_model_condition_has(
             obj.model_condition_bits,
@@ -125089,7 +125102,7 @@ mod tests {
         logic.notify_structure_construction_complete(sid);
         assert!(logic.honesty_structure_complete_ok());
         let bit = construction_complete_model_bit();
-        let obj = logic.get_object(sid).expect("o");
+        let obj = logic.host_object(sid).expect("o");
         assert!(host_model_condition_has(obj.model_condition_bits, bit));
 
         let mut unit = ThingTemplate::new("AmericaInfantryRanger");
@@ -125530,7 +125543,7 @@ mod tests {
         // Throttle: second event near same pos within 300 frames rejected.
         assert!(!logic.try_under_attack_event(id));
         // Far away position should still fire.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(1000.0, 0.0, 1000.0));
         }
         assert!(logic.try_under_attack_event(id));
@@ -125827,7 +125840,7 @@ mod tests {
         logic.do_sabotage_feedback_fx(id, SaboteurEffectKind::MilitaryFactory);
         assert!(logic.saboteur.honesty_feedback_fx_ok());
         assert!(logic.saboteur.honesty_flash_as_selected_ok());
-        let obj = logic.get_object(id).expect("obj");
+        let obj = logic.host_object(id).expect("obj");
         assert_eq!(obj.selection_flash_remaining, SABOTEUR_FLASH_DECAY_FRAMES);
         assert_eq!(
             SaboteurEffectKind::MilitaryFactory.feedback_audio(),
@@ -132989,7 +133002,7 @@ mod tests {
                 w.last_fire_time = -10.0;
             }
         }
-        let hp_before = logic.find_object(inf).unwrap().health.current;
+        let hp_before = logic.host_object(inf).unwrap().health.current;
         let mut saw_scatter = false;
         for f in 0..120u32 {
             logic.frame = f;
@@ -133088,7 +133101,7 @@ mod tests {
                 w.last_fire_time = -10.0;
             }
         }
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         for f in 80..160u32 {
             logic.frame = f;
             logic.update_combat(&[stinger, tank], LOGIC_FRAME_TIMESTEP);
@@ -133175,7 +133188,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133256,7 +133269,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133331,7 +133344,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133406,7 +133419,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133482,7 +133495,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133555,7 +133568,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133628,7 +133641,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133703,7 +133716,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133778,7 +133791,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -133858,7 +133871,7 @@ mod tests {
             .get(&tank)
             .map(|o| o.get_position())
             .unwrap_or(glam::Vec3::new(40.0, 0.0, 0.0));
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_nuke_cannon_primary_at(impact, Some(nc), Team::China);
         let hp_after = logic
             .find_object(tank)
@@ -133939,7 +133952,7 @@ mod tests {
             .get(&tank)
             .map(|o| o.get_position())
             .unwrap_or(glam::Vec3::new(20.0, 0.0, 0.0));
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_humvee_tow_residual_at(impact, Some(hv), Some(tank), false);
         let hp_after = logic
             .find_object(tank)
@@ -134010,7 +134023,7 @@ mod tests {
             .get(&tank)
             .map(|o| o.get_position())
             .unwrap_or(glam::Vec3::new(40.0, 0.0, 0.0));
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_scud_area_at(impact, Some(sc), Team::GLA, false);
         let hp_after = logic
             .find_object(tank)
@@ -134083,7 +134096,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134158,7 +134171,7 @@ mod tests {
             .get(&tank)
             .map(|o| o.get_position())
             .unwrap_or(glam::Vec3::new(30.0, 0.0, 0.0));
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_inferno_shell_residual_at(impact, Some(ic), Some(tank));
         let hp_after = logic
             .find_object(tank)
@@ -134231,7 +134244,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134306,7 +134319,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134377,7 +134390,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134505,7 +134518,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134575,7 +134588,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134640,7 +134653,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134709,7 +134722,7 @@ mod tests {
             .expect("tank");
         logic.mark_object_for_destruction(inf, None);
         logic.process_destroy_list();
-        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let hp_before = logic.host_object(tank).unwrap().health.current;
         let impact = logic
             .objects
             .get(&tank)
@@ -134784,7 +134797,7 @@ mod skirmish_starting_unit_residual_tests {
         let id = logic
             .create_object("USA_Dozer", Team::USA, glam::Vec3::ZERO)
             .expect("dozer");
-        let o = logic.get_object(id).expect("obj");
+        let o = logic.host_object(id).expect("obj");
         assert!(
             o.is_mobile(),
             "USA_Dozer must be mobile for host select/count"
