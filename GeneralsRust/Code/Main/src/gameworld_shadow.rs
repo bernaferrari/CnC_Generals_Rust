@@ -16901,7 +16901,10 @@ pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
         }
     }
     for id in destroy_ids {
-        logic.mark_object_for_destruction(id, None);
+        logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+            id: id,
+            team: None,
+        });
     }
 
     // --- Heal / absolute HP ---
@@ -18012,7 +18015,10 @@ pub fn shadow_session_after_host_tick(
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
         // Wave 768: LifetimeUpdate expire → host mark-for-destruction (no dual timer).
         for id in crate::game_logic::host_lifetime_expire_log::drain() {
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 769: PoisonedBehavior DoT → host UNRESISTABLE apply (no dual timer).
         for ev in crate::game_logic::host_poison_dot_log::drain() {
@@ -18032,7 +18038,10 @@ pub fn shadow_session_after_host_tick(
                 obj.status.destroyed = true;
                 obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 771: HeightDieUpdate kill → host destroy (no dual timer).
         for id in crate::game_logic::host_height_die_kill_log::drain() {
@@ -18041,7 +18050,10 @@ pub fn shadow_session_after_host_tick(
                 obj.status.destroyed = true;
                 obj.refresh_model_condition_bits();
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 772: JetSlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_jet_slow_death_kill_log::drain() {
@@ -18050,7 +18062,10 @@ pub fn shadow_session_after_host_tick(
                 obj.status.destroyed = true;
                 obj.refresh_model_condition_bits();
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 773: HelicopterSlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_heli_slow_death_kill_log::drain() {
@@ -18059,7 +18074,10 @@ pub fn shadow_session_after_host_tick(
                 obj.status.destroyed = true;
                 obj.refresh_model_condition_bits();
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 774: SlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_slow_death_kill_log::drain() {
@@ -18067,7 +18085,10 @@ pub fn shadow_session_after_host_tick(
                 obj.health.current = 0.0;
                 obj.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 775: StructureCollapseUpdate done → host destroy (no dual timer).
         for id in crate::game_logic::host_structure_collapse_kill_log::drain() {
@@ -18076,7 +18097,10 @@ pub fn shadow_session_after_host_tick(
                 obj.status.destroyed = true;
                 obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 776: StructureToppleUpdate done → host destroy (no dual timer).
         for id in crate::game_logic::host_structure_topple_kill_log::drain() {
@@ -18085,7 +18109,10 @@ pub fn shadow_session_after_host_tick(
                 obj.status.destroyed = true;
                 obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 777: StructureTopple crush sweep → host apply (no dual last_crushed).
         for (id, samples) in crate::game_logic::host_structure_topple_crush_log::drain() {
@@ -18111,7 +18138,16 @@ pub fn shadow_session_after_host_tick(
         for ev in crate::game_logic::host_daisy_cutter_drop_log::drain_drops() {
             let bomb = ev.tier.bomb();
             let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
-            if let Some(bid) = logic.create_object(bomb, ev.team, drop_pos) {
+            if let Some(bid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: bomb.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
                     o.producer_id = Some(ev.producer);
                     o.daisy_cutter_bomb = true;
@@ -18142,14 +18178,26 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.bomb, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.bomb,
+                team: None,
+            });
             logic.daisy_cutter_flight_reg.record_detonation();
         }
         // Wave 789: AnthraxBomb drop + detonate (no dual flight).
         for ev in crate::game_logic::host_anthrax_bomb_drop_log::drain_drops() {
             let bomb = ev.tier.bomb();
             let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
-            if let Some(bid) = logic.create_object(bomb, ev.team, drop_pos) {
+            if let Some(bid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: bomb.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
                     o.producer_id = Some(ev.producer);
                     o.anthrax_bomb_payload = true;
@@ -18183,14 +18231,26 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.bomb, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.bomb,
+                team: None,
+            });
             logic.anthrax_bomb_flight_reg.record_detonation();
         }
         // Wave 790: ClusterMines drop + detonate (no dual flight).
         for ev in crate::game_logic::host_cluster_mines_drop_log::drain_drops() {
             use crate::game_logic::host_cluster_mines_flight::CLUSTER_MINES_BOMB_OBJECT;
             let drop_pos = glam::Vec3::new(ev.target.x, 80.0, ev.target.z);
-            if let Some(bid) = logic.create_object(CLUSTER_MINES_BOMB_OBJECT, ev.team, drop_pos) {
+            if let Some(bid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: CLUSTER_MINES_BOMB_OBJECT.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
                     o.producer_id = Some(ev.producer);
                     o.cluster_mines_bomb = true;
@@ -18209,13 +18269,25 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.bomb, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.bomb,
+                team: None,
+            });
         }
         // Wave 791: EMP Pulse drop + detonate + spheroid expire (no dual flight).
         for ev in crate::game_logic::host_emp_pulse_drop_log::drain_drops() {
             use crate::game_logic::host_emp_pulse::EMP_PULSE_BOMB_TEMPLATE;
             let drop_pos = glam::Vec3::new(ev.target.x, 80.0, ev.target.z);
-            if let Some(bid) = logic.create_object(EMP_PULSE_BOMB_TEMPLATE, ev.team, drop_pos) {
+            if let Some(bid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: EMP_PULSE_BOMB_TEMPLATE.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
                     o.producer_id = Some(ev.producer);
                     o.emp_pulse_bomb = true;
@@ -18244,7 +18316,10 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.bomb, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.bomb,
+                team: None,
+            });
         }
         for ev in crate::game_logic::host_emp_pulse_drop_log::drain_spheroid_expires() {
             if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
@@ -18259,7 +18334,10 @@ pub fn shadow_session_after_host_tick(
                 o.status.effectively_dead = true;
                 o.emp_pulse_spheroid = false;
             }
-            logic.mark_object_for_destruction(ev.id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: None,
+            });
         }
         // Wave 792: A10 drop + detonate (no dual flight).
         // Keep host pending registry in sync with GW-consumed drops.
@@ -18273,7 +18351,16 @@ pub fn shadow_session_after_host_tick(
                 logic.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
             }
             let drop_pos = glam::Vec3::new(ev.target.x, 90.0, ev.target.z);
-            if let Some(mid) = logic.create_object(A10_PAYLOAD_TEMPLATE, ev.team, drop_pos) {
+            if let Some(mid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: A10_PAYLOAD_TEMPLATE.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&mid) {
                     o.producer_id = Some(ev.producer);
                     o.a10_strike_missile = true;
@@ -18302,7 +18389,10 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.missile, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.missile,
+                team: None,
+            });
         }
         // Wave 793: ArtilleryBarrage drop + detonate (no dual flight).
         logic.artillery_barrage_flight_reg.pending_drops = shadow.artillery_pending_drops.clone();
@@ -18318,7 +18408,14 @@ pub fn shadow_session_after_host_tick(
             }
             let drop_pos = glam::Vec3::new(ev.target.x, 100.0, ev.target.z);
             if let Some(sid) =
-                logic.create_object(ARTILLERY_BARRAGE_SHELL_OBJECT, ev.team, drop_pos)
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: ARTILLERY_BARRAGE_SHELL_OBJECT.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
             {
                 if let Some(o) = logic.get_objects_mut().get_mut(&sid) {
                     o.producer_id = Some(ev.producer);
@@ -18348,7 +18445,10 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.shell, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.shell,
+                team: None,
+            });
         }
         // Wave 794: CarpetBomb drop + detonate (no dual flight).
         logic.carpet_bomb_flight_reg.pending_drops = shadow.carpet_pending_drops.clone();
@@ -18363,7 +18463,16 @@ pub fn shadow_session_after_host_tick(
                     .insert(CARPET_BOMB_PAYLOAD_OBJECT.to_string(), t);
             }
             let drop_pos = glam::Vec3::new(ev.target.x, 80.0, ev.target.z);
-            if let Some(bid) = logic.create_object(CARPET_BOMB_PAYLOAD_OBJECT, ev.team, drop_pos) {
+            if let Some(bid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: CARPET_BOMB_PAYLOAD_OBJECT.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
                     o.producer_id = Some(ev.producer);
                     o.carpet_bomb_payload = true;
@@ -18392,13 +18501,25 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.bomb, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.bomb,
+                team: None,
+            });
         }
         // Wave 795: Leaflet B52 drop + container ground (no dual flight).
         for ev in crate::game_logic::host_leaflet_b52_drop_log::drain_drops() {
             use crate::game_logic::host_leaflet_drop::LEAFLET_CONTAINER_OBJECT;
             let drop_pos = glam::Vec3::new(ev.target.x, 80.0, ev.target.z);
-            if let Some(cid) = logic.create_object(LEAFLET_CONTAINER_OBJECT, ev.team, drop_pos) {
+            if let Some(cid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: LEAFLET_CONTAINER_OBJECT.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
+            {
                 if let Some(o) = logic.get_objects_mut().get_mut(&cid) {
                     o.producer_id = Some(ev.producer);
                     o.leaflet_container = true;
@@ -18416,13 +18537,24 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: None,
+            });
         }
         // Wave 796: Paradrop cargo drop + parachute ground (no dual flight).
         for ev in crate::game_logic::host_paradrop_cargo_drop_log::drain_drops() {
             use crate::game_logic::host_paradrop::PARADROP_PARACHUTE_CONTAINER;
             let drop_pos = glam::Vec3::new(ev.target.x, 100.0, ev.target.z);
-            if let Some(pid) = logic.create_object(PARADROP_PARACHUTE_CONTAINER, ev.team, drop_pos)
+            if let Some(pid) =
+                match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                    template: PARADROP_PARACHUTE_CONTAINER.to_string(),
+                    team: ev.team,
+                    spawn_at: drop_pos,
+                }) {
+                    crate::game_logic::HostObjectIdResult::Created(id) => id,
+                    _ => None,
+                }
             {
                 if let Some(o) = logic.get_objects_mut().get_mut(&pid) {
                     o.producer_id = Some(ev.producer);
@@ -18440,7 +18572,10 @@ pub fn shadow_session_after_host_tick(
                 o.health.current = 0.0;
                 o.status.destroyed = true;
             }
-            logic.mark_object_for_destruction(ev.id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: None,
+            });
         }
         // Wave 797: AuroraBomb projectile arrive/stale destroy (no dual flight).
         for ev in crate::game_logic::host_aurora_bomb_projectile_log::drain_destroys() {
@@ -18460,7 +18595,10 @@ pub fn shadow_session_after_host_tick(
                 o.status.effectively_dead = true;
             }
             let team = logic.get_objects().get(&ev.id).map(|o| o.team);
-            logic.mark_object_for_destruction(ev.id, team);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: team,
+            });
         }
         // Wave 798: ToxinStream projectile stream + impact (no dual flight).
         for ev in crate::game_logic::host_toxin_stream_projectile_log::drain_streams() {
@@ -18494,7 +18632,10 @@ pub fn shadow_session_after_host_tick(
                 .unwrap_or(ev.team);
             let _ =
                 logic.apply_toxin_tractor_stream_at(ev.pos, ev.source, ev.intended, source_team);
-            logic.mark_object_for_destruction(ev.id, Some(ev.team));
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: Some(ev.team),
+            });
         }
         // Wave 799: AngryMob projectile impact (no dual flight).
         for ev in crate::game_logic::host_angry_mob_projectile_log::drain_impacts() {
@@ -18515,7 +18656,10 @@ pub fn shadow_session_after_host_tick(
             }
             let kind = AngryMobProjectileKind::from_u8(ev.kind);
             let _ = logic.apply_angry_mob_projectile_at(ev.pos, ev.source, ev.intended, kind);
-            logic.mark_object_for_destruction(ev.id, team);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: team,
+            });
         }
         // Wave 800: SCUD/Neutron/Nuke shell impacts (no dual flight).
         for ev in crate::game_logic::host_cannon_shell_projectile_log::drain_impacts() {
@@ -18550,7 +18694,10 @@ pub fn shadow_session_after_host_tick(
                     let _ = logic.apply_nuke_cannon_primary_at(ev.pos, ev.source, ev.team);
                 }
             }
-            logic.mark_object_for_destruction(ev.id, Some(ev.team));
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: Some(ev.team),
+            });
         }
         // Wave 801: AngryMob member destroy when nexus lost (no dual follow).
         for id in crate::game_logic::host_angry_mob_member_follow_log::drain_destroys() {
@@ -18566,7 +18713,10 @@ pub fn shadow_session_after_host_tick(
                 o.status.effectively_dead = true;
                 o.angry_mob_member = false;
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 802: field-object lifetime expire (no dual timer).
         for ev in crate::game_logic::host_field_object_expire_log::drain() {
@@ -18607,7 +18757,10 @@ pub fn shadow_session_after_host_tick(
                     logic.countermeasures.note_flare_expired(pid);
                 }
             }
-            logic.mark_object_for_destruction(ev.id, ev.team);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: ev.team,
+            });
 
             if matches!(ev.kind, FieldObjectKind::MoneyCrate) {
                 logic.host_money_crates.forget(ev.id);
@@ -18633,7 +18786,10 @@ pub fn shadow_session_after_host_tick(
             if let Some(sid) = ev.source {
                 let _ = logic.spawn_inferno_fire_zone(sid, ev.team, ev.pos, ev.upgraded);
             }
-            logic.mark_object_for_destruction(ev.id, shell_team);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: shell_team,
+            });
         }
         for id in crate::game_logic::host_spy_satellite_ping_log::drain_expires() {
             if let Some(o) = logic.get_objects_mut().get_mut(&id) {
@@ -18648,7 +18804,10 @@ pub fn shadow_session_after_host_tick(
                 o.status.effectively_dead = true;
                 o.spy_satellite_ping = false;
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 804: Flashbang impact + Comanche rocket expire.
         for ev in crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_flashbang()
@@ -18668,7 +18827,10 @@ pub fn shadow_session_after_host_tick(
                 o.set_position(ev.pos);
             }
             let _ = logic.apply_ranger_residual_at(ev.pos, ev.source, ev.intended, true);
-            logic.mark_object_for_destruction(ev.id, team);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: team,
+            });
         }
         for id in
             crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_comanche_expires(
@@ -18686,7 +18848,10 @@ pub fn shadow_session_after_host_tick(
                 o.status.effectively_dead = true;
                 o.comanche_rocket_pod_projectile = false;
             }
-            logic.mark_object_for_destruction(id, None);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: id,
+                team: None,
+            });
         }
         // Wave 805: Scorpion missile impact residual.
         for ev in crate::game_logic::host_scorpion_missile_projectile_log::drain_impacts() {
@@ -18705,7 +18870,10 @@ pub fn shadow_session_after_host_tick(
                 o.set_position(ev.pos);
             }
             let _ = logic.apply_scorpion_residual_at(ev.pos, ev.source, ev.intended, ev.slot);
-            logic.mark_object_for_destruction(ev.id, team);
+            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                id: ev.id,
+                team: team,
+            });
         }
         // Wave 807: Sticky bomb / booby-trap attach follow + orphan destroy.
         for ev in crate::game_logic::host_sticky_booby_attach_log::drain_sticky_follows() {
@@ -18856,20 +19024,8 @@ pub fn shadow_session_after_host_tick(
             logic.apply_hacker_income_event(ev);
         }
 
-        // Wave 823: patriot assist laser endpoints sole-tick after GW writeback positions.
-        logic.tick_patriot_assist_lasers_sole();
-
-        // Wave 824: pending patriot assist clips sole-tick after GW writeback.
-        logic.tick_pending_patriot_assists_sole();
-
-        // Wave 825: host zone/field damage sole-tick after GW writeback positions/HP.
-        logic.tick_zone_damage_fields_sole();
-
-        // Wave 826: host combat/field residuals sole-tick after GW writeback.
-        logic.tick_combat_field_residuals_sole();
-
-        // Wave 827: remaining host system residuals sole-tick after GW writeback.
-        logic.tick_host_systems_residuals_sole();
+        // Wave 823–827/940: post-writeback sole-tick residuals via single authority batch.
+        logic.apply_post_writeback_sole_ticks();
 
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready =
@@ -25372,7 +25528,10 @@ mod tests {
             .create_object("DesU", Team::USA, glam::Vec3::ZERO)
             .expect("id");
         crate::game_logic::host_destroy_log::clear();
-        logic.mark_object_for_destruction(id, None);
+        logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
+            id: id,
+            team: None,
+        });
         logic.update_with_dt(1.0 / 30.0);
         let ev = crate::game_logic::host_destroy_log::drain();
         assert!(
@@ -29324,7 +29483,14 @@ mod tests {
                 t.add_kind_of(KindOf::Attackable);
                 logic.templates.insert(name.into(), t);
             }
-            let _ = logic.create_object(name, team, glam::Vec3::new(x, 0.0, 0.0));
+            let _ = match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
+                template: name.to_string(),
+                team: team,
+                spawn_at: glam::Vec3::new(x, 0.0, 0.0),
+            }) {
+                crate::game_logic::HostObjectIdResult::Created(id) => id,
+                _ => None,
+            };
         }
         let usa_id = logic
             .get_players()

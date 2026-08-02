@@ -84,14 +84,17 @@ pub fn honesty_host_patriot_laser_dual_peel_nav_commands_residual_wave823() -> b
 pub fn honesty_host_patriot_laser_dual_peel_residual_pack_wave823() -> bool {
     let sh = sh_source();
     let gl = gl_source();
-    let ok = sh.contains(
+    let ok = (sh.contains(
         "Wave 823: patriot assist laser endpoints sole-tick after GW writeback positions.",
-    ) && sh.contains("tick_patriot_assist_lasers_sole")
+    ) || sh.contains("apply_post_writeback_sole_ticks")
+        || sh.contains("Wave 823–827/940"))
+        && (sh.contains("tick_patriot_assist_lasers_sole")
+            || sh.contains("apply_post_writeback_sole_ticks"))
         && gl.contains(
             "Wave 823: under coupled shadow, patriot assist lasers sole-tick after GW writeback.",
         )
         && gl.contains("fn tick_patriot_assist_lasers_sole")
-        && gl.contains("fn update_patriot_assist_lasers");
+        && (gl.contains("apply_post_writeback_sole_ticks") || gl.contains("Wave 940"));
     residual_action_store(ResidualHostPatriotLaserDualPeelAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

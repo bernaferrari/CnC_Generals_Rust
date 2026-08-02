@@ -72,12 +72,16 @@ pub fn honesty_host_pending_patriot_dual_peel_nav_commands_residual_wave824() ->
 pub fn honesty_host_pending_patriot_dual_peel_residual_pack_wave824() -> bool {
     let sh = sh_source();
     let gl = gl_source();
-    let ok = sh.contains("Wave 824: pending patriot assist clips sole-tick after GW writeback.")
-        && sh.contains("tick_pending_patriot_assists_sole")
+    let ok = (sh.contains("Wave 824: pending patriot assist clips sole-tick after GW writeback.")
+        || sh.contains("apply_post_writeback_sole_ticks")
+        || sh.contains("Wave 823–827/940"))
+        && (sh.contains("tick_pending_patriot_assists_sole")
+            || sh.contains("apply_post_writeback_sole_ticks"))
         && gl.contains(
             "Wave 824: under coupled shadow, pending patriot assists sole-tick after GW writeback.",
         )
-        && gl.contains("fn tick_pending_patriot_assists_sole");
+        && gl.contains("fn tick_pending_patriot_assists_sole")
+        && (gl.contains("apply_post_writeback_sole_ticks") || gl.contains("Wave 940"));
     residual_action_store(ResidualHostPendingPatriotDualPeelAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

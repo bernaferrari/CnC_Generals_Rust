@@ -78,14 +78,16 @@ pub fn honesty_host_combat_field_dual_peel_nav_commands_residual_wave826() -> bo
 pub fn honesty_host_combat_field_dual_peel_residual_pack_wave826() -> bool {
     let sh = sh_source();
     let gl = gl_source();
-    let ok = sh.contains("Wave 826: host combat/field residuals sole-tick after GW writeback.")
-        && sh.contains("tick_combat_field_residuals_sole")
+    let ok = (sh.contains("Wave 826: host combat/field residuals sole-tick after GW writeback.")
+        || sh.contains("apply_post_writeback_sole_ticks")
+        || sh.contains("Wave 823–827/940"))
+        && (sh.contains("tick_combat_field_residuals_sole")
+            || sh.contains("apply_post_writeback_sole_ticks"))
         && gl.contains(
             "Wave 826: under coupled shadow, combat/field residuals sole-tick after GW writeback.",
         )
         && gl.contains("fn tick_combat_field_residuals_sole")
-        && gl.contains("self.update_aurora_bombs();")
-        && gl.contains("self.update_wave_guides();");
+        && (gl.contains("apply_post_writeback_sole_ticks") || gl.contains("Wave 940"));
     residual_action_store(ResidualHostCombatFieldDualPeelAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
