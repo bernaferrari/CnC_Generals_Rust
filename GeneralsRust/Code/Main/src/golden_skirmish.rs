@@ -24,6 +24,7 @@
 //! - `combat_store_damage_ok`: weapons keep WeaponStore/template damage (retail ranger ~5);
 //!   no slice-only damage floor (was 40).
 
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::authoritative_world::{set_verification_single_authority, AuthorityProbe};
 use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::host_structure_economy_residual::COMMAND_CENTER_MAX_HEALTH;
@@ -295,7 +296,7 @@ fn resolve_map(explicit: Option<&str>) -> (String, bool) {
 
 fn usa_base_position(logic: &GameLogic) -> Vec3 {
     logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| {
             o.team == Team::USA
@@ -305,7 +306,7 @@ fn usa_base_position(logic: &GameLogic) -> Vec3 {
         .map(|o| o.get_position())
         .or_else(|| {
             logic
-                .get_objects()
+                .host_objects()
                 .values()
                 .find(|o| o.team == Team::USA && o.is_alive())
                 .map(|o| o.get_position())
@@ -352,7 +353,7 @@ fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
     // Wave 830: map objects may lack KindOf::Structure bits after load; also
     // accept name/kind heuristics so primary_enemy is never None on Lone Eagle.
     let enemies: Vec<_> = logic
-        .get_objects()
+        .host_objects()
         .values()
         .filter(|o| is_hostile_map_object(o))
         .collect();
@@ -389,7 +390,7 @@ fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
 
 fn find_any_enemy(logic: &GameLogic) -> Option<ObjectId> {
     logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| is_hostile_map_object(o))
         .map(|o| o.id)
@@ -407,7 +408,7 @@ fn ensure_map_combat_primary_enemy(logic: &mut GameLogic, usa_base: Vec3) -> Opt
     }
     // Landmark: supply dock/pile or offset from USA base.
     let landmark = logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| {
             let n = o.template_name.to_ascii_lowercase();
@@ -501,7 +502,7 @@ fn ensure_human_economy(logic: &mut GameLogic, supplies: u32, power: u32) {
 
 fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
     logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| {
             o.team == Team::USA
@@ -578,7 +579,7 @@ fn is_gatherable_resource(o: &crate::game_logic::object::Object) -> bool {
 /// Patch live object (and catalog entry) so Gather accepts the target.
 fn ensure_object_gatherable(logic: &mut GameLogic, id: ObjectId) {
     let template_name = logic
-        .get_object(id)
+        .host_object(id)
         .map(|o| o.template_name.clone())
         .unwrap_or_default();
     if let Some(tpl) = logic.templates.get_mut(&template_name) {
@@ -619,7 +620,7 @@ fn ensure_retail_supply_templates(logic: &mut GameLogic) {
 fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<ObjectId>, bool) {
     // 1) Already-harvestable non-golden resources on the loaded map.
     let existing_gatherable = logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| {
             o.team != Team::USA
@@ -635,7 +636,7 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
 
     // 2) Map SupplyDock / SupplyPile / PileSmal by retail name (may lack Harvestable).
     let map_supply_name = logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| o.is_alive() && is_retail_supply_source_name(&o.template_name))
         .map(|o| o.id);
@@ -816,14 +817,19 @@ fn live_rangers(logic: &GameLogic, rangers: &[ObjectId]) -> Vec<ObjectId> {
     rangers
         .iter()
         .copied()
-        .filter(|id| logic.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
+        .filter(|id| {
+            logic
+                .host_object(*id)
+                .map(|o| o.is_alive())
+                .unwrap_or(false)
+        })
         .collect()
 }
 
 /// All live USA production rangers currently in the world (includes late spawns).
 fn collect_live_produced_rangers(logic: &GameLogic) -> Vec<ObjectId> {
     logic
-        .get_objects()
+        .host_objects()
         .values()
         .filter(|o| o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name))
         .map(|o| o.id)
@@ -844,7 +850,7 @@ fn live_rangers_expanded(logic: &GameLogic, rangers: &[ObjectId]) -> Vec<ObjectI
 /// Weapon range for a ranger (default Weapon range 100).
 fn ranger_weapon_range(logic: &GameLogic, rid: ObjectId) -> f32 {
     logic
-        .get_object(rid)
+        .host_object(rid)
         .and_then(|o| o.weapon.as_ref().map(|w| w.range))
         .unwrap_or(100.0)
 }
@@ -861,7 +867,7 @@ fn horiz_distance(a: Vec3, b: Vec3) -> f32 {
 fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_pos: Vec3) -> bool {
     rangers.iter().any(|rid| {
         logic
-            .get_object(*rid)
+            .host_object(*rid)
             .map(|r| {
                 r.is_alive()
                     && horiz_distance(r.get_position(), target_pos)
@@ -999,7 +1005,7 @@ fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
 
     for _ in 0..DRAIN_PASSES {
         let leftovers: Vec<ObjectId> = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| is_map_victory_mopup_residue(o) && o.is_alive())
             .map(|o| o.id)
@@ -1016,7 +1022,7 @@ fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
 
     // Stuck topple/hole residue: still destroy_object only — never objects.remove.
     let force_ids: Vec<ObjectId> = logic
-        .get_objects()
+        .host_objects()
         .values()
         .filter(|o| is_map_victory_mopup_residue(o))
         .map(|o| o.id)
@@ -1041,7 +1047,7 @@ fn fight_enemies_with_rangers(
     let (realistic_speed_ok, store_damage_ok) = boost_ranger_march_speed(logic, rangers);
 
     let primary_hp_before = primary_target
-        .and_then(|id| logic.get_object(id).map(|o| o.health.current))
+        .and_then(|id| logic.host_object(id).map(|o| o.health.current))
         .unwrap_or(0.0);
     crate::game_logic::host_damage_log::clear();
     let mut any_damage = false;
@@ -1065,16 +1071,21 @@ fn fight_enemies_with_rangers(
 
     // --- Initial pure march toward primary / first enemy ---
     let initial_target = primary_target
-        .filter(|id| logic.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
+        .filter(|id| {
+            logic
+                .host_object(*id)
+                .map(|o| o.is_alive())
+                .unwrap_or(false)
+        })
         .or_else(|| {
             logic
-                .get_objects()
+                .host_objects()
                 .values()
                 .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
                 .map(|o| o.id)
         });
     if let Some(tid) = initial_target {
-        if let Some(ep) = logic.get_object(tid).map(|o| o.get_position()) {
+        if let Some(ep) = logic.host_object(tid).map(|o| o.get_position()) {
             let live = live_rangers(logic, rangers);
             if !live.is_empty() {
                 // Pure pathfinding march first — do NOT AttackObject yet.
@@ -1098,7 +1109,7 @@ fn fight_enemies_with_rangers(
                 // Distance-scaled march budget (cap so tests stay bounded).
                 let centroid = live
                     .iter()
-                    .filter_map(|id| logic.get_object(*id).map(|o| o.get_position()))
+                    .filter_map(|id| logic.host_object(*id).map(|o| o.get_position()))
                     .fold(Vec3::ZERO, |a, p| a + p)
                     / (live.len() as f32).max(1.0);
                 let dist = horiz_distance(centroid, ep);
@@ -1129,7 +1140,7 @@ fn fight_enemies_with_rangers(
         // when multiple AI buildings existed, so pure march never teleported OR
         // finished a path toward one fixed goal.
         let focus_still_alive = focus_target
-            .and_then(|id| logic.get_object(id))
+            .and_then(|id| logic.host_object(id))
             .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
             .unwrap_or(false);
         let tid = if focus_still_alive {
@@ -1137,19 +1148,19 @@ fn fight_enemies_with_rangers(
         } else {
             let primary_alive = primary_target.filter(|id| {
                 logic
-                    .get_object(*id)
+                    .host_object(*id)
                     .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
                     .unwrap_or(false)
             });
             let chosen = primary_alive.or_else(|| {
                 let centroid = live
                     .iter()
-                    .filter_map(|id| logic.get_object(*id).map(|o| o.get_position()))
+                    .filter_map(|id| logic.host_object(*id).map(|o| o.get_position()))
                     .fold(Vec3::ZERO, |a, p| a + p)
                     / (live.len() as f32).max(1.0);
                 // Prefer structures/CC (victory-critical) over wandering units, then nearest.
                 logic
-                    .get_objects()
+                    .host_objects()
                     .values()
                     .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
                     .min_by(|a, b| {
@@ -1174,7 +1185,7 @@ fn fight_enemies_with_rangers(
         };
 
         let (ep, target_hp) = logic
-            .get_object(tid)
+            .host_object(tid)
             .map(|o| (o.get_position(), o.health.current))
             .unwrap_or((Vec3::ZERO, 0.0));
 
@@ -1190,7 +1201,7 @@ fn fight_enemies_with_rangers(
             // Close the gap to the new focus with pure pathing (no AttackObject wipe).
             let centroid = live
                 .iter()
-                .filter_map(|id| logic.get_object(*id).map(|o| o.get_position()))
+                .filter_map(|id| logic.host_object(*id).map(|o| o.get_position()))
                 .fold(Vec3::ZERO, |a, p| a + p)
                 / (live.len() as f32).max(1.0);
             let dist = horiz_distance(centroid, ep);
@@ -1273,7 +1284,7 @@ fn fight_enemies_with_rangers(
                 .iter()
                 .filter_map(|id| {
                     logic
-                        .get_object(*id)
+                        .host_object(*id)
                         .map(|o| horiz_distance(o.get_position(), ep))
                 })
                 .fold(0.0_f32, f32::max);
@@ -1328,7 +1339,7 @@ fn fight_enemies_with_rangers(
         let dmg_events = crate::game_logic::host_damage_log::snapshot();
         let enemy_damage_logged = dmg_events.iter().any(|e| {
             logic
-                .get_object(e.target)
+                .host_object(e.target)
                 .map(|o| o.team != Team::USA && o.team != Team::Neutral)
                 .unwrap_or(false)
                 && (e.amount > 0.0 || e.destroyed)
@@ -1339,7 +1350,7 @@ fn fight_enemies_with_rangers(
         let enemy_kill_logged = dmg_events.iter().any(|e| {
             e.destroyed
                 && logic
-                    .get_object(e.target)
+                    .host_object(e.target)
                     .map(|o| o.team != Team::USA && o.team != Team::Neutral)
                     .unwrap_or(true)
         });
@@ -1349,10 +1360,14 @@ fn fight_enemies_with_rangers(
         }
 
         if let Some(pid) = primary_target {
-            if !logic.get_object(pid).map(|o| o.is_alive()).unwrap_or(false) {
+            if !logic
+                .host_object(pid)
+                .map(|o| o.is_alive())
+                .unwrap_or(false)
+            {
                 combat_destroyed = true;
                 any_damage = true;
-            } else if let Some(o) = logic.get_object(pid) {
+            } else if let Some(o) = logic.host_object(pid) {
                 if o.health.current < primary_hp_before {
                     any_damage = true;
                 }
@@ -1365,7 +1380,7 @@ fn fight_enemies_with_rangers(
                 any_damage = true;
             }
         } else if !logic
-            .get_objects()
+            .host_objects()
             .values()
             .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
         {
@@ -1375,7 +1390,7 @@ fn fight_enemies_with_rangers(
 
         if combat_destroyed
             && !logic
-                .get_objects()
+                .host_objects()
                 .values()
                 .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
         {
@@ -1385,14 +1400,14 @@ fn fight_enemies_with_rangers(
 
     // Final clear pass check.
     let enemies_left = logic
-        .get_objects()
+        .host_objects()
         .values()
         .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
     if !enemies_left {
         combat_destroyed = true;
     }
     if let Some(pid) = primary_target {
-        if let Some(o) = logic.get_object(pid) {
+        if let Some(o) = logic.host_object(pid) {
             if o.health.current < primary_hp_before {
                 any_damage = true;
             }
@@ -1416,7 +1431,7 @@ fn fight_enemies_with_rangers(
     if dmg_all.iter().any(|e| {
         e.amount > 0.0
             && logic
-                .get_object(e.target)
+                .host_object(e.target)
                 .map(|o| o.team != Team::USA && o.team != Team::Neutral)
                 .unwrap_or(false)
     }) {
@@ -1472,7 +1487,7 @@ fn run_synthetic_host_skirmish(
     ));
     logic.process_commands();
     let moved_units = logic
-        .get_object(dozer)
+        .host_object(dozer)
         .map(|o| {
             o.ai_state == AIState::Moving || o.movement.target_position.is_some() || o.status.moving
         })
@@ -1497,13 +1512,13 @@ fn run_synthetic_host_skirmish(
         vec![dozer],
     ));
     let constructed = run_until(logic, 360, |g| {
-        g.get_objects()
+        g.host_objects()
             .values()
             .any(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
     });
 
     let barracks_id = logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
         .map(|o| o.id);
@@ -1517,7 +1532,7 @@ fn run_synthetic_host_skirmish(
     ));
     logic.process_commands();
     let gathered = logic
-        .get_object(dozer)
+        .host_object(dozer)
         .map(|o| o.ai_state == AIState::Gathering && o.target == Some(supply))
         .unwrap_or(false);
 
@@ -1543,14 +1558,14 @@ fn run_synthetic_host_skirmish(
         };
         produced = queue_ok
             && run_until(logic, 360, |g| {
-                g.get_objects()
+                g.host_objects()
                     .values()
                     .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
                     .count()
                     >= 1
             });
         let _ = run_until(logic, 360, |g| {
-            g.get_objects()
+            g.host_objects()
                 .values()
                 .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
                 .count()
@@ -1577,7 +1592,7 @@ fn run_synthetic_host_skirmish(
     }
 
     let production_rangers: Vec<_> = logic
-        .get_objects()
+        .host_objects()
         .values()
         .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA && o.is_alive())
         .map(|o| o.id)
@@ -1585,7 +1600,7 @@ fn run_synthetic_host_skirmish(
     debug_assert!(
         production_rangers.iter().all(|id| {
             logic
-                .get_object(*id)
+                .host_object(*id)
                 .map(|o| o.weapon.is_some())
                 .unwrap_or(false)
         }),
@@ -1606,7 +1621,7 @@ fn run_synthetic_host_skirmish(
     let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
 
     let gla_alive = logic
-        .get_objects()
+        .host_objects()
         .values()
         .any(|o| o.team == Team::GLA && o.is_alive());
     let victory = all_cleared
@@ -1665,7 +1680,7 @@ fn run_map_world_skirmish(
     // Wave 830: ensure a hostile primary exists (map army dict may be civilian-only).
     let map_enemy = ensure_map_combat_primary_enemy(logic, base);
     if let Some(eid) = map_enemy {
-        if let Some(ep) = logic.get_object(eid).map(|o| o.get_position()) {
+        if let Some(ep) = logic.host_object(eid).map(|o| o.get_position()) {
             // Offset slightly so AI soup does not stack on the map CC footprint.
             logic.relocate_host_ai_base(1, ep + Vec3::new(40.0, 0.0, 40.0));
         }
@@ -1752,7 +1767,7 @@ fn run_map_world_skirmish(
         };
     };
     let dozer_is_retail = logic
-        .get_object(dozer)
+        .host_object(dozer)
         .map(|o| o.template_name == "USA_Dozer" || o.template_name.starts_with("America"))
         .unwrap_or(false);
 
@@ -1779,7 +1794,7 @@ fn run_map_world_skirmish(
     ));
     logic.process_commands();
     let moved_units = logic
-        .get_object(dozer)
+        .host_object(dozer)
         .map(|o| {
             o.ai_state == AIState::Moving || o.movement.target_position.is_some() || o.status.moving
         })
@@ -1819,7 +1834,7 @@ fn run_map_world_skirmish(
         ));
         logic.process_commands();
         constructed = run_until(logic, 300, |g| {
-            g.get_objects().values().any(|o| {
+            g.host_objects().values().any(|o| {
                 is_barracks_object(o)
                     && (o.template_name == *bname
                         || o.template_name.contains("Barracks")
@@ -1833,14 +1848,14 @@ fn run_map_world_skirmish(
     }
 
     let barracks_id = logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| is_barracks_object(o))
         .map(|o| o.id);
     if barracks_built_name.is_empty() {
         if let Some(bid) = barracks_id {
             barracks_built_name = logic
-                .get_object(bid)
+                .host_object(bid)
                 .map(|o| o.template_name.clone())
                 .unwrap_or_default();
             constructed = true;
@@ -1860,7 +1875,7 @@ fn run_map_world_skirmish(
         ));
         logic.process_commands();
         gathered = logic
-            .get_object(dozer)
+            .host_object(dozer)
             .map(|o| o.ai_state == AIState::Gathering && o.target == Some(sid))
             .unwrap_or(false);
         // If retail/map target rejected, fall back to GoldenSupply so slice stays green.
@@ -1875,7 +1890,7 @@ fn run_map_world_skirmish(
                 ));
                 logic.process_commands();
                 gathered = logic
-                    .get_object(dozer)
+                    .host_object(dozer)
                     .map(|o| o.ai_state == AIState::Gathering && o.target == Some(gid))
                     .unwrap_or(false);
             }
@@ -1885,9 +1900,9 @@ fn run_map_world_skirmish(
     let retail_gather_ok = gathered
         && retail_supply_target
         && logic
-            .get_object(dozer)
+            .host_object(dozer)
             .and_then(|o| o.target)
-            .and_then(|tid| logic.get_object(tid))
+            .and_then(|tid| logic.host_object(tid))
             .map(|t| t.template_name != "GoldenSupply" && !t.template_name.starts_with("Golden"))
             .unwrap_or(false);
 
@@ -1926,7 +1941,7 @@ fn run_map_world_skirmish(
                 continue;
             }
             let got_two = run_until(logic, 600, |g| {
-                g.get_objects()
+                g.host_objects()
                     .values()
                     .filter(|o| {
                         o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
@@ -1939,7 +1954,7 @@ fn run_map_world_skirmish(
                 ranger_name_used = rname.clone();
                 // Prefer a full squad so store damage can clear multi-structure maps.
                 let _ = run_until(logic, 400, |g| {
-                    g.get_objects()
+                    g.host_objects()
                         .values()
                         .filter(|o| {
                             o.team == Team::USA
@@ -1987,7 +2002,7 @@ fn run_map_world_skirmish(
     let primary_enemy = map_enemy
         .filter(|id| {
             logic
-                .get_object(*id)
+                .host_object(*id)
                 .map(|o| is_hostile_map_object(o))
                 .unwrap_or(false)
         })
@@ -1996,7 +2011,7 @@ fn run_map_world_skirmish(
         .or_else(|| ensure_map_combat_primary_enemy(logic, base));
 
     let production_rangers: Vec<_> = logic
-        .get_objects()
+        .host_objects()
         .values()
         .filter(|o| o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name))
         .map(|o| o.id)
@@ -2004,7 +2019,7 @@ fn run_map_world_skirmish(
     debug_assert!(
         production_rangers.iter().all(|id| {
             logic
-                .get_object(*id)
+                .host_object(*id)
                 .map(|o| o.weapon.is_some())
                 .unwrap_or(false)
         }),
@@ -2012,7 +2027,7 @@ fn run_map_world_skirmish(
     );
 
     let primary_alive_before = primary_enemy
-        .map(|id| logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
+        .map(|id| logic.host_object(id).map(|o| o.is_alive()).unwrap_or(false))
         .unwrap_or(false);
     // Retail store damage ~5 (was floor 40); longer windows + more rangers compensate.
     // Large skirmish maps also need headroom for multi-base pure-march at 20 u/s.
@@ -2053,7 +2068,7 @@ fn run_map_world_skirmish(
     // of a multi-minute pure-path march across Lone Eagle. combat_no_teleport_ok
     // still fails if fight_enemies_with_rangers uses set_position mid-combat.
     if let Some(tid) = primary_enemy {
-        if let Some(ep) = logic.get_object(tid).map(|o| o.get_position()) {
+        if let Some(ep) = logic.host_object(tid).map(|o| o.get_position()) {
             for (i, rid) in production_rangers.iter().enumerate() {
                 if let Some(r) = logic.host_object_mut(*rid) {
                     if r.is_alive() {
@@ -2089,7 +2104,7 @@ fn run_map_world_skirmish(
         if let Some(bid) = barracks_id {
             if !ranger_name_used.is_empty() {
                 let live_count = logic
-                    .get_objects()
+                    .host_objects()
                     .values()
                     .filter(|o| {
                         o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
@@ -2104,7 +2119,7 @@ fn run_map_world_skirmish(
                         let _ = logic.enqueue_production(bid, ranger_name_used.clone());
                     }
                     let _ = run_until(logic, 120, |g| {
-                        g.get_objects()
+                        g.host_objects()
                             .values()
                             .filter(|o| {
                                 o.team == Team::USA
@@ -2130,7 +2145,7 @@ fn run_map_world_skirmish(
         let focus = wave_primary
             .filter(|id| {
                 logic
-                    .get_object(*id)
+                    .host_object(*id)
                     .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
                     .unwrap_or(false)
             })
@@ -2140,7 +2155,7 @@ fn run_map_world_skirmish(
         fought |= f;
         all_cleared = c
             && !logic
-                .get_objects()
+                .host_objects()
                 .values()
                 .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
         combat_no_teleport_ok &= t;
@@ -2169,7 +2184,7 @@ fn run_map_world_skirmish(
             if live.is_empty() {
                 break;
             }
-            if let Some(ep) = logic.get_object(focus).map(|o| o.get_position()) {
+            if let Some(ep) = logic.host_object(focus).map(|o| o.get_position()) {
                 for (i, rid) in live.iter().enumerate() {
                     if let Some(r) = logic.host_object_mut(*rid) {
                         if r.is_alive() {
@@ -2205,18 +2220,18 @@ fn run_map_world_skirmish(
         combat_no_mopup_ok = !mopup_enabled;
 
         all_cleared = !logic
-            .get_objects()
+            .host_objects()
             .values()
             .any(|o| is_hostile_map_object(o));
     }
 
     let map_enemy_dead = {
         let id_dead = primary_enemy
-            .map(|id| !logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
+            .map(|id| !logic.host_object(id).map(|o| o.is_alive()).unwrap_or(false))
             .unwrap_or(false);
         // Wave 830: also true if no living enemy command-center-class remains
         // (rebuild may allocate a new id; primary id alone is insufficient).
-        let no_enemy_cc = !logic.get_objects().values().any(|o| {
+        let no_enemy_cc = !logic.host_objects().values().any(|o| {
             o.team != Team::USA
                 && o.team != Team::Neutral
                 && o.is_alive()
@@ -2237,7 +2252,7 @@ fn run_map_world_skirmish(
     // Evaluate victory while AI remains paused so a residual rebuild in the
     // trailing frames cannot re-spawn a CC after a proven clear.
     let enemy_alive = logic
-        .get_objects()
+        .host_objects()
         .values()
         .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
     let victory = all_cleared
@@ -2536,7 +2551,7 @@ mod tests {
         install_templates(&mut logic);
         ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
             .map(|o| o.get_position())
@@ -2581,7 +2596,7 @@ mod tests {
         install_templates(&mut logic);
         ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
             .map(|o| o.get_position())
@@ -2940,7 +2955,7 @@ mod tests {
         assert!(logic.load_map(&map_identity));
         let mut by_team = std::collections::BTreeMap::<String, u32>::new();
         let mut faction_structures = 0u32;
-        for o in logic.get_objects().values() {
+        for o in logic.host_objects().values() {
             if !o.is_alive() {
                 continue;
             }

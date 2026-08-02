@@ -5,6 +5,7 @@
 //! crate is only ticked when dual-tick is explicitly enabled, and verification
 //! builds refuse non-fatal dual-world bridge failures.
 
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::GameLogic;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -41,7 +42,7 @@ impl AuthorityProbe {
             .unwrap_or(0);
         Self {
             frame: logic.get_frame(),
-            object_count: logic.get_objects().len(),
+            object_count: logic.host_objects().len(),
             player_count: logic.get_players().len(),
             local_supplies,
             match_over: false,

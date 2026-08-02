@@ -1,3 +1,4 @@
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::command_system::{CommandType, GameCommand};
 use crate::game_logic::{AIState, GameLogic, Object, ObjectId, Player, Team};
 use crc32fast::Hasher;
@@ -241,7 +242,7 @@ impl FrameTrace {
         victory_state: Option<String>,
     ) -> Self {
         let objects = game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .map(TraceObject::from_object)
             .collect();

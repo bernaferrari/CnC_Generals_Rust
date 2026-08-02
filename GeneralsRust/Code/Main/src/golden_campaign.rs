@@ -24,6 +24,7 @@
 //! matching C++ `ScriptEngine.h`). Host-testable; does not claim full
 //! campaign script action parity.
 
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::script_loader::{find_map_file, load_map_scripts};
 use crate::game_logic::victory_conditions::{victory_rules_for_map, VictoryType};
 use crate::game_logic::{GameLogic, GameMode, Resources};
@@ -536,7 +537,7 @@ pub fn run_golden_campaign_ex(
         frames_advanced,
         frame_before,
         frame_after,
-        object_count: logic.get_objects().len(),
+        object_count: logic.host_objects().len(),
         victory_rule_applied,
         victory_eval_ok,
         mission_completed,

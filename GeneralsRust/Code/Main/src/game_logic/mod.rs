@@ -233,6 +233,7 @@ pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
 pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
 pub mod host_live_host_gw_flight_over_assign_residual_wave877;
 pub mod host_live_host_hacker_income_dual_peel_residual_wave822;
+pub mod host_live_host_harness_host_object_seal_residual_wave957;
 pub mod host_live_host_height_die_dual_peel_residual_wave771;
 pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
 pub mod host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748;
@@ -3205,6 +3206,13 @@ pub use host_live_host_ai_shadow_host_object_seal_residual_wave956::{
     honesty_host_ai_shadow_host_object_seal_nav_commands_residual_wave956,
     honesty_host_ai_shadow_host_object_seal_residual_pack_wave956,
     simulate_live_host_ai_shadow_host_object_seal_honesty,
+};
+
+pub use host_live_host_harness_host_object_seal_residual_wave957::{
+    honesty_host_harness_host_object_seal_method_names_residual_wave957,
+    honesty_host_harness_host_object_seal_nav_commands_residual_wave957,
+    honesty_host_harness_host_object_seal_residual_pack_wave957,
+    simulate_live_host_harness_host_object_seal_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

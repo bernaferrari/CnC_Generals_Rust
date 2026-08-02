@@ -57,6 +57,7 @@
 //! - Full C++ per-module WeaponSet / SpecialPowerModule / Upgrade Xfer tables
 
 // Wave 956: host_object/host_objects authority dual-read seal.
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use glam::Vec3;
@@ -5012,7 +5013,7 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         if let Some(container_id) = snapshot.container_object {
-            if let Some(container) = game_logic.find_object_mut(container_id) {
+            if let Some(container) = game_logic.host_object_mut(container_id) {
                 if !container.occupants.contains(&snapshot.id) {
                     container.occupants.push(snapshot.id);
                 }
@@ -5246,7 +5247,7 @@ impl SnapshotBuilder {
             used.insert(resource_id);
 
             {
-                let Some(resource_obj) = game_logic.find_object_mut(resource_id) else {
+                let Some(resource_obj) = game_logic.host_object_mut(resource_id) else {
                     continue;
                 };
                 resource_obj.set_position(depot.position);
@@ -5261,7 +5262,7 @@ impl SnapshotBuilder {
             }
 
             for harvester_id in &depot.harvesters {
-                if let Some(harvester) = game_logic.find_object_mut(*harvester_id) {
+                if let Some(harvester) = game_logic.host_object_mut(*harvester_id) {
                     harvester.target = Some(resource_id);
                     if matches!(harvester.ai_state, AIState::Idle | AIState::Moving) {
                         harvester.ai_state = AIState::Gathering;
@@ -5324,7 +5325,7 @@ impl SnapshotBuilder {
                 continue;
             }
 
-            if let Some(attacker) = game_logic.find_object_mut(combat.attacker) {
+            if let Some(attacker) = game_logic.host_object_mut(combat.attacker) {
                 attacker.target = Some(combat.target);
                 attacker.status.attacking = true;
                 if matches!(attacker.ai_state, AIState::Idle | AIState::Moving) {
@@ -5338,7 +5339,7 @@ impl SnapshotBuilder {
             if death.death_time > sim_time {
                 continue;
             }
-            if let Some(object) = game_logic.find_object_mut(death.object_id) {
+            if let Some(object) = game_logic.host_object_mut(death.object_id) {
                 object.status.destroyed = true;
                 object.health.current = 0.0;
                 object.ai_state = AIState::Idle;
@@ -5480,13 +5481,13 @@ impl SnapshotBuilder {
             if event.experience_gained <= 0.0 {
                 continue;
             }
-            if let Some(object) = game_logic.find_object_mut(event.object_id) {
+            if let Some(object) = game_logic.host_object_mut(event.object_id) {
                 object.gain_experience(event.experience_gained.max(0.0));
             }
         }
 
         for (object_id, bonuses) in &exp_tracker_snapshot.veterancy_bonuses {
-            let Some(object) = game_logic.find_object_mut(*object_id) else {
+            let Some(object) = game_logic.host_object_mut(*object_id) else {
                 continue;
             };
 
@@ -5779,7 +5780,7 @@ mod tests {
             .expect("failed to create source object");
         {
             let object = source
-                .find_object_mut(object_id)
+                .host_object_mut(object_id)
                 .expect("created object should exist");
             object.health.current = 42.0;
             object.status.moving = true;
@@ -5800,7 +5801,7 @@ mod tests {
         assert_eq!(restored.get_current_frame(), 777);
         assert_eq!(restored.get_players().len(), 1);
         let restored_obj = restored
-            .find_object(object_id)
+            .host_object(object_id)
             .expect("restored object should exist");
         assert_eq!(restored_obj.get_position(), Vec3::new(11.0, 0.0, 7.0));
         assert_eq!(restored_obj.health.current, 42.0);
@@ -5898,13 +5899,13 @@ mod tests {
 
         {
             let supply = source
-                .find_object_mut(supply_id)
+                .host_object_mut(supply_id)
                 .expect("supply object should exist");
             supply.stored_resources.supplies = 2500;
         }
         {
             let worker = source
-                .find_object_mut(worker_id)
+                .host_object_mut(worker_id)
                 .expect("worker object should exist");
             worker.target = Some(supply_id);
             worker.ai_state = AIState::Gathering;
@@ -5922,12 +5923,12 @@ mod tests {
             .expect("snapshot restore failed");
 
         let restored_supply = restored
-            .find_object(supply_id)
+            .host_object(supply_id)
             .expect("restored supply object should exist");
         assert_eq!(restored_supply.stored_resources.supplies, 2500);
 
         let restored_worker = restored
-            .find_object(worker_id)
+            .host_object(worker_id)
             .expect("restored worker should exist");
         assert_eq!(restored_worker.target, Some(supply_id));
         assert_eq!(restored_worker.ai_state, AIState::Gathering);
@@ -5949,7 +5950,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("failed to create tank");
         {
-            let tank = source.find_object_mut(tank_id).expect("tank should exist");
+            let tank = source.host_object_mut(tank_id).expect("tank should exist");
             tank.gain_experience(180.0);
             assert_eq!(tank.experience.level, VeterancyLevel::Elite);
         }
@@ -5974,7 +5975,7 @@ mod tests {
             .expect("snapshot restore failed");
 
         let restored_tank = restored
-            .find_object(tank_id)
+            .host_object(tank_id)
             .expect("restored tank should exist");
         assert_eq!(restored_tank.experience.level, VeterancyLevel::Elite);
         assert!(restored_tank.health.maximum > 100.0);
@@ -6008,7 +6009,7 @@ mod tests {
         assert!(source.enqueue_production(barracks_id, "USA_Ranger".to_string()));
         {
             let building = source
-                .find_object_mut(barracks_id)
+                .host_object_mut(barracks_id)
                 .expect("barracks should exist");
             let building_data = building
                 .building_data
@@ -6031,7 +6032,7 @@ mod tests {
             .expect("snapshot restore failed");
 
         let restored_building = restored
-            .find_object(barracks_id)
+            .host_object(barracks_id)
             .expect("restored barracks should exist");
         assert!(restored_building.has_upgrade_tag("UpgradeVeteranTraining"));
         let restored_data = restored_building
@@ -6165,7 +6166,7 @@ mod tests {
             .expect("failed to create mover");
         {
             let mover = source
-                .find_object_mut(mover_id)
+                .host_object_mut(mover_id)
                 .expect("mover should exist for setup");
             mover.status.moving = true;
             mover.movement.target_position = Some(Vec3::new(21.0, 0.0, 11.0));
@@ -6199,7 +6200,7 @@ mod tests {
             .expect("snapshot restore failed");
 
         let mover = restored
-            .find_object(mover_id)
+            .host_object(mover_id)
             .expect("restored mover should exist");
         assert_eq!(mover.movement.path.len(), 3);
         assert_eq!(mover.movement.path[0], Vec3::new(1.0, 0.0, 1.0));
@@ -6257,7 +6258,7 @@ mod tests {
 
         {
             let unit = source
-                .find_object_mut(ranger_id)
+                .host_object_mut(ranger_id)
                 .expect("ranger should exist");
             unit.weapon = Some(primary.clone());
             unit.secondary_weapon = Some(secondary.clone());
@@ -6291,7 +6292,7 @@ mod tests {
             .expect("snapshot restore failed");
 
         let unit = restored
-            .find_object(ranger_id)
+            .host_object(ranger_id)
             .expect("restored ranger should exist");
         let restored_primary = unit
             .weapon
@@ -6348,7 +6349,7 @@ mod tests {
             splash_radius: 0.0,
         };
         {
-            let unit = source.find_object_mut(id).expect("unit");
+            let unit = source.host_object_mut(id).expect("unit");
             unit.weapon = None;
             unit.secondary_weapon = Some(secondary.clone());
             unit.active_weapon_slot = 1;
@@ -6362,7 +6363,7 @@ mod tests {
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
 
-        let unit = restored.find_object(id).expect("restored unit");
+        let unit = restored.host_object(id).expect("restored unit");
         assert!(
             unit.weapon.is_none(),
             "pad primary must not become a real primary weapon"
@@ -6434,7 +6435,7 @@ mod tests {
             .create_object("SaveSecondaryRanger", Team::USA, Vec3::new(12.0, 0.0, 8.0))
             .expect("create ranger");
         {
-            let unit = source.find_object_mut(id).expect("ranger");
+            let unit = source.host_object_mut(id).expect("ranger");
             unit.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 100.0,
@@ -6475,7 +6476,7 @@ mod tests {
             .load_game("secondary_weapon_rt", &mut loaded)
             .expect("load");
 
-        let unit = loaded.find_object(id).expect("loaded unit");
+        let unit = loaded.host_object(id).expect("loaded unit");
         let secondary = unit
             .secondary_weapon
             .as_ref()
@@ -6512,7 +6513,7 @@ mod tests {
             .create_object("StrikeTestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = source.find_object_mut(enemy_id).expect("enemy");
+            let enemy = source.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 500.0;
             enemy.health.maximum = 500.0;
             enemy.thing.template.armor = 0.0;
@@ -6539,7 +6540,7 @@ mod tests {
         assert!(source
             .special_power_strikes()
             .honesty_queue_ok(HostSuperweaponKind::DaisyCutter));
-        let health_mid = source.find_object(enemy_id).unwrap().health.current;
+        let health_mid = source.host_object(enemy_id).unwrap().health.current;
         assert!((health_mid - 500.0).abs() < 0.1, "no damage mid-flight");
 
         // Combat particle residual from activation should be present for snapshot.
@@ -6585,7 +6586,7 @@ mod tests {
         // Still before impact after load: no damage.
         restored.set_current_frame(89);
         restored.update_special_power_strikes();
-        assert!((restored.find_object(enemy_id).unwrap().health.current - 500.0).abs() < 0.1);
+        assert!((restored.host_object(enemy_id).unwrap().health.current - 500.0).abs() < 0.1);
         assert!(!restored
             .special_power_strikes()
             .honesty_complete_ok(HostSuperweaponKind::DaisyCutter));
@@ -6599,12 +6600,12 @@ mod tests {
                 .honesty_complete_ok(HostSuperweaponKind::DaisyCutter),
             "DaisyCutter must complete after mid-flight load"
         );
-        let enemy_after = restored.find_object(enemy_id).map(|o| o.health.current);
+        let enemy_after = restored.host_object(enemy_id).map(|o| o.health.current);
         assert!(
             enemy_after.is_none()
                 || enemy_after == Some(0.0)
                 || restored
-                    .find_object(enemy_id)
+                    .host_object(enemy_id)
                     .map(|o| o.status.destroyed || o.health.current < 500.0)
                     .unwrap_or(true),
             "enemy must take DaisyCutter residual damage after load (got {enemy_after:?})"
@@ -6633,7 +6634,7 @@ mod tests {
             .create_object("StrikeTestTank", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = source.find_object_mut(enemy_id).expect("enemy");
+            let enemy = source.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 200.0;
             enemy.health.maximum = 200.0;
             enemy.thing.template.armor = 0.0;
@@ -6676,7 +6677,7 @@ mod tests {
 
         restored.set_current_frame(159);
         restored.update_special_power_strikes();
-        assert!((restored.find_object(enemy_id).unwrap().health.current - 200.0).abs() < 0.1);
+        assert!((restored.host_object(enemy_id).unwrap().health.current - 200.0).abs() < 0.1);
 
         restored.set_current_frame(160);
         restored.update_special_power_strikes();
@@ -6687,11 +6688,11 @@ mod tests {
             "A10 must complete after mid-flight load"
         );
         let health = restored
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
-            health < 200.0 || restored.find_object(enemy_id).is_none(),
+            health < 200.0 || restored.host_object(enemy_id).is_none(),
             "A10 residual damage must apply post-load (health={health})"
         );
     }
@@ -6716,7 +6717,7 @@ mod tests {
             .create_object("StrikeTestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let e = source.find_object_mut(enemy).unwrap();
+            let e = source.host_object_mut(enemy).unwrap();
             e.health.current = 300.0;
             e.health.maximum = 300.0;
             e.thing.template.armor = 0.0;
@@ -6765,11 +6766,11 @@ mod tests {
             "file-loaded strike must complete"
         );
         let health = loaded
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
-            health < 300.0 || loaded.find_object(enemy).is_none(),
+            health < 300.0 || loaded.host_object(enemy).is_none(),
             "damage after file load (health={health})"
         );
     }
@@ -6943,7 +6944,7 @@ mod tests {
             "host path honesty for Capture after load"
         );
         let captor = restored
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor after complete");
         assert!(
             captor.has_upgrade_tag(UPGRADE_INFANTRY_CAPTURE),
@@ -6963,7 +6964,7 @@ mod tests {
         });
         restored.process_commands();
         let captor = restored
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor after unlock");
         assert_eq!(
             captor.ai_state,
@@ -7082,7 +7083,7 @@ mod tests {
         builder
             .restore_from_snapshot(&snap, &mut restored)
             .expect("restore");
-        let obj = restored.find_object(id).expect("restored obj");
+        let obj = restored.host_object(id).expect("restored obj");
         assert_eq!(obj.camo_stealth_look, 3);
         assert!(obj.status.stealthed);
         assert!(obj.status.detected);

@@ -1,5 +1,6 @@
 //! Phase-3 content breadth: production-linked checks per category.
 
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::command_system::{
     CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys, PowerTarget,
     SpecialPowerType,
@@ -191,7 +192,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     if let (Some(tid), Some(iid)) = (transport, infantry) {
         assert!(
             logic
-                .get_object(tid)
+                .host_object(tid)
                 .map(|o| o.can_contain())
                 .unwrap_or(false),
             "transport template must support contain"
@@ -200,7 +201,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         let enter_result = system.execute_command(&enter_cmd, &mut logic);
         transport_ok = enter_result == CommandResult::Success
             && logic
-                .get_object(iid)
+                .host_object(iid)
                 .map(|o| o.ai_state == AIState::Entering && o.target == Some(tid))
                 .unwrap_or(false);
     }
@@ -232,18 +233,18 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         let cap_result = system.execute_command(&cap_cmd, &mut logic);
         let entered_capturing = cap_result == CommandResult::Success
             && logic
-                .get_object(iid)
+                .host_object(iid)
                 .map(|o| o.ai_state == AIState::Capturing && o.target == Some(eid))
                 .unwrap_or(false)
             && logic
-                .get_object(eid)
+                .host_object(eid)
                 .map(|o| o.team == Team::China)
                 .unwrap_or(false);
         if entered_capturing {
             // Residual: complete capture on next logic update (instant-in-range; no progress bar).
             logic.update();
             capture_ok = logic
-                .get_object(eid)
+                .host_object(eid)
                 .map(|o| o.team == Team::USA)
                 .unwrap_or(false);
         }
@@ -274,7 +275,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         let sp_result = system.execute_command(&sp_cmd, &mut logic);
         special_ok = sp_result == CommandResult::Success
             && logic
-                .get_object(iid)
+                .host_object(iid)
                 .map(|o| {
                     o.ai_state == AIState::SpecialAbility
                         && !o.special_power_ready
@@ -300,7 +301,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     {
         // Confirm template cost is present on the live object (sell refund source).
         let cost = logic
-            .get_object(bldg)
+            .host_object(bldg)
             .map(|o| o.thing.template.build_cost.supplies)
             .unwrap_or(0);
         // Economy authority: refund lands in pending_supply_delta; use effective_supplies.
@@ -316,7 +317,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         for _ in 0..200 {
             logic.update();
             if logic
-                .get_object(bldg)
+                .host_object(bldg)
                 .map(|o| !o.is_alive() || o.status.destroyed)
                 .unwrap_or(true)
             {
@@ -328,7 +329,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             .map(|p| p.effective_supplies())
             .unwrap_or(0);
         let destroyed = logic
-            .get_object(bldg)
+            .host_object(bldg)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true);
         salvage_ok =
@@ -359,7 +360,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             u.status.detected = false;
         }
         let hidden = logic
-            .get_object(sid)
+            .host_object(sid)
             .map(|o| {
                 o.status.stealthed
                     && o.is_effectively_stealthed()
@@ -380,7 +381,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             }
             logic.update_stealth_and_detection();
             detected_ok = logic
-                .get_object(sid)
+                .host_object(sid)
                 .map(|o| {
                     o.status.detected
                         && !o.is_effectively_stealthed()
@@ -666,7 +667,7 @@ pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
         ),
     );
     let restore1_ok =
-        builder.restore_from_snapshot(&snap1, &mut r1).is_ok() && r1.get_object(unit_id).is_some();
+        builder.restore_from_snapshot(&snap1, &mut r1).is_ok() && r1.host_object(unit_id).is_some();
 
     let mut r2 = GameLogic::new();
     r2.templates.insert(
@@ -678,7 +679,7 @@ pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
         ),
     );
     let restore2_ok = builder.restore_from_snapshot(&snap2, &mut r2).is_ok()
-        && r2.get_object(unit_id).is_some()
+        && r2.host_object(unit_id).is_some()
         && r2.get_frame() >= frame_mid.saturating_sub(1);
 
     let ok = restore1_ok && restore2_ok && snap1.frame_number <= snap2.frame_number;

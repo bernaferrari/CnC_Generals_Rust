@@ -1,3 +1,4 @@
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use anyhow::Result;
 use gamelogic::scripting::core::{
     Condition, OrCondition, Script, ScriptAction, ScriptGroup, ScriptList,
@@ -162,8 +163,8 @@ fn main() -> Result<()> {
 
     let loaded = logic.load_map(map_name);
     println!("load_map_returned={loaded}");
-    println!("logic_objects={}", logic.get_objects().len());
-    for object in logic.get_objects().values().take(20) {
+    println!("logic_objects={}", logic.host_objects().len());
+    for object in logic.host_objects().values().take(20) {
         println!(
             "object id={} template={} model={} pos={:?}",
             object.id,
