@@ -18156,18 +18156,23 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
-                    o.producer_id = Some(ev.producer);
-                    o.daisy_cutter_bomb = true;
-                    if matches!(
-                        ev.tier,
-                        crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier::Moab
-                    ) {
-                        o.template_name = bomb.to_string();
-                    }
-                    o.movement.velocity = glam::Vec3::new(0.0, -16.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                let moab_template = if matches!(
+                    ev.tier,
+                    crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier::Moab
+                ) {
+                    Some(bomb.to_string())
+                } else {
+                    None
+                };
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: bid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::DaisyCutter { moab_template },
+                    },
+                );
                 logic.daisy_cutter_flight_reg.record_drop();
             }
         }
@@ -18182,15 +18187,13 @@ pub fn shadow_session_after_host_tick(
                 ev.tier.primary_radius(),
                 DamageType::Explosive,
             );
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.bomb,
-                team: None,
-            });
-            logic.daisy_cutter_flight_reg.record_detonation();
+            // Wave 942: bomb destroy via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::DestroyBomb {
+                    id: ev.bomb,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 789: AnthraxBomb drop + detonate (no dual flight).
         for ev in crate::game_logic::host_anthrax_bomb_drop_log::drain_drops() {
@@ -18206,12 +18209,15 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
-                    o.producer_id = Some(ev.producer);
-                    o.anthrax_bomb_payload = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: bid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::AnthraxBomb,
+                    },
+                );
                 logic.anthrax_bomb_flight_reg.record_drop();
             }
         }
@@ -18235,14 +18241,13 @@ pub fn shadow_session_after_host_tick(
                     .special_power_strikes
                     .spawn_toxin_field(src, ev.team, ev.pos, logic.frame, 0);
             logic.anthrax_bomb_flight_reg.record_toxin_field();
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.bomb,
-                team: None,
-            });
+            // Wave 942: bomb destroy via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::DestroyBomb {
+                    id: ev.bomb,
+                    mark_destroy: true,
+                },
+            );
             logic.anthrax_bomb_flight_reg.record_detonation();
         }
         // Wave 790: ClusterMines drop + detonate (no dual flight).
@@ -18259,12 +18264,15 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
-                    o.producer_id = Some(ev.producer);
-                    o.cluster_mines_bomb = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: bid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::ClusterMinesBomb,
+                    },
+                );
                 logic.cluster_mines_flight_reg.record_drop();
             }
         }
@@ -18273,14 +18281,13 @@ pub fn shadow_session_after_host_tick(
             logic
                 .cluster_mines_flight_reg
                 .record_minefield(mines.len() as u32);
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.bomb,
-                team: None,
-            });
+            // Wave 942: bomb destroy via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::DestroyBomb {
+                    id: ev.bomb,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 791: EMP Pulse drop + detonate + spheroid expire (no dual flight).
         for ev in crate::game_logic::host_emp_pulse_drop_log::drain_drops() {
@@ -18296,13 +18303,16 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
-                    o.producer_id = Some(ev.producer);
-                    o.emp_pulse_bomb = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                    let _ = (ev.player_id, ev.caster_id);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: bid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::EmpPulseBomb,
+                    },
+                );
+                let _ = (ev.player_id, ev.caster_id);
                 logic.emp_pulse_flight_reg.record_drop();
             }
         }
@@ -18320,32 +18330,25 @@ pub fn shadow_session_after_host_tick(
                 .unwrap_or(0);
             let _ = logic.apply_emp_pulse_at(player_id, ev.pos, ev.producer);
             logic.emp_pulse_flight_reg.record_detonation();
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.bomb,
-                team: None,
-            });
+            // Wave 942: bomb destroy via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::DestroyBomb {
+                    id: ev.bomb,
+                    mark_destroy: true,
+                },
+            );
         }
         for ev in crate::game_logic::host_emp_pulse_drop_log::drain_spheroid_expires() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.emp_pulse_spheroid = false;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: None,
-            });
+            // Wave 942: emp spheroid expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::EmpPulseSpheroid,
+                    mark_destroy_team: Some(None),
+                },
+            );
         }
         // Wave 792: A10 drop + detonate (no dual flight).
         // Keep host pending registry in sync with GW-consumed drops.
@@ -18369,12 +18372,15 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&mid) {
-                    o.producer_id = Some(ev.producer);
-                    o.a10_strike_missile = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -20.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: mid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::A10StrikeMissile,
+                    },
+                );
                 logic.a10_strike_flight_reg.record_drop();
             }
         }
@@ -18393,14 +18399,13 @@ pub fn shadow_session_after_host_tick(
                 DamageType::Explosive,
             );
             logic.a10_strike_flight_reg.record_impact();
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.missile) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.missile,
-                team: None,
-            });
+            // Wave 942: bomb destroy via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::DestroyBomb {
+                    id: ev.missile,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 793: ArtilleryBarrage drop + detonate (no dual flight).
         logic.artillery_barrage_flight_reg.pending_drops = shadow.artillery_pending_drops.clone();
@@ -18425,12 +18430,15 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&sid) {
-                    o.producer_id = Some(ev.producer);
-                    o.artillery_barrage_shell = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -18.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: sid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::ArtilleryBarrageShell,
+                    },
+                );
                 logic.artillery_barrage_flight_reg.record_drop();
             }
         }
@@ -18449,14 +18457,13 @@ pub fn shadow_session_after_host_tick(
                 DamageType::Explosive,
             );
             logic.artillery_barrage_flight_reg.record_impact();
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.shell) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.shell,
-                team: None,
-            });
+            // Wave 942: bomb destroy via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::DestroyBomb {
+                    id: ev.shell,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 794: CarpetBomb drop + detonate (no dual flight).
         logic.carpet_bomb_flight_reg.pending_drops = shadow.carpet_pending_drops.clone();
@@ -18481,12 +18488,15 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&bid) {
-                    o.producer_id = Some(ev.producer);
-                    o.carpet_bomb_payload = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -15.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: bid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::CarpetBomb,
+                    },
+                );
                 logic.carpet_bomb_flight_reg.record_drop();
             }
         }
@@ -18505,14 +18515,13 @@ pub fn shadow_session_after_host_tick(
                 DamageType::Explosive,
             );
             logic.carpet_bomb_flight_reg.record_impact();
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.bomb) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.bomb,
-                team: None,
-            });
+            // Wave 942: bomb destroy via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::DestroyBomb {
+                    id: ev.bomb,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 795: Leaflet B52 drop + container ground (no dual flight).
         for ev in crate::game_logic::host_leaflet_b52_drop_log::drain_drops() {
@@ -18528,12 +18537,15 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&cid) {
-                    o.producer_id = Some(ev.producer);
-                    o.leaflet_container = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -12.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: cid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::LeafletContainer,
+                    },
+                );
                 logic.host_leaflet_drops.containers_dropped = logic
                     .host_leaflet_drops
                     .containers_dropped
@@ -18541,14 +18553,16 @@ pub fn shadow_session_after_host_tick(
             }
         }
         for ev in crate::game_logic::host_leaflet_b52_drop_log::drain_ground() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: None,
-            });
+            // Wave 942: lethal expire residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::LeafletContainer,
+                    mark_destroy_team: Some(None),
+                },
+            );
         }
         // Wave 796: Paradrop cargo drop + parachute ground (no dual flight).
         for ev in crate::game_logic::host_paradrop_cargo_drop_log::drain_drops() {
@@ -18564,49 +18578,43 @@ pub fn shadow_session_after_host_tick(
                     _ => None,
                 }
             {
-                if let Some(o) = logic.get_objects_mut().get_mut(&pid) {
-                    o.producer_id = Some(ev.producer);
-                    o.paradrop_parachute = true;
-                    o.movement.velocity = glam::Vec3::new(0.0, -8.0, 0.0);
-                    let _ = o.set_smart_bomb_target(ev.target);
-                    let _ = o.apply_eject_parachuting();
-                }
+                // Wave 942: post-create payload config via mutation authority.
+                logic.apply_host_residual_mutation_op(
+                    crate::game_logic::HostResidualMutationOp::ConfigureSpawnedPayload {
+                        id: pid,
+                        producer: ev.producer,
+                        target: ev.target,
+                        kind: crate::game_logic::SpawnedPayloadKind::ParadropParachute,
+                    },
+                );
                 logic.host_paradrops.parachutes_dropped =
                     logic.host_paradrops.parachutes_dropped.saturating_add(1);
             }
         }
         for ev in crate::game_logic::host_paradrop_cargo_drop_log::drain_ground() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                o.health.current = 0.0;
-                o.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: None,
-            });
+            // Wave 942: lethal expire residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::ParadropCargo,
+                    mark_destroy_team: Some(None),
+                },
+            );
         }
         // Wave 797: AuroraBomb projectile arrive/stale destroy (no dual flight).
         for ev in crate::game_logic::host_aurora_bomb_projectile_log::drain_destroys() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if let Some(a) = ev.snap_aim {
-                    o.set_position(glam::Vec3::new(a[0], a[1], a[2]));
-                }
-                o.aurora_bomb_projectile = false;
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-            }
-            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: team,
-            });
+            // Wave 942: lethal expire residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: ev.snap_aim.map(|a| glam::Vec3::new(a[0], a[1], a[2])),
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::AuroraBombProjectile,
+                    mark_destroy_team: Some(None),
+                },
+            );
         }
         // Wave 798: ToxinStream projectile stream + impact (no dual flight).
         for ev in crate::game_logic::host_toxin_stream_projectile_log::drain_streams() {
@@ -18621,72 +18629,52 @@ pub fn shadow_session_after_host_tick(
             );
         }
         for ev in crate::game_logic::host_toxin_stream_projectile_log::drain_impacts() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.toxin_stream_projectile = false;
-                o.set_position(ev.pos);
-            }
             let source_team = ev
                 .source
                 .and_then(|sid| logic.get_objects().get(&sid).map(|o| o.team))
                 .unwrap_or(ev.team);
-            let _ =
-                logic.apply_toxin_tractor_stream_at(ev.pos, ev.source, ev.intended, source_team);
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: Some(ev.team),
-            });
+            // Wave 942: projectile lethal expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::ToxinStreamProjectile,
+                    mark_destroy_team: Some(None),
+                },
+            );
+            logic.apply_toxin_tractor_stream_at(ev.pos, ev.source, ev.intended, source_team);
         }
         // Wave 799: AngryMob projectile impact (no dual flight).
         for ev in crate::game_logic::host_angry_mob_projectile_log::drain_impacts() {
             use crate::game_logic::host_angry_mob::AngryMobProjectileKind;
             let team = logic.get_objects().get(&ev.id).map(|o| o.team);
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.angry_mob_projectile = false;
-                o.set_position(ev.pos);
-            }
+            // Wave 942: projectile lethal expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: Some(ev.pos),
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::AngryMobProjectile,
+                    mark_destroy_team: Some(team),
+                },
+            );
             let kind = AngryMobProjectileKind::from_u8(ev.kind);
             let _ = logic.apply_angry_mob_projectile_at(ev.pos, ev.source, ev.intended, kind);
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: team,
-            });
         }
         // Wave 800: SCUD/Neutron/Nuke shell impacts (no dual flight).
         for ev in crate::game_logic::host_cannon_shell_projectile_log::drain_impacts() {
             use crate::game_logic::host_cannon_shell_projectile_log::CannonShellKind;
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.scud_launcher_missile_projectile = false;
-                o.neutron_cannon_shell_projectile = false;
-                o.nuke_cannon_shell_projectile = false;
-                o.set_position(ev.pos);
-            }
+            // Wave 942: cannon shell lethal expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: Some(ev.pos),
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::CannonShellProjectile,
+                    mark_destroy_team: Some(Some(ev.team)),
+                },
+            );
             match ev.kind {
                 CannonShellKind::Scud { toxin } => {
                     let _ = logic.apply_scud_area_at(ev.pos, ev.source, ev.team, toxin);
@@ -18702,282 +18690,198 @@ pub fn shadow_session_after_host_tick(
                     let _ = logic.apply_nuke_cannon_primary_at(ev.pos, ev.source, ev.team);
                 }
             }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: Some(ev.team),
-            });
         }
         // Wave 801: AngryMob member destroy when nexus lost (no dual follow).
         for id in crate::game_logic::host_angry_mob_member_follow_log::drain_destroys() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.angry_mob_member = false;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 942: lethal expire residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::AngryMobMember,
+                    mark_destroy_team: Some(None),
+                },
+            );
         }
         // Wave 802: field-object lifetime expire (no dual timer).
         for ev in crate::game_logic::host_field_object_expire_log::drain() {
             use crate::game_logic::host_field_object_expire_log::FieldObjectKind;
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                match ev.kind {
-                    FieldObjectKind::NukeRadiation => o.nuke_radiation_field = false,
-                    FieldObjectKind::AnthraxToxin => o.anthrax_toxin_field = false,
-                    FieldObjectKind::InfernoFire => o.inferno_fire_field = false,
-                    FieldObjectKind::SpectreHowitzerShell => o.spectre_howitzer_shell = false,
-                    FieldObjectKind::CountermeasureFlare => o.countermeasure_flare = false,
-                    FieldObjectKind::PointDefenseLaserBeam => o.point_defense_laser_beam = false,
-                    FieldObjectKind::WeaponLaserBeam => o.weapon_laser_beam = false,
-                    FieldObjectKind::ParticleTrailRemnant => o.particle_trail_remnant = false,
-                    FieldObjectKind::ParticleOrbitalLaser => o.particle_orbital_laser = false,
-                    FieldObjectKind::ParticleConnectorLaser => o.particle_connector_laser = false,
-                    FieldObjectKind::FirewallSegment => {
-                        o.firewall_segment = false;
-                        o.firewall_segment_wall_id = None;
-                        o.firewall_segment_dir = None;
-                    }
-                    FieldObjectKind::RadarVanPing => o.radar_van_ping = false,
-                    FieldObjectKind::MoneyCrate => {}
-                }
-            }
+            // Wave 942: field object expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::FieldObject(ev.kind),
+                    mark_destroy_team: Some(ev.team),
+                },
+            );
             // Wave 806: countermeasure flare producer bookkeeping.
             if matches!(ev.kind, FieldObjectKind::CountermeasureFlare) {
                 if let Some(pid) = ev.producer {
                     logic.countermeasures.note_flare_expired(pid);
                 }
             }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: ev.team,
-            });
-
             if matches!(ev.kind, FieldObjectKind::MoneyCrate) {
                 logic.host_money_crates.forget(ev.id);
             }
         }
         // Wave 803: Inferno shell impact + SpySatellite ping expire.
         for ev in crate::game_logic::host_inferno_shell_projectile_log::drain_impacts() {
-            let shell_team = logic.get_objects().get(&ev.id).map(|o| o.team);
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.inferno_shell_projectile = false;
-                o.set_position(ev.pos);
-            }
+            // Wave 942: projectile lethal expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::InfernoShellProjectile,
+                    mark_destroy_team: Some(None),
+                },
+            );
             let _ = logic.apply_inferno_shell_residual_at(ev.pos, ev.source, ev.intended);
-            if let Some(sid) = ev.source {
-                let _ = logic.spawn_inferno_fire_zone(sid, ev.team, ev.pos, ev.upgraded);
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: shell_team,
-            });
         }
         for id in crate::game_logic::host_spy_satellite_ping_log::drain_expires() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.spy_satellite_ping = false;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 942: lethal expire residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::SpySatellitePing,
+                    mark_destroy_team: Some(None),
+                },
+            );
         }
         // Wave 804: Flashbang impact + Comanche rocket expire.
         for ev in crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_flashbang()
         {
-            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.flashbang_grenade_projectile = false;
-                o.set_position(ev.pos);
-            }
+            // Wave 942: projectile lethal expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: Some(ev.pos),
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::FlashbangGrenadeProjectile,
+                    mark_destroy_team: Some(None),
+                },
+            );
             let _ = logic.apply_ranger_residual_at(ev.pos, ev.source, ev.intended, true);
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: team,
-            });
         }
         for id in
             crate::game_logic::host_flashbang_comanche_helix_projectile_log::drain_comanche_expires(
             )
         {
-            if let Some(o) = logic.get_objects_mut().get_mut(&id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.comanche_rocket_pod_projectile = false;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 942: comanche rocket expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: id,
+                    position: None,
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::ComancheRocketPodProjectile,
+                    mark_destroy_team: Some(None),
+                },
+            );
         }
         // Wave 805: Scorpion missile impact residual.
         for ev in crate::game_logic::host_scorpion_missile_projectile_log::drain_impacts() {
-            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                } else {
-                    o.health.current = 0.0;
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.scorpion_missile_projectile = false;
-                o.set_position(ev.pos);
-            }
+            // Wave 942: projectile lethal expire via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::LethalExpire {
+                    id: ev.id,
+                    position: Some(ev.pos),
+                    effectively_dead: true,
+                    clear: crate::game_logic::ObjectIdentityClear::ScorpionMissileProjectile,
+                    mark_destroy_team: Some(None),
+                },
+            );
             let _ = logic.apply_scorpion_residual_at(ev.pos, ev.source, ev.intended, ev.slot);
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: ev.id,
-                team: team,
-            });
         }
         // Wave 807: Sticky bomb / booby-trap attach follow + orphan destroy.
         for ev in crate::game_logic::host_sticky_booby_attach_log::drain_sticky_follows() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                o.set_position(ev.pos);
-            }
-            logic.sticky_bomb_follow_ticks = logic.sticky_bomb_follow_ticks.saturating_add(1);
+            // Wave 942: sticky follow position via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::SetPosition {
+                    id: ev.id,
+                    position: ev.pos,
+                    sticky_follow_tick: true,
+                },
+            );
         }
         for ev in crate::game_logic::host_sticky_booby_attach_log::drain_sticky_destroys() {
             logic.sticky_bomb_target_deaths = logic.sticky_bomb_target_deaths.saturating_add(1);
             logic.destroy_object(ev.id);
         }
         for ev in crate::game_logic::host_sticky_booby_attach_log::drain_booby_follows() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                o.set_position(ev.pos);
-            }
+            // Wave 942: booby follow position via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::SetPosition {
+                    id: ev.id,
+                    position: ev.pos,
+                    sticky_follow_tick: false,
+                },
+            );
         }
         for ev in crate::game_logic::host_sticky_booby_attach_log::drain_booby_destroys() {
             logic.destroy_booby_trap_special_object(ev.id);
         }
         // Wave 810: Power plant rods completion residual.
         for ev in crate::game_logic::host_power_plant_rods_log::drain_completes() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                o.model_condition_bits = ev.model_condition_bits;
-                o.power_plant_rods_done_frame = 0;
-                o.power_plant_rods_extended = true;
-            }
-            logic.special_power_completion_log.record_rods_complete();
+            // Wave 942: power-plant rods complete via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::PowerPlantRodsComplete {
+                    id: ev.id,
+                    model_condition_bits: ev.model_condition_bits,
+                },
+            );
         }
         // Wave 812: Battlemaster horde status residual.
         for ev in crate::game_logic::host_battlemaster_horde_log::drain() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                let was = o.weapon_bonus_horde;
-                o.weapon_bonus_horde = ev.now_horde;
-                o.record_host_weapon_bonus();
-                if ev.now_horde && !was {
-                    logic.battlemaster_residual_horde_grants =
-                        logic.battlemaster_residual_horde_grants.saturating_add(1);
-                }
-            }
-            if ev.now_horde != ev.was_horde || ev.now_horde {
-                logic.refresh_battlemaster_weapon(ev.id);
-            }
+            // Wave 942: battlemaster horde residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::SetWeaponBonusHorde {
+                    id: ev.id,
+                    now_horde: ev.now_horde,
+                    was_horde: ev.was_horde,
+                    grant: crate::game_logic::HordeGrantCounter::Battlemaster,
+                },
+            );
         }
         // Wave 813: China infantry horde status residual.
         for ev in crate::game_logic::host_china_infantry_horde_log::drain() {
             use crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind;
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                let was = o.weapon_bonus_horde;
-                o.weapon_bonus_horde = ev.now_horde;
-                o.record_host_weapon_bonus();
-                if ev.now_horde && !was {
-                    match ev.kind {
-                        ChinaInfantryHordeKind::RedGuard => {
-                            logic.red_guard_residual_horde_grants =
-                                logic.red_guard_residual_horde_grants.saturating_add(1);
-                        }
-                        ChinaInfantryHordeKind::TankHunter => {
-                            logic.tank_hunter_residual_horde_grants =
-                                logic.tank_hunter_residual_horde_grants.saturating_add(1);
-                        }
-                        ChinaInfantryHordeKind::Minigunner => {
-                            logic.minigunner_residual_horde_grants =
-                                logic.minigunner_residual_horde_grants.saturating_add(1);
-                        }
-                    }
+            // Wave 942: china infantry horde residual via mutation authority.
+            let grant = match ev.kind {
+                ChinaInfantryHordeKind::RedGuard => crate::game_logic::HordeGrantCounter::RedGuard,
+                ChinaInfantryHordeKind::TankHunter => {
+                    crate::game_logic::HordeGrantCounter::TankHunter
                 }
-            }
-            if ev.now_horde != ev.was_horde || ev.now_horde {
-                match ev.kind {
-                    ChinaInfantryHordeKind::RedGuard => {
-                        logic.refresh_red_guard_weapon(ev.id);
-                    }
-                    ChinaInfantryHordeKind::TankHunter => {
-                        logic.refresh_tank_hunter_weapon(ev.id);
-                    }
-                    ChinaInfantryHordeKind::Minigunner => {
-                        logic.refresh_minigunner_weapon(ev.id);
-                    }
+                ChinaInfantryHordeKind::Minigunner => {
+                    crate::game_logic::HordeGrantCounter::Minigunner
                 }
-            }
+            };
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::SetWeaponBonusHorde {
+                    id: ev.id,
+                    now_horde: ev.now_horde,
+                    was_horde: ev.was_horde,
+                    grant,
+                },
+            );
         }
         // Wave 814: Stinger hive respawn residual.
         for ev in crate::game_logic::host_stinger_hive_log::drain() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                o.hive_slave_count = ev.hive_slave_count;
-                o.hive_slave_hp = ev.hive_slave_hp;
-                o.hive_slave_respawn_frame = ev.hive_slave_respawn_frame;
-                for i in 0..3 {
-                    o.hive_slaves[i].alive = ev.slaves_alive[i];
-                    o.hive_slaves[i].hp = ev.slaves_hp[i];
-                }
-                o.record_host_hive();
-            }
-            logic.stinger_hive_residual_respawns =
-                logic.stinger_hive_residual_respawns.saturating_add(1);
+            // Wave 942: stinger hive slave residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ApplyStingerHiveState {
+                    id: ev.id,
+                    hive_slave_count: ev.hive_slave_count,
+                    hive_slave_hp: ev.hive_slave_hp,
+                    hive_slave_respawn_frame: ev.hive_slave_respawn_frame,
+                    slaves_alive: ev.slaves_alive,
+                    slaves_hp: ev.slaves_hp,
+                },
+            );
         }
         // Wave 818: player radar transitions residual.
         for ev in crate::game_logic::host_player_radar_log::drain() {
@@ -19009,14 +18913,14 @@ pub fn shadow_session_after_host_tick(
 
         // Wave 815: ACTIVELY_CONSTRUCTING model bit residual.
         for ev in crate::game_logic::host_actively_constructing_log::drain() {
-            if let Some(o) = logic.get_objects_mut().get_mut(&ev.id) {
-                let before = o.model_condition_bits;
-                o.model_condition_bits = ev.model_condition_bits;
-                if o.model_condition_bits != before {
-                    logic.actively_constructing_updates =
-                        logic.actively_constructing_updates.saturating_add(1);
-                }
-            }
+            // Wave 942: model-condition residual via mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::SetModelConditionBits {
+                    id: ev.id,
+                    bits: ev.model_condition_bits,
+                    count_update: true,
+                },
+            );
         }
         // Wave 819: dozer bored service acquire residual.
         for ev in crate::game_logic::host_dozer_bored_log::drain() {

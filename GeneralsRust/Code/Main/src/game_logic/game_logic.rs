@@ -3219,7 +3219,7 @@ pub enum HostObjectIdResult {
     Created(Option<ObjectId>),
 }
 
-/// Wave 941: host residual mutation payload (poison/force-kill/pending fire).
+/// Wave 941/942: host residual mutation payload (poison/kill/pending fire/expire/field).
 #[derive(Debug, Clone)]
 pub enum HostResidualMutationOp {
     /// PoisonedBehavior DoT — UNRESISTABLE typed death.
@@ -3242,6 +3242,103 @@ pub enum HostResidualMutationOp {
         /// When false, only set if pending is currently None (continuous).
         overwrite: bool,
     },
+    /// Projectile/field expire: optional damage-log lethal, flags, position, mark-destroy.
+    LethalExpire {
+        id: ObjectId,
+        position: Option<glam::Vec3>,
+        effectively_dead: bool,
+        clear: ObjectIdentityClear,
+        /// None => do not mark; Some(team_opt) => MarkForDestruction with team.
+        mark_destroy_team: Option<Option<Team>>,
+    },
+    /// Bomb/mine payload residual destroy (no damage-log path).
+    DestroyBomb { id: ObjectId, mark_destroy: bool },
+    /// Model condition bits residual (actively constructing).
+    SetModelConditionBits {
+        id: ObjectId,
+        bits: u128,
+        count_update: bool,
+    },
+    /// Power plant control rods completion residual.
+    PowerPlantRodsComplete {
+        id: ObjectId,
+        model_condition_bits: u128,
+    },
+    /// Horde weapon-bonus residual (Battlemaster / China infantry).
+    SetWeaponBonusHorde {
+        id: ObjectId,
+        now_horde: bool,
+        was_horde: bool,
+        grant: HordeGrantCounter,
+    },
+    /// Stinger hive slave residual snapshot.
+    ApplyStingerHiveState {
+        id: ObjectId,
+        hive_slave_count: u8,
+        hive_slave_hp: f32,
+        hive_slave_respawn_frame: u32,
+        slaves_alive: [bool; 3],
+        slaves_hp: [f32; 3],
+    },
+    /// Sticky/booby follow position residual.
+    SetPosition {
+        id: ObjectId,
+        position: glam::Vec3,
+        sticky_follow_tick: bool,
+    },
+    /// Post-create flight payload config (producer, identity flag, velocity, target).
+    ConfigureSpawnedPayload {
+        id: ObjectId,
+        producer: ObjectId,
+        target: glam::Vec3,
+        kind: SpawnedPayloadKind,
+    },
+}
+
+/// Wave 942: which projectile/identity flag to clear on lethal expire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectIdentityClear {
+    None,
+    FlashbangGrenadeProjectile,
+    ScorpionMissileProjectile,
+    SpySatellitePing,
+    AngryMobMember,
+    AuroraBombProjectile,
+    InfernoShellProjectile,
+    ToxinStreamProjectile,
+    AngryMobProjectile,
+    /// Clears scud/neutron/nuke cannon shell projectile flags.
+    CannonShellProjectile,
+    LeafletContainer,
+    ParadropCargo,
+    ComancheRocketPodProjectile,
+    EmpPulseSpheroid,
+    FieldObject(crate::game_logic::host_field_object_expire_log::FieldObjectKind),
+}
+
+/// Wave 942: which residual counter to bump on horde grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HordeGrantCounter {
+    #[default]
+    None,
+    Battlemaster,
+    RedGuard,
+    TankHunter,
+    Minigunner,
+}
+
+/// Wave 942: post-create flight payload identity/config residual.
+#[derive(Debug, Clone)]
+pub enum SpawnedPayloadKind {
+    DaisyCutter { moab_template: Option<String> },
+    AnthraxBomb,
+    ClusterMinesBomb,
+    EmpPulseBomb,
+    A10StrikeMissile,
+    ArtilleryBarrageShell,
+    CarpetBomb,
+    LeafletContainer,
+    ParadropParachute,
 }
 
 impl GameLogic {
@@ -27995,7 +28092,7 @@ impl GameLogic {
         }
     }
 
-    /// Wave 941: host residual mutation authority boundary (poison/kill/pending fire).
+    /// Wave 941/942: host residual mutation authority boundary.
     #[inline]
     pub fn apply_host_residual_mutation_op(&mut self, op: HostResidualMutationOp) {
         match op {
@@ -28041,6 +28138,294 @@ impl GameLogic {
                 if let Some(obj) = self.get_objects_mut().get_mut(&id) {
                     if overwrite || obj.pending_fire_when_damaged_weapon.is_none() {
                         obj.pending_fire_when_damaged_weapon = Some(weapon);
+                    }
+                }
+            }
+            HostResidualMutationOp::LethalExpire {
+                id,
+                position,
+                effectively_dead,
+                clear,
+                mark_destroy_team,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    if let Some(pos) = position {
+                        obj.set_position(pos);
+                    }
+                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                        let hp = obj.health.current.max(1.0);
+                        let oid = obj.id;
+                        crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    } else {
+                        obj.health.current = 0.0;
+                    }
+                    obj.status.destroyed = true;
+                    if effectively_dead {
+                        obj.status.effectively_dead = true;
+                    }
+                    match clear {
+                        ObjectIdentityClear::None => {}
+                        ObjectIdentityClear::FlashbangGrenadeProjectile => {
+                            obj.flashbang_grenade_projectile = false;
+                        }
+                        ObjectIdentityClear::ScorpionMissileProjectile => {
+                            obj.scorpion_missile_projectile = false;
+                        }
+                        ObjectIdentityClear::SpySatellitePing => {
+                            obj.spy_satellite_ping = false;
+                        }
+                        ObjectIdentityClear::AngryMobMember => {
+                            obj.angry_mob_member = false;
+                        }
+                        ObjectIdentityClear::AuroraBombProjectile => {
+                            obj.aurora_bomb_projectile = false;
+                        }
+                        ObjectIdentityClear::InfernoShellProjectile => {
+                            obj.inferno_shell_projectile = false;
+                        }
+                        ObjectIdentityClear::ToxinStreamProjectile => {
+                            obj.toxin_stream_projectile = false;
+                        }
+                        ObjectIdentityClear::AngryMobProjectile => {
+                            obj.angry_mob_projectile = false;
+                        }
+                        ObjectIdentityClear::CannonShellProjectile => {
+                            obj.scud_launcher_missile_projectile = false;
+                            obj.neutron_cannon_shell_projectile = false;
+                            obj.nuke_cannon_shell_projectile = false;
+                        }
+                        ObjectIdentityClear::LeafletContainer => {
+                            obj.leaflet_container = false;
+                        }
+                        ObjectIdentityClear::ParadropCargo => {
+                            obj.paradrop_parachute = false;
+                        }
+                        ObjectIdentityClear::ComancheRocketPodProjectile => {
+                            obj.comanche_rocket_pod_projectile = false;
+                        }
+                        ObjectIdentityClear::EmpPulseSpheroid => {
+                            obj.emp_pulse_spheroid = false;
+                        }
+                        ObjectIdentityClear::FieldObject(kind) => {
+                            use crate::game_logic::host_field_object_expire_log::FieldObjectKind;
+                            match kind {
+                                FieldObjectKind::NukeRadiation => {
+                                    obj.nuke_radiation_field = false;
+                                }
+                                FieldObjectKind::AnthraxToxin => {
+                                    obj.anthrax_toxin_field = false;
+                                }
+                                FieldObjectKind::InfernoFire => {
+                                    obj.inferno_fire_field = false;
+                                }
+                                FieldObjectKind::SpectreHowitzerShell => {
+                                    obj.spectre_howitzer_shell = false;
+                                }
+                                FieldObjectKind::CountermeasureFlare => {
+                                    obj.countermeasure_flare = false;
+                                }
+                                FieldObjectKind::PointDefenseLaserBeam => {
+                                    obj.point_defense_laser_beam = false;
+                                }
+                                FieldObjectKind::WeaponLaserBeam => {
+                                    obj.weapon_laser_beam = false;
+                                }
+                                FieldObjectKind::ParticleTrailRemnant => {
+                                    obj.particle_trail_remnant = false;
+                                }
+                                FieldObjectKind::ParticleOrbitalLaser => {
+                                    obj.particle_orbital_laser = false;
+                                }
+                                FieldObjectKind::ParticleConnectorLaser => {
+                                    obj.particle_connector_laser = false;
+                                }
+                                FieldObjectKind::FirewallSegment => {
+                                    obj.firewall_segment = false;
+                                    obj.firewall_segment_wall_id = None;
+                                    obj.firewall_segment_dir = None;
+                                }
+                                FieldObjectKind::RadarVanPing => {
+                                    obj.radar_van_ping = false;
+                                }
+                                FieldObjectKind::MoneyCrate => {}
+                            }
+                        }
+                    }
+                }
+                if let Some(team) = mark_destroy_team {
+                    self.apply_host_object_id_op(HostObjectIdOp::MarkForDestruction { id, team });
+                }
+            }
+            HostResidualMutationOp::DestroyBomb { id, mark_destroy } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    obj.health.current = 0.0;
+                    obj.status.destroyed = true;
+                }
+                if mark_destroy {
+                    self.mark_object_for_destruction(id, None);
+                }
+            }
+            HostResidualMutationOp::SetModelConditionBits {
+                id,
+                bits,
+                count_update,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    let before = obj.model_condition_bits;
+                    obj.model_condition_bits = bits;
+                    if count_update && obj.model_condition_bits != before {
+                        self.actively_constructing_updates =
+                            self.actively_constructing_updates.saturating_add(1);
+                    }
+                }
+            }
+            HostResidualMutationOp::PowerPlantRodsComplete {
+                id,
+                model_condition_bits,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    obj.model_condition_bits = model_condition_bits;
+                    obj.power_plant_rods_done_frame = 0;
+                    obj.power_plant_rods_extended = true;
+                }
+                self.special_power_completion_log.record_rods_complete();
+            }
+            HostResidualMutationOp::SetWeaponBonusHorde {
+                id,
+                now_horde,
+                was_horde,
+                grant,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    let was = obj.weapon_bonus_horde;
+                    obj.weapon_bonus_horde = now_horde;
+                    obj.record_host_weapon_bonus();
+                    if now_horde && !was {
+                        match grant {
+                            HordeGrantCounter::Battlemaster => {
+                                self.battlemaster_residual_horde_grants =
+                                    self.battlemaster_residual_horde_grants.saturating_add(1);
+                            }
+                            HordeGrantCounter::RedGuard => {
+                                self.red_guard_residual_horde_grants =
+                                    self.red_guard_residual_horde_grants.saturating_add(1);
+                            }
+                            HordeGrantCounter::TankHunter => {
+                                self.tank_hunter_residual_horde_grants =
+                                    self.tank_hunter_residual_horde_grants.saturating_add(1);
+                            }
+                            HordeGrantCounter::Minigunner => {
+                                self.minigunner_residual_horde_grants =
+                                    self.minigunner_residual_horde_grants.saturating_add(1);
+                            }
+                            HordeGrantCounter::None => {}
+                        }
+                    }
+                }
+                if now_horde != was_horde || now_horde {
+                    match grant {
+                        HordeGrantCounter::Battlemaster => {
+                            self.refresh_battlemaster_weapon(id);
+                        }
+                        HordeGrantCounter::RedGuard => {
+                            self.refresh_red_guard_weapon(id);
+                        }
+                        HordeGrantCounter::TankHunter => {
+                            self.refresh_tank_hunter_weapon(id);
+                        }
+                        HordeGrantCounter::Minigunner => {
+                            self.refresh_minigunner_weapon(id);
+                        }
+                        HordeGrantCounter::None => {}
+                    }
+                }
+            }
+            HostResidualMutationOp::ApplyStingerHiveState {
+                id,
+                hive_slave_count,
+                hive_slave_hp,
+                hive_slave_respawn_frame,
+                slaves_alive,
+                slaves_hp,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    obj.hive_slave_count = hive_slave_count;
+                    obj.hive_slave_hp = hive_slave_hp;
+                    obj.hive_slave_respawn_frame = hive_slave_respawn_frame;
+                    for i in 0..3 {
+                        obj.hive_slaves[i].alive = slaves_alive[i];
+                        obj.hive_slaves[i].hp = slaves_hp[i];
+                    }
+                    obj.record_host_hive();
+                }
+                self.stinger_hive_residual_respawns =
+                    self.stinger_hive_residual_respawns.saturating_add(1);
+            }
+            HostResidualMutationOp::SetPosition {
+                id,
+                position,
+                sticky_follow_tick,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    obj.set_position(position);
+                }
+                if sticky_follow_tick {
+                    self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
+                }
+            }
+            HostResidualMutationOp::ConfigureSpawnedPayload {
+                id,
+                producer,
+                target,
+                kind,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    obj.producer_id = Some(producer);
+                    let parachuting = matches!(kind, SpawnedPayloadKind::ParadropParachute);
+                    match kind {
+                        SpawnedPayloadKind::DaisyCutter { moab_template } => {
+                            obj.daisy_cutter_bomb = true;
+                            if let Some(name) = moab_template {
+                                obj.template_name = name;
+                            }
+                            obj.movement.velocity = glam::Vec3::new(0.0, -16.0, 0.0);
+                        }
+                        SpawnedPayloadKind::AnthraxBomb => {
+                            obj.anthrax_bomb_payload = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
+                        }
+                        SpawnedPayloadKind::ClusterMinesBomb => {
+                            obj.cluster_mines_bomb = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
+                        }
+                        SpawnedPayloadKind::EmpPulseBomb => {
+                            obj.emp_pulse_bomb = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -14.0, 0.0);
+                        }
+                        SpawnedPayloadKind::A10StrikeMissile => {
+                            obj.a10_strike_missile = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -20.0, 0.0);
+                        }
+                        SpawnedPayloadKind::ArtilleryBarrageShell => {
+                            obj.artillery_barrage_shell = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -18.0, 0.0);
+                        }
+                        SpawnedPayloadKind::CarpetBomb => {
+                            obj.carpet_bomb_payload = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -15.0, 0.0);
+                        }
+                        SpawnedPayloadKind::LeafletContainer => {
+                            obj.leaflet_container = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -12.0, 0.0);
+                        }
+                        SpawnedPayloadKind::ParadropParachute => {
+                            obj.paradrop_parachute = true;
+                            obj.movement.velocity = glam::Vec3::new(0.0, -8.0, 0.0);
+                        }
+                    }
+                    let _ = obj.set_smart_bomb_target(target);
+                    if parachuting {
+                        let _ = obj.apply_eject_parachuting();
                     }
                 }
             }

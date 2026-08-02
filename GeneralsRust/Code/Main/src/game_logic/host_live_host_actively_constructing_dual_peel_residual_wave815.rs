@@ -111,10 +111,17 @@ pub fn simulate_host_actively_constructing_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_actively_constructing_dual_peel_dispatch_source() -> bool {
-    let ok = sh_source().contains("host_actively_constructing_log::drain")
-        && sh_source().contains("actively_constructing_updates")
-        && gl_source().contains("update_actively_constructing_model_conditions")
-        && gl_source().contains("shadow_coupled_tick_active()");
+    // Wave 942: host peels model bits via apply_host_residual_mutation_op
+    // (SetModelConditionBits) which bumps actively_constructing_updates.
+    let sh = sh_source();
+    let gl = gl_source();
+    let ok = sh.contains("host_actively_constructing_log::drain")
+        && (sh.contains("actively_constructing_updates")
+            || (sh.contains("SetModelConditionBits")
+                && sh.contains("apply_host_residual_mutation_op")
+                && gl.contains("actively_constructing_updates")))
+        && gl.contains("update_actively_constructing_model_conditions")
+        && gl.contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostActivelyConstructingDualPeelAction::DispatchSource);
     ok
 }
