@@ -125,6 +125,7 @@ pub mod host_live_exec_smoke_early_combat_residual_wave864;
 pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
 pub mod host_live_host_actively_constructing_complete_peel_residual_wave828;
 pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
+pub mod host_live_host_ai_shadow_host_object_seal_residual_wave956;
 pub mod host_live_host_alias_fallback_opt_in_residual_wave725;
 pub mod host_live_host_angry_mob_member_follow_dual_peel_residual_wave801;
 pub mod host_live_host_angry_mob_projectile_dual_peel_residual_wave799;
@@ -3197,6 +3198,13 @@ pub use host_live_host_command_executor_host_object_seal_residual_wave955::{
     honesty_host_command_executor_host_object_seal_nav_commands_residual_wave955,
     honesty_host_command_executor_host_object_seal_residual_pack_wave955,
     simulate_live_host_command_executor_host_object_seal_honesty,
+};
+
+pub use host_live_host_ai_shadow_host_object_seal_residual_wave956::{
+    honesty_host_ai_shadow_host_object_seal_method_names_residual_wave956,
+    honesty_host_ai_shadow_host_object_seal_nav_commands_residual_wave956,
+    honesty_host_ai_shadow_host_object_seal_residual_pack_wave956,
+    simulate_live_host_ai_shadow_host_object_seal_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

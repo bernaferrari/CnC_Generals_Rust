@@ -8,6 +8,8 @@
 //!
 //! Policy: borrow host for sync phases only; never store long-lived host references.
 
+//!
+//! Wave 956: host_object/host_objects authority dual-read seal.
 use crate::game_logic::{GameLogic, ObjectId, Team};
 
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
@@ -3259,7 +3261,7 @@ impl GameWorldShadow {
     pub fn sync_from_host_with(&mut self, logic: &GameLogic, write_health: bool) {
         self.sync_players(logic);
 
-        let mut obj_ids: Vec<ObjectId> = logic.get_objects().keys().copied().collect();
+        let mut obj_ids: Vec<ObjectId> = logic.host_objects().keys().copied().collect();
         obj_ids.sort_by_key(|id| id.0);
         if obj_ids.len() > self.max_entities {
             obj_ids.truncate(self.max_entities);
@@ -3281,7 +3283,7 @@ impl GameWorldShadow {
 
         // Create or update each host object.
         for oid in obj_ids {
-            let Some(obj) = logic.get_objects().get(&oid) else {
+            let Some(obj) = logic.host_objects().get(&oid) else {
                 continue;
             };
             let pos = obj.get_position();
@@ -4713,8 +4715,8 @@ impl GameWorldShadow {
         }
 
         // Second pass: resolve attack targets now that all IDs are mapped.
-        for oid in logic.get_objects().keys().copied() {
-            let Some(obj) = logic.get_objects().get(&oid) else {
+        for oid in logic.host_objects().keys().copied() {
+            let Some(obj) = logic.host_objects().get(&oid) else {
                 continue;
             };
             let Some(&eid) = self.host_to_entity.get(&oid.0) else {
@@ -5523,7 +5525,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let new_h = ent.health.max(0.0);
@@ -5811,7 +5813,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if obj.target == host_target {
@@ -5856,7 +5858,7 @@ impl GameWorldShadow {
         let mut queued = 0usize;
         let keys: Vec<u32> = self.host_to_entity.keys().copied().collect();
         for hid in keys {
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let dest = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
@@ -5885,7 +5887,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let host_dest = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
@@ -5937,7 +5939,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let p = ent.transform.position;
@@ -6237,7 +6239,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let want = HostBodyDamageType::from_ordinal(ent.body_damage_state);
@@ -6279,7 +6281,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let want = HostDeathType::from_ordinal(ent.death_type);
@@ -6723,7 +6725,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if obj.team != want_team {
@@ -7227,7 +7229,7 @@ impl GameWorldShadow {
                         n += 1;
                         continue;
                     }
-                    if let Some(obj) = logic.get_objects().get(spawned) {
+                    if let Some(obj) = logic.host_objects().get(spawned) {
                         let team_ord = match obj.team {
                             Team::USA => 0u8,
                             Team::China => 1,
@@ -7250,7 +7252,7 @@ impl GameWorldShadow {
             let Some(eid) = self.host_to_entity.get(&hid).copied() else {
                 continue;
             };
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let items: Vec<EntityProductionItem> = obj
@@ -7382,7 +7384,7 @@ impl GameWorldShadow {
                 continue;
             }
             // Completed structure missing from map — treat like a late spawn residual.
-            if let Some(obj) = logic.get_objects().get(&ev.id) {
+            if let Some(obj) = logic.host_objects().get(&ev.id) {
                 if !obj.is_alive() {
                     continue;
                 }
@@ -7423,7 +7425,7 @@ impl GameWorldShadow {
                 }
                 // Entity lost — fall through to normal Spawn residual.
             }
-            let (health, owner) = if let Some(obj) = logic.get_objects().get(&ev.id) {
+            let (health, owner) = if let Some(obj) = logic.host_objects().get(&ev.id) {
                 let owner = self.owner_for_host_object(logic, obj.team);
                 (obj.health.current.max(0.0), owner)
             } else {
@@ -7922,7 +7924,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let host_ord = Self::host_ai_state_ordinal(&obj.ai_state);
@@ -11553,7 +11555,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let was_ready = obj.special_power_ready;
@@ -11618,7 +11620,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if obj.stored_resources.supplies == ent.stored_supplies {
@@ -11690,7 +11692,7 @@ impl GameWorldShadow {
         let mut queued = 0usize;
         let keys: Vec<u32> = self.host_to_entity.keys().copied().collect();
         for hid in keys {
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if self.queue_set_attack_target_for_host(ObjectId(hid), obj.target) {
@@ -11708,7 +11710,7 @@ impl GameWorldShadow {
         let mut queued = 0usize;
         let keys: Vec<u32> = self.host_to_entity.keys().copied().collect();
         for hid in keys {
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let pos = obj.get_position();
@@ -12147,7 +12149,7 @@ impl GameWorldShadow {
             crate::game_logic::combat::queue_projectile_direct(ev);
         }
         {
-            let objects = logic.get_objects();
+            let objects = logic.host_objects();
             // SAFETY: drain only needs shared objects map + mut combat.
             // Split via raw pointers is avoided — clone keys/positions is heavy;
             // use GameLogic helper instead.
@@ -12697,7 +12699,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let host = obj.command_set_override.clone().unwrap_or_default();
@@ -13146,7 +13148,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if (obj.selection_radius - ent.selection_radius).abs() <= f32::EPSILON {
@@ -13440,7 +13442,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let host_active = obj.is_faerie_fire();
@@ -13504,7 +13506,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let host_active = obj.status.repulsor;
@@ -13603,7 +13605,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let changed = (obj.ground_height - ent.ground_height).abs() > f32::EPSILON
@@ -14593,7 +14595,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if obj.overcharge_enabled == ent.overcharge_enabled {
@@ -14664,7 +14666,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if obj.ai_attitude == ent.ai_attitude {
@@ -14701,7 +14703,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let host_pos = obj.guard_position.map(|p| [p.x, p.y, p.z]);
@@ -14897,7 +14899,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let changed = obj.is_detector != ent.is_detector
@@ -14939,7 +14941,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let host_loc = obj.target_location.map(|p| [p.x, p.y, p.z]);
@@ -15066,7 +15068,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if obj.power_provided == ent.power_provided && obj.power_consumed == ent.power_consumed
@@ -15105,7 +15107,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             if obj.active_weapon_slot == ent.active_weapon_slot {
@@ -15203,7 +15205,7 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
             let pts = ent.experience_points.max(0.0);
@@ -16872,7 +16874,7 @@ impl GameWorldShadow {
     pub fn health_parity(&self, logic: &GameLogic) -> (bool, usize) {
         let mut checked = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
-            let Some(host_obj) = logic.get_objects().get(&ObjectId(hid)) else {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 return (false, checked);
             };
             let Some(ent) = self.world.entity(eid) else {
@@ -16888,7 +16890,7 @@ impl GameWorldShadow {
 
     pub fn probe(&self, logic: &mut GameLogic) -> GameWorldShadowProbe {
         let snap: WorldSnapshot = self.world.snapshot();
-        let host_objects = logic.get_objects().len().min(self.max_entities);
+        let host_objects = logic.host_objects().len().min(self.max_entities);
         let host_players = logic.get_players().len();
         let shadow_entities = snap.entities.len();
         let shadow_players = snap.players.len();
@@ -16935,7 +16937,7 @@ impl GameWorldShadow {
         GameWorldShadowProbe {
             host_frame,
             shadow_frame,
-            host_objects: logic.get_objects().len(),
+            host_objects: logic.host_objects().len(),
             shadow_entities,
             host_players,
             shadow_players,
@@ -17672,7 +17674,7 @@ pub fn shadow_session_after_host_tick(
         let stepped = {
             let logic_ref = &*logic;
             shadow.world.step_projectiles(dt, |hid| {
-                logic_ref.get_objects().get(&ObjectId(hid)).map(|o| {
+                logic_ref.host_objects().get(&ObjectId(hid)).map(|o| {
                     let p = o.get_position();
                     [p.x, p.y, p.z]
                 })
@@ -18443,7 +18445,7 @@ pub fn shadow_session_after_host_tick(
         for ev in crate::game_logic::host_emp_pulse_drop_log::drain_dets() {
             let player_id = ev
                 .producer
-                .and_then(|pid| logic.get_objects().get(&pid))
+                .and_then(|pid| logic.host_objects().get(&pid))
                 .and_then(|o| {
                     logic
                         .get_players()
@@ -18755,7 +18757,7 @@ pub fn shadow_session_after_host_tick(
         for ev in crate::game_logic::host_toxin_stream_projectile_log::drain_impacts() {
             let source_team = ev
                 .source
-                .and_then(|sid| logic.get_objects().get(&sid).map(|o| o.team))
+                .and_then(|sid| logic.host_objects().get(&sid).map(|o| o.team))
                 .unwrap_or(ev.team);
             // Wave 942: projectile lethal expire via mutation authority.
             logic.apply_host_residual_mutation_op(
@@ -18772,7 +18774,7 @@ pub fn shadow_session_after_host_tick(
         // Wave 799: AngryMob projectile impact (no dual flight).
         for ev in crate::game_logic::host_angry_mob_projectile_log::drain_impacts() {
             use crate::game_logic::host_angry_mob::AngryMobProjectileKind;
-            let team = logic.get_objects().get(&ev.id).map(|o| o.team);
+            let team = logic.host_objects().get(&ev.id).map(|o| o.team);
             // Wave 942: projectile lethal expire via mutation authority.
             logic.apply_host_residual_mutation_op(
                 crate::game_logic::HostResidualMutationOp::LethalExpire {
@@ -18806,7 +18808,7 @@ pub fn shadow_session_after_host_tick(
                 CannonShellKind::Neutron => {
                     let caster_team = ev
                         .source
-                        .and_then(|sid| logic.get_objects().get(&sid).map(|s| s.team))
+                        .and_then(|sid| logic.host_objects().get(&sid).map(|s| s.team))
                         .unwrap_or(ev.team);
                     let _ = logic.apply_neutron_blast_at(ev.pos, caster_team, ev.source, true);
                 }
@@ -19495,7 +19497,7 @@ pub fn apply_logged_damage_channel_parity(
     let mut pre: Vec<(ObjectId, f32)> = Vec::new();
     for &(id, amount) in targets {
         let h = logic
-            .get_objects()
+            .host_objects()
             .get(&id)
             .map(|o| o.health.current)
             .ok_or_else(|| format!("missing {id:?}"))?;
@@ -19524,7 +19526,7 @@ pub fn apply_logged_damage_channel_parity(
     // Compare
     for (id, _) in targets {
         let host_h = logic
-            .get_objects()
+            .host_objects()
             .get(id)
             .map(|o| o.health.current)
             .unwrap_or(-1.0);
@@ -19630,7 +19632,7 @@ pub fn damage_parity_probe(
 ) -> Result<(), String> {
     shadow.sync_from_host(logic);
     let before = logic
-        .get_objects()
+        .host_objects()
         .get(&host)
         .map(|o| o.health.current)
         .ok_or_else(|| format!("host object {} missing", host.0))?;
@@ -19645,7 +19647,7 @@ pub fn damage_parity_probe(
         return Err("host object vanished".into());
     }
     let host_after = logic
-        .get_objects()
+        .host_objects()
         .get(&host)
         .map(|o| o.health.current)
         .unwrap_or(-1.0);

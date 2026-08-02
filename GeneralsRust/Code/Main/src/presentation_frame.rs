@@ -6,6 +6,8 @@
 //! Ownership: borrow-first on the authority during `build_*`; then the snapshot
 //! is owned values with no live borrows into the world.
 
+//!
+//! Wave 956: host_object/host_objects when building presentation from host.
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility, PresentationFowGrid};
 use crate::game_logic::host_base_defense::{
     build_patriot_laser_line3d_segments, PatriotAssistLaserKind, ResidualPatriotAssistLaser,
@@ -3523,8 +3525,8 @@ impl PresentationFrame {
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
         let fow_grid = FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
-        let mut objects = Vec::with_capacity(logic.get_objects().len());
-        for obj in logic.get_objects().values() {
+        let mut objects = Vec::with_capacity(logic.host_objects().len());
+        for obj in logic.host_objects().values() {
             let is_structure = obj.is_kind_of(KindOf::Structure);
             let is_unit = obj.is_kind_of(KindOf::Infantry)
                 || obj.is_kind_of(KindOf::Vehicle)
@@ -4095,7 +4097,7 @@ impl PresentationFrame {
             ];
             // Living constructed structures owned by local team (C++ addSuperweapon residual).
             let owned_sw_templates: Vec<String> = logic
-                .get_objects()
+                .host_objects()
                 .values()
                 .filter(|o| {
                     o.team == p.team
@@ -4148,7 +4150,7 @@ impl PresentationFrame {
                     // Per-structure module residual: soonest ready among owned SW buildings.
                     let mut any = false;
                     let mut min_rem = f32::MAX;
-                    for obj in logic.get_objects().values() {
+                    for obj in logic.host_objects().values() {
                         if obj.team != p.team || !obj.is_alive() || !obj.is_constructed() {
                             continue;
                         }
@@ -4208,10 +4210,10 @@ impl PresentationFrame {
                 .selected_objects
                 .iter()
                 .copied()
-                .find(|&id| logic.get_object(id).is_some_and(is_producer))
+                .find(|&id| logic.host_object(id).is_some_and(is_producer))
                 .or_else(|| {
                     logic
-                        .get_objects()
+                        .host_objects()
                         .iter()
                         .find(|(_, o)| is_producer(o))
                         .map(|(id, _)| *id)
@@ -4220,7 +4222,7 @@ impl PresentationFrame {
                 can_make_producer_id = Some(pid.0);
                 // Sample residual templates by factory kind.
                 let samples: &[&str] = {
-                    let o = logic.get_object(pid);
+                    let o = logic.host_object(pid);
                     let bt = o
                         .and_then(|o| o.building_data.as_ref())
                         .map(|b| b.building_type);
@@ -4339,7 +4341,7 @@ impl PresentationFrame {
         let mut floating_texts = collect_presentation_floating_texts(logic);
         // Wave 514: active host emoticons → floating-text residual (presentation-only).
         let frame_now = logic.get_frame();
-        for obj in logic.get_objects().values() {
+        for obj in logic.host_objects().values() {
             if obj.emoticon_frames_left <= 0 || obj.emoticon_name.is_empty() {
                 continue;
             }
@@ -4457,7 +4459,7 @@ impl PresentationFrame {
             });
             if ev.amount > 0.0 && !ev.destroyed {
                 let pos = logic
-                    .get_objects()
+                    .host_objects()
                     .get(&ev.target)
                     .map(|o| o.get_position())
                     .unwrap_or(Vec3::ZERO);
@@ -7735,7 +7737,7 @@ impl PresentationFrame {
     pub fn overlay_host_fx_residual(&mut self, logic: &GameLogic) -> usize {
         let mut stamped = 0usize;
         for ro in &mut self.objects {
-            let Some(obj) = logic.get_object(ro.id) else {
+            let Some(obj) = logic.host_object(ro.id) else {
                 continue;
             };
             let mut dirty = false;
