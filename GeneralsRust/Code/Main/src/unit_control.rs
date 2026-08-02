@@ -604,7 +604,7 @@ impl UnitControlSystem {
             let mut selected_in_box = Vec::new();
             let mut structures_in_box = Vec::new();
 
-            // Find all friendly units in the box (presentation identity preferred).
+            // Wave 949: box selection is presentation-only (no live GameLogic dual-read).
             if let Some(frame) = self.presentation_frame.as_ref() {
                 for o in &frame.objects {
                     if o.team == self.local_player_team && Self::presentation_is_selectable(o) {
@@ -620,20 +620,8 @@ impl UnitControlSystem {
                         }
                     }
                 }
-            } else {
-                for (object_id, object) in logic.get_objects().iter() {
-                    if object.team == self.local_player_team && object.is_selectable() {
-                        let pos = object.get_position();
-                        if pos.x >= min_x && pos.x <= max_x && pos.z >= min_z && pos.z <= max_z {
-                            if object.is_kind_of(KindOf::Structure) {
-                                structures_in_box.push(*object_id);
-                            } else {
-                                selected_in_box.push(*object_id);
-                            }
-                        }
-                    }
-                }
             }
+            // Fail-closed without presentation freeze: empty box selection.
 
             if selected_in_box.is_empty() {
                 structures_in_box.sort();
@@ -732,52 +720,29 @@ impl UnitControlSystem {
     }
 
     /// Select all units of the same type as the clicked unit
-    fn select_similar_units(&mut self, object_id: ObjectId, game_logic: &GameLogic) {
-        // Prefer presentation identity (template/team/selectable) when a snapshot is
-        // installed — avoids live GameLogic dual-read for double-click select-similar.
-        if let Some(frame) = self.presentation_frame.as_ref() {
-            let Some(clicked) = frame.objects.iter().find(|o| o.id == object_id) else {
-                return;
-            };
-            let template_name = clicked.template_name.clone();
-            self.selected_objects.clear();
-            for o in &frame.objects {
-                if o.team == self.local_player_team
-                    && Self::presentation_is_selectable(o)
-                    && o.template_name == template_name
-                {
-                    self.selected_objects.push(o.id);
-                }
-            }
-            println!(
-                "Selected {} units of type {} (presentation)",
-                self.selected_objects.len(),
-                template_name
-            );
+    fn select_similar_units(&mut self, object_id: ObjectId, _game_logic: &GameLogic) {
+        // Wave 949: presentation-only select-similar (no live GameLogic dual-read).
+        let Some(frame) = self.presentation_frame.as_ref() else {
             return;
-        }
-
-        // Boot residual only when no presentation frame is installed.
-        if let Some(clicked_object) = game_logic.get_object(object_id) {
-            let template_name = &clicked_object.template_name;
-
-            self.selected_objects.clear();
-
-            for (obj_id, object) in game_logic.get_objects().iter() {
-                if object.team == self.local_player_team
-                    && object.is_selectable()
-                    && object.template_name == *template_name
-                {
-                    self.selected_objects.push(*obj_id);
-                }
+        };
+        let Some(clicked) = frame.objects.iter().find(|o| o.id == object_id) else {
+            return;
+        };
+        let template_name = clicked.template_name.clone();
+        self.selected_objects.clear();
+        for o in &frame.objects {
+            if o.team == self.local_player_team
+                && Self::presentation_is_selectable(o)
+                && o.template_name == template_name
+            {
+                self.selected_objects.push(o.id);
             }
-
-            println!(
-                "Selected {} units of type {}",
-                self.selected_objects.len(),
-                template_name
-            );
         }
+        println!(
+            "Selected {} units of type {} (presentation)",
+            self.selected_objects.len(),
+            template_name
+        );
     }
 
     /// Clear current selection
@@ -909,16 +874,16 @@ impl UnitControlSystem {
 
     /// Select all player units (Ctrl+A)
     pub async fn select_all_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+        // Wave 949: presentation-only select-all (no live GameLogic dual-read).
         self.selected_objects.clear();
-
-        for (object_id, object) in logic.get_objects().iter() {
-            if object.team == self.local_player_team && object.is_selectable() {
-                self.selected_objects.push(*object_id);
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            for o in &frame.objects {
+                if o.team == self.local_player_team && Self::presentation_is_selectable(o) {
+                    self.selected_objects.push(o.id);
+                }
             }
         }
-
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         logic.select_objects(self.player_id, self.selected_objects.clone());
         println!("Selected all {} units", self.selected_objects.len());
     }
