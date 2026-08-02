@@ -415,6 +415,7 @@ pub mod host_live_host_unmapped_damage_fallback_residual_wave943;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_victory_fps_failclosed_residual_wave907;
 pub mod host_live_host_victory_fps_legal_failclosed_residual_wave910;
+pub mod host_live_host_vision_shroud_crush_presentation_residual_wave994;
 pub mod host_live_host_weapon_ui_text_residual_wave980;
 pub mod host_live_host_world_bounds_ui_residual_wave862;
 pub mod host_live_host_wp_audio_clippy_residual_wave889;
@@ -3503,6 +3504,13 @@ pub use host_live_host_rebuild_hole_presentation_residual_wave993::{
     honesty_host_rebuild_hole_presentation_residual_nav_commands_residual_wave993,
     honesty_host_rebuild_hole_presentation_residual_residual_pack_wave993,
     simulate_live_host_rebuild_hole_presentation_residual_honesty,
+};
+
+pub use host_live_host_vision_shroud_crush_presentation_residual_wave994::{
+    honesty_host_vision_shroud_crush_presentation_residual_method_names_residual_wave994,
+    honesty_host_vision_shroud_crush_presentation_residual_nav_commands_residual_wave994,
+    honesty_host_vision_shroud_crush_presentation_residual_residual_pack_wave994,
+    simulate_live_host_vision_shroud_crush_presentation_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
