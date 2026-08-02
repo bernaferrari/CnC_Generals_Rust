@@ -1837,6 +1837,25 @@ fn register_real_game_client_bootstrap() {
 #[cfg(not(feature = "game_client"))]
 fn register_real_game_client_bootstrap() {}
 
+#[derive(Debug, Clone, Copy)]
+enum HostDirectPlayerOrder {
+    Attack {
+        player_id: u32,
+        target: crate::game_logic::ObjectId,
+    },
+    Stop {
+        player_id: u32,
+    },
+    Move {
+        player_id: u32,
+        dest: glam::Vec3,
+    },
+    AttackMove {
+        player_id: u32,
+        dest: glam::Vec3,
+    },
+}
+
 impl CnCGameEngine {
     fn append_message_argument_to_common_stream(
         target: &mut game_engine::common::message_stream::GameMessage,
@@ -20257,7 +20276,7 @@ impl CnCGameEngine {
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     #[inline]
     fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
-        // Wave 584/870/908/919/923: single tick_logic_frame authority boundary + stamp snapshot.
+        // Wave 584/870/908/919/923/929: single tick_logic_frame authority boundary + stamp snapshot.
         // Skip authority tick dual-write when host residual is paused (GameLogic also
         // no-ops is_paused; avoid the call entirely).
         if self.game_paused {
@@ -20593,8 +20612,26 @@ impl CnCGameEngine {
         ok
     }
 
-    /// Wave 583: host attack command residual (runtime honesty path).
+    /// Wave 929: single direct-order authority boundary + residual stamp.
     #[inline]
+    fn host_issue_direct_player_order(&mut self, order: HostDirectPlayerOrder) {
+        match order {
+            HostDirectPlayerOrder::Attack { player_id, target } => {
+                self.game_logic.command_attack(player_id, target);
+            }
+            HostDirectPlayerOrder::Stop { player_id } => {
+                self.game_logic.command_stop(player_id);
+            }
+            HostDirectPlayerOrder::Move { player_id, dest } => {
+                self.game_logic.command_move(player_id, dest);
+            }
+            HostDirectPlayerOrder::AttackMove { player_id, dest } => {
+                self.game_logic.command_attack_move(player_id, dest);
+            }
+        }
+        self.host_stamp_after_authority_command();
+    }
+
     fn host_stamp_after_authority_command(&mut self) {
         // Wave 917/927: skip mid-command stamp when presentation freeze owns clocks.
         if self.last_presentation_frame.is_none() {
@@ -20603,33 +20640,29 @@ impl CnCGameEngine {
     }
 
     fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
-        // Wave 583/871/917/927: host attack residual + stamp sim timing.
-        self.game_logic.command_attack(player_id, target);
-        self.host_stamp_after_authority_command();
+        // Wave 583/871/917/927/929: host attack residual via direct-order boundary.
+        self.host_issue_direct_player_order(HostDirectPlayerOrder::Attack { player_id, target });
     }
 
     /// Wave 583: host stop-selected residual (runtime honesty path).
     #[inline]
     fn host_command_stop(&mut self, player_id: u32) {
-        // Wave 583/871/917/927: host stop residual + stamp sim timing.
-        self.game_logic.command_stop(player_id);
-        self.host_stamp_after_authority_command();
+        // Wave 583/871/917/927/929: host stop residual via direct-order boundary.
+        self.host_issue_direct_player_order(HostDirectPlayerOrder::Stop { player_id });
     }
 
     /// Wave 583: host attack-move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583/871/917/927: host attack-move residual + stamp sim timing.
-        self.game_logic.command_attack_move(player_id, dest);
-        self.host_stamp_after_authority_command();
+        // Wave 583/871/917/927/929: host attack-move residual via direct-order boundary.
+        self.host_issue_direct_player_order(HostDirectPlayerOrder::AttackMove { player_id, dest });
     }
 
     /// Wave 583: host move residual (minimap/right-click fallback).
     #[inline]
     fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
-        // Wave 583/871/917/927: host move residual + stamp sim timing.
-        self.game_logic.command_move(player_id, dest);
-        self.host_stamp_after_authority_command();
+        // Wave 583/871/917/927/929: host move residual via direct-order boundary.
+        self.host_issue_direct_player_order(HostDirectPlayerOrder::Move { player_id, dest });
     }
 
     /// Wave 583: host legal-build probe residual (construct honesty path).
@@ -20641,7 +20674,7 @@ impl CnCGameEngine {
         template: &str,
         builder: Option<crate::game_logic::ObjectId>,
     ) -> u32 {
-        // Wave 583/911/924: host legal build-code residual with per-frame cache.
+        // Wave 583/911/924/929: host legal build-code residual with per-frame cache.
         // Placement cursor/UI + pad scans share this residual (no live dual-read on hit).
         let frame = self
             .host_match_logic_frame
