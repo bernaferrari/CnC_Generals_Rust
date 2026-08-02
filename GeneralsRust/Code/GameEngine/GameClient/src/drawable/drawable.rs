@@ -1714,6 +1714,8 @@ pub struct BasicDrawable {
     /// Wave 983: host healing icon residual.
     presentation_show_healing: bool,
     presentation_healing_icon_type: u8,
+    /// Wave 984: garrisoned unit object ids for host contained-flash residual.
+    presentation_garrisoned_ids: Vec<u32>,
 
     /// Animation loop duration in frames setAnimationLoopDuration)
     animation_loop_duration: u32,
@@ -1822,6 +1824,7 @@ impl BasicDrawable {
             presentation_weapon_bonus_enthusiastic: false,
             presentation_show_healing: false,
             presentation_healing_icon_type: 0,
+            presentation_garrisoned_ids: Vec::new(),
 
             animation_loop_duration: 0,
             animation_completion_time: 0,
@@ -1896,6 +1899,7 @@ impl BasicDrawable {
         orientation: f32,
         show_healing: bool,
         healing_icon_type: u8,
+        garrisoned_ids: Vec<u32>,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
@@ -1916,6 +1920,7 @@ impl BasicDrawable {
         self.presentation_weapon_bonus_enthusiastic = weapon_bonus_enthusiastic;
         self.presentation_show_healing = show_healing;
         self.presentation_healing_icon_type = healing_icon_type;
+        self.presentation_garrisoned_ids = garrisoned_ids;
         self.hidden_by_stealth = effectively_stealthed;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
@@ -2095,13 +2100,11 @@ impl BasicDrawable {
         // Wave 977: host empty dual-world → presentation occupant residual only.
         // Full contained-drawable flash walk needs dual-world factory objects.
         if dual_world_registry_unavailable() {
-            // Wave 983: occupant residual already drives contain pips; contained-unit
-            // flash walk remains dual-world (no contained drawable IDs on host).
-            let _ = (
-                object_id,
-                self.presentation_occupant_count,
-                self.presentation_max_garrison,
+            // Wave 984: host residual queues garrisoned presentation ids for shell flash.
+            crate::core::game_client::queue_host_contained_flash_object_ids(
+                self.presentation_garrisoned_ids.iter().copied(),
             );
+            let _ = object_id;
             return;
         }
 
@@ -2127,17 +2130,20 @@ impl BasicDrawable {
         let contained_count = contain_guard.get_contain_count();
         drop(contain_guard);
 
-        // Iterate through contained objects and trigger their flash
-        // The drawable system will handle the visual feedback
-        for i in 0..contained_count {
-            // The contained object's drawable will flash when it processes
-            // its own selection state via the render loop
-            log::trace!(
-                "Flashing contained object at index {} for parent {}",
-                i,
-                object_id
-            );
+        // Wave 984: prefer contain module flash-as-selected (C++ parity).
+        drop(obj_guard);
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+        if let Some(contain) = obj_guard.get_contain() {
+            if let Ok(mut contain_guard) = contain.lock() {
+                let _ = contain_guard.client_visible_contained_flash_as_selected();
+            }
         }
+        let _ = contained_count;
     }
 
     /// Set expiration frame for automatic cleanup

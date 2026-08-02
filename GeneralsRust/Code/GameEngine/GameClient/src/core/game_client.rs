@@ -173,12 +173,35 @@ pub struct PresentationDrawableSync {
     /// Wave 983: healing icon residual for host empty dual-world.
     pub show_healing: bool,
     pub healing_icon_type: u8,
+    /// Wave 984: garrisoned unit ids for contained-flash residual.
+    pub garrisoned_ids: Vec<u32>,
 }
 
 // Wave 269: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
+}
+
+/// Wave 984: host residual queue — flash contained presentation drawables on select.
+static HOST_CONTAINED_FLASH_QUEUE: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// Queue object ids whose presentation drawables should flash-as-selected.
+pub fn queue_host_contained_flash_object_ids(ids: impl IntoIterator<Item = u32>) {
+    if let Ok(mut q) = HOST_CONTAINED_FLASH_QUEUE.lock() {
+        for id in ids {
+            if id != 0 && !q.contains(&id) {
+                q.push(id);
+            }
+        }
+    }
+}
+
+fn take_host_contained_flash_object_ids() -> Vec<u32> {
+    HOST_CONTAINED_FLASH_QUEUE
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
 }
 
 /// Result type for GameClient operations
@@ -3455,6 +3478,7 @@ impl GameClient {
                 weapon_bonus_enthusiastic: false,
                 show_healing: false,
                 healing_icon_type: 0,
+                garrisoned_ids: Vec::new(),
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -3591,6 +3615,7 @@ impl GameClient {
             e.orientation,
             e.show_healing,
             e.healing_icon_type,
+            e.garrisoned_ids.clone(),
         );
     }
 
@@ -3783,6 +3808,25 @@ impl GameClient {
             };
             let _ = self.set_time_of_day(client_tod);
         }
+
+        // Wave 984: drain contained-flash residual onto presentation drawables.
+        for object_id in take_host_contained_flash_object_ids() {
+            let Some(drawable_id) = self.get_drawable_for_object(object_id) else {
+                continue;
+            };
+            if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+                use crate::drawable::drawable::DrawableExt;
+                // White selection flash residual (C++ Drawable::flashAsSelected).
+                if let Some(basic) =
+                    drawable.downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+                {
+                    basic.color_flash(Vector3::new(1.0, 1.0, 1.0), 4);
+                } else {
+                    let _ = drawable;
+                }
+            }
+        }
+
         // Startup movies remain Main/runtime-host owned; skip movie branch here.
         self.ensure_shell_visible()?;
         self.update_pre_draw_ui()?;

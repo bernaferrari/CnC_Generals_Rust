@@ -165,6 +165,7 @@ pub mod host_live_host_command_hint_catalog_residual_wave969;
 pub mod host_live_host_command_pipeline_boundary_residual_wave932;
 pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
 pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
+pub mod host_live_host_contained_flash_residual_wave984;
 pub mod host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746;
 pub mod host_live_host_daisy_cutter_flight_dual_peel_residual_wave788;
 pub mod host_live_host_default_template_opt_in_residual_wave727;
@@ -3423,6 +3424,13 @@ pub use host_live_host_healing_icon_residual_wave983::{
     honesty_host_healing_icon_residual_nav_commands_residual_wave983,
     honesty_host_healing_icon_residual_residual_pack_wave983,
     simulate_live_host_healing_icon_residual_honesty,
+};
+
+pub use host_live_host_contained_flash_residual_wave984::{
+    honesty_host_contained_flash_residual_method_names_residual_wave984,
+    honesty_host_contained_flash_residual_nav_commands_residual_wave984,
+    honesty_host_contained_flash_residual_residual_pack_wave984,
+    simulate_live_host_contained_flash_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
