@@ -170,9 +170,12 @@ pub struct PresentationDrawableSync {
     pub disabled: bool,
     pub is_carbomb: bool,
     pub weapon_bonus_enthusiastic: bool,
+    /// Wave 983: healing icon residual for host empty dual-world.
+    pub show_healing: bool,
+    pub healing_icon_type: u8,
 }
 
-/// Wave 269: host-only path has no dual-world factory objects.
+// Wave 269: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
@@ -3450,6 +3453,8 @@ impl GameClient {
                 disabled: false,
                 is_carbomb: false,
                 weapon_bonus_enthusiastic: false,
+                show_healing: false,
+                healing_icon_type: 0,
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -3584,6 +3589,8 @@ impl GameClient {
             e.is_carbomb,
             e.weapon_bonus_enthusiastic,
             e.orientation,
+            e.show_healing,
+            e.healing_icon_type,
         );
     }
 

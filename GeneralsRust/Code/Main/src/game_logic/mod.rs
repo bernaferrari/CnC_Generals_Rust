@@ -241,6 +241,7 @@ pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
 pub mod host_live_host_gw_flight_over_assign_residual_wave877;
 pub mod host_live_host_hacker_income_dual_peel_residual_wave822;
 pub mod host_live_host_harness_host_object_seal_residual_wave957;
+pub mod host_live_host_healing_icon_residual_wave983;
 pub mod host_live_host_height_die_dual_peel_residual_wave771;
 pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
 pub mod host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748;
@@ -3415,6 +3416,13 @@ pub use host_live_host_slaver_mouseover_residual_wave982::{
     honesty_host_slaver_mouseover_residual_nav_commands_residual_wave982,
     honesty_host_slaver_mouseover_residual_residual_pack_wave982,
     simulate_live_host_slaver_mouseover_residual_honesty,
+};
+
+pub use host_live_host_healing_icon_residual_wave983::{
+    honesty_host_healing_icon_residual_method_names_residual_wave983,
+    honesty_host_healing_icon_residual_nav_commands_residual_wave983,
+    honesty_host_healing_icon_residual_residual_pack_wave983,
+    simulate_live_host_healing_icon_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
