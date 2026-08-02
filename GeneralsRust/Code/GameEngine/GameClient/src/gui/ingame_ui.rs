@@ -871,6 +871,8 @@ pub struct PresentationUnitCatalogEntry {
     pub position: [f32; 3],
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
+    /// Wave 971: special power ready residual for host SP targeting.
+    pub special_power_ready: bool,
 }
 
 pub struct InGameUI {
@@ -1483,9 +1485,14 @@ impl InGameUI {
     }
 
     fn source_has_overridable_special_power_destination(&self, source_object_id: ObjectID) -> bool {
-        // Wave 273: empty dual-world → fail-closed.
+        // Wave 971: host empty dual-world → presentation special-power ready residual.
+        // Full overridable-destination module walk requires dual-world; ready residual is
+        // the host-safe approximation for pending SP destination override UI.
         if dual_world_registry_unavailable() {
-            return false;
+            return self
+                .presentation_unit_catalog
+                .iter()
+                .any(|u| u.object_id == source_object_id && u.special_power_ready);
         }
 
         if source_object_id == 0 {
@@ -1525,9 +1532,51 @@ impl InGameUI {
         target_id: ObjectID,
         options_bits: u32,
     ) -> bool {
-        // Wave 273: empty dual-world → fail-closed.
+        // Wave 971: host empty dual-world → presentation catalog residual.
         if dual_world_registry_unavailable() {
-            return false;
+            let options = SpecialPowerCommandOption::from_bits_truncate(options_bits);
+            let needs_object = options.intersects(
+                SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                    | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                    | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT
+                    | SpecialPowerCommandOption::NEED_TARGET_PRISONER,
+            );
+            if !needs_object {
+                return true;
+            }
+            let Some(source) = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|u| u.object_id == source_object_id)
+            else {
+                return false;
+            };
+            if !source.special_power_ready {
+                return false;
+            }
+            let Some(target) = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|u| u.object_id == target_id)
+            else {
+                return false;
+            };
+            // Relationship residual from team names (fail-open when Neutral options present).
+            let same_team = source.team_name == target.team_name;
+            if options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
+                && !options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
+                && same_team
+            {
+                return false;
+            }
+            if options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
+                && !options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
+                && !same_team
+            {
+                return false;
+            }
+            let _ = power_id;
+            return true;
         }
 
         let options = SpecialPowerCommandOption::from_bits_truncate(options_bits);
