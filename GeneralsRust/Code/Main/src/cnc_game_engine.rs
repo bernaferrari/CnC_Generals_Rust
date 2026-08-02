@@ -20055,6 +20055,14 @@ impl CnCGameEngine {
     /// Call after host logic + shadow writeback. Borrow-first: no live dual-read
     /// during later render. Fail-closed: not sole GameWorld authority / playable_claim.
     fn host_finalize_presentation_after_logic(&mut self) {
+        // Wave 985: drain ControlBar host production-pause residual onto BuildingData.
+        for (producer_id, paused) in
+            game_client::gui::control_bar::take_host_production_pause_requests()
+        {
+            let _ = self
+                .game_logic
+                .set_production_paused(crate::game_logic::ObjectId(producer_id), paused);
+        }
         // Wave 589: presentation finalize residual.
         // Wave 589/838/926: shadow sync + victory presentation build via single boundary.
         let mut pres = self.host_sync_shadow_and_build_presentation(true);

@@ -316,6 +316,7 @@ pub mod host_live_host_producer_refresh_freeze_peels_residual_wave920;
 pub mod host_live_host_production_authority_boundary_residual_wave937;
 pub mod host_live_host_production_door_sole_no_dual_tick_residual_wave743;
 pub mod host_live_host_production_object_id_prefers_gw_entity_residual_wave737;
+pub mod host_live_host_production_pause_residual_wave985;
 pub mod host_live_host_production_ready_no_empty_scan_residual_wave713;
 pub mod host_live_host_production_ready_pose_authority_residual_wave735;
 pub mod host_live_host_production_same_frame_ready_complete_residual_wave714;
@@ -3431,6 +3432,13 @@ pub use host_live_host_contained_flash_residual_wave984::{
     honesty_host_contained_flash_residual_nav_commands_residual_wave984,
     honesty_host_contained_flash_residual_residual_pack_wave984,
     simulate_live_host_contained_flash_residual_honesty,
+};
+
+pub use host_live_host_production_pause_residual_wave985::{
+    honesty_host_production_pause_residual_method_names_residual_wave985,
+    honesty_host_production_pause_residual_nav_commands_residual_wave985,
+    honesty_host_production_pause_residual_residual_pack_wave985,
+    simulate_live_host_production_pause_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

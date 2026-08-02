@@ -71459,6 +71459,18 @@ impl GameLogic {
         false
     }
 
+    /// Wave 985: host production pause residual (ControlBar empty dual-world queue).
+    pub fn set_production_paused(&mut self, producer_id: ObjectId, paused: bool) -> bool {
+        let Some(producer) = self.objects.get_mut(&producer_id) else {
+            return false;
+        };
+        let Some(building) = producer.building_data.as_mut() else {
+            return false;
+        };
+        building.set_production_paused(paused);
+        true
+    }
+
     /// Cancel every queued production item on a producer and refund the owner.
     pub fn cancel_all_production(&mut self, producer_id: ObjectId) -> bool {
         let Some(team) = self.objects.get(&producer_id).map(|p| p.team) else {

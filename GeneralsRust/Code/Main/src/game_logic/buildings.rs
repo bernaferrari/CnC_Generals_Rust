@@ -9,6 +9,8 @@ pub const DEFAULT_PRODUCTION_QUEUE_LIMIT: usize = 9;
 pub struct BuildingData {
     pub building_type: BuildingType,
     pub production_queue: Vec<ProductionItem>,
+    /// Wave 985: C++ ProductionUpdate pause residual (hold queue timer).
+    pub production_paused: bool,
     /// C++ QueueProductionExitUpdate exit countdown residual (seconds).
     /// While > 0, factory cannot release the next completed unit residual.
     pub exit_delay_remaining: f32,
@@ -141,6 +143,7 @@ impl BuildingData {
         Self {
             building_type,
             production_queue: Vec::new(),
+            production_paused: false,
             exit_delay_remaining: 0.0,
             rally_point: None,
             power_output,
@@ -255,6 +258,11 @@ impl BuildingData {
     /// Advance head-of-queue build timer only (no completion/spawn).
     /// Under GameWorld production authority, shadow owns this advance.
     pub fn advance_production_progress(&mut self, dt: f32, power_factor: f32) {
+        // Wave 985: paused queue holds build timer (C++ ProductionUpdate pause).
+        if self.production_paused {
+            let _ = (dt, power_factor);
+            return;
+        }
         let effective_dt = dt * power_factor.max(0.01);
         if let Some(item) = self.production_queue.first_mut() {
             // Only advance build timer until the batch is fully produced residual.
@@ -307,6 +315,15 @@ impl BuildingData {
         } else {
             None
         }
+    }
+
+    /// Wave 985: pause/resume production queue residual.
+    pub fn set_production_paused(&mut self, paused: bool) {
+        self.production_paused = paused;
+    }
+
+    pub fn is_production_paused(&self) -> bool {
+        self.production_paused
     }
 
     pub fn get_production_progress(&self) -> Option<f32> {
