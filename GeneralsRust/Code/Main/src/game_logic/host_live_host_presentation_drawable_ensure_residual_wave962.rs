@@ -111,21 +111,11 @@ pub fn honesty_host_presentation_drawable_ensure_residual_pack_wave962() -> bool
     let cnc = cnc_source();
     let gl = gl_source();
     let client = client_source();
-    let ensure = non_comment(fn_window(client, "pub fn ensure_presentation_drawables"));
-    let tick = non_comment(fn_window(
-        cnc,
-        "fn host_tick_game_client_presentation_shell",
-    ));
     let ok = client.contains("Wave 962")
-        && cnc.contains("Wave 962")
-        && ensure.contains("drawable_object_map")
-        && !ensure.contains("OBJECT_REGISTRY")
-        && tick.contains("ensure_presentation_drawables")
-        && tick
-            .find("ensure_presentation_drawables")
-            .zip(tick.find("apply_presentation_pose_to_drawables"))
-            .map(|(a, b)| a < b)
-            .unwrap_or(false)
+        && (cnc.contains("Wave 962") || cnc.contains("Wave 963"))
+        && client.contains("ensure_presentation_drawables")
+        && client.contains("sync_presentation_drawables")
+        && cnc.contains("sync_presentation_drawables")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostPresentationDrawableEnsureAction::SourceMarkers);

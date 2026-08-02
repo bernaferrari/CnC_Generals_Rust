@@ -20107,34 +20107,38 @@ impl CnCGameEngine {
             game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
         };
         if let Some(pres) = self.last_presentation_frame.as_ref() {
-            // Wave 962: ensure drawables exist from presentation freeze (host path,
-            // no OBJECT_REGISTRY dual-world populate).
-            let ensure_entries = pres.objects.iter().filter_map(|o| {
-                if o.destroyed {
-                    return None;
+            // Wave 963: sync drawables from presentation freeze (model+prune).
+            // Wave 962/963: sync drawables from presentation freeze (ensure + model +
+            // prune). No OBJECT_REGISTRY dual-world populate. Pose/shroud still apply
+            // after for FOW residual that is independent of model stamp.
+            let sync_entries = pres.objects.iter().map(|o| {
+                game_client::core::game_client::PresentationDrawableSync {
+                    object_id: o.id.0,
+                    template_name: o.template_name.clone(),
+                    position: [o.position.x, o.position.y, o.position.z],
+                    orientation: o.orientation,
+                    destroyed: o.destroyed,
+                    model_condition_bits: o.model_condition_bits,
+                    body_damage_state: o.body_damage_state,
                 }
-                Some((
-                    o.id.0,
-                    o.template_name.clone(),
-                    [o.position.x, o.position.y, o.position.z],
-                    o.orientation,
-                ))
             });
-            let created = self
-                .game_client
-                .ensure_presentation_drawables(ensure_entries);
-            if created > 0 {
-                log::trace!("presentation ensured {created} drawables");
+            let (created, updated, pruned) =
+                self.game_client.sync_presentation_drawables(sync_entries);
+            if created + updated + pruned > 0 {
+                log::trace!(
+                    "presentation drawable sync created={created} updated={updated} pruned={pruned}"
+                );
             }
             // C++ per-drawable shroud residual from frozen presentation FOW.
             let shroud_entries: Vec<(u32, bool)> = pres
                 .objects
                 .iter()
+                .filter(|o| !o.destroyed)
                 .map(|o| (o.id.0, o.fow_visibility.fully_obscures_drawable()))
                 .collect();
             self.game_client
                 .apply_presentation_shroud_to_drawables(shroud_entries);
-            // Presentation pose residual → bound drawables (no OBJECT_REGISTRY).
+            // Pose residual re-apply (keeps prior path for honesty counters).
             let pose_entries = pres.objects.iter().filter_map(|o| {
                 if o.destroyed {
                     return None;
