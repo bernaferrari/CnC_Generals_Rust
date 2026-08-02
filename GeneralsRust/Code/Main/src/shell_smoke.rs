@@ -180,6 +180,7 @@
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::ai_skirmish_activity::honesty_ai_skirmish_residual_pack_wave77;
 use crate::assets::mesh_asset_resolve::honesty_mesh_asset_residual_ok;
 use crate::fow_rendering::honesty_fow_residual_pack_wave77;
@@ -8734,7 +8735,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
 
     // Ensure at least one selectable unit is selected so selection health is exercised.
     let select_id = logic
-        .get_objects()
+        .host_objects()
         .values()
         .find(|o| o.is_alive() && !o.status.destroyed)
         .map(|o| o.id);
@@ -8870,7 +8871,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
             atk_logic.templates.insert(name.into(), t);
             let _ = atk_logic.create_object(name, crate::game_logic::Team::USA, pos);
         }
-        let ids: Vec<_> = atk_logic.get_objects().keys().copied().collect();
+        let ids: Vec<_> = atk_logic.host_objects().keys().copied().collect();
         if ids.len() >= 2 {
             if let Some(obj) = atk_logic.host_object_mut(ids[0]) {
                 obj.target = Some(ids[1]);

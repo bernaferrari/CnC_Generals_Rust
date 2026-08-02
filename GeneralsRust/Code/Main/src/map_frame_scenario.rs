@@ -5,6 +5,7 @@
 //! GameState. When retail maps are absent, callers can still exercise the pure
 //! frame-advance path with a synthetic world.
 
+//! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::script_loader::find_map_file;
 use crate::game_logic::{GameLogic, GameMode};
 use std::path::{Path, PathBuf};
@@ -174,7 +175,7 @@ pub fn run_map_frame_scenario(map_name: Option<&str>, frames: u32) -> MapFrameSc
         frames_advanced,
         frame_before,
         frame_after,
-        object_count: logic.get_objects().len(),
+        object_count: logic.host_objects().len(),
         status,
     }
 }
