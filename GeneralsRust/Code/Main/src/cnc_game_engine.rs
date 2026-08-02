@@ -20166,6 +20166,31 @@ impl CnCGameEngine {
             // Cinematic text residual → InGameUI HUD message.
             self.game_client
                 .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
+            // Wave 964: selection residual for InGameUI host empty dual-world path.
+            let sel_units: Vec<game_client::gui::ingame_ui::PresentationSelectedUnitResidual> = {
+                let selected: std::collections::HashSet<_> =
+                    pres.selected.iter().copied().collect();
+                pres.objects
+                    .iter()
+                    .filter(|o| selected.contains(&o.id) && !o.destroyed)
+                    .map(|o| {
+                        let health_pct = if o.health_max > 0.0 {
+                            (o.health_current / o.health_max).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                        game_client::gui::ingame_ui::PresentationSelectedUnitResidual {
+                            object_id: o.id.0,
+                            template_name: o.template_name.clone(),
+                            position: [o.position.x, o.position.y, o.position.z],
+                            health_pct,
+                            kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
+                        }
+                    })
+                    .collect()
+            };
+            self.game_client
+                .apply_presentation_selection_residual(sel_units);
         }
         // PRES_SHELL_ONLY_DRAWABLE_TICK: client modules via update_drawables_local.
         // Wave 862: presentation pose/shroud/caption residual already applied above.

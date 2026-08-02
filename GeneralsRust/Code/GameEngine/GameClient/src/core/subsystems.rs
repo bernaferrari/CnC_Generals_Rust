@@ -1066,6 +1066,8 @@ impl SubsystemInterface for WindowManagerSubsystem {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
+    /// Wave 964: presentation selection residual (host empty dual-world).
+    presentation_selected: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
     beacon_markers: Vec<BeaconMarker>,
     pending_beacon_events: VecDeque<BeaconNotification>,
     selection_events: VecDeque<SelectionEvent>,
@@ -1234,6 +1236,20 @@ impl InGameUISubsystem {
             .push_back((label.to_string(), duration_ms));
         let duration_frames = ((duration_ms.max(0) as u32).saturating_mul(30)) / 1000;
         self.disable_tooltips_until(TheGameLogic::get_frame().saturating_add(duration_frames));
+    }
+
+    /// Wave 964: stamp presentation selection residual.
+    pub fn set_presentation_selection_residual(
+        &mut self,
+        units: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
+    ) {
+        self.presentation_selected = units;
+    }
+
+    pub fn presentation_selection_residual(
+        &self,
+    ) -> &[crate::gui::ingame_ui::PresentationSelectedUnitResidual] {
+        &self.presentation_selected
     }
 
     fn disable_tooltips_until(&mut self, frame_num: u32) {
