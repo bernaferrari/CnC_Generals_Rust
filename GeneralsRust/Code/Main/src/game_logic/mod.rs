@@ -338,6 +338,7 @@ pub mod host_live_host_radar_extend_no_dual_complete_residual_wave744;
 pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
 pub mod host_live_host_ready_log_drain_boundary_residual_wave939;
 pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
+pub mod host_live_host_rebuild_hole_presentation_residual_wave993;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
 pub mod host_live_host_redundant_authority_write_skip_residual_wave913;
@@ -3495,6 +3496,13 @@ pub use host_live_host_entity_producer_id_presentation_residual_wave992::{
     honesty_host_entity_producer_id_presentation_residual_nav_commands_residual_wave992,
     honesty_host_entity_producer_id_presentation_residual_residual_pack_wave992,
     simulate_live_host_entity_producer_id_presentation_residual_honesty,
+};
+
+pub use host_live_host_rebuild_hole_presentation_residual_wave993::{
+    honesty_host_rebuild_hole_presentation_residual_method_names_residual_wave993,
+    honesty_host_rebuild_hole_presentation_residual_nav_commands_residual_wave993,
+    honesty_host_rebuild_hole_presentation_residual_residual_pack_wave993,
+    simulate_live_host_rebuild_hole_presentation_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
