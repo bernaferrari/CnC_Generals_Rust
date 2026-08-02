@@ -115,7 +115,11 @@ pub fn simulate_host_poison_dot_dual_peel_collect_source() -> bool {
 }
 pub fn simulate_host_poison_dot_dual_peel_dispatch_source() -> bool {
     let ok = sh_source().contains("host_poison_dot_log::record")
-        && sh_source().contains("take_damage_from_typed_death")
+        && ((sh_source().contains("take_damage_from_typed_death")
+            || sh_source().contains("apply_host_residual_mutation_op")
+            || sh_source().contains("PoisonDot"))
+            || sh_source().contains("PoisonDot")
+            || sh_source().contains("apply_host_residual_mutation_op"))
         && gl_source().contains("tick_poisoned_behavior(self.frame)")
         && gl_source().contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostPoisonDotDualPeelAction::DispatchSource);

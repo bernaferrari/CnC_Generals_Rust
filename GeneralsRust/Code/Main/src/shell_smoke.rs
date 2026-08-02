@@ -4165,6 +4165,11 @@ use crate::game_logic::host_live_host_sole_tick_object_id_boundary_residual_wave
     honesty_host_sole_tick_object_id_boundary_nav_commands_residual_wave940,
     simulate_live_host_sole_tick_object_id_boundary_honesty,
 };
+use crate::game_logic::host_live_host_residual_mutation_boundary_residual_wave941::{
+    honesty_host_residual_mutation_boundary_method_names_residual_wave941,
+    honesty_host_residual_mutation_boundary_nav_commands_residual_wave941,
+    simulate_live_host_residual_mutation_boundary_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8619,6 +8624,9 @@ pub struct ShellSmokeResult {
     pub host_sole_tick_object_id_boundary_method_names_wave940_ok: bool,
     pub host_sole_tick_object_id_boundary_nav_commands_wave940_ok: bool,
     pub host_sole_tick_object_id_boundary_live_wave940_ok: bool,
+    pub host_residual_mutation_boundary_method_names_wave941_ok: bool,
+    pub host_residual_mutation_boundary_nav_commands_wave941_ok: bool,
+    pub host_residual_mutation_boundary_live_wave941_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13953,6 +13961,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_sole_tick_object_id_boundary_nav_commands_residual_wave940();
     let host_sole_tick_object_id_boundary_live_wave940_ok =
         simulate_live_host_sole_tick_object_id_boundary_honesty();
+    let host_residual_mutation_boundary_method_names_wave941_ok =
+        honesty_host_residual_mutation_boundary_method_names_residual_wave941();
+    let host_residual_mutation_boundary_nav_commands_wave941_ok =
+        honesty_host_residual_mutation_boundary_nav_commands_residual_wave941();
+    let host_residual_mutation_boundary_live_wave941_ok =
+        simulate_live_host_residual_mutation_boundary_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16762,6 +16776,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_sole_tick_object_id_boundary_method_names_wave940_ok,
         host_sole_tick_object_id_boundary_nav_commands_wave940_ok,
         host_sole_tick_object_id_boundary_live_wave940_ok,
+        host_residual_mutation_boundary_method_names_wave941_ok,
+        host_residual_mutation_boundary_nav_commands_wave941_ok,
+        host_residual_mutation_boundary_live_wave941_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

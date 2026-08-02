@@ -310,6 +310,7 @@ pub mod host_live_host_redundant_authority_write_skip_residual_wave913;
 pub mod host_live_host_refresh_sim_failclosed_residual_wave901;
 pub mod host_live_host_remaining_clippy_wave890;
 pub mod host_live_host_residual_failclosed_peels_wave859;
+pub mod host_live_host_residual_mutation_boundary_residual_wave941;
 pub mod host_live_host_save_load_skirmish_boundaries_residual_wave928;
 pub mod host_live_host_science_points_residual_wave868;
 pub mod host_live_host_sciences_ai_residual_wave894;
@@ -3077,6 +3078,13 @@ pub use host_live_host_sole_tick_object_id_boundary_residual_wave940::{
     honesty_host_sole_tick_object_id_boundary_nav_commands_residual_wave940,
     honesty_host_sole_tick_object_id_boundary_residual_pack_wave940,
     simulate_live_host_sole_tick_object_id_boundary_honesty,
+};
+
+pub use host_live_host_residual_mutation_boundary_residual_wave941::{
+    honesty_host_residual_mutation_boundary_method_names_residual_wave941,
+    honesty_host_residual_mutation_boundary_nav_commands_residual_wave941,
+    honesty_host_residual_mutation_boundary_residual_pack_wave941,
+    simulate_live_host_residual_mutation_boundary_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
