@@ -2991,6 +2991,46 @@ pub enum DirectPlayerOrder {
     AttackMove { player_id: u32, dest: glam::Vec3 },
 }
 
+/// Wave 931: object lifecycle authority payload (create/destroy/prod/path/guard).
+#[derive(Debug, Clone)]
+pub enum ObjectLifecycleOp {
+    Create {
+        name: String,
+        team: Team,
+        spawn_at: glam::Vec3,
+    },
+    Destroy {
+        id: ObjectId,
+    },
+    ForceCompleteConstruction {
+        id: ObjectId,
+    },
+    ClearMovementPath {
+        id: ObjectId,
+    },
+    AdjustGuardRadius {
+        id: ObjectId,
+        delta: f32,
+    },
+    EnqueueProduction {
+        producer: ObjectId,
+        template_name: String,
+    },
+    CancelProduction {
+        id: ObjectId,
+        template_name: String,
+    },
+}
+
+/// Wave 931: heterogeneous result for [`ObjectLifecycleOp`].
+#[derive(Debug, Clone, Copy)]
+pub enum ObjectLifecycleResult {
+    Created(Option<ObjectId>),
+    Bool(bool),
+    Radius(Option<f32>),
+    Destroyed,
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27483,6 +27523,38 @@ impl GameLogic {
             }
             DirectPlayerOrder::AttackMove { player_id, dest } => {
                 self.command_attack_move(player_id, dest);
+            }
+        }
+    }
+
+    /// Wave 931: single object-lifecycle authority boundary.
+    #[inline]
+    pub fn apply_object_lifecycle_op(&mut self, op: ObjectLifecycleOp) -> ObjectLifecycleResult {
+        match op {
+            ObjectLifecycleOp::Create {
+                name,
+                team,
+                spawn_at,
+            } => ObjectLifecycleResult::Created(self.create_object(&name, team, spawn_at)),
+            ObjectLifecycleOp::Destroy { id } => {
+                self.destroy_object(id);
+                ObjectLifecycleResult::Destroyed
+            }
+            ObjectLifecycleOp::ForceCompleteConstruction { id } => {
+                ObjectLifecycleResult::Bool(self.force_complete_construction(id))
+            }
+            ObjectLifecycleOp::ClearMovementPath { id } => {
+                ObjectLifecycleResult::Bool(self.clear_unit_movement_path(id))
+            }
+            ObjectLifecycleOp::AdjustGuardRadius { id, delta } => {
+                ObjectLifecycleResult::Radius(self.adjust_unit_guard_radius(id, delta))
+            }
+            ObjectLifecycleOp::EnqueueProduction {
+                producer,
+                template_name,
+            } => ObjectLifecycleResult::Bool(self.enqueue_production(producer, template_name)),
+            ObjectLifecycleOp::CancelProduction { id, template_name } => {
+                ObjectLifecycleResult::Bool(self.cancel_production(id, template_name))
             }
         }
     }

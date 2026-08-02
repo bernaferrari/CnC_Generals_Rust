@@ -17235,9 +17235,18 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         template_name: String,
     ) -> bool {
-        // Wave 580/869/920: cancel + HUD building_queue residual + refresh scan.
+        // Wave 580/869/920/931: cancel + HUD residual via object-lifecycle authority.
         // Under presentation freeze, next finalize owns producer scan residual.
-        if !self.game_logic.cancel_production(id, template_name.clone()) {
+        let ok = matches!(
+            self.game_logic.apply_object_lifecycle_op(
+                crate::game_logic::ObjectLifecycleOp::CancelProduction {
+                    id,
+                    template_name: template_name.clone(),
+                },
+            ),
+            crate::game_logic::ObjectLifecycleResult::Bool(true)
+        );
+        if !ok {
             return false;
         }
         let panel = &mut self.game_hud.construction_panel;
@@ -20456,7 +20465,7 @@ impl CnCGameEngine {
     /// Wave 584: host destroy-object residual (debug Shift+Delete path).
     #[inline]
     fn host_destroy_object(&mut self, id: crate::game_logic::ObjectId) {
-        // Wave 584/867/916/920: host destroy residual + refresh object-scan residuals.
+        // Wave 584/867/916/920/931: host destroy residual via object-lifecycle authority.
         // Skip authority destroy when presentation residual already marks destroyed.
         let already_destroyed = self.last_presentation_frame.as_ref().is_some_and(|pres| {
             pres.objects
@@ -20464,7 +20473,9 @@ impl CnCGameEngine {
                 .any(|o| o.id == id && (o.destroyed || o.health_current <= 0.0))
         });
         if !already_destroyed {
-            self.game_logic.destroy_object(id);
+            let _ = self
+                .game_logic
+                .apply_object_lifecycle_op(crate::game_logic::ObjectLifecycleOp::Destroy { id });
             if self.last_presentation_frame.is_none() {
                 self.host_refresh_local_train_producer_residuals();
             }
@@ -20494,7 +20505,7 @@ impl CnCGameEngine {
     /// Wave 584: host clear unit path residual (waypoint clear path).
     #[inline]
     fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 584/869/918/920: host clear path residual.
+        // Wave 584/869/918/920/931: clear path via object-lifecycle authority.
         // Skip authority clear when presentation residual already has no move destination.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
             pres.objects
@@ -20503,7 +20514,12 @@ impl CnCGameEngine {
         }) {
             return true;
         }
-        let ok = self.game_logic.clear_unit_movement_path(id);
+        let ok = matches!(
+            self.game_logic.apply_object_lifecycle_op(
+                crate::game_logic::ObjectLifecycleOp::ClearMovementPath { id },
+            ),
+            crate::game_logic::ObjectLifecycleResult::Bool(true)
+        );
         if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
@@ -20517,7 +20533,7 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
         delta: f32,
     ) -> Option<f32> {
-        // Wave 584/869/919/920: host guard radius residual + keep scan residual warm.
+        // Wave 584/869/919/920/931: guard radius via object-lifecycle authority.
         // Skip authority adjust when delta is a no-op; return presentation residual.
         if delta.abs() <= f32::EPSILON {
             return self.last_presentation_frame.as_ref().and_then(|pres| {
@@ -20527,7 +20543,12 @@ impl CnCGameEngine {
                     .map(|o| o.guard_radius)
             });
         }
-        let r = self.game_logic.adjust_unit_guard_radius(id, delta);
+        let r = match self.game_logic.apply_object_lifecycle_op(
+            crate::game_logic::ObjectLifecycleOp::AdjustGuardRadius { id, delta },
+        ) {
+            crate::game_logic::ObjectLifecycleResult::Radius(r) => r,
+            _ => None,
+        };
         if r.is_some() && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
@@ -20537,7 +20558,7 @@ impl CnCGameEngine {
     /// Wave 583: host force-complete construction residual (runtime train honesty).
     #[inline]
     fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
-        // Wave 583/867/917/920: host construction force-complete residual + refresh scan.
+        // Wave 583/867/917/920/931: force-complete via object-lifecycle authority.
         // Skip authority force-complete when presentation residual is already complete.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
             pres.objects
@@ -20546,7 +20567,12 @@ impl CnCGameEngine {
         }) {
             return true;
         }
-        let ok = self.game_logic.force_complete_construction(id);
+        let ok = matches!(
+            self.game_logic.apply_object_lifecycle_op(
+                crate::game_logic::ObjectLifecycleOp::ForceCompleteConstruction { id },
+            ),
+            crate::game_logic::ObjectLifecycleResult::Bool(true)
+        );
         if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
@@ -20757,9 +20783,17 @@ impl CnCGameEngine {
         producer: crate::game_logic::ObjectId,
         template_name: String,
     ) -> bool {
-        // Wave 582/868/919: host enqueue residual + refresh object-scan residuals.
+        // Wave 582/868/919/931: enqueue residual via object-lifecycle authority.
         // Skip producer residual refresh under presentation freeze (freeze owns scan).
-        let ok = self.game_logic.enqueue_production(producer, template_name);
+        let ok = matches!(
+            self.game_logic.apply_object_lifecycle_op(
+                crate::game_logic::ObjectLifecycleOp::EnqueueProduction {
+                    producer,
+                    template_name,
+                },
+            ),
+            crate::game_logic::ObjectLifecycleResult::Bool(true)
+        );
         if ok && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
@@ -20786,9 +20820,19 @@ impl CnCGameEngine {
         team: crate::game_logic::Team,
         spawn_at: glam::Vec3,
     ) -> Option<crate::game_logic::ObjectId> {
-        // Wave 581/867/919: host spawn residual + refresh object-scan residuals.
+        // Wave 581/867/919/931: host spawn residual via object-lifecycle authority.
         // Under presentation freeze, next finalize refreshes alive residuals.
-        let id = self.game_logic.create_object(name, team, spawn_at);
+        let res = self.game_logic.apply_object_lifecycle_op(
+            crate::game_logic::ObjectLifecycleOp::Create {
+                name: name.to_string(),
+                team,
+                spawn_at,
+            },
+        );
+        let id = match res {
+            crate::game_logic::ObjectLifecycleResult::Created(id) => id,
+            _ => None,
+        };
         if id.is_some() && self.last_presentation_frame.is_none() {
             self.host_refresh_local_train_producer_residuals();
         }
