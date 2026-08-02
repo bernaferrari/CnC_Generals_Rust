@@ -4105,6 +4105,11 @@ use crate::game_logic::host_live_host_save_load_skirmish_boundaries_residual_wav
     honesty_host_save_load_skirmish_boundaries_nav_commands_residual_wave928,
     simulate_live_host_save_load_skirmish_boundaries_honesty,
 };
+use crate::game_logic::host_live_host_direct_order_boundary_residual_wave929::{
+    honesty_host_direct_order_boundary_method_names_residual_wave929,
+    honesty_host_direct_order_boundary_nav_commands_residual_wave929,
+    simulate_live_host_direct_order_boundary_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8523,6 +8528,9 @@ pub struct ShellSmokeResult {
     pub host_save_load_skirmish_boundaries_method_names_wave928_ok: bool,
     pub host_save_load_skirmish_boundaries_nav_commands_wave928_ok: bool,
     pub host_save_load_skirmish_boundaries_live_wave928_ok: bool,
+    pub host_direct_order_boundary_method_names_wave929_ok: bool,
+    pub host_direct_order_boundary_nav_commands_wave929_ok: bool,
+    pub host_direct_order_boundary_live_wave929_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13786,6 +13794,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_save_load_skirmish_boundaries_nav_commands_residual_wave928();
     let host_save_load_skirmish_boundaries_live_wave928_ok =
         simulate_live_host_save_load_skirmish_boundaries_honesty();
+    let host_direct_order_boundary_method_names_wave929_ok =
+        honesty_host_direct_order_boundary_method_names_residual_wave929();
+    let host_direct_order_boundary_nav_commands_wave929_ok =
+        honesty_host_direct_order_boundary_nav_commands_residual_wave929();
+    let host_direct_order_boundary_live_wave929_ok =
+        simulate_live_host_direct_order_boundary_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16559,6 +16573,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_save_load_skirmish_boundaries_method_names_wave928_ok,
         host_save_load_skirmish_boundaries_nav_commands_wave928_ok,
         host_save_load_skirmish_boundaries_live_wave928_ok,
+        host_direct_order_boundary_method_names_wave929_ok,
+        host_direct_order_boundary_nav_commands_wave929_ok,
+        host_direct_order_boundary_live_wave929_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
