@@ -257,12 +257,8 @@ mod tests {
             .expect("host_seed_presentation_after_match_start");
         let body = &src[i..src.len().min(i + 1400)];
         assert!(
-            body.contains("build_for_engine"),
-            "match-start seed must use build_for_engine (Wave 195 host+GW presentation)"
-        );
-        assert!(
-            body.contains("sync_from_host"),
-            "match-start seed must sync shadow before presentation build"
+            body.contains("host_sync_shadow_and_build_presentation"),
+            "match-start seed must use presentation build boundary (Wave 926)"
         );
         assert!(
             !body.contains("build_and_apply_for_hud"),
@@ -288,8 +284,8 @@ mod tests {
             .expect("host_ensure_presentation_frame_for_render");
         let boot = &src[k..src.len().min(k + 900)];
         assert!(
-            boot.contains("build_for_engine"),
-            "boot presentation seed must use build_for_engine"
+            boot.contains("host_sync_shadow_and_build_presentation"),
+            "boot presentation seed must use presentation build boundary (Wave 926)"
         );
     }
 
@@ -19716,23 +19712,38 @@ impl CnCGameEngine {
         }
     }
 
+    fn host_sync_shadow_and_build_presentation(
+        &mut self,
+        with_victory: bool,
+    ) -> crate::presentation_frame::PresentationFrame {
+        // Wave 926: single host→shadow sync + presentation build boundary.
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            shadow.sync_from_host(&self.game_logic);
+        }
+        let local_id = self.current_player_id;
+        if with_victory {
+            crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
+                &mut self.game_logic,
+                local_id,
+                self.gameworld_shadow.as_ref(),
+            )
+        } else {
+            crate::presentation_frame::PresentationFrame::build_for_engine(
+                &self.game_logic,
+                local_id,
+                self.gameworld_shadow.as_ref(),
+            )
+        }
+    }
+
     fn host_seed_presentation_after_match_start(&mut self) {
         // Wave 590: match-start presentation seed residual.
         self.match_damage_applied = 0.0;
         self.match_kills = 0;
         crate::game_logic::host_damage_log::reset_cumulative();
 
-        let local_id = self.current_player_id;
-        // Match post-tick boundary: host freeze → shadow sync/overlay → HUD consumers.
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            shadow.sync_from_host(&self.game_logic);
-        }
-        // Wave 195/590: single engine presentation build (host residual + GW objects).
-        let mut pres = crate::presentation_frame::PresentationFrame::build_for_engine(
-            &self.game_logic,
-            local_id,
-            self.gameworld_shadow.as_ref(),
-        );
+        // Wave 195/590/926: shadow sync + presentation build via single host boundary.
+        let mut pres = self.host_sync_shadow_and_build_presentation(false);
         pres.apply_to_game_hud(&mut self.game_hud);
         #[cfg(feature = "game_client")]
         {
@@ -19754,16 +19765,8 @@ impl CnCGameEngine {
         if self.last_presentation_frame.is_some() {
             return;
         }
-        let local = self.current_player_id;
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            shadow.sync_from_host(&self.game_logic);
-        }
-        // Wave 195/590: single engine presentation build (host residual + GW objects).
-        let frame = crate::presentation_frame::PresentationFrame::build_for_engine(
-            &self.game_logic,
-            local,
-            self.gameworld_shadow.as_ref(),
-        );
+        // Wave 195/590/926: shadow sync + presentation build via single host boundary.
+        let frame = self.host_sync_shadow_and_build_presentation(false);
         self.last_presentation_frame = Some(frame);
     }
 
@@ -19776,12 +19779,8 @@ impl CnCGameEngine {
         if self.render_pipeline.presentation_frame().is_some() {
             return;
         }
-        // Wave 560: local_player_id must be current player (not logic frame).
-        let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
-            &self.game_logic,
-            self.current_player_id,
-            self.gameworld_shadow.as_ref(),
-        );
+        // Wave 560/926: env seed via shared presentation build boundary.
+        let env_frame = self.host_sync_shadow_and_build_presentation(false);
         self.render_pipeline.set_presentation_frame(Some(env_frame));
     }
 
@@ -20042,18 +20041,8 @@ impl CnCGameEngine {
     /// during later render. Fail-closed: not sole GameWorld authority / playable_claim.
     fn host_finalize_presentation_after_logic(&mut self) {
         // Wave 589: presentation finalize residual.
-        let local_id = self.current_player_id;
-        // Wave 838: full host→shadow sync before GW presentation rebuild so map
-        // objects / construct/train spawns are not wiped by an empty shadow.
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            shadow.sync_from_host(&self.game_logic);
-        }
-        // Include victory residual in the snapshot (single evaluate; no dual-read later).
-        let mut pres = crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
-            &mut self.game_logic,
-            local_id,
-            self.gameworld_shadow.as_ref(),
-        );
+        // Wave 589/838/926: shadow sync + victory presentation build via single boundary.
+        let mut pres = self.host_sync_shadow_and_build_presentation(true);
         // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
         let audio_n = pres.dispatch_audio_events_direct();
         if audio_n > 0 {

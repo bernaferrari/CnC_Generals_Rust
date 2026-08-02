@@ -96,10 +96,9 @@ pub fn honesty_seed_presentation_after_match_start_source() -> bool {
         },
     };
     let body = &src[i..src.len().min(i + 2000)];
-    // Wave 195/590: seed uses build_for_engine (host residual + GW objects).
-    body.contains("build_for_engine")
-        && (body.contains("sync_from_host") || body.contains("gameworld_shadow"))
-        && body.contains("&self.game_logic")
+    // Wave 195/590/926: seed uses shared presentation build boundary.
+    body.contains("host_sync_shadow_and_build_presentation")
+        && src.contains("fn host_sync_shadow_and_build_presentation")
         && src.contains("host_seed_presentation_after_match_start()")
 }
 
