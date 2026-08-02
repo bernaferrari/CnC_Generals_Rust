@@ -150,9 +150,12 @@ pub fn honesty_host_attack_target_ready_log_helper_source_markers_residual_wave6
         residual_action_store(ResidualHostAttackTargetReadyLogHelperAction::SourceMarkers);
         return false;
     };
+    // Wave 944: writeback assigns target via HostWritebackOp::AttackTarget.
     let wb_ok = wb.contains("Wave 638")
         && wb.contains("host_attack_target_ready_log::record")
-        && wb.contains("obj.target = host_target");
+        && (wb.contains("obj.target = host_target")
+            || (wb.contains("HostWritebackOp::AttackTarget")
+                && wb.contains("apply_host_writeback_op")));
     let Some(apply) = fn_body(gl, "pub fn host_apply_attack_target_ready_completions(") else {
         residual_action_store(ResidualHostAttackTargetReadyLogHelperAction::SourceMarkers);
         return false;

@@ -5517,15 +5517,15 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_damage_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let new_h = ent.health.max(0.0);
             let new_max = ent.max_health.max(1.0);
             let changed = (obj.health.current - new_h).abs() > 0.000_1
@@ -5535,13 +5535,17 @@ impl GameWorldShadow {
             if !changed {
                 continue;
             }
-            obj.health.current = new_h.min(new_max);
-            obj.max_health = new_max;
-            obj.health.maximum = new_max;
-            if new_h <= 0.0 {
-                obj.status.destroyed = true;
-                obj.ai_state = crate::game_logic::AIState::Idle;
-                obj.target = None;
+            let destroy = new_h <= 0.0;
+            // Wave 944: health writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Health {
+                id: ObjectId(hid),
+                current: new_h.min(new_max),
+                maximum: new_max,
+                destroy,
+            }) {
+                continue;
+            }
+            if destroy {
                 // Wave 621: GameWorld sole damage last-write lethal residual —
                 // host process_destroy_list drains and marks die side effects.
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
@@ -5801,24 +5805,26 @@ impl GameWorldShadow {
                 continue;
             };
             let host_target = ent.attack_target.and_then(|te| self.host_for_entity(te));
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_attack_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             if obj.target == host_target {
                 continue;
             }
             let prev = obj.target;
-            // Direct assign — avoid set_target residual re-entry during writeback
-            // (AI/status residual is host-applied from ready log).
-            obj.target = host_target;
-            if host_target.is_some() {
-                obj.target_location = None;
+            // Wave 944: attack-target writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::AttackTarget {
+                id: ObjectId(hid),
+                target: host_target,
+                clear_target_location: host_target.is_some(),
+            }) {
+                continue;
             }
             // Wave 638: GameWorld attack-target last-write residual —
             // host applies AI/status/attack-log bookkeeping from ready log.
@@ -5873,15 +5879,15 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 759: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_move_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let host_dest = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
             let shadow_dest = ent.move_target;
             let same = match (host_dest, shadow_dest) {
@@ -5897,8 +5903,13 @@ impl GameWorldShadow {
                 continue;
             }
             let prev = host_dest;
-            // Direct assign — AI/status residual applied from ready log.
-            obj.movement.target_position = shadow_dest.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            // Wave 944: move-target writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::MoveTarget {
+                id: ObjectId(hid),
+                destination: shadow_dest.map(|p| glam::Vec3::new(p[0], p[1], p[2])),
+            }) {
+                continue;
+            }
             // Wave 639: GameWorld move-target last-write residual —
             // host applies AI/status/movement bookkeeping from ready log.
             ready.push((ObjectId(hid), prev, shadow_dest));
@@ -5919,9 +5930,6 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 759: under coupled tick, host move/movement pending owns pose.
             if shadow_coupled_tick_active()
                 && (crate::game_logic::host_move_log::has_pending(ObjectId(hid))
@@ -5929,6 +5937,9 @@ impl GameWorldShadow {
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let p = ent.transform.position;
             let host_p = obj.get_position();
             let host_o = obj.get_orientation();
@@ -5937,8 +5948,14 @@ impl GameWorldShadow {
             let dz = (host_p.z - p.z).abs();
             let d_o = (host_o - ent.transform.orientation).abs();
             if dx > 1e-3 || dy > 1e-3 || dz > 1e-3 || d_o > 1e-3 {
-                obj.set_position(glam::Vec3::new(p.x, p.y, p.z));
-                obj.set_orientation(ent.transform.orientation);
+                // Wave 944: transform writeback via host writeback authority.
+                if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Transform {
+                    id: ObjectId(hid),
+                    position: glam::Vec3::new(p.x, p.y, p.z),
+                    orientation: ent.transform.orientation,
+                }) {
+                    continue;
+                }
                 // Wave 636: GameWorld transform last-write residual —
                 // host applies movement/presentation bookkeeping from ready log.
                 ready.push(ObjectId(hid));
@@ -15081,15 +15098,15 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
-                continue;
-            };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_experience_log::has_pending(ObjectId(hid))
             {
                 continue;
             }
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
             let pts = ent.experience_points.max(0.0);
             let want_level = match ent.veterancy_ordinal {
                 1 => V::Veteran,
@@ -15102,13 +15119,21 @@ impl GameWorldShadow {
             if !pts_changed && !level_changed {
                 continue;
             }
-            if pts_changed {
-                obj.experience.current = pts;
+            let prev_ord = if level_changed {
+                Self::host_veterancy_ordinal(obj.experience.level)
+            } else {
+                0
+            };
+            // Wave 944: experience writeback via host writeback authority.
+            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Experience {
+                id: ObjectId(hid),
+                points: pts_changed.then_some(pts),
+                level: level_changed.then_some(want_level),
+            }) {
+                continue;
             }
             if level_changed {
-                let prev_ord = Self::host_veterancy_ordinal(obj.experience.level);
                 let new_ord = ent.veterancy_ordinal.min(3);
-                obj.experience.level = want_level;
                 // Wave 622: GameWorld sole XP/level last-write residual —
                 // host applies combat bonuses from ready log.
                 if crate::gameworld_shadow::gameworld_damage_authority_live() && new_ord > prev_ord

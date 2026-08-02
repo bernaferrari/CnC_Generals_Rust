@@ -3344,6 +3344,42 @@ pub enum SpawnedPayloadKind {
     ParadropParachute,
 }
 
+/// Wave 944: shadow→host writeback payload (core combat/pose channels).
+#[derive(Debug, Clone)]
+pub enum HostWritebackOp {
+    /// Health/max + optional destroy bookkeeping fields.
+    Health {
+        id: ObjectId,
+        current: f32,
+        maximum: f32,
+        /// When true, mark destroyed + clear AI target.
+        destroy: bool,
+    },
+    /// Experience points and/or veterancy level.
+    Experience {
+        id: ObjectId,
+        points: Option<f32>,
+        level: Option<crate::game_logic::VeterancyLevel>,
+    },
+    /// World pose last-write.
+    Transform {
+        id: ObjectId,
+        position: glam::Vec3,
+        orientation: f32,
+    },
+    /// Attack target last-write (direct assign; ready-log handles residuals).
+    AttackTarget {
+        id: ObjectId,
+        target: Option<ObjectId>,
+        clear_target_location: bool,
+    },
+    /// Move destination last-write.
+    MoveTarget {
+        id: ObjectId,
+        destination: Option<glam::Vec3>,
+    },
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -28477,6 +28513,77 @@ impl GameLogic {
             fallback += 1;
         }
         fallback
+    }
+
+    /// Wave 944: apply one shadow→host writeback mutation.
+    pub fn apply_host_writeback_op(&mut self, op: HostWritebackOp) -> bool {
+        match op {
+            HostWritebackOp::Health {
+                id,
+                current,
+                maximum,
+                destroy,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                let max = maximum.max(1.0);
+                obj.health.current = current.min(max);
+                obj.max_health = max;
+                obj.health.maximum = max;
+                if destroy {
+                    obj.status.destroyed = true;
+                    obj.ai_state = crate::game_logic::AIState::Idle;
+                    obj.target = None;
+                }
+                true
+            }
+            HostWritebackOp::Experience { id, points, level } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                if let Some(pts) = points {
+                    obj.experience.current = pts;
+                }
+                if let Some(lvl) = level {
+                    obj.experience.level = lvl;
+                }
+                true
+            }
+            HostWritebackOp::Transform {
+                id,
+                position,
+                orientation,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.set_position(position);
+                obj.set_orientation(orientation);
+                true
+            }
+            HostWritebackOp::AttackTarget {
+                id,
+                target,
+                clear_target_location,
+            } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.target = target;
+                if clear_target_location {
+                    obj.target_location = None;
+                }
+                true
+            }
+            HostWritebackOp::MoveTarget { id, destination } => {
+                let Some(obj) = self.get_objects_mut().get_mut(&id) else {
+                    return false;
+                };
+                obj.movement.target_position = destination;
+                true
+            }
+        }
     }
 
     /// Issue attack command to selected objects
