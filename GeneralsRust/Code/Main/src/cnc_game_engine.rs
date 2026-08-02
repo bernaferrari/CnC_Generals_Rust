@@ -20146,6 +20146,8 @@ impl CnCGameEngine {
                     // Wave 983: healing icon residual.
                     show_healing: o.show_healing,
                     healing_icon_type: o.healing_icon_type,
+                    // Wave 984: garrisoned unit ids for contained-flash residual.
+                    garrisoned_ids: o.garrisoned_units.iter().map(|id| id.0).collect(),
                 }
             });
             let (created, updated, pruned) =
