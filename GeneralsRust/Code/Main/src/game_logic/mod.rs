@@ -367,6 +367,7 @@ pub mod host_live_host_train_force_complete_opt_in_residual_wave718;
 pub mod host_live_host_train_producer_residual_wave848;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_ui_framework_clippy_residual_wave881;
+pub mod host_live_host_ui_minimap_presentation_peel_residual_wave952;
 pub mod host_live_host_ui_observe_failclosed_residual_wave905;
 pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
 pub mod host_live_host_unit_control_presentation_peel_residual_wave951;
@@ -3165,6 +3166,13 @@ pub use host_live_host_unit_control_presentation_peel_residual_wave951::{
     honesty_host_unit_control_presentation_peel_nav_commands_residual_wave951,
     honesty_host_unit_control_presentation_peel_residual_pack_wave951,
     simulate_live_host_unit_control_presentation_peel_honesty,
+};
+
+pub use host_live_host_ui_minimap_presentation_peel_residual_wave952::{
+    honesty_host_ui_minimap_presentation_peel_method_names_residual_wave952,
+    honesty_host_ui_minimap_presentation_peel_nav_commands_residual_wave952,
+    honesty_host_ui_minimap_presentation_peel_residual_pack_wave952,
+    simulate_live_host_ui_minimap_presentation_peel_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

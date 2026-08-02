@@ -3,6 +3,7 @@ use super::wgpu_renderer::{Color, WgpuUIRenderer};
 use crate::{
     game_logic::{GameLogic, GameMode},
     localization,
+    presentation_frame::PresentationFrame,
 };
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::system::file::FileAccess;
@@ -128,6 +129,8 @@ pub struct WgpuUISystem {
 
     // Game integration
     game_logic: Option<Arc<Mutex<GameLogic>>>,
+    /// Wave 952: presentation freeze for selection/pose dual-read peels.
+    presentation_frame: Option<PresentationFrame>,
 
     // Resource loading
     ui_textures: HashMap<String, u32>,
@@ -166,6 +169,7 @@ impl WgpuUISystem {
             loading_progress: 0.0,
             loading_phase: "Loading assets...".to_string(),
             game_logic: None,
+            presentation_frame: None,
             ui_textures: HashMap::new(),
             button_visuals: HashMap::new(),
             ui_fonts: HashMap::new(),
@@ -940,23 +944,39 @@ impl WgpuUISystem {
             return;
         };
 
-        let units = Self::selected_units(&game_logic);
+        // Wave 952: selection + pose residual prefer presentation freeze.
+        let units = if let Some(frame) = self.presentation_frame.as_ref() {
+            frame.selected.clone()
+        } else {
+            Self::selected_units(&game_logic)
+        };
         if units.is_empty() {
             return;
         }
 
-        let player_id = Self::local_player_id(&game_logic).unwrap_or(0);
+        let player_id = if let Some(frame) = self.presentation_frame.as_ref() {
+            frame.local_player_id
+        } else {
+            Self::local_player_id(&game_logic).unwrap_or(0)
+        };
         let now = std::time::SystemTime::now();
         let modifier_keys = crate::command_system::ModifierKeys::default();
 
         // Selection centroid residual (guard / rally fallback).
         let mut center = glam::Vec3::ZERO;
         let mut count = 0.0f32;
-        for id in &units {
-            if let Some(obj) = game_logic.get_object(*id) {
-                center += obj.get_position();
-                count += 1.0;
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            for id in &units {
+                if let Some(o) = frame.objects.iter().find(|o| o.id == *id) {
+                    if !o.destroyed {
+                        center += o.position;
+                        count += 1.0;
+                    }
+                }
             }
+        } else {
+            // Fail-closed: no live get_object dual-read without presentation.
+            let _ = &game_logic;
         }
         let center = if count > 0.0 {
             center / count
@@ -1007,9 +1027,13 @@ impl WgpuUISystem {
             crate::command_system::CommandType::SetRallyPoint { location } => {
                 if *location == glam::Vec3::ZERO {
                     // Natural rally residual: forward of primary selection.
-                    if let Some(obj) = game_logic.get_object(units[0]) {
-                        let f = obj.thing.get_direction_vector();
-                        *location = obj.get_position() + f * obj.selection_radius.max(10.0);
+                    // Wave 952: presentation pose residual (no live get_object dual-read).
+                    if let Some(frame) = self.presentation_frame.as_ref() {
+                        if let Some(o) = frame.objects.iter().find(|o| o.id == units[0]) {
+                            let yaw = o.orientation;
+                            let f = glam::Vec3::new(yaw.sin(), 0.0, yaw.cos());
+                            *location = o.position + f * 10.0_f32;
+                        }
                     } else {
                         *location = center;
                     }
@@ -1021,9 +1045,13 @@ impl WgpuUISystem {
             } => {
                 if *destination == glam::Vec3::ZERO {
                     // Cursor world residual when available; else forward push.
-                    if let Some(obj) = game_logic.get_object(units[0]) {
-                        let f = obj.thing.get_direction_vector();
-                        *destination = obj.get_position() + f * 50.0;
+                    // Wave 952: presentation pose residual (no live get_object dual-read).
+                    if let Some(frame) = self.presentation_frame.as_ref() {
+                        if let Some(o) = frame.objects.iter().find(|o| o.id == units[0]) {
+                            let yaw = o.orientation;
+                            let f = glam::Vec3::new(yaw.sin(), 0.0, yaw.cos());
+                            *destination = o.position + f * 50.0;
+                        }
                     } else {
                         *destination = center;
                     }
@@ -1299,6 +1327,11 @@ impl WgpuUISystem {
     /// Connect to game logic for data integration
     pub fn connect_game_logic(&mut self, game_logic: Arc<Mutex<GameLogic>>) {
         self.game_logic = Some(game_logic);
+    }
+
+    /// Wave 952: install presentation freeze for UI selection/pose residual.
+    pub fn set_presentation_frame(&mut self, frame: Option<PresentationFrame>) {
+        self.presentation_frame = frame;
     }
 
     /// Update UI state based on WW3D frame timing
