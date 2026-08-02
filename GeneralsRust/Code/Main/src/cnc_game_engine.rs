@@ -21080,7 +21080,8 @@ impl CnCGameEngine {
         self.host_quick_save_from_hotkey(source)
     }
 
-    /// Wave 935: intentional immutable GameLogic borrow boundary.
+    /// Wave 935/936: intentional immutable GameLogic borrow boundary.
+    /// Wave 936: sole-authority surface honesty lock (apply_* + split-borrow adapters only).
     #[inline]
     fn host_game_logic(&self) -> &crate::game_logic::GameLogic {
         &self.game_logic

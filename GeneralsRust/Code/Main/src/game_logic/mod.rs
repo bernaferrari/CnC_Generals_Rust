@@ -331,6 +331,7 @@ pub mod host_live_host_skirmish_map_reject_shell_residual_wave840;
 pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
 pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
+pub mod host_live_host_sole_authority_surface_residual_wave936;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
 pub mod host_live_host_special_power_scan_unify_residual_wave857;
@@ -3037,6 +3038,13 @@ pub use host_live_host_gamelogic_borrow_boundary_residual_wave935::{
     honesty_host_gamelogic_borrow_boundary_nav_commands_residual_wave935,
     honesty_host_gamelogic_borrow_boundary_residual_pack_wave935,
     simulate_live_host_gamelogic_borrow_boundary_honesty,
+};
+
+pub use host_live_host_sole_authority_surface_residual_wave936::{
+    honesty_host_sole_authority_surface_method_names_residual_wave936,
+    honesty_host_sole_authority_surface_nav_commands_residual_wave936,
+    honesty_host_sole_authority_surface_residual_pack_wave936,
+    simulate_live_host_sole_authority_surface_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

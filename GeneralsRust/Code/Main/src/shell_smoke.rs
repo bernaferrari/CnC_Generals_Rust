@@ -4140,6 +4140,11 @@ use crate::game_logic::host_live_host_gamelogic_borrow_boundary_residual_wave935
     honesty_host_gamelogic_borrow_boundary_nav_commands_residual_wave935,
     simulate_live_host_gamelogic_borrow_boundary_honesty,
 };
+use crate::game_logic::host_live_host_sole_authority_surface_residual_wave936::{
+    honesty_host_sole_authority_surface_method_names_residual_wave936,
+    honesty_host_sole_authority_surface_nav_commands_residual_wave936,
+    simulate_live_host_sole_authority_surface_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8579,6 +8584,9 @@ pub struct ShellSmokeResult {
     pub host_gamelogic_borrow_boundary_method_names_wave935_ok: bool,
     pub host_gamelogic_borrow_boundary_nav_commands_wave935_ok: bool,
     pub host_gamelogic_borrow_boundary_live_wave935_ok: bool,
+    pub host_sole_authority_surface_method_names_wave936_ok: bool,
+    pub host_sole_authority_surface_nav_commands_wave936_ok: bool,
+    pub host_sole_authority_surface_live_wave936_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13883,6 +13891,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_gamelogic_borrow_boundary_nav_commands_residual_wave935();
     let host_gamelogic_borrow_boundary_live_wave935_ok =
         simulate_live_host_gamelogic_borrow_boundary_honesty();
+    let host_sole_authority_surface_method_names_wave936_ok =
+        honesty_host_sole_authority_surface_method_names_residual_wave936();
+    let host_sole_authority_surface_nav_commands_wave936_ok =
+        honesty_host_sole_authority_surface_nav_commands_residual_wave936();
+    let host_sole_authority_surface_live_wave936_ok =
+        simulate_live_host_sole_authority_surface_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16677,6 +16691,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_gamelogic_borrow_boundary_method_names_wave935_ok,
         host_gamelogic_borrow_boundary_nav_commands_wave935_ok,
         host_gamelogic_borrow_boundary_live_wave935_ok,
+        host_sole_authority_surface_method_names_wave936_ok,
+        host_sole_authority_surface_nav_commands_wave936_ok,
+        host_sole_authority_surface_live_wave936_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
