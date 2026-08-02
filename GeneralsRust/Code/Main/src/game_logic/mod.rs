@@ -239,6 +239,7 @@ pub mod host_live_host_heli_slow_death_dual_peel_residual_wave773;
 pub mod host_live_host_hive_struct_damage_no_damage_auth_hp_stomp_residual_wave748;
 pub mod host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803;
 pub mod host_live_host_input_integration_presentation_peel_residual_wave954;
+pub mod host_live_host_internal_host_object_idiom_residual_wave959;
 pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
 pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
 pub mod host_live_host_legal_build_cache_residual_wave911;
@@ -3221,6 +3222,13 @@ pub use host_live_host_object_api_alias_seal_residual_wave958::{
     honesty_host_object_api_alias_seal_nav_commands_residual_wave958,
     honesty_host_object_api_alias_seal_residual_pack_wave958,
     simulate_live_host_object_api_alias_seal_honesty,
+};
+
+pub use host_live_host_internal_host_object_idiom_residual_wave959::{
+    honesty_host_internal_host_object_idiom_method_names_residual_wave959,
+    honesty_host_internal_host_object_idiom_nav_commands_residual_wave959,
+    honesty_host_internal_host_object_idiom_residual_pack_wave959,
+    simulate_live_host_internal_host_object_idiom_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
