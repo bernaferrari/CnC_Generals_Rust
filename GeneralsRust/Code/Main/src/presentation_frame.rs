@@ -541,6 +541,18 @@ pub struct RenderableObject {
     pub camo_friendly_opacity: f32,
     /// Host vision_spied_mask residual.
     pub vision_spied_mask: u32,
+    /// Wave 994: host Object::vision_range residual.
+    #[serde(default)]
+    pub vision_range: f32,
+    /// Wave 994: host Object::shroud_clearing_range residual.
+    #[serde(default)]
+    pub shroud_clearing_range: f32,
+    /// Wave 994: host Object::crusher_level residual.
+    #[serde(default)]
+    pub crusher_level: u8,
+    /// Wave 994: host Object::crushable_level residual.
+    #[serde(default)]
+    pub crushable_level: u8,
     /// Host cheer_timer residual.
     pub cheer_timer: f32,
     /// Host transport-kind residual markers.
@@ -3937,6 +3949,10 @@ impl PresentationFrame {
                 ai_attitude: obj.ai_attitude,
                 camo_friendly_opacity: obj.camo_friendly_opacity,
                 vision_spied_mask: obj.vision_spied_mask,
+                vision_range: obj.vision_range,
+                shroud_clearing_range: obj.shroud_clearing_range,
+                crusher_level: obj.crusher_level,
+                crushable_level: obj.crushable_level,
                 cheer_timer: obj.cheer_timer,
                 is_humvee_transport: obj.is_humvee_transport,
                 is_listening_outpost_transport: obj.is_listening_outpost_transport,
@@ -7025,6 +7041,23 @@ impl PresentationFrame {
                 obj.vision_spied_mask = ent.vision_spied_mask;
                 dirty = true;
             }
+            // Wave 994: vision / shroud-clear / crush residual last-writer.
+            if (obj.vision_range - ent.vision_range).abs() > 1e-4 {
+                obj.vision_range = ent.vision_range;
+                dirty = true;
+            }
+            if (obj.shroud_clearing_range - ent.shroud_clearing_range).abs() > 1e-4 {
+                obj.shroud_clearing_range = ent.shroud_clearing_range;
+                dirty = true;
+            }
+            if obj.crusher_level != ent.crusher_level {
+                obj.crusher_level = ent.crusher_level;
+                dirty = true;
+            }
+            if obj.crushable_level != ent.crushable_level {
+                obj.crushable_level = ent.crushable_level;
+                dirty = true;
+            }
             if (obj.camo_friendly_opacity - ent.camo_friendly_opacity).abs() > 1e-4 {
                 obj.camo_friendly_opacity = ent.camo_friendly_opacity;
                 dirty = true;
@@ -7624,6 +7657,10 @@ impl PresentationFrame {
             ai_attitude: ent.ai_attitude,
             camo_friendly_opacity: 1.0,
             vision_spied_mask: ent.vision_spied_mask,
+            vision_range: ent.vision_range,
+            shroud_clearing_range: ent.shroud_clearing_range,
+            crusher_level: ent.crusher_level,
+            crushable_level: ent.crushable_level,
             cheer_timer: ent.cheer_timer,
             // Wave 490: transport/container role presentation from GW entity.
             is_humvee_transport: ent.is_humvee_transport,
