@@ -3382,6 +3382,38 @@ impl GameClient {
         updated
     }
 
+    /// Wave 962: host presentation drawable ensure (no OBJECT_REGISTRY dual-world).
+    ///
+    /// Creates missing drawables bound to presentation object ids so pose/shroud
+    /// residuals apply without populating the dual-world registry. Existing
+    /// bindings are left untouched (pose path updates them).
+    pub fn ensure_presentation_drawables<I>(&mut self, entries: I) -> usize
+    where
+        I: IntoIterator<Item = (u32, String, [f32; 3], f32)>,
+    {
+        let mut created = 0usize;
+        for (object_id, template_name, pos, orientation) in entries {
+            if self.drawable_object_map.contains_key(&object_id) {
+                continue;
+            }
+            let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+            if !template_name.is_empty() {
+                drawable.set_template_name(Some(template_name));
+            }
+            drawable.set_object_id(Some(object_id));
+            let position = Vector3::new(pos[0], pos[1], pos[2]);
+            drawable.set_position(position);
+            let transform = Matrix4::translation(position).mul(&Matrix4::rotation_y(orientation));
+            drawable.set_instance_transform(transform);
+            let id = self.alloc_drawable_id();
+            drawable.set_id(id);
+            self.drawable_map.insert(id, Box::new(drawable));
+            self.drawable_object_map.insert(object_id, id);
+            created = created.saturating_add(1);
+        }
+        created
+    }
+
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
     ///
     /// C++ script camera letterbox residual without dual-owning Main RenderPipeline 3D draw.

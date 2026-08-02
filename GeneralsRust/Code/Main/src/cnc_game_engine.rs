@@ -20107,6 +20107,25 @@ impl CnCGameEngine {
             game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
         };
         if let Some(pres) = self.last_presentation_frame.as_ref() {
+            // Wave 962: ensure drawables exist from presentation freeze (host path,
+            // no OBJECT_REGISTRY dual-world populate).
+            let ensure_entries = pres.objects.iter().filter_map(|o| {
+                if o.destroyed {
+                    return None;
+                }
+                Some((
+                    o.id.0,
+                    o.template_name.clone(),
+                    [o.position.x, o.position.y, o.position.z],
+                    o.orientation,
+                ))
+            });
+            let created = self
+                .game_client
+                .ensure_presentation_drawables(ensure_entries);
+            if created > 0 {
+                log::trace!("presentation ensured {created} drawables");
+            }
             // C++ per-drawable shroud residual from frozen presentation FOW.
             let shroud_entries: Vec<(u32, bool)> = pres
                 .objects
