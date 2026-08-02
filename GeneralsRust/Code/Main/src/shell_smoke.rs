@@ -8844,7 +8844,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
             crate::game_logic::Team::USA,
             glam::Vec3::ZERO,
         ) {
-            if let Some(obj) = move_logic.get_objects_mut().get_mut(&id) {
+            if let Some(obj) = move_logic.host_object_mut(id) {
                 obj.movement.target_position = Some(glam::Vec3::new(5.0, 0.0, 5.0));
             }
         }
@@ -8872,7 +8872,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         }
         let ids: Vec<_> = atk_logic.get_objects().keys().copied().collect();
         if ids.len() >= 2 {
-            if let Some(obj) = atk_logic.get_objects_mut().get_mut(&ids[0]) {
+            if let Some(obj) = atk_logic.host_object_mut(ids[0]) {
                 obj.target = Some(ids[1]);
             }
         }

@@ -1172,7 +1172,7 @@ mod tests {
             .expect("id");
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         // Poison live pose — presentation must still win.
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.position = glam::Vec3::new(9999.0, 0.0, 9999.0);
         }
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
@@ -1215,7 +1215,7 @@ mod tests {
             .expect("b1");
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         // Live renames one SimA to poison live dual-read if used.
-        if let Some(obj) = logic.get_objects_mut().get_mut(&a2) {
+        if let Some(obj) = logic.host_object_mut(a2) {
             obj.template_name = "Poisoned".into();
         }
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);

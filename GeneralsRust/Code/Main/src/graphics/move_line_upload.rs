@@ -132,7 +132,7 @@ mod tests {
         let id = logic
             .create_object("MoveLineU", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("u");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.movement.target_position = Some(Vec3::new(30.0, 0.0, 10.0));
             obj.movement.path = vec![
                 Vec3::new(0.0, 0.0, 0.0),

@@ -139,8 +139,7 @@ fn smoke_attack_game_logic() -> (GameLogic, ObjectId, ObjectId) {
         ..Weapon::default()
     });
     game_logic
-        .get_objects_mut()
-        .get_mut(&attacker)
+        .host_object_mut(attacker)
         .expect("trace attacker was just inserted")
         .weapon = weapon;
 

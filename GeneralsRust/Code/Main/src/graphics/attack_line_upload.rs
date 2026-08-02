@@ -142,7 +142,7 @@ mod tests {
         let ids: Vec<_> = logic.get_objects().keys().copied().collect();
         assert!(ids.len() >= 2);
         let (a, b) = (ids[0], ids[1]);
-        if let Some(obj) = logic.get_objects_mut().get_mut(&a) {
+        if let Some(obj) = logic.host_object_mut(a) {
             obj.target = Some(b);
         }
         let frame = PresentationFrame::build_from_logic(&logic, 0);
