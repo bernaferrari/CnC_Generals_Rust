@@ -363,6 +363,7 @@ pub mod host_live_host_single_authority_camera_residual_wave904;
 pub mod host_live_host_skirmish_map_force_lone_eagle_residual_wave837;
 pub mod host_live_host_skirmish_map_reject_shell_residual_wave840;
 pub mod host_live_host_skirmish_wnd_latch_peels_residual_wave835;
+pub mod host_live_host_slaver_mouseover_residual_wave982;
 pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_sole_authority_surface_residual_wave936;
@@ -2011,6 +2012,8 @@ pub enum KindOf {
     CannotRetaliate,
     /// C++ KINDOF_DRONE — drones never retaliate.
     Drone,
+    /// C++ KINDOF_IGNORED_IN_GUI — mouseover remaps to slaver/producer.
+    IgnoredInGui,
     /// C++ KINDOF_SALVAGER — GLA salvage crate pickers.
     Salvager,
     /// C++ KINDOF_WEAPON_SALVAGER — can gain weapon crate upgrades.
@@ -3405,6 +3408,13 @@ pub use host_live_host_fow_tod_residual_wave981::{
     honesty_host_fow_tod_residual_nav_commands_residual_wave981,
     honesty_host_fow_tod_residual_residual_pack_wave981,
     simulate_live_host_fow_tod_residual_honesty,
+};
+
+pub use host_live_host_slaver_mouseover_residual_wave982::{
+    honesty_host_slaver_mouseover_residual_method_names_residual_wave982,
+    honesty_host_slaver_mouseover_residual_nav_commands_residual_wave982,
+    honesty_host_slaver_mouseover_residual_residual_pack_wave982,
+    simulate_live_host_slaver_mouseover_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

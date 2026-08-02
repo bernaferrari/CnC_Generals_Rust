@@ -31094,6 +31094,10 @@ impl GameLogic {
         if kind_of.contains("powered") {
             template.add_kind_of(KindOf::Powered);
         }
+        // Wave 982: C++ KINDOF_IGNORED_IN_GUI residual.
+        if kind_of.contains("ignored_in_gui") || kind_of.contains("ignoredingui") {
+            template.add_kind_of(KindOf::IgnoredInGui);
+        }
         Self::add_faction_structure_kind_bits(&mut template, &kind_of);
 
         if lower.contains("commandcenter") {
