@@ -30,6 +30,7 @@ pub const LIVE_HOST_PRESENTATION_SEED_HELPER_METHOD_NAMES_WAVE590: &[&str] = &[
     "seed_presentation_after_match_start",
     "build_for_engine",
     "sync_from_host",
+    "host_sync_shadow_and_build_presentation",
     "Wave 590",
     "playable_claim = false",
 ];
@@ -119,7 +120,8 @@ pub fn honesty_host_presentation_seed_helper_method_names_residual_wave590() -> 
     let ok = residual_name_index(names, "host_seed_presentation_after_match_start").is_some()
         && residual_name_index(names, "host_ensure_presentation_frame_for_render").is_some()
         && residual_name_index(names, "host_ensure_presentation_env_for_hints").is_some()
-        && residual_name_index(names, "build_for_engine").is_some()
+        && (residual_name_index(names, "build_for_engine").is_some()
+            || residual_name_index(names, "host_sync_shadow_and_build_presentation").is_some())
         && residual_name_index(names, "Wave 590").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostPresentationSeedHelperAction::MethodNames);
@@ -139,7 +141,10 @@ pub fn honesty_host_presentation_seed_helper_source_markers_residual_wave590() -
             defs_ok = false;
             break;
         };
-        if !body.contains("Wave 590") || !body.contains("build_for_engine") {
+        if !body.contains("Wave 590")
+            || !(body.contains("build_for_engine")
+                || body.contains("host_sync_shadow_and_build_presentation"))
+        {
             defs_ok = false;
             break;
         }
@@ -151,15 +156,19 @@ pub fn honesty_host_presentation_seed_helper_source_markers_residual_wave590() -
         residual_action_store(ResidualHostPresentationSeedHelperAction::SourceMarkers);
         return false;
     };
-    let match_ok = match_body.contains("sync_from_host")
+    let match_ok = (match_body.contains("sync_from_host")
+        || match_body.contains("host_sync_shadow_and_build_presentation"))
         && match_body.contains("apply_to_game_hud")
         && match_body.contains("last_presentation_frame = Some(pres)");
     let call_ok = eng.contains("self.host_seed_presentation_after_match_start()")
         && eng.contains("self.host_ensure_presentation_frame_for_render()")
         && eng.contains("self.host_ensure_presentation_env_for_hints()");
-    // Production call sites only in helpers + thin wrappers.
-    let raw = eng.matches("PresentationFrame::build_for_engine").count();
-    let ok = defs_ok && match_ok && call_ok && raw == 3 && !eng.contains("playable_claim = true");
+    // Production build boundary: shared helper owns sync+build (Wave 926).
+    let boundary_ok = eng.contains("fn host_sync_shadow_and_build_presentation")
+        && eng.contains("host_sync_shadow_and_build_presentation(false)")
+        && eng.contains("host_sync_shadow_and_build_presentation(true)");
+    let ok =
+        defs_ok && match_ok && call_ok && boundary_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostPresentationSeedHelperAction::SourceMarkers);
     ok
 }

@@ -4090,6 +4090,11 @@ use crate::game_logic::host_live_host_eager_apply_batch_residual_wave925::{
     honesty_host_eager_apply_batch_nav_commands_residual_wave925,
     simulate_live_host_eager_apply_batch_honesty,
 };
+use crate::game_logic::host_live_host_presentation_build_boundary_residual_wave926::{
+    honesty_host_presentation_build_boundary_method_names_residual_wave926,
+    honesty_host_presentation_build_boundary_nav_commands_residual_wave926,
+    simulate_live_host_presentation_build_boundary_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8499,6 +8504,9 @@ pub struct ShellSmokeResult {
     pub host_eager_apply_batch_method_names_wave925_ok: bool,
     pub host_eager_apply_batch_nav_commands_wave925_ok: bool,
     pub host_eager_apply_batch_live_wave925_ok: bool,
+    pub host_presentation_build_boundary_method_names_wave926_ok: bool,
+    pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
+    pub host_presentation_build_boundary_live_wave926_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13744,6 +13752,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_eager_apply_batch_nav_commands_wave925_ok =
         honesty_host_eager_apply_batch_nav_commands_residual_wave925();
     let host_eager_apply_batch_live_wave925_ok = simulate_live_host_eager_apply_batch_honesty();
+    let host_presentation_build_boundary_method_names_wave926_ok =
+        honesty_host_presentation_build_boundary_method_names_residual_wave926();
+    let host_presentation_build_boundary_nav_commands_wave926_ok =
+        honesty_host_presentation_build_boundary_nav_commands_residual_wave926();
+    let host_presentation_build_boundary_live_wave926_ok =
+        simulate_live_host_presentation_build_boundary_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16508,6 +16522,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_eager_apply_batch_method_names_wave925_ok,
         host_eager_apply_batch_nav_commands_wave925_ok,
         host_eager_apply_batch_live_wave925_ok,
+        host_presentation_build_boundary_method_names_wave926_ok,
+        host_presentation_build_boundary_nav_commands_wave926_ok,
+        host_presentation_build_boundary_live_wave926_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
