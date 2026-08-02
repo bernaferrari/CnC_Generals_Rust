@@ -3189,44 +3189,16 @@ impl BasicDrawable {
     }
 
     pub fn draw_demoralized(&mut self, _health_region: &IRegion2D) {
-        // Wave 972: host empty dual-world → no demoralize residual yet.
-        if dual_world_registry_unavailable() {
-            self.overlay_data.show_demoralized = false;
-            return;
-        }
-
-        // C++ parity: Drawable.cpp drawDemoralized (lines 3378-3426)
-        // Gated by #ifdef ALLOW_DEMORALIZE in C++; we always compute the state.
-        let Some(obj_id) = self.object_id else {
-            return;
-        };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-            self.overlay_data.show_demoralized = false;
-            return;
-        };
-        let Ok(ai_guard) = ai_arc.lock() else {
-            return;
-        };
-
-        // C++ calls ai->isDemoralized(). In Rust, check via weapon bonus condition.
-        use gamelogic::common::types::WeaponBonusConditionFlags;
-        let bonus = obj_guard.get_weapon_bonus_condition();
-        let is_demoralized = bonus.contains(WeaponBonusConditionFlags::DEMORALIZED);
-
-        self.overlay_data.show_demoralized = is_demoralized;
-
-        if !is_demoralized {
-            if let Some(ref mut icon_info) = self.icon_info {
-                icon_info.clear_icon(IconType::Demoralized);
-            }
-        }
+        // Wave 987: C++ ALLOW_DEMORALIZE is off in retail Zero Hour.
+        // TheWeaponBonusNames uses DEMORALIZED_OBSOLETE; demoralized icon residual
+        // is fail-closed on both host empty dual-world and dual-world registry paths.
+        // (Drawable.cpp drawDemoralized is #ifdef ALLOW_DEMORALIZE.)
+        let _ = (
+            dual_world_registry_unavailable(),
+            self.object_id,
+            _health_region,
+        );
+        self.overlay_data.show_demoralized = false;
     }
 
     pub fn draw_bombed(&mut self, _health_region: &IRegion2D) {
