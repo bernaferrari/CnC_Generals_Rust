@@ -3662,6 +3662,7 @@ impl GameClient {
         &mut self,
         units: Vec<crate::gui::ingame_ui::PresentationUnitCatalogEntry>,
     ) {
+        // Wave 974: catalog position for context pick.
         // Wave 973: stamp translator residual before moving into InGameUI store.
         let translator_catalog: Vec<
             crate::presentation_translator_residual::TranslatorCatalogEntry,
@@ -3674,6 +3675,7 @@ impl GameClient {
                     selectable: u.selectable,
                     kind_names: u.kind_names.clone(),
                     special_power_ready: u.special_power_ready,
+                    position: u.position,
                 },
             )
             .collect();
@@ -3714,6 +3716,7 @@ impl GameClient {
                             selectable: u.selectable,
                             kind_names: u.kind_names.clone(),
                             special_power_ready: u.special_power_ready,
+                            position: u.position,
                         },
                     )
                     .collect();

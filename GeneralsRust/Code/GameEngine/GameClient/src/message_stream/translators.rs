@@ -27,8 +27,8 @@ use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
 use crate::presentation_translator_residual::{
-    translator_catalog_entry, translator_catalog_has_kind, translator_entry_is_local,
-    translator_local_team_name,
+    translator_catalog_entry, translator_catalog_has_kind, translator_entry_has_kind,
+    translator_entry_is_local, translator_local_team_name, with_translator_catalog,
 };
 use crate::system::beacon_display;
 use crate::system::GameMessageResult;
@@ -458,6 +458,46 @@ fn selection_can_attack_target(
     )
 }
 
+/// Wave 974: context pick from presentation translator catalog residual.
+fn collect_selectable_objects_from_presentation(
+    region: &IRegion2D,
+    is_point: bool,
+    radius: f32,
+    point_world: Option<&Coord3D>,
+    profile: ContextPickProfile,
+) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
+    let mut mine = Vec::new();
+    let mut other = Vec::new();
+    with_translator_catalog(|catalog| {
+        for entry in catalog {
+            let matches = (profile.include_selectable
+                && entry.selectable
+                && translator_entry_has_kind(entry, "Selectable"))
+                || (profile.include_force_attackable
+                    && translator_entry_has_kind(entry, "ForceAttackable"))
+                || (profile.include_mines && translator_entry_has_kind(entry, "Mine"))
+                || (profile.include_shrubbery && translator_entry_has_kind(entry, "Shrubbery"));
+            if !matches {
+                continue;
+            }
+            let pos = Coord3D::new(entry.position[0], entry.position[1], entry.position[2]);
+            if world_position_is_under_opaque_window_for_command(&pos) {
+                continue;
+            }
+            let Some(distance) = object_pick_distance(&pos, region, is_point, point_world, radius)
+            else {
+                continue;
+            };
+            if translator_entry_is_local(entry) {
+                mine.push((entry.object_id, distance));
+            } else {
+                other.push((entry.object_id, distance));
+            }
+        }
+    });
+    (mine, other)
+}
+
 fn collect_selectable_objects(
     region: &IRegion2D,
     is_point: bool,
@@ -477,10 +517,15 @@ fn collect_selectable_objects(
         return (Vec::new(), Vec::new());
     }
 
-    // Host/presentation path: Main owns context pick via presentation residual.
-    // Wave 249: prefer shared host empty helper.
+    // Wave 974: host empty dual-world → presentation translator catalog residual.
     if dual_world_registry_unavailable() {
-        return (Vec::new(), Vec::new());
+        return collect_selectable_objects_from_presentation(
+            region,
+            is_point,
+            radius,
+            point_world.as_ref(),
+            profile,
+        );
     }
     let mut mine = Vec::new();
     let mut other = Vec::new();

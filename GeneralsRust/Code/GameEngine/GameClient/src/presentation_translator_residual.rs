@@ -16,6 +16,8 @@ pub struct TranslatorCatalogEntry {
     pub selectable: bool,
     pub kind_names: Vec<String>,
     pub special_power_ready: bool,
+    /// Wave 974: world position residual for host context pick.
+    pub position: [f32; 3],
 }
 
 #[derive(Debug, Clone, Default)]
@@ -66,4 +68,23 @@ pub fn translator_catalog_has_kind(object_id: u32, kind_name: &str) -> bool {
 pub fn translator_entry_is_local(entry: &TranslatorCatalogEntry) -> bool {
     let local = translator_local_team_name();
     !local.is_empty() && entry.team_name == local
+}
+
+pub fn translator_entry_has_kind(entry: &TranslatorCatalogEntry, kind_name: &str) -> bool {
+    entry
+        .kind_names
+        .iter()
+        .any(|k| k == kind_name || k.eq_ignore_ascii_case(kind_name))
+}
+
+/// Wave 974: iterate stamped catalog residual.
+pub fn with_translator_catalog<F, R>(f: F) -> R
+where
+    F: FnOnce(&[TranslatorCatalogEntry]) -> R,
+{
+    let guard = RESIDUAL.read().ok();
+    match guard {
+        Some(g) => f(&g.catalog),
+        None => f(&[]),
+    }
 }
