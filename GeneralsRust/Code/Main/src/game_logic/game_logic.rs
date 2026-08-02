@@ -3219,6 +3219,31 @@ pub enum HostObjectIdResult {
     Created(Option<ObjectId>),
 }
 
+/// Wave 941: host residual mutation payload (poison/force-kill/pending fire).
+#[derive(Debug, Clone)]
+pub enum HostResidualMutationOp {
+    /// PoisonedBehavior DoT — UNRESISTABLE typed death.
+    PoisonDot {
+        object: ObjectId,
+        amount: f32,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    },
+    /// Force HP to 0 / destroyed (+ optional death_type / model refresh).
+    ForceKill {
+        id: ObjectId,
+        death_type: Option<crate::game_logic::host_usa_pilot::HostDeathType>,
+        refresh_model_condition: bool,
+        mark_destroy: bool,
+    },
+    /// FireWeaponWhenDamaged pending weapon residual.
+    SetPendingFireWhenDamaged {
+        id: ObjectId,
+        weapon: String,
+        /// When false, only set if pending is currently None (continuous).
+        overwrite: bool,
+    },
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27967,6 +27992,58 @@ impl GameLogic {
                 team,
                 spawn_at,
             } => HostObjectIdResult::Created(self.create_object(&template, team, spawn_at)),
+        }
+    }
+
+    /// Wave 941: host residual mutation authority boundary (poison/kill/pending fire).
+    #[inline]
+    pub fn apply_host_residual_mutation_op(&mut self, op: HostResidualMutationOp) {
+        match op {
+            HostResidualMutationOp::PoisonDot {
+                object,
+                amount,
+                death_type,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&object) {
+                    let _ = obj.take_damage_from_typed_death(
+                        amount,
+                        None,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        death_type,
+                    );
+                }
+            }
+            HostResidualMutationOp::ForceKill {
+                id,
+                death_type,
+                refresh_model_condition,
+                mark_destroy,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    obj.health.current = 0.0;
+                    obj.status.destroyed = true;
+                    if let Some(dt) = death_type {
+                        obj.status.death_type = dt;
+                    }
+                    if refresh_model_condition {
+                        obj.refresh_model_condition_bits();
+                    }
+                }
+                if mark_destroy {
+                    self.mark_object_for_destruction(id, None);
+                }
+            }
+            HostResidualMutationOp::SetPendingFireWhenDamaged {
+                id,
+                weapon,
+                overwrite,
+            } => {
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    if overwrite || obj.pending_fire_when_damaged_weapon.is_none() {
+                        obj.pending_fire_when_damaged_weapon = Some(weapon);
+                    }
+                }
+            }
         }
     }
 

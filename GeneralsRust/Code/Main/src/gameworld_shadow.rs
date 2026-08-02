@@ -18022,97 +18022,98 @@ pub fn shadow_session_after_host_tick(
         }
         // Wave 769: PoisonedBehavior DoT → host UNRESISTABLE apply (no dual timer).
         for ev in crate::game_logic::host_poison_dot_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&ev.object) {
-                let _killed = obj.take_damage_from_typed_death(
-                    ev.amount,
-                    None,
-                    crate::game_logic::combat::DamageType::Unresistable,
-                    ev.death_type,
-                );
-            }
+            // Wave 941: poison DoT via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::PoisonDot {
+                    object: ev.object,
+                    amount: ev.amount,
+                    death_type: ev.death_type,
+                },
+            );
         }
         // Wave 770: ToppleUpdate kill-when-down → host destroy (no dual timer).
         for id in crate::game_logic::host_topple_kill_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                obj.health.current = 0.0;
-                obj.status.destroyed = true;
-                obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 941: force-kill residual via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ForceKill {
+                    id,
+                    death_type: Some(crate::game_logic::host_usa_pilot::HostDeathType::Toppled),
+                    refresh_model_condition: false,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 771: HeightDieUpdate kill → host destroy (no dual timer).
         for id in crate::game_logic::host_height_die_kill_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                obj.health.current = 0.0;
-                obj.status.destroyed = true;
-                obj.refresh_model_condition_bits();
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 941: force-kill residual via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ForceKill {
+                    id,
+                    death_type: None,
+                    refresh_model_condition: true,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 772: JetSlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_jet_slow_death_kill_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                obj.health.current = 0.0;
-                obj.status.destroyed = true;
-                obj.refresh_model_condition_bits();
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 941: force-kill residual via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ForceKill {
+                    id,
+                    death_type: None,
+                    refresh_model_condition: true,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 773: HelicopterSlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_heli_slow_death_kill_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                obj.health.current = 0.0;
-                obj.status.destroyed = true;
-                obj.refresh_model_condition_bits();
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 941: force-kill residual via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ForceKill {
+                    id,
+                    death_type: None,
+                    refresh_model_condition: true,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 774: SlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_slow_death_kill_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                obj.health.current = 0.0;
-                obj.status.destroyed = true;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 941: force-kill residual via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ForceKill {
+                    id,
+                    death_type: None,
+                    refresh_model_condition: false,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 775: StructureCollapseUpdate done → host destroy (no dual timer).
         for id in crate::game_logic::host_structure_collapse_kill_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                obj.health.current = 0.0;
-                obj.status.destroyed = true;
-                obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 941: force-kill residual via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ForceKill {
+                    id,
+                    death_type: Some(crate::game_logic::host_usa_pilot::HostDeathType::Toppled),
+                    refresh_model_condition: false,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 776: StructureToppleUpdate done → host destroy (no dual timer).
         for id in crate::game_logic::host_structure_topple_kill_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                obj.health.current = 0.0;
-                obj.status.destroyed = true;
-                obj.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
-            }
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
+            // Wave 941: force-kill residual via host residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::ForceKill {
+                    id,
+                    death_type: Some(crate::game_logic::host_usa_pilot::HostDeathType::Toppled),
+                    refresh_model_condition: false,
+                    mark_destroy: true,
+                },
+            );
         }
         // Wave 777: StructureTopple crush sweep → host apply (no dual last_crushed).
         for (id, samples) in crate::game_logic::host_structure_topple_crush_log::drain() {
@@ -18120,18 +18121,25 @@ pub fn shadow_session_after_host_tick(
         }
         // Wave 778: FWWDB continuous → host pending fire (no dual continuous timer).
         for (id, weapon) in crate::game_logic::host_fwwd_continuous_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                if obj.pending_fire_when_damaged_weapon.is_none() {
-                    obj.pending_fire_when_damaged_weapon = Some(weapon);
-                }
-            }
+            // Wave 941: continuous FWWDB pending fire via residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::SetPendingFireWhenDamaged {
+                    id,
+                    weapon,
+                    overwrite: false,
+                },
+            );
         }
         // Wave 779: FWWDB reaction → host pending fire (no dual reaction debounce).
         for (id, weapon) in crate::game_logic::host_fwwd_reaction_log::drain() {
-            if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
-                // Reaction preferred over continuous same frame.
-                obj.pending_fire_when_damaged_weapon = Some(weapon);
-            }
+            // Wave 941: reaction FWWDB pending fire via residual mutation authority.
+            logic.apply_host_residual_mutation_op(
+                crate::game_logic::HostResidualMutationOp::SetPendingFireWhenDamaged {
+                    id,
+                    weapon,
+                    overwrite: true,
+                },
+            );
         }
 
         // Wave 788: DaisyCutter/MOAB drop + detonate (no dual flight).
