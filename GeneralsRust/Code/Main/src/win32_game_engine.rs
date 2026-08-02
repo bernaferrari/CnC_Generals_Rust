@@ -424,11 +424,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     #[allow(dead_code)] // Legacy stub: superseded by CncGameEngine render pipeline
     fn render_game_objects<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        for obj in self.game_logic.get_objects().values() {
-            if obj.is_alive() {
-                self.render_object(obj, render_pass);
-            }
-        }
+        // Wave 954: legacy Win32 stub superseded by CncGameEngine. No live
+        // GameLogic dual-read — production path uses PresentationFrame there.
+        let _ = render_pass;
     }
 
     #[allow(dead_code)] // Legacy stub: superseded by CncGameEngine render pipeline

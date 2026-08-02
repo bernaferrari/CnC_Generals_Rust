@@ -78,6 +78,10 @@ impl InputProcessor {
             && o.contained_by.is_none()
     }
 
+    fn presentation_is_attackable(o: &crate::presentation_frame::RenderableObject) -> bool {
+        !o.destroyed && PresentationFrame::object_has_kind(o, KindOf::Attackable)
+    }
+
     fn local_player_team(&self, game_logic: &GameLogic) -> Team {
         game_logic
             .get_player(self.local_player_id)
@@ -239,6 +243,7 @@ impl InputProcessor {
     }
 
     /// Handle left mouse click for unit selection
+
     async fn handle_left_click(
         &mut self,
         world_pos: Vec3,
@@ -248,60 +253,55 @@ impl InputProcessor {
     ) {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
-        // Find object at world position
+        // Wave 954: pick + friendly classify presentation-only.
         let clicked_object = self.find_object_at_position(world_pos, &logic);
 
         if let Some(object_id) = clicked_object {
-            // Check if object belongs to local player
-            if let Some(obj) = logic.find_object(object_id) {
-                let player_team = self.local_player_team(&logic);
-                if obj.team == player_team && obj.is_selectable() {
-                    // Select the object
-                    if shift_pressed {
-                        // Add to selection
-                        let mut current_selection = logic
-                            .get_player(self.local_player_id)
-                            .map(|p| p.selected_objects.clone())
-                            .unwrap_or_default();
+            let player_team = self.presentation_local_team(&logic);
+            let friendly_selectable = self
+                .presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.objects.iter().find(|o| o.id == object_id))
+                .map(|o| o.team == player_team && Self::presentation_is_selectable(o))
+                .unwrap_or(false);
+            if friendly_selectable && logic.host_object(object_id).is_some() {
+                if shift_pressed {
+                    let mut current_selection = logic
+                        .get_player(self.local_player_id)
+                        .map(|p| p.selected_objects.clone())
+                        .unwrap_or_default();
 
-                        if !current_selection.contains(&object_id) {
-                            current_selection.push(object_id);
-                            logic.select_objects(self.local_player_id, current_selection);
-                            println!("Added object {} to selection", object_id);
-                        }
-                    } else if ctrl_pressed {
-                        // Ctrl+click toggles selection state
-                        let mut current_selection = logic
-                            .get_player(self.local_player_id)
-                            .map(|p| p.selected_objects.clone())
-                            .unwrap_or_default();
-                        if let Some(index) =
-                            current_selection.iter().position(|&id| id == object_id)
-                        {
-                            current_selection.swap_remove(index);
-                            println!("Removed object {} from selection", object_id);
-                        } else {
-                            current_selection.push(object_id);
-                            println!("Added object {} to selection", object_id);
-                        }
+                    if !current_selection.contains(&object_id) {
+                        current_selection.push(object_id);
                         logic.select_objects(self.local_player_id, current_selection);
-                    } else {
-                        // Replace selection
-                        logic.select_objects(self.local_player_id, vec![object_id]);
-                        println!("Selected object {} at {:?}", object_id, world_pos);
+                        println!("Added object {} to selection", object_id);
                     }
+                } else if ctrl_pressed {
+                    let mut current_selection = logic
+                        .get_player(self.local_player_id)
+                        .map(|p| p.selected_objects.clone())
+                        .unwrap_or_default();
+                    if let Some(index) = current_selection.iter().position(|&id| id == object_id) {
+                        current_selection.swap_remove(index);
+                        println!("Removed object {} from selection", object_id);
+                    } else {
+                        current_selection.push(object_id);
+                        println!("Added object {} to selection", object_id);
+                    }
+                    logic.select_objects(self.local_player_id, current_selection);
+                } else {
+                    logic.select_objects(self.local_player_id, vec![object_id]);
+                    println!("Selected object {} at {:?}", object_id, world_pos);
                 }
             }
-        } else {
-            // Clicked on empty space - clear selection unless shift is held
-            if !shift_pressed && !ctrl_pressed {
-                logic.select_objects(self.local_player_id, vec![]);
-                println!("Cleared selection");
-            }
+        } else if !shift_pressed && !ctrl_pressed {
+            logic.select_objects(self.local_player_id, vec![]);
+            println!("Cleared selection");
         }
     }
 
     /// Handle right mouse click for movement/attack commands
+
     async fn handle_right_click(
         &mut self,
         world_pos: Vec3,
@@ -309,7 +309,6 @@ impl InputProcessor {
     ) {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
-        // Get currently selected units
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
         } else {
@@ -321,30 +320,28 @@ impl InputProcessor {
             return;
         }
 
-        // Check if clicking on an enemy unit (attack command)
+        // Wave 954: attack target classify presentation-only.
         let target_object = self.find_object_at_position(world_pos, &logic);
+        let player_team = self.presentation_local_team(&logic);
 
         if let Some(target_id) = target_object {
-            if let Some(target) = logic.find_object(target_id) {
-                let player_team = logic
-                    .get_player(self.local_player_id)
-                    .map(|player| player.team)
-                    .unwrap_or(Team::Neutral);
-                // Check if target is enemy
-                if target.team != player_team && target.is_attackable() {
-                    // Issue attack command
-                    logic.command_attack(self.local_player_id, target_id);
-                    println!(
-                        "Commanded {} units to attack target {}",
-                        selected_objects.len(),
-                        target_id
-                    );
-                    return;
-                }
+            let attackable_enemy = self
+                .presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.objects.iter().find(|o| o.id == target_id))
+                .map(|o| o.team != player_team && Self::presentation_is_attackable(o))
+                .unwrap_or(false);
+            if attackable_enemy && logic.host_object(target_id).is_some() {
+                logic.command_attack(self.local_player_id, target_id);
+                println!(
+                    "Commanded {} units to attack target {}",
+                    selected_objects.len(),
+                    target_id
+                );
+                return;
             }
         }
 
-        // Otherwise, issue move command
         logic.command_move(self.local_player_id, world_pos);
         println!(
             "Commanded {} units to move to {:?}",
@@ -577,6 +574,7 @@ impl InputProcessor {
     }
 
     /// Select units in a control group
+
     async fn select_control_group(
         &mut self,
         group_num: u8,
@@ -589,13 +587,15 @@ impl InputProcessor {
             return;
         };
 
-        // Filter out dead / invalid objects.
+        // Wave 954: control-group filter presentation-only (fail-closed without freeze).
+        let player_team = self.presentation_local_team(&logic);
         let mut selection = Vec::new();
-        for &object_id in group {
-            if let Some(obj) = logic.find_object(object_id) {
-                let player_team = self.local_player_team(&logic);
-                if obj.team == player_team && obj.is_selectable() {
-                    selection.push(object_id);
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            for &object_id in group {
+                if let Some(o) = frame.objects.iter().find(|o| o.id == object_id) {
+                    if o.team == player_team && Self::presentation_is_selectable(o) {
+                        selection.push(object_id);
+                    }
                 }
             }
         }
