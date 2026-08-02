@@ -20212,11 +20212,17 @@ impl CnCGameEngine {
                             team_name: format!("{:?}", o.team),
                             selectable: UnitControlSystem::presentation_is_selectable(o),
                             position: [o.position.x, o.position.y, o.position.z],
+                            kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                         },
                     )
                     .collect()
             };
             self.game_client.apply_presentation_unit_catalog(catalog);
+            // Wave 968: local team residual for host mouseover/ownership path.
+            if let Some(local_team) = self.ui_local_player_team_name() {
+                self.game_client
+                    .apply_presentation_local_team_name(local_team);
+            }
         }
         // PRES_SHELL_ONLY_DRAWABLE_TICK: client modules via update_drawables_local.
         // Wave 862: presentation pose/shroud/caption residual already applied above.

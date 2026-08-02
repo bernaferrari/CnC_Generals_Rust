@@ -869,6 +869,8 @@ pub struct PresentationUnitCatalogEntry {
     pub team_name: String,
     pub selectable: bool,
     pub position: [f32; 3],
+    /// Wave 968: KindOf Debug names from presentation freeze.
+    pub kind_names: Vec<String>,
 }
 
 pub struct InGameUI {
@@ -883,6 +885,9 @@ pub struct InGameUI {
 
     /// Wave 966: full presentation unit catalog residual (host select-similar).
     presentation_unit_catalog: Vec<PresentationUnitCatalogEntry>,
+
+    /// Wave 968: local player team residual for host ownership queries.
+    presentation_local_team_name: String,
 
     /// Current placement preview (if any)
     placement_preview: Option<PlacementPreview>,
@@ -1068,6 +1073,7 @@ impl InGameUI {
             selection_state: SelectionState::new(MAX_SELECTION_COUNT),
             presentation_selected: Vec::new(),
             presentation_unit_catalog: Vec::new(),
+            presentation_local_team_name: String::new(),
             placement_preview: None,
             minimap: Minimap::new(
                 Vec2::new(
@@ -1930,9 +1936,18 @@ impl InGameUI {
         &self.presentation_selected
     }
 
-    /// Wave 966: stamp presentation unit catalog residual (host empty dual-world).
+    /// Wave 966/968: stamp presentation unit catalog + local team residual.
     pub fn set_presentation_unit_catalog(&mut self, units: Vec<PresentationUnitCatalogEntry>) {
         self.presentation_unit_catalog = units;
+    }
+
+    /// Wave 968: stamp local player team residual (Debug name).
+    pub fn set_presentation_local_team_name(&mut self, team_name: impl Into<String>) {
+        self.presentation_local_team_name = team_name.into();
+    }
+
+    pub fn presentation_local_team_name(&self) -> &str {
+        &self.presentation_local_team_name
     }
 
     /// Wave 966: read-only presentation unit catalog residual.
@@ -4510,10 +4525,20 @@ impl InGameUI {
         (selected.len() == 1).then(|| selected[0])
     }
 
-    fn command_hint_source_context(object_id: u32) -> Option<(bool, bool)> {
-        // Wave 273: empty dual-world → None.
+    fn command_hint_source_context(&self, object_id: u32) -> Option<(bool, bool)> {
+        // Wave 968: host empty dual-world → presentation catalog residual.
         if dual_world_registry_unavailable() {
-            return None;
+            let entry = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|u| u.object_id == object_id)?;
+            let local = !self.presentation_local_team_name.is_empty()
+                && entry.team_name == self.presentation_local_team_name;
+            let is_structure = entry
+                .kind_names
+                .iter()
+                .any(|k| k == "Structure" || k.eq_ignore_ascii_case("structure"));
+            return Some((local, is_structure));
         }
 
         OBJECT_REGISTRY.get_object(object_id).and_then(|obj| {
@@ -4922,7 +4947,7 @@ impl InGameUI {
                 // C++: if (underWindow || (srcObj && !srcObj->isLocallyControlled()))
                 let source_context = self
                     .selected_source_id_for_command_hint()
-                    .and_then(Self::command_hint_source_context);
+                    .and_then(|id| self.command_hint_source_context(id));
                 if under_window
                     || Self::default_command_hint_blocked_by_source(
                         source_context.map(|(locally_controlled, _)| locally_controlled),
@@ -5165,9 +5190,88 @@ impl InGameUI {
     ///
     /// Simplified from C++: player-name suffixes and special object cases are
     /// deferred until the rest of the tooltip path is ported.
+
+    /// Wave 968: host mouseover cursor/tooltip residual without OBJECT_REGISTRY.
+    fn create_mouseover_hint_from_presentation(
+        &mut self,
+        drawable_id: Option<u32>,
+        is_location_hint: bool,
+    ) {
+        if self.is_scrolling || self.is_selecting {
+            return;
+        }
+        if Self::cursor_is_under_opaque_window() {
+            self.set_mouse_cursor(MouseCursor::Arrow);
+            return;
+        }
+
+        let old_id = self.moused_over_drawable_id;
+        if is_location_hint {
+            self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+        } else if let Some(draw_id) = drawable_id {
+            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
+            if draw_id == Self::INVALID_DRAWABLE_ID {
+                self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+            } else if let Some(entry) = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|u| u.object_id == draw_id)
+                .cloned()
+            {
+                self.moused_over_drawable_id = draw_id;
+                if !entry.template_name.is_empty() {
+                    with_mouse(|m| {
+                        m.set_cursor_tooltip(entry.template_name.clone(), Some(-1), None, None);
+                    });
+                }
+            } else {
+                self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+            }
+        } else {
+            self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+        }
+
+        if old_id != self.moused_over_drawable_id {
+            with_mouse(|m| m.reset_tooltip_delay());
+        }
+
+        if self.mouse_mode == MouseMode::Default
+            && !self.is_scrolling
+            && !self.is_selecting
+            && self.get_select_count() == 0
+            && Self::mouseover_cursor_update_allowed(
+                self.recorder_playback_active,
+                self.look_at_mouse_moved_recently,
+            )
+        {
+            if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
+                let can_select = self
+                    .presentation_unit_catalog
+                    .iter()
+                    .find(|u| u.object_id == self.moused_over_drawable_id)
+                    .map(|u| {
+                        u.selectable
+                            && !self.presentation_local_team_name.is_empty()
+                            && u.team_name == self.presentation_local_team_name
+                    })
+                    .unwrap_or(false);
+                if can_select {
+                    self.set_mouse_cursor(MouseCursor::Selecting);
+                } else {
+                    self.set_mouse_cursor(MouseCursor::Arrow);
+                }
+            } else {
+                self.set_mouse_cursor(MouseCursor::Arrow);
+            }
+        } else if self.mouse_mode == MouseMode::GuiCommand {
+            self.set_mouse_cursor(self.mouse_mode_cursor);
+        }
+    }
+
     pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
-        // Wave 273: empty dual-world → no factory object walks.
+        // Wave 968: host empty dual-world → presentation catalog residual path.
         if dual_world_registry_unavailable() {
+            self.create_mouseover_hint_from_presentation(drawable_id, is_location_hint);
             return;
         }
 
