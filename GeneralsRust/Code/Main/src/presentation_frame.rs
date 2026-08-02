@@ -7069,6 +7069,11 @@ impl PresentationFrame {
                 }
                 dirty = true;
             }
+            let ent_producer = ent.producer_id.map(ObjectId);
+            if obj.producer_id != ent_producer {
+                obj.producer_id = ent_producer;
+                dirty = true;
+            }
             if obj.has_secondary_weapon != ent.has_secondary_weapon {
                 obj.has_secondary_weapon = ent.has_secondary_weapon;
                 dirty = true;
@@ -7353,7 +7358,7 @@ impl PresentationFrame {
             },
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
-            producer_id: None, // Wave 982: GW entity producer residual not yet mirrored.
+            producer_id: ent.producer_id.map(ObjectId), // Wave 992: GameWorld entity producer residual.
             show_healing: false,
             healing_icon_type: 0,
             parachuting: ent.parachuting,
