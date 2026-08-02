@@ -2078,8 +2078,14 @@ impl BasicDrawable {
     /// Flash contained objects when this drawable is selected.
     /// Matches C++ Drawable::onSelected() -> contain->clientVisibleContainedFlashAsSelected()
     fn flash_contained_objects(&self, object_id: u32) {
-        // Wave 270: empty dual-world → no factory object walks.
+        // Wave 977: host empty dual-world → presentation occupant residual only.
+        // Full contained-drawable flash walk needs dual-world factory objects.
         if dual_world_registry_unavailable() {
+            let _ = (
+                object_id,
+                self.presentation_occupant_count,
+                self.presentation_max_garrison,
+            );
             return;
         }
 
@@ -2780,10 +2786,12 @@ impl BasicDrawable {
     }
 
     fn compute_health_region_from_object(&self) -> Option<IRegion2D> {
-        // Wave 965: host empty dual-world → honor seeded overlay health region only.
-        // Presentation health fraction is stamped; screen region still needs view.
+        // Wave 977: host empty dual-world → compute screen region from drawable pose residual.
         if dual_world_registry_unavailable() {
-            return self.overlay_data.health_region;
+            if let Some(region) = self.overlay_data.health_region {
+                return Some(region);
+            }
+            return self.compute_health_region_from_presentation_pose();
         }
 
         let obj_id = self.object_id?;
@@ -2798,6 +2806,21 @@ impl BasicDrawable {
 
         let world = obj_guard.get_health_box_position();
         let world_pt = Point3::new(world.x, world.y, world.z);
+        Self::health_region_from_world_point(world_pt, health_box_width)
+    }
+
+    /// Wave 977: host presentation pose → health bar screen region (default box size).
+    fn compute_health_region_from_presentation_pose(&self) -> Option<IRegion2D> {
+        // Default health box width matches common infantry/vehicle residual (~20 world units).
+        let pos = self.position;
+        let world_pt = Point3::new(pos.x, pos.y, pos.z + 10.0);
+        Self::health_region_from_world_point(world_pt, 20.0)
+    }
+
+    fn health_region_from_world_point(
+        world_pt: Point3,
+        mut health_box_width: f32,
+    ) -> Option<IRegion2D> {
         let (screen_center, zoom) = with_tactical_view_ref(|view| {
             let screen = view.world_to_screen(&world_pt)?;
             Some((screen, view.zoom()))
@@ -3290,11 +3313,7 @@ impl BasicDrawable {
     }
 
     pub fn draw_icon_ui(&mut self) {
-        // Wave 270: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+        // Wave 977: host empty dual-world runs presentation residual icon path.
         let region = self.compute_health_region();
 
         // C++ parity: Drawable.cpp drawIconUI() dispatch order (lines 2738-2788):
@@ -3310,10 +3329,17 @@ impl BasicDrawable {
         }
 
         // C++: all icons below only draw on ALIVE things
-        let Some(obj_id) = self.object_id else {
-            return;
-        };
-        let is_dead = {
+        let is_dead = if dual_world_registry_unavailable() {
+            // Wave 977: presentation residual dead/ignore checks.
+            self.presentation_health_pct <= 0.0
+                || self
+                    .presentation_kind_names
+                    .iter()
+                    .any(|k| k == "IgnoredInGui" || k.eq_ignore_ascii_case("ignoredingui"))
+        } else {
+            let Some(obj_id) = self.object_id else {
+                return;
+            };
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 return;
             };
