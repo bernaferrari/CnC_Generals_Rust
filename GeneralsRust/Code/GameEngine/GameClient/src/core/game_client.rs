@@ -3809,6 +3809,33 @@ impl GameClient {
             let _ = self.set_time_of_day(client_tod);
         }
 
+        // Wave 988: drain NIGHT/SNOW model-condition residual onto presentation drawables.
+        if let Some((is_night, is_snow)) =
+            crate::message_stream::meta_event::take_host_model_condition_weather_residual()
+        {
+            use game_engine::common::bit_flags::{
+                create_model_condition_flags, ModelConditionFlags,
+            };
+            let mut clear = create_model_condition_flags();
+            let mut set = create_model_condition_flags();
+            clear.set(ModelConditionFlags::NIGHT, true);
+            clear.set(ModelConditionFlags::SNOW, true);
+            if is_night {
+                set.set(ModelConditionFlags::NIGHT, true);
+            }
+            if is_snow {
+                set.set(ModelConditionFlags::SNOW, true);
+            }
+            for drawable in self.drawable_map.values_mut() {
+                use crate::drawable::drawable::DrawableExt;
+                if let Some(basic) =
+                    drawable.downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+                {
+                    basic.clear_and_set_model_condition_flags(&clear, &set);
+                }
+            }
+        }
+
         // Wave 984: drain contained-flash residual onto presentation drawables.
         for object_id in take_host_contained_flash_object_ids() {
             let Some(drawable_id) = self.get_drawable_for_object(object_id) else {

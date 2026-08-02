@@ -91,6 +91,30 @@ pub fn take_host_drawable_tod_residual() -> Option<TimeOfDay> {
     }
 }
 
+/// Wave 988: host model-condition weather residual (bit0=pending, bit1=night, bit2=snow).
+static HOST_PENDING_MODEL_COND_WEATHER_RESIDUAL: AtomicU8 = AtomicU8::new(0);
+
+fn queue_host_model_condition_weather_residual(is_night: bool, is_snow: bool) {
+    let mut tag = 0x1u8;
+    if is_night {
+        tag |= 0x2;
+    }
+    if is_snow {
+        tag |= 0x4;
+    }
+    HOST_PENDING_MODEL_COND_WEATHER_RESIDUAL.store(tag, Ordering::SeqCst);
+}
+
+/// Drain pending host NIGHT/SNOW model-condition residual for presentation shell.
+pub fn take_host_model_condition_weather_residual() -> Option<(bool, bool)> {
+    let tag = HOST_PENDING_MODEL_COND_WEATHER_RESIDUAL.swap(0, Ordering::SeqCst);
+    if tag & 0x1 == 0 {
+        None
+    } else {
+        Some((tag & 0x2 != 0, tag & 0x4 != 0))
+    }
+}
+
 const MOD_CTRL: u32 = 1;
 const MOD_ALT: u32 = 2;
 const MOD_SHIFT: u32 = 4;
@@ -1703,9 +1727,18 @@ fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
 fn refresh_drawable_model_conditions() {
     let clear = ModelConditionFlags::empty();
     let set = ModelConditionFlags::empty();
-    // Wave 345: empty dual-world → host presentation residual only.
-    // PresentationFrame / drawable shell tick owns model conditions when empty.
+    // Wave 988: empty dual-world → queue NIGHT/SNOW residual for presentation shell.
+    // C++ forceModelsToFollowTimeOfDay/Weather residual on TOD demo cycle.
     if dual_world_registry_unavailable() {
+        let (is_night, is_snow) = if let Some(global_data) = get_global_data() {
+            let g = global_data.read();
+            let night = matches!(g.time_of_day, TimeOfDay::Night);
+            let snow = matches!(g.weather, game_engine::common::ini::Weather::Snowy);
+            (night, snow)
+        } else {
+            (false, false)
+        };
+        queue_host_model_condition_weather_residual(is_night, is_snow);
         let _ = (clear, set);
         return;
     }
