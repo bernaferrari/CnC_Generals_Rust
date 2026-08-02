@@ -176,7 +176,7 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    if let Some(o) = logic.get_object_mut(id) {
+    if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
         o.selected = true;
         o.status.selected = true;
     }

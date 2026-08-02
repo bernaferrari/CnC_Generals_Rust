@@ -257,32 +257,36 @@ impl UnitInputHandler {
 
     /// Cycle through selected units
     async fn cycle_selected_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
-        let Ok(logic) = game_logic.lock() else {
+        let Ok(_logic) = game_logic.lock() else {
             log::warn!("Skipping cycle_selected_units read: game logic lock poisoned");
             return;
         };
 
-        // Get all selectable units for the local player
-        let mut all_units: Vec<crate::game_logic::ObjectId> = logic
-            .get_objects()
-            .iter()
-            .filter(|(_, obj)| {
-                obj.team == self.unit_control.local_player_team && obj.is_selectable()
-            })
-            .map(|(&id, _)| id)
-            .collect();
+        // Wave 950: presentation-only unit cycle (no live GameLogic dual-read).
+        let mut all_units: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.unit_control.presentation_frame() {
+                frame
+                    .objects
+                    .iter()
+                    .filter(|o| {
+                        o.team == self.unit_control.local_player_team
+                            && UnitControlSystem::presentation_is_selectable(o)
+                    })
+                    .map(|o| o.id)
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         if all_units.is_empty() {
             log::debug!("No units to cycle through");
             return;
         }
 
-        all_units.sort_by_key(|id| id.0); // Sort by ID for consistent order
+        all_units.sort_by_key(|id| id.0);
 
-        // Find currently selected unit
         let current_selection = self.unit_control.get_selected_objects();
         let next_unit = if let Some(&current_id) = current_selection.first() {
-            // Find next unit in sequence
             if let Some(current_index) = all_units.iter().position(|&id| id == current_id) {
                 let next_index = (current_index + 1) % all_units.len();
                 all_units[next_index]
@@ -293,18 +297,9 @@ impl UnitInputHandler {
             all_units[0]
         };
 
-        // Select the next unit
         self.unit_control.selected_objects.clear();
         self.unit_control.selected_objects.push(next_unit);
-
-        drop(logic);
-        let Ok(mut logic) = game_logic.lock() else {
-            log::warn!("Skipping cycle_selected_units write: game logic lock poisoned");
-            return;
-        };
-        logic.select_objects(self.local_player_id, vec![next_unit]);
-
-        log::debug!("Cycled to unit {}", next_unit);
+        log::debug!("Cycled selection to unit {:?}", next_unit);
     }
 
     /// Get current selection for UI display

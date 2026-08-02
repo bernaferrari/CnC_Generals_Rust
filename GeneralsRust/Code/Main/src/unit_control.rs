@@ -950,7 +950,7 @@ impl UnitControlSystem {
         let command = self.create_stop_command();
 
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic.get_object_mut(object_id) {
+            if let Some(obj) = logic./* Wave 950 */ host_object_mut(object_id) {
                 if obj.is_mobile() {
                     obj.stop();
                 }
@@ -973,7 +973,7 @@ impl UnitControlSystem {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic.get_object_mut(object_id) {
+            if let Some(obj) = logic.host_object_mut(object_id) {
                 obj.set_guard_position(None);
             }
         }
@@ -993,7 +993,7 @@ impl UnitControlSystem {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic.get_object_mut(object_id) {
+            if let Some(obj) = logic.host_object_mut(object_id) {
                 obj.set_guard_target(None);
             }
         }
@@ -1205,7 +1205,7 @@ mod tests {
         let (mut logic, id) = logic_with_selectable_unit();
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         // Move live object far away after snapshot.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(5000.0, 0.0, 5000.0));
         }
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
@@ -1280,7 +1280,7 @@ mod tests {
     fn world_pick_from_presentation_ignores_live_move() {
         let (mut logic, id) = logic_with_selectable_unit();
         let frame = PresentationFrame::build_from_logic(&logic, 0);
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(9000.0, 0.0, 9000.0));
         }
         let picked = UnitControlSystem::pick_object_id_at_world_from_presentation(
@@ -1300,7 +1300,7 @@ mod tests {
     fn control_group_assign_prefers_presentation_pose() {
         let (mut logic, id) = logic_with_selectable_unit();
         let frame = PresentationFrame::build_from_logic(&logic, 0);
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(8000.0, 0.0, 8000.0));
         }
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
@@ -1328,7 +1328,7 @@ mod tests {
         let id2 = logic
             .create_object("RangerB", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
             .unwrap();
-        if let Some(o) = logic.get_object_mut(id2) {
+        if let Some(o) = logic.host_object_mut(id2) {
             o.status.destroyed = true;
         }
         let frame = PresentationFrame::build_from_logic(&logic, 0);

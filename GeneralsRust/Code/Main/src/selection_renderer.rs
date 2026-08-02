@@ -872,7 +872,7 @@ mod presentation_identity_tests {
         let id = logic
             .create_object("LegacySelUnit", Team::USA, Vec3::ZERO)
             .expect("unit");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
@@ -891,7 +891,7 @@ mod presentation_identity_tests {
         );
 
         // Mutate live world after snapshot: position leaves NDC frustum under identity matrices.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(Vec3::new(999.0, 0.0, 999.0));
             o.health.current = 1.0;
             o.selected = false;
@@ -943,7 +943,7 @@ mod presentation_identity_tests {
             .create_object("CtrlGrpUnit", Team::USA, Vec3::new(10.0, 0.0, 20.0))
             .expect("u");
         let snap = PresentationFrame::build_from_logic(&logic, 0);
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(Vec3::new(999.0, 0.0, 999.0));
         }
         let logic_arc = std::sync::Arc::new(std::sync::Mutex::new(logic));

@@ -8742,7 +8742,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
@@ -29031,7 +29031,7 @@ mod tests {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }

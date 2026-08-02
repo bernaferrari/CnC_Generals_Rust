@@ -677,7 +677,7 @@ mod presentation_selection_tests {
         let id = logic
             .create_object("SelUnit", Team::USA, Vec3::new(12.0, 0.0, -7.0))
             .expect("unit");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
             o.selection_radius = 9.0;
@@ -688,7 +688,7 @@ mod presentation_selection_tests {
 
         let snap = PresentationFrame::build_from_logic(&logic, 0);
         // Mutate live world after snapshot — consumer must keep snapshot identity.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(Vec3::new(999.0, 0.0, 999.0));
             o.selected = false;
             o.status.selected = false;

@@ -585,7 +585,7 @@ fn ensure_object_gatherable(logic: &mut GameLogic, id: ObjectId) {
         tpl.add_kind_of(KindOf::Resource);
         tpl.add_kind_of(KindOf::Harvestable);
     }
-    if let Some(obj) = logic.get_object_mut(id) {
+    if let Some(obj) = logic./* Wave 950 */ host_object_mut(id) {
         obj.thing.template.add_kind_of(KindOf::Resource);
         obj.thing.template.add_kind_of(KindOf::Harvestable);
     }
@@ -892,7 +892,7 @@ fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) -> (boo
     let mut max_applied_speed = 0.0_f32;
     let mut raised_damage = false;
     for &rid in rangers {
-        if let Some(r) = logic.get_object_mut(rid) {
+        if let Some(r) = logic.host_object_mut(rid) {
             // Prefer create_object Locomotor.ini/seed bind; only fill gaps.
             if r.movement.max_speed < SLICE_MARCH_SPEED {
                 r.movement.max_speed = SLICE_MARCH_SPEED;
@@ -945,7 +945,7 @@ fn materialize_host_damage_log(logic: &mut GameLogic) {
     }
     let mut destroy_ids = Vec::new();
     for e in events {
-        let Some(obj) = logic.get_object_mut(e.target) else {
+        let Some(obj) = logic.host_object_mut(e.target) else {
             continue;
         };
         if e.destroyed || e.amount + 1e-3 >= obj.health.current {
@@ -1084,7 +1084,7 @@ fn fight_enemies_with_rangers(
                     let dest = approach_point(ep, i);
                     let _ = logic.assign_unit_path(*rid, dest, &[]);
                     // Kick full speed immediately so accel ramp does not burn budget.
-                    if let Some(r) = logic.get_object_mut(*rid) {
+                    if let Some(r) = logic.host_object_mut(*rid) {
                         let pos = r.get_position();
                         let dir = {
                             let mut d = dest - pos;
@@ -1215,7 +1215,7 @@ fn fight_enemies_with_rangers(
                 for (i, rid) in live.iter().enumerate() {
                     let dest = approach_point(ep, i);
                     let _ = logic.assign_unit_path(*rid, dest, &[]);
-                    if let Some(r) = logic.get_object_mut(*rid) {
+                    if let Some(r) = logic.host_object_mut(*rid) {
                         let pos = r.get_position();
                         let dir = {
                             let mut d = dest - pos;
@@ -1247,7 +1247,7 @@ fn fight_enemies_with_rangers(
                 used_teleport_pull = true;
                 pulled_this_round = true;
                 for (i, rid) in live.iter().enumerate() {
-                    if let Some(r) = logic.get_object_mut(*rid) {
+                    if let Some(r) = logic.host_object_mut(*rid) {
                         if r.is_alive() {
                             let d = horiz_distance(r.get_position(), ep);
                             let wr = r.weapon.as_ref().map(|w| w.range).unwrap_or(100.0);
@@ -1480,7 +1480,7 @@ fn run_synthetic_host_skirmish(
 
     // Construct barracks via DozerConstruct.
     // Place dozer at pad so pathfinding cannot stall Constructing (map path residual).
-    if let Some(d) = logic.get_object_mut(dozer) {
+    if let Some(d) = logic.host_object_mut(dozer) {
         d.set_position(Vec3::new(75.0, 0.0, 0.0));
     }
     for _ in 0..3 {
@@ -1758,7 +1758,7 @@ fn run_map_world_skirmish(
 
     let barracks_pos = clamp_build_site(logic, base + Vec3::new(40.0, 0.0, 0.0));
     // Place dozer at build site so pathfinding on large maps does not stall Constructing.
-    if let Some(d) = logic.get_object_mut(dozer) {
+    if let Some(d) = logic.host_object_mut(dozer) {
         d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
     }
     // Host FOW residual: push main-crate vision so build pads near the start
@@ -1802,7 +1802,7 @@ fn run_map_world_skirmish(
             logic.update();
         }
         let barracks_pos = find_legal_build_site_near(logic, base, bname, Some(dozer));
-        if let Some(d) = logic.get_object_mut(dozer) {
+        if let Some(d) = logic.host_object_mut(dozer) {
             d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
         }
         // Refresh FOW around the dozer after teleport residual.
@@ -2055,7 +2055,7 @@ fn run_map_world_skirmish(
     if let Some(tid) = primary_enemy {
         if let Some(ep) = logic.get_object(tid).map(|o| o.get_position()) {
             for (i, rid) in production_rangers.iter().enumerate() {
-                if let Some(r) = logic.get_object_mut(*rid) {
+                if let Some(r) = logic.host_object_mut(*rid) {
                     if r.is_alive() {
                         let mut p = ep + Vec3::new(22.0 + i as f32 * 2.0, 0.0, 4.0);
                         p.y = ep.y;
@@ -2171,7 +2171,7 @@ fn run_map_world_skirmish(
             }
             if let Some(ep) = logic.get_object(focus).map(|o| o.get_position()) {
                 for (i, rid) in live.iter().enumerate() {
-                    if let Some(r) = logic.get_object_mut(*rid) {
+                    if let Some(r) = logic.host_object_mut(*rid) {
                         if r.is_alive() {
                             let mut pos = ep + Vec3::new(20.0 + i as f32 * 2.0, 0.0, 3.0);
                             pos.y = ep.y;
@@ -2551,7 +2551,7 @@ mod tests {
             logic.update();
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
-        if let Some(d) = logic.get_object_mut(dozer) {
+        if let Some(d) = logic.host_object_mut(dozer) {
             d.set_position(site + Vec3::new(-5.0, 0.0, 0.0));
         }
         logic.update();
@@ -2588,7 +2588,7 @@ mod tests {
             .unwrap_or(Vec3::ZERO);
         let dozer = ensure_dozer(&mut logic, base).expect("dozer");
         // Dozer spawn after load needs one vision push for its new position.
-        if let Some(d) = logic.get_object_mut(dozer) {
+        if let Some(d) = logic.host_object_mut(dozer) {
             let p = d.get_position();
             d.set_position(p); // keep
         }
@@ -2600,7 +2600,7 @@ mod tests {
             logic.update();
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
-        if let Some(d) = logic.get_object_mut(dozer) {
+        if let Some(d) = logic.host_object_mut(dozer) {
             d.set_position(site + Vec3::new(-5.0, 0.0, 0.0));
         }
         logic.update();
