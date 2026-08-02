@@ -16932,6 +16932,26 @@ pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
 
 /// Optional post-host-tick hook when no long-lived shadow session is held.
 /// Materializes DAMAGE/ECONOMY authority logs onto host (does not discard them).
+/// Wave 927: single post-logic shadow session boundary (session or no-session).
+/// Returns GameWorld presentation entity count for host residual stamping.
+#[inline]
+pub fn run_post_logic_shadow_boundary(
+    shadow: Option<&mut GameWorldShadow>,
+    logic: &mut GameLogic,
+) -> usize {
+    if let Some(shadow) = shadow {
+        let probe = shadow_session_after_host_tick(shadow, logic);
+        if !probe.full_match() {
+            log::warn!("{}", probe.format_report());
+        }
+        let gw_view = presentation_view_from_shadow(shadow, 0);
+        gw_view.entities.len()
+    } else {
+        let _ = maybe_shadow_after_host_tick(logic);
+        0
+    }
+}
+
 pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldShadowProbe> {
     // Engine holds `GameWorldShadow` and calls `shadow_session_after_host_tick`.
     // This helper is the no-session path: materialize authority logs onto host.
