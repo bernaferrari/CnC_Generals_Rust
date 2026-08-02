@@ -815,8 +815,21 @@ impl ControlBar {
         {
             return true;
         }
-        // Wave 249: presentation residual above; empty dual-world → false.
+        // Wave 249/997: presentation residual above; dual-world peels selected
+        // producer command-set / construction residual when queue portrait empty.
         if Self::dual_world_registry_unavailable() {
+            let selected = self
+                .context
+                .read()
+                .ok()
+                .and_then(|c| c.selected_objects.first().copied());
+            if selected == Some(obj_id)
+                && (!self.presentation_primary_command_set.is_empty()
+                    || !self.presentation_command_set_names.is_empty()
+                    || self.presentation_under_construction)
+            {
+                return true;
+            }
             return false;
         }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
