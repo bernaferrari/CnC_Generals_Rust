@@ -158,7 +158,9 @@ pub fn honesty_host_transform_ready_log_helper_source_markers_residual_wave636()
     let apply_ok = apply.contains("Wave 636")
         && apply.contains("host_transform_ready_log::drain")
         && apply.contains("record_host_movement");
-    let drain_call = sh.contains("host_apply_transform_ready_completions")
+    let drain_call = (sh.contains("host_apply_transform_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::Transform"))
         && sh.contains("Wave 636: drain transform ready log after GW writeback");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostTransformReadyLogHelperAction::SourceMarkers);

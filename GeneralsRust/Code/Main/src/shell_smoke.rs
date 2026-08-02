@@ -4155,6 +4155,11 @@ use crate::game_logic::host_live_host_post_writeback_complete_boundary_residual_
     honesty_host_post_writeback_complete_boundary_nav_commands_residual_wave938,
     simulate_live_host_post_writeback_complete_boundary_honesty,
 };
+use crate::game_logic::host_live_host_ready_log_drain_boundary_residual_wave939::{
+    honesty_host_ready_log_drain_boundary_method_names_residual_wave939,
+    honesty_host_ready_log_drain_boundary_nav_commands_residual_wave939,
+    simulate_live_host_ready_log_drain_boundary_honesty,
+};
 
 use crate::game_logic::host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
@@ -8603,6 +8608,9 @@ pub struct ShellSmokeResult {
     pub host_post_writeback_complete_boundary_method_names_wave938_ok: bool,
     pub host_post_writeback_complete_boundary_nav_commands_wave938_ok: bool,
     pub host_post_writeback_complete_boundary_live_wave938_ok: bool,
+    pub host_ready_log_drain_boundary_method_names_wave939_ok: bool,
+    pub host_ready_log_drain_boundary_nav_commands_wave939_ok: bool,
+    pub host_ready_log_drain_boundary_live_wave939_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -13925,6 +13933,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_post_writeback_complete_boundary_nav_commands_residual_wave938();
     let host_post_writeback_complete_boundary_live_wave938_ok =
         simulate_live_host_post_writeback_complete_boundary_honesty();
+    let host_ready_log_drain_boundary_method_names_wave939_ok =
+        honesty_host_ready_log_drain_boundary_method_names_residual_wave939();
+    let host_ready_log_drain_boundary_nav_commands_wave939_ok =
+        honesty_host_ready_log_drain_boundary_nav_commands_residual_wave939();
+    let host_ready_log_drain_boundary_live_wave939_ok =
+        simulate_live_host_ready_log_drain_boundary_honesty();
     let host_victory_fps_legal_failclosed_method_names_wave910_ok =
         honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910();
     let host_victory_fps_legal_failclosed_nav_commands_wave910_ok =
@@ -16728,6 +16742,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_post_writeback_complete_boundary_method_names_wave938_ok,
         host_post_writeback_complete_boundary_nav_commands_wave938_ok,
         host_post_writeback_complete_boundary_live_wave938_ok,
+        host_ready_log_drain_boundary_method_names_wave939_ok,
+        host_ready_log_drain_boundary_nav_commands_wave939_ok,
+        host_ready_log_drain_boundary_live_wave939_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,

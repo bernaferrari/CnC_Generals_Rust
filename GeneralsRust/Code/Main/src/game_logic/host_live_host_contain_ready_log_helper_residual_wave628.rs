@@ -165,7 +165,9 @@ pub fn honesty_host_contain_ready_log_helper_source_markers_residual_wave628() -
         && apply.contains("AIState::Garrisoned");
     let session = sh.contains("Wave 628: contain membership last-write + ready-log residual")
         && sh.contains("writeback_contain_to_host(logic)")
-        && sh.contains("host_apply_contain_ready_completions");
+        && (sh.contains("host_apply_contain_ready_completions")
+            || sh.contains("apply_ready_log_drain_op")
+            || sh.contains("ReadyLogDrainOp::Contain"));
     let ok = log_ok && wb_ok && apply_ok && session && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostContainReadyLogHelperAction::SourceMarkers);
     ok

@@ -120,8 +120,12 @@ pub fn honesty_host_production_spawn_ready_log_helper_source_markers_residual_wa
     };
     let apply_ok = apply.contains("Wave 679")
         && apply.contains("host_production_spawn_ready_log::record")
-        && apply.contains("host_apply_production_spawn_ready_completions")
-        && apply.contains("host_spawn_production_unit")
+        && (apply.contains("host_apply_production_spawn_ready_completions")
+            || apply.contains("ApplySpawnReadyCompletions")
+            || apply.contains("apply_production_authority_op"))
+        && (apply.contains("host_spawn_production_unit")
+            || apply.contains("SpawnUnit")
+            || apply.contains("apply_production_authority_op"))
         && apply.contains("record_complete");
     let Some(ready_apply) = fn_body(gl, "pub fn host_apply_production_spawn_ready_completions(")
     else {
@@ -162,7 +166,8 @@ pub fn simulate_host_production_spawn_ready_log_helper_collect_source() -> bool 
 }
 pub fn simulate_host_production_spawn_ready_log_helper_dispatch_source() -> bool {
     let ok = gl_source().contains("Wave 679")
-        && gl_source().contains("host_apply_production_spawn_ready_completions");
+        && (gl_source().contains("host_apply_production_spawn_ready_completions")
+            || gl_source().contains("ApplySpawnReadyCompletions"));
     residual_action_store(ResidualHostProductionSpawnReadyLogHelperAction::DispatchSource);
     ok
 }

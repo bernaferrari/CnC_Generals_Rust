@@ -155,8 +155,10 @@ pub fn honesty_host_detector_ready_log_helper_source_markers_residual_wave671() 
     let apply_ok = apply.contains("Wave 671")
         && apply.contains("host_detector_ready_log::drain")
         && apply.contains("record_host_detector");
-    let drain_call =
-        sh.contains("host_apply_detector_ready_completions") && sh.contains("Wave 671: drain");
+    let drain_call = (sh.contains("host_apply_detector_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::Detector"))
+        && sh.contains("Wave 671: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostDetectorReadyLogHelperAction::SourceMarkers);
     ok

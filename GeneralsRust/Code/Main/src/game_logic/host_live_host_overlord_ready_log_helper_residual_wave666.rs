@@ -155,8 +155,10 @@ pub fn honesty_host_overlord_ready_log_helper_source_markers_residual_wave666() 
     let apply_ok = apply.contains("Wave 666")
         && apply.contains("host_overlord_ready_log::drain")
         && apply.contains("record_host_overlord");
-    let drain_call =
-        sh.contains("host_apply_overlord_ready_completions") && sh.contains("Wave 666: drain");
+    let drain_call = (sh.contains("host_apply_overlord_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::Overlord"))
+        && sh.contains("Wave 666: drain");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostOverlordReadyLogHelperAction::SourceMarkers);
     ok

@@ -168,9 +168,9 @@ pub fn honesty_host_production_door_ready_log_helper_source_markers_residual_wav
         && apply.contains("host_production_door_ready_log::drain")
         && apply.contains("apply_production_door_phase_residual");
     let obj_ok = obj.contains("apply_production_door_phase_residual") && obj.contains("Wave 627");
-    let drain_call = (sh.contains("host_apply_production_door_ready_completions")
+    let drain_call = sh.contains("host_apply_production_door_ready_completions")
         || sh.contains("ApplyDoorReadyCompletions")
-        || sh.contains("apply_production_authority_op"));
+        || sh.contains("apply_production_authority_op");
     let ok = log_ok
         && wb_ok
         && apply_ok

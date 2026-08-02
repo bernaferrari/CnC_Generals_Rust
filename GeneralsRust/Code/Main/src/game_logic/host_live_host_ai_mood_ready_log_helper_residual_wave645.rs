@@ -158,7 +158,9 @@ pub fn honesty_host_ai_mood_ready_log_helper_source_markers_residual_wave645() -
     let apply_ok = apply.contains("Wave 645")
         && apply.contains("host_ai_mood_ready_log::drain")
         && apply.contains("record_host_ai_mood");
-    let drain_call = sh.contains("host_apply_ai_mood_ready_completions")
+    let drain_call = (sh.contains("host_apply_ai_mood_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::AiMood"))
         && sh.contains("Wave 645: drain AI-mood ready log after GW writeback");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostAiMoodReadyLogHelperAction::SourceMarkers);

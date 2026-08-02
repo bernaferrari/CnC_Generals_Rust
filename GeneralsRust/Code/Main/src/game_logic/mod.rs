@@ -302,6 +302,7 @@ pub mod host_live_host_prone_update_dual_peel_residual_wave782;
 pub mod host_live_host_queue_stamp_memory_clippy_wave874;
 pub mod host_live_host_radar_extend_no_dual_complete_residual_wave744;
 pub mod host_live_host_radius_decal_dual_peel_residual_wave785;
+pub mod host_live_host_ready_log_drain_boundary_residual_wave939;
 pub mod host_live_host_rebuild_hole_expose_entity_first_residual_wave742;
 pub mod host_live_host_rebuild_spawn_entity_first_residual_wave740;
 pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
@@ -3061,6 +3062,13 @@ pub use host_live_host_post_writeback_complete_boundary_residual_wave938::{
     honesty_host_post_writeback_complete_boundary_nav_commands_residual_wave938,
     honesty_host_post_writeback_complete_boundary_residual_pack_wave938,
     simulate_live_host_post_writeback_complete_boundary_honesty,
+};
+
+pub use host_live_host_ready_log_drain_boundary_residual_wave939::{
+    honesty_host_ready_log_drain_boundary_method_names_residual_wave939,
+    honesty_host_ready_log_drain_boundary_nav_commands_residual_wave939,
+    honesty_host_ready_log_drain_boundary_residual_pack_wave939,
+    simulate_live_host_ready_log_drain_boundary_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

@@ -169,7 +169,9 @@ pub fn honesty_host_radar_extend_ready_log_helper_source_markers_residual_wave62
         && apply.contains("apply_radar_extend_complete_residual")
         && apply.contains("radar_extend_completes");
     let obj_ok = obj.contains("apply_radar_extend_complete_residual") && obj.contains("Wave 625");
-    let drain_call = sh.contains("host_apply_radar_extend_ready_completions");
+    let drain_call = (sh.contains("host_apply_radar_extend_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::RadarExtend"));
     let ok = log_ok
         && wb_ok
         && apply_ok

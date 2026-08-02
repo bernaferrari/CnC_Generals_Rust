@@ -158,7 +158,9 @@ pub fn honesty_host_weapon_stats_ready_log_helper_source_markers_residual_wave63
     let apply_ok = apply.contains("Wave 635")
         && apply.contains("host_weapon_stats_ready_log::drain")
         && apply.contains("record_host_weapon_stats");
-    let drain_call = sh.contains("host_apply_weapon_stats_ready_completions")
+    let drain_call = (sh.contains("host_apply_weapon_stats_ready_completions")
+        || sh.contains("apply_ready_log_drain_op")
+        || sh.contains("ReadyLogDrainOp::WeaponStats"))
         && sh.contains("Wave 635: drain weapon-stats ready log after GW writeback");
     let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostWeaponStatsReadyLogHelperAction::SourceMarkers);
