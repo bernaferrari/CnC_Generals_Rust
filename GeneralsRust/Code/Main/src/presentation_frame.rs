@@ -7058,8 +7058,15 @@ impl PresentationFrame {
                     obj.production_queue = q;
                     dirty = true;
                 }
-            } else if !obj.production_queue.is_empty() {
+                if obj.production_paused != ent.production_paused {
+                    obj.production_paused = ent.production_paused;
+                    dirty = true;
+                }
+            } else if !obj.production_queue.is_empty() || obj.production_paused {
                 obj.production_queue.clear();
+                if obj.production_paused != ent.production_paused {
+                    obj.production_paused = ent.production_paused;
+                }
                 dirty = true;
             }
             if obj.has_secondary_weapon != ent.has_secondary_weapon {
@@ -7378,7 +7385,7 @@ impl PresentationFrame {
                 .iter()
                 .map(PresentationProductionItem::from_entity_item)
                 .collect(),
-            production_paused: false, // Wave 986: GW entity pause not yet mirrored.
+            production_paused: ent.production_paused, // Wave 991: GameWorld entity pause residual.
             rally_point: ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2])),
             guard_position: ent
                 .guard_position
