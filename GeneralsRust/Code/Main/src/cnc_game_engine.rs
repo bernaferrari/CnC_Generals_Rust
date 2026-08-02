@@ -17127,9 +17127,8 @@ impl CnCGameEngine {
             .ui_selected_ids(self.current_player_id)
             .first()
             .copied();
-        let code = self
-            .game_logic
-            .legal_build_code_at_for_builder(team, loc, &template, builder_id);
+        // Wave 924: placement cursor uses host legal-build residual cache (no live dual-read).
+        let code = self.host_legal_build_code_at_for_builder(team, loc, &template, builder_id);
         let legal = code == crate::game_logic::host_production_buildable_command_residual::LBC_OK;
         // Dual HUD residual
         self.game_hud
@@ -17813,9 +17812,8 @@ impl CnCGameEngine {
         }
 
         let builder_id = selected.first().copied();
-        let lbc = self
-            .game_logic
-            .legal_build_code_at_for_builder(team, location, &template, builder_id);
+        // Wave 924: structure place uses host legal-build residual cache.
+        let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
         if lbc != LBC_OK {
             // C++ keeps placement mode active on illegal click residual.
             self.pending_structure_placement = Some(template_name.to_string());
@@ -21009,8 +21007,8 @@ impl CnCGameEngine {
         template: &str,
         builder: Option<crate::game_logic::ObjectId>,
     ) -> u32 {
-        // Wave 583/911: host legal build-code residual with per-frame cache.
-        // Construct pad scans re-probe the same cells; cache peels repeat dual-reads.
+        // Wave 583/911/924: host legal build-code residual with per-frame cache.
+        // Placement cursor/UI + pad scans share this residual (no live dual-read on hit).
         let frame = self
             .host_match_logic_frame
             .or_else(|| self.last_presentation_frame.as_ref().map(|p| p.frame.0))
