@@ -318,6 +318,7 @@ pub mod host_live_host_selection_stamp_train_failclosed_residual_wave902;
 pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
 pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
+pub mod host_live_host_session_control_boundary_residual_wave933;
 pub mod host_live_host_shell_no_dual_pace_residual_wave876;
 pub mod host_live_host_shock_stun_dual_peel_residual_wave764;
 pub mod host_live_host_sim_timing_presentation_residual_wave893;
@@ -3013,6 +3014,13 @@ pub use host_live_host_command_pipeline_boundary_residual_wave932::{
     honesty_host_command_pipeline_boundary_nav_commands_residual_wave932,
     honesty_host_command_pipeline_boundary_residual_pack_wave932,
     simulate_live_host_command_pipeline_boundary_honesty,
+};
+
+pub use host_live_host_session_control_boundary_residual_wave933::{
+    honesty_host_session_control_boundary_method_names_residual_wave933,
+    honesty_host_session_control_boundary_nav_commands_residual_wave933,
+    honesty_host_session_control_boundary_residual_pack_wave933,
+    simulate_live_host_session_control_boundary_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
