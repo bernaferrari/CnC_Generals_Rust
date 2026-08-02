@@ -70115,6 +70115,7 @@ impl GameLogic {
                             && !obj.status.under_construction
                             && obj.construction_percent >= 1.0,
                         production_is_upgrade: false,
+                        production_paused: false,
                     });
                 }
             }

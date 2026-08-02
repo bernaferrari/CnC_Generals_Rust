@@ -83,6 +83,8 @@ pub struct PortraitDisplayState {
     pub production_progress: Option<f32>,
     /// First production queue template from PresentationFrame.
     pub production_template: Option<String>,
+    /// Wave 986: production pause residual from PresentationFrame / host BuildingData.
+    pub production_paused: bool,
     /// Special power ready residual from PresentationFrame.
     pub special_power_ready: bool,
     /// Special power cooldown remaining residual (seconds).
@@ -1662,7 +1664,7 @@ impl ControlBar {
 
     /// Pause/resume the build queue for the selected producer.
     pub fn set_build_queue_paused(
-        &self,
+        &mut self,
         paused: bool,
         context: &ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1676,6 +1678,8 @@ impl ControlBar {
         } else {
             // Wave 985: host empty dual-world → queue residual for Main BuildingData.
             queue_host_production_pause(producer_id, paused);
+            // Wave 986: portrait residual reflects pause immediately.
+            self.portrait_state.production_paused = paused;
         }
         Ok(())
     }
@@ -2534,6 +2538,7 @@ impl ControlBar {
             selected_count: 1,
             production_progress: None,
             production_template: None,
+            production_paused: false,
             special_power_ready: false,
             special_power_cooldown_remaining: 0.0,
             rally_point: None,
@@ -2595,6 +2600,7 @@ impl ControlBar {
         production_progress: Option<f32>,
         production_template: Option<&str>,
         production_queue: &[(String, f32, bool)],
+        production_paused: bool,
     ) {
         match primary_template_name {
             Some(name) if !name.is_empty() && selected_count > 0 => {
@@ -2608,6 +2614,7 @@ impl ControlBar {
                     selected_count,
                     production_progress,
                     production_template: production_template.map(str::to_string),
+                    production_paused,
                     // Upgrades/specials filled by sync_upgrades_and_specials_from_presentation.
                     special_power_ready: self.portrait_state.special_power_ready,
                     special_power_cooldown_remaining: self

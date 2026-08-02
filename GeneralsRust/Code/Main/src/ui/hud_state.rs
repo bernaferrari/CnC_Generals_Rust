@@ -409,6 +409,8 @@ pub struct UnitDisplayInfo {
     pub command_set_override: String,
     /// Structure can enqueue production residual.
     pub can_produce: bool,
+    /// Wave 986: production pause residual.
+    pub production_paused: bool,
 }
 
 /// ControlBar / WND selection panel display (portrait + health strip).
@@ -451,6 +453,8 @@ pub struct ControlBarSelectionPanelState {
     pub special_power_cooldown_remaining: f32,
     /// Head queue entry is PRODUCTION_UPGRADE residual.
     pub production_is_upgrade: bool,
+    /// Wave 986: production pause residual.
+    pub production_paused: bool,
 }
 
 impl ControlBarSelectionPanelState {
@@ -486,6 +490,7 @@ impl ControlBarSelectionPanelState {
             special_power_ready: false,
             special_power_cooldown_remaining: 0.0,
             production_is_upgrade: primary.production_is_upgrade,
+            production_paused: primary.production_paused,
         }
     }
 
