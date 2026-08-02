@@ -1070,6 +1070,8 @@ pub struct InGameUISubsystem {
     presentation_selected: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
     /// Wave 966: presentation unit catalog residual (host select-similar).
     presentation_unit_catalog: Vec<crate::gui::ingame_ui::PresentationUnitCatalogEntry>,
+    /// Wave 968: local team residual.
+    presentation_local_team_name: String,
     beacon_markers: Vec<BeaconMarker>,
     pending_beacon_events: VecDeque<BeaconNotification>,
     selection_events: VecDeque<SelectionEvent>,
@@ -1260,6 +1262,10 @@ impl InGameUISubsystem {
         units: Vec<crate::gui::ingame_ui::PresentationUnitCatalogEntry>,
     ) {
         self.presentation_unit_catalog = units;
+    }
+
+    pub fn set_presentation_local_team_name(&mut self, team_name: impl Into<String>) {
+        self.presentation_local_team_name = team_name.into();
     }
 
     pub fn presentation_unit_catalog(

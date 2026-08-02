@@ -3637,6 +3637,16 @@ impl GameClient {
         }
     }
 
+    /// Wave 968: stamp local player team residual for host ownership queries.
+    pub fn apply_presentation_local_team_name(&mut self, team_name: impl Into<String>) {
+        let team_name = team_name.into();
+        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+            if let Ok(mut guard) = ui.lock() {
+                guard.set_presentation_local_team_name(team_name);
+            }
+        }
+    }
+
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
     /// Mirrors the safe subset of C++ `GameClient::update` ordering that Main does not

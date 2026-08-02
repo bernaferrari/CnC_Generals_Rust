@@ -271,6 +271,7 @@ pub mod host_live_host_match_sim_timing_residuals_wave844;
 pub mod host_live_host_match_special_power_ready_residuals_wave854;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_mouse_presentation_only_residual_wave906;
+pub mod host_live_host_mouseover_hint_catalog_residual_wave968;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
 pub mod host_live_host_object_api_alias_seal_residual_wave958;
@@ -3293,6 +3294,13 @@ pub use host_live_host_select_matching_catalog_residual_wave967::{
     honesty_host_select_matching_catalog_nav_commands_residual_wave967,
     honesty_host_select_matching_catalog_residual_pack_wave967,
     simulate_live_host_select_matching_catalog_honesty,
+};
+
+pub use host_live_host_mouseover_hint_catalog_residual_wave968::{
+    honesty_host_mouseover_hint_catalog_method_names_residual_wave968,
+    honesty_host_mouseover_hint_catalog_nav_commands_residual_wave968,
+    honesty_host_mouseover_hint_catalog_residual_pack_wave968,
+    simulate_live_host_mouseover_hint_catalog_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
