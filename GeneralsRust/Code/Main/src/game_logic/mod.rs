@@ -369,6 +369,7 @@ pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_ui_framework_clippy_residual_wave881;
 pub mod host_live_host_ui_observe_failclosed_residual_wave905;
 pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
+pub mod host_live_host_unit_control_presentation_peel_residual_wave951;
 pub mod host_live_host_unmapped_damage_fallback_residual_wave943;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_victory_fps_failclosed_residual_wave907;
@@ -3157,6 +3158,13 @@ pub use host_live_host_get_object_mut_seal_residual_wave950::{
     honesty_host_get_object_mut_seal_nav_commands_residual_wave950,
     honesty_host_get_object_mut_seal_residual_pack_wave950,
     simulate_live_host_get_object_mut_seal_honesty,
+};
+
+pub use host_live_host_unit_control_presentation_peel_residual_wave951::{
+    honesty_host_unit_control_presentation_peel_method_names_residual_wave951,
+    honesty_host_unit_control_presentation_peel_nav_commands_residual_wave951,
+    honesty_host_unit_control_presentation_peel_residual_pack_wave951,
+    simulate_live_host_unit_control_presentation_peel_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
