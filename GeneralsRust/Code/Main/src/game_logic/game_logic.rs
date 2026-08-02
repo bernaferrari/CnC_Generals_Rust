@@ -28861,6 +28861,23 @@ impl GameLogic {
         self.get_object(id)
     }
 
+    /// Wave 955: host-authority object map borrow (command apply / AI / shadow).
+    /// Presentation dual-read paths must use `PresentationFrame`, not this.
+    #[inline]
+    pub fn host_objects(
+        &self,
+    ) -> &std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
+        self.get_objects()
+    }
+
+    /// Wave 955: host-authority mutable object map borrow.
+    #[inline]
+    pub fn host_objects_mut(
+        &mut self,
+    ) -> &mut std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
+        self.get_objects_mut()
+    }
+
     pub fn host_object_mut(
         &mut self,
         id: ObjectId,

@@ -1,3 +1,4 @@
+//! Wave 955: CommandExecutor host_object seal.
 use crate::command_system::{
     CommandResult, CommandType, DropTarget, GameCommand, GuardTarget, PowerTarget,
     SpecialPowerType, WeaponSlot, WeaponTarget,
@@ -17,7 +18,9 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-/// Command executor that processes game commands
+/// Command executor that processes game commands.
+///
+/// Wave 955: host_object/host_objects authority dual-read seal (no presentation dual-read).
 pub struct CommandExecutor<'a> {
     /// Reference to game logic for object manipulation
     game_logic: &'a mut GameLogic,
@@ -403,13 +406,13 @@ impl<'a> CommandExecutor<'a> {
         if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
             let fid0 = units
                 .first()
-                .and_then(|id| self.game_logic.get_object(*id))
+                .and_then(|id| self.game_logic.host_object(*id))
                 .map(|o| o.formation_id)
                 .unwrap_or(0);
             let is_formation = fid0 != 0
                 && units.iter().all(|&id| {
                     self.game_logic
-                        .get_object(id)
+                        .host_object(id)
                         .map(|o| o.formation_id == fid0)
                         .unwrap_or(false)
                 });
@@ -425,7 +428,7 @@ impl<'a> CommandExecutor<'a> {
                 .unit_command_move_free(unit_id, goal, destination)
             {
                 // Distinguish missing unit vs path failure like prior residual.
-                if self.game_logic.get_object(unit_id).is_none() {
+                if self.game_logic.host_object(unit_id).is_none() {
                     return CommandResult::InvalidTarget;
                 }
                 return CommandResult::InvalidCommand;
@@ -498,7 +501,7 @@ impl<'a> CommandExecutor<'a> {
         let mut movers: Vec<(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)> =
             Vec::with_capacity(units.len());
         for &unit_id in units {
-            let Some(obj) = self.game_logic.get_object(unit_id) else {
+            let Some(obj) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !obj.is_alive() {
@@ -601,7 +604,7 @@ impl<'a> CommandExecutor<'a> {
         let mut max_z = f32::NEG_INFINITY;
         let mut count = 0u32;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() || !o.can_move() {
@@ -658,7 +661,7 @@ impl<'a> CommandExecutor<'a> {
         // Sort near-to-far (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
         let mut movers: Vec<(ObjectId, f32)> = Vec::new();
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() || !unit.can_move() {
@@ -763,7 +766,7 @@ impl<'a> CommandExecutor<'a> {
         // Collect movers + optional formation/group offsets (AsTeam residual).
         let mut movers: Vec<(ObjectId, Vec3, glam::Vec2)> = Vec::new();
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() || !unit.can_move() {
@@ -793,14 +796,14 @@ impl<'a> CommandExecutor<'a> {
         // Prefer stamped formation offsets when shared; else relative-to-center.
         let fid0 = self
             .game_logic
-            .get_object(movers[0].0)
+            .host_object(movers[0].0)
             .map(|o| o.formation_id)
             .unwrap_or(0);
         let use_formation = as_team
             && fid0 != 0
             && movers.iter().all(|(id, _, _)| {
                 self.game_logic
-                    .get_object(*id)
+                    .host_object(*id)
                     .map(|o| o.formation_id == fid0)
                     .unwrap_or(false)
             });
@@ -1037,7 +1040,7 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn execute_railed_transport(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let is_railish = match self.game_logic.get_object(unit_id) {
+            let is_railish = match self.game_logic.host_object(unit_id) {
                 Some(o) if o.is_alive() => {
                     let n = o.template_name.to_ascii_lowercase();
                     o.can_contain()
@@ -1053,7 +1056,7 @@ impl<'a> CommandExecutor<'a> {
             if matches!(self.execute_evacuate(&[unit_id]), CommandResult::Success) {
                 any = true;
             }
-            let dest = self.game_logic.get_object(unit_id).and_then(|o| {
+            let dest = self.game_logic.host_object(unit_id).and_then(|o| {
                 o.movement
                     .path
                     .last()
@@ -1113,7 +1116,7 @@ impl<'a> CommandExecutor<'a> {
         };
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             // Host residual: allow attack order even before weapon bind (can_attack may be false).
@@ -1130,7 +1133,7 @@ impl<'a> CommandExecutor<'a> {
             let origin = unit.get_position();
             // Nearest living enemy of that team.
             let mut best: Option<(ObjectId, f32)> = None;
-            for (cid, cand) in self.game_logic.get_objects().iter() {
+            for (cid, cand) in self.game_logic.host_objects().iter() {
                 if cand.team != enemy_team || !cand.is_alive() {
                     continue;
                 }
@@ -1143,7 +1146,7 @@ impl<'a> CommandExecutor<'a> {
                 if self.game_logic.unit_command_attack_soft(unit_id, tid) {
                     any = true;
                 }
-                let tpos = self.game_logic.get_object(tid).map(|o| o.get_position());
+                let tpos = self.game_logic.host_object(tid).map(|o| o.get_position());
                 if let Some(pos) = tpos {
                     let _ = self.path_to_goal_with_state(unit_id, pos, AIState::Attacking);
                 }
@@ -1310,7 +1313,7 @@ impl<'a> CommandExecutor<'a> {
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
-            if self.game_logic.get_object(unit_id).is_none() {
+            if self.game_logic.host_object(unit_id).is_none() {
                 return CommandResult::InvalidTarget;
             }
             if !self.game_logic.append_unit_waypoint(unit_id, goal) {
@@ -1329,7 +1332,7 @@ impl<'a> CommandExecutor<'a> {
         // Wave 232: attack last-writes via GameLogic unit_command_attack.
         let Some(target_team) = self
             .game_logic
-            .get_object(target_id)
+            .host_object(target_id)
             .map(|target| target.team)
         else {
             return CommandResult::InvalidTarget;
@@ -1337,7 +1340,7 @@ impl<'a> CommandExecutor<'a> {
 
         if self
             .game_logic
-            .get_object(target_id)
+            .host_object(target_id)
             .is_some_and(|target| !target.is_alive())
         {
             return CommandResult::TargetDestroyed;
@@ -1346,12 +1349,12 @@ impl<'a> CommandExecutor<'a> {
         // C++ groupAttackObjectPrivate: sort attackers near-to-far to victim first.
         let target_pos = self
             .game_logic
-            .get_object(target_id)
+            .host_object(target_id)
             .map(|tg| tg.get_position())
             .unwrap_or(Vec3::ZERO);
         let mut ordered: Vec<(ObjectId, f32)> = Vec::new();
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.can_attack() || unit.team == target_team {
@@ -1389,7 +1392,7 @@ impl<'a> CommandExecutor<'a> {
 
         if self
             .game_logic
-            .get_object(target_id)
+            .host_object(target_id)
             .is_some_and(|target| !target.is_alive())
         {
             return CommandResult::TargetDestroyed;
@@ -1398,12 +1401,12 @@ impl<'a> CommandExecutor<'a> {
         // C++ groupAttackObjectPrivate(forced=true): near-to-far order.
         let target_pos = self
             .game_logic
-            .get_object(target_id)
+            .host_object(target_id)
             .map(|tg| tg.get_position())
             .unwrap_or(Vec3::ZERO);
         let mut ordered: Vec<(ObjectId, f32)> = Vec::new();
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.can_attack() {
@@ -1447,7 +1450,7 @@ impl<'a> CommandExecutor<'a> {
         // C++ walks members for SpecialPowerModule matching template.
         // Host: only members that explicitly track this power (cooldown map).
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() {
@@ -1469,7 +1472,7 @@ impl<'a> CommandExecutor<'a> {
     ) -> Option<ObjectId> {
         use crate::command_system::CommandType;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() {
@@ -1526,7 +1529,7 @@ impl<'a> CommandExecutor<'a> {
         for &id in units {
             if self
                 .game_logic
-                .get_object(id)
+                .host_object(id)
                 .map(|o| o.is_alive())
                 .unwrap_or(false)
             {
@@ -1550,7 +1553,7 @@ impl<'a> CommandExecutor<'a> {
             .iter()
             .filter(|&&id| {
                 self.game_logic
-                    .get_object(id)
+                    .host_object(id)
                     .map(|o| o.is_alive())
                     .unwrap_or(false)
             })
@@ -1568,7 +1571,7 @@ impl<'a> CommandExecutor<'a> {
         let mut best = f32::INFINITY;
         let mut saw = false;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() || !o.can_move() {
@@ -1608,7 +1611,7 @@ impl<'a> CommandExecutor<'a> {
         let mut best_id = None;
         let mut best_d2 = f32::INFINITY;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() || !o.can_move() {
@@ -1647,7 +1650,7 @@ impl<'a> CommandExecutor<'a> {
         let mut cz = 0.0f32;
         let mut count = 0u32;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() || o.contained_by.is_some() {
@@ -1683,7 +1686,7 @@ impl<'a> CommandExecutor<'a> {
         let mut num_infantry = 0u32;
         let mut num_vehicles = 0u32;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() || o.contained_by.is_some() {
@@ -1706,7 +1709,7 @@ impl<'a> CommandExecutor<'a> {
         // Closest unit → dest distance.
         let mut closest_sqr = f32::INFINITY;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() {
@@ -1738,13 +1741,13 @@ impl<'a> CommandExecutor<'a> {
         // Formation already stamped → always group-path.
         let fid0 = units
             .first()
-            .and_then(|id| self.game_logic.get_object(*id))
+            .and_then(|id| self.game_logic.host_object(*id))
             .map(|o| o.formation_id)
             .unwrap_or(0);
         if fid0 != 0
             && units.iter().all(|&id| {
                 self.game_logic
-                    .get_object(id)
+                    .host_object(id)
                     .map(|o| o.formation_id == fid0)
                     .unwrap_or(false)
             })
@@ -1770,13 +1773,13 @@ impl<'a> CommandExecutor<'a> {
         let need_stamp = {
             let fid0 = units
                 .first()
-                .and_then(|id| self.game_logic.get_object(*id))
+                .and_then(|id| self.game_logic.host_object(*id))
                 .map(|o| o.formation_id)
                 .unwrap_or(0);
             fid0 == 0
                 || !units.iter().all(|&id| {
                     self.game_logic
-                        .get_object(id)
+                        .host_object(id)
                         .map(|o| o.formation_id == fid0 && fid0 != 0)
                         .unwrap_or(false)
                 })
@@ -1822,7 +1825,7 @@ impl<'a> CommandExecutor<'a> {
         let mut cz = 0.0f32;
         let mut count = 0u32;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() {
@@ -1846,7 +1849,7 @@ impl<'a> CommandExecutor<'a> {
         if count == 0 {
             // Fallback: any alive member.
             for &id in units {
-                if let Some(o) = self.game_logic.get_object(id) {
+                if let Some(o) = self.game_logic.host_object(id) {
                     if o.is_alive() {
                         return Some(o.get_position());
                     }
@@ -1866,7 +1869,7 @@ impl<'a> CommandExecutor<'a> {
     ) -> bool {
         let owner_team = self.player_team(player_id);
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if o.team != owner_team {
@@ -1889,7 +1892,7 @@ impl<'a> CommandExecutor<'a> {
             .copied()
             .filter(|&id| {
                 self.game_logic
-                    .get_object(id)
+                    .host_object(id)
                     .map(|o| o.team == owner_team)
                     .unwrap_or(false)
             })
@@ -1967,7 +1970,7 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn group_is_idle(&self, units: &[ObjectId]) -> bool {
         let mut saw = false;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             saw = true;
@@ -1982,7 +1985,7 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn group_is_busy(&self, units: &[ObjectId]) -> bool {
         let mut saw = false;
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if !o.is_alive() {
@@ -2003,7 +2006,7 @@ impl<'a> CommandExecutor<'a> {
             return true;
         }
         for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
+            let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
             if o.is_alive() {
@@ -2027,7 +2030,7 @@ impl<'a> CommandExecutor<'a> {
         let mut extra_passengers: Vec<ObjectId> = Vec::new();
 
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() {
@@ -2056,7 +2059,7 @@ impl<'a> CommandExecutor<'a> {
                     }
                     loc
                 }
-                None => match self.game_logic.get_object(unit_id) {
+                None => match self.game_logic.host_object(unit_id) {
                     Some(u) if u.is_alive() => u.get_position(),
                     _ => continue,
                 },
@@ -2069,7 +2072,7 @@ impl<'a> CommandExecutor<'a> {
                 any = true;
             }
             // Face/path residual: movable units approach the ground point if far.
-            let need_approach = self.game_logic.get_object(unit_id).and_then(|unit| {
+            let need_approach = self.game_logic.host_object(unit_id).and_then(|unit| {
                 if !unit.can_move() {
                     return None;
                 }
@@ -2117,7 +2120,7 @@ impl<'a> CommandExecutor<'a> {
         const GUARD_MIN_RADIUS: f32 = 80.0;
         let mut any = false;
         for &unit_id in units {
-            let (can, vision, weapon_r) = match self.game_logic.get_object(unit_id) {
+            let (can, vision, weapon_r) = match self.game_logic.host_object(unit_id) {
                 Some(unit)
                     if unit.is_alive()
                         && unit.can_move()
@@ -2142,7 +2145,7 @@ impl<'a> CommandExecutor<'a> {
                 GuardTarget::Position(pos) => Some(*pos),
                 GuardTarget::Object(target_id) => self
                     .game_logic
-                    .get_object(*target_id)
+                    .host_object(*target_id)
                     .filter(|o| o.is_alive())
                     .map(|o| o.get_position()),
             };
@@ -2224,7 +2227,7 @@ impl<'a> CommandExecutor<'a> {
         // 4 * bounding radius along the unit→center vector (host XZ plane).
         let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::new();
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() || !unit.can_move() {
@@ -2289,7 +2292,7 @@ impl<'a> CommandExecutor<'a> {
         let mut any = false;
         for &unit_id in units {
             let Some((alive, name, is_infantry, is_deployed)) =
-                self.game_logic.get_object(unit_id).map(|unit| {
+                self.game_logic.host_object(unit_id).map(|unit| {
                     (
                         unit.is_alive(),
                         unit.template_name.to_ascii_lowercase(),
@@ -2352,7 +2355,7 @@ impl<'a> CommandExecutor<'a> {
                 if let Some(building_id) = self.find_nearest_garrison_target(unit_id) {
                     let bpos = self
                         .game_logic
-                        .get_object(building_id)
+                        .host_object(building_id)
                         .map(|b| b.get_position());
                     // Wave 233: deploy-to-garrison via GameLogic authority API.
                     if self
@@ -2378,7 +2381,7 @@ impl<'a> CommandExecutor<'a> {
     fn execute_gather(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
         let player_team = self.player_team(self.current_player_id);
         let (target_pos, target_alive, target_is_resource) =
-            match self.game_logic.get_object(target_id) {
+            match self.game_logic.host_object(target_id) {
                 Some(target) => (
                     target.get_position(),
                     target.is_alive(),
@@ -2397,7 +2400,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_gather = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     unit.is_alive()
                         && unit.is_worker()
@@ -2426,13 +2429,13 @@ impl<'a> CommandExecutor<'a> {
 
     /// Find the nearest building that can accept this unit for garrison/enter.
     fn find_nearest_garrison_target(&self, unit_id: ObjectId) -> Option<ObjectId> {
-        let unit = self.game_logic.get_object(unit_id)?;
+        let unit = self.game_logic.host_object(unit_id)?;
         let unit_pos = unit.get_position();
         let unit_team = unit.team;
         // Pure residual acquire: nearest friendly container with capacity (3D).
         let candidates: Vec<_> = self
             .game_logic
-            .get_objects()
+            .host_objects()
             .iter()
             .filter_map(|(&obj_id, obj)| {
                 if obj.team != unit_team || !obj.is_alive() || !obj.can_contain() {
@@ -2491,7 +2494,7 @@ impl<'a> CommandExecutor<'a> {
         }
 
         for &unit_id in units {
-            let team = match self.game_logic.get_object(unit_id) {
+            let team = match self.game_logic.host_object(unit_id) {
                 Some(unit) if unit.can_construct() => unit.team,
                 Some(_) => continue,
                 None => continue,
@@ -2607,7 +2610,7 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
     ) -> CommandResult {
         let player_team = self.player_team(player_id);
-        if let Some(obj) = self.game_logic.get_object(object_id) {
+        if let Some(obj) = self.game_logic.host_object(object_id) {
             if obj.team != player_team {
                 return CommandResult::InvalidTarget;
             }
@@ -2651,7 +2654,7 @@ impl<'a> CommandExecutor<'a> {
 
     fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
         let player_team = self.player_team(player_id);
-        if let Some(obj) = self.game_logic.get_object(object_id) {
+        if let Some(obj) = self.game_logic.host_object(object_id) {
             if obj.team != player_team || !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
                 return CommandResult::InvalidTarget;
             }
@@ -2723,7 +2726,7 @@ impl<'a> CommandExecutor<'a> {
         // Resolve empty name → unit production head residual (not PRODUCTION_UPGRADE).
         let resolved = if template_name.trim().is_empty() {
             units.iter().find_map(|&unit_id| {
-                self.game_logic.get_object(unit_id).and_then(|obj| {
+                self.game_logic.host_object(unit_id).and_then(|obj| {
                     obj.building_data.as_ref().and_then(|b| {
                         b.production_queue
                             .iter()
@@ -2764,7 +2767,7 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         // Basic validation: ensure object targets exist when required and power is ready.
         if let PowerTarget::Object(id) = target {
-            if self.game_logic.get_object(*id).is_none() {
+            if self.game_logic.host_object(*id).is_none() {
                 return CommandResult::InvalidTarget;
             }
         }
@@ -2781,26 +2784,29 @@ impl<'a> CommandExecutor<'a> {
             PowerTarget::Location(loc) => Some(*loc),
             PowerTarget::Object(id) => self
                 .game_logic
-                .get_object(*id)
+                .host_object(*id)
                 .map(|obj| obj.get_position()),
             PowerTarget::None => {
                 // C++ overridable destination residual wins when set on caster.
                 let src = self.special_power_source_object(units, power_type);
                 src.and_then(|id| {
                     self.game_logic
-                        .get_object(id)
+                        .host_object(id)
                         .and_then(|o| o.special_power_override_destination)
                 })
                 .or_else(|| {
                     units.iter().find_map(|id| {
                         self.game_logic
-                            .get_object(*id)
+                            .host_object(*id)
                             .and_then(|o| o.special_power_override_destination)
                     })
                 })
                 .or_else(|| {
-                    src.or_else(|| units.first().copied())
-                        .and_then(|id| self.game_logic.get_object(id).map(|obj| obj.get_position()))
+                    src.or_else(|| units.first().copied()).and_then(|id| {
+                        self.game_logic
+                            .host_object(id)
+                            .map(|obj| obj.get_position())
+                    })
                 })
             }
         };
@@ -2981,7 +2987,7 @@ impl<'a> CommandExecutor<'a> {
             {
                 let team = self
                     .game_logic
-                    .get_object(unit_id)
+                    .host_object(unit_id)
                     .map(|o| o.team)
                     .unwrap_or(crate::game_logic::Team::Neutral);
                 if !self.game_logic.activate_cia_intelligence(
@@ -2997,7 +3003,7 @@ impl<'a> CommandExecutor<'a> {
                 {
                     let team = self
                         .game_logic
-                        .get_object(unit_id)
+                        .host_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
                     // C++ SUPERWEAPON_ClusterMines DeliverPayload residual
@@ -3018,7 +3024,7 @@ impl<'a> CommandExecutor<'a> {
                 } else if *power_type == SpecialPowerType::RadarScan {
                     let team = self
                         .game_logic
-                        .get_object(unit_id)
+                        .host_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
                     if !self.game_logic.activate_radar_scan(
@@ -3032,7 +3038,7 @@ impl<'a> CommandExecutor<'a> {
                 } else if *power_type == SpecialPowerType::SpySatellite {
                     let team = self
                         .game_logic
-                        .get_object(unit_id)
+                        .host_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
                     if !self.game_logic.activate_spy_satellite(
@@ -3046,7 +3052,7 @@ impl<'a> CommandExecutor<'a> {
                 } else if *power_type == SpecialPowerType::SpyDrone {
                     let team = self
                         .game_logic
-                        .get_object(unit_id)
+                        .host_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
                     if !self.game_logic.activate_spy_drone(
@@ -3284,7 +3290,7 @@ impl<'a> CommandExecutor<'a> {
 
     fn execute_enter(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
         // USA Pilot residual: Enter unmanned vehicle for recrew (not transport contain).
-        let pilot_recrew_target = self.game_logic.get_object(target_id).map(|t| {
+        let pilot_recrew_target = self.game_logic.host_object(target_id).map(|t| {
             crate::game_logic::host_usa_pilot::is_recrewable_unmanned_vehicle(
                 t.is_alive(),
                 t.is_kind_of(crate::game_logic::KindOf::Vehicle),
@@ -3294,7 +3300,7 @@ impl<'a> CommandExecutor<'a> {
                 t.is_worker() || t.template_name.to_ascii_lowercase().contains("dozer"),
             )
         });
-        let target_pos = match self.game_logic.get_object(target_id) {
+        let target_pos = match self.game_logic.host_object(target_id) {
             Some(transport)
                 if transport.is_alive()
                     && !transport.status.under_construction
@@ -3307,7 +3313,7 @@ impl<'a> CommandExecutor<'a> {
 
         let mut issued = false;
         for &unit_id in units {
-            let pilot_recrew = self.game_logic.get_object(unit_id).map(|u| {
+            let pilot_recrew = self.game_logic.host_object(unit_id).map(|u| {
                 crate::game_logic::host_usa_pilot::should_recrew_on_enter(
                     crate::game_logic::host_usa_pilot::is_pilot_template(&u.template_name),
                     pilot_recrew_target.unwrap_or(false),
@@ -3323,7 +3329,7 @@ impl<'a> CommandExecutor<'a> {
                 .tunnel_network_residual()
                 .team_holding_unit(unit_id)
                 .is_some();
-            let previous_container = self.game_logic.get_object(unit_id).and_then(|unit| {
+            let previous_container = self.game_logic.host_object(unit_id).and_then(|unit| {
                 if matches!(unit.ai_state, AIState::Docked | AIState::Garrisoned) || unit_in_tunnel
                 {
                     unit.container_id().or(unit.target)
@@ -3363,7 +3369,7 @@ impl<'a> CommandExecutor<'a> {
         let mut tunnel_exit_for: HashMap<ObjectId, ObjectId> = HashMap::new();
 
         for &selected_id in units {
-            let Some(selected_obj) = self.game_logic.get_object(selected_id) else {
+            let Some(selected_obj) = self.game_logic.host_object(selected_id) else {
                 continue;
             };
 
@@ -3421,7 +3427,7 @@ impl<'a> CommandExecutor<'a> {
 
             // Prefer contained_by (authoritative) over target for residual garrison exit.
             let (origin, container_id) = if let Some(container_id) = selected_obj.container_id() {
-                if let Some(container) = self.game_logic.get_object(container_id) {
+                if let Some(container) = self.game_logic.host_object(container_id) {
                     let rally = container.building_data.as_ref().and_then(|b| b.rally_point);
                     (
                         rally.unwrap_or_else(|| container.get_position()),
@@ -3439,7 +3445,7 @@ impl<'a> CommandExecutor<'a> {
                 if let Some(cid) = container_id {
                     if self
                         .game_logic
-                        .get_object(cid)
+                        .host_object(cid)
                         .map(|c| c.is_tunnel_network_style_container())
                         .unwrap_or(false)
                     {
@@ -3502,11 +3508,11 @@ impl<'a> CommandExecutor<'a> {
                 was_transport,
             ) = if was_tunnel {
                 (false, false, false, false, false, false, false, false)
-            } else if let Some(unit) = self.game_logic.get_object(unit_id) {
+            } else if let Some(unit) = self.game_logic.host_object(unit_id) {
                 let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
                 let docked = matches!(unit.ai_state, AIState::Docked);
                 let cid = unit.contained_by.or(container_id);
-                let container = cid.and_then(|id| self.game_logic.get_object(id));
+                let container = cid.and_then(|id| self.game_logic.host_object(id));
                 let is_overlord = container
                     .map(|c| c.is_overlord_style_container())
                     .unwrap_or(false);
@@ -3621,7 +3627,7 @@ impl<'a> CommandExecutor<'a> {
         let mut ground_containers: Vec<ObjectId> = Vec::new();
         let mut airborne_containers: Vec<ObjectId> = Vec::new();
         for &unit_id in units {
-            let Some(obj) = self.game_logic.get_object(unit_id) else {
+            let Some(obj) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !obj.is_alive() {
@@ -3645,7 +3651,7 @@ impl<'a> CommandExecutor<'a> {
         for unit_id in airborne_containers {
             let Some(pos) = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|o| o.get_position())
             else {
                 continue;
@@ -3691,7 +3697,7 @@ impl<'a> CommandExecutor<'a> {
         }
         let mut any = false;
         for &unit_id in units {
-            let can = match self.game_logic.get_object(unit_id) {
+            let can = match self.game_logic.host_object(unit_id) {
                 Some(obj)
                     if obj.is_alive()
                         && obj.can_move()
@@ -3747,7 +3753,7 @@ impl<'a> CommandExecutor<'a> {
     fn execute_return_to_base(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() {
@@ -3764,7 +3770,7 @@ impl<'a> CommandExecutor<'a> {
             // Pure residual acquire: nearest friendly airfield (3D).
             let af_cands: Vec<_> = self
                 .game_logic
-                .get_objects()
+                .host_objects()
                 .iter()
                 .filter_map(|(&id, obj)| {
                     if !crate::game_logic::GameLogic::is_friendly_airfield(obj, team) {
@@ -3811,7 +3817,7 @@ impl<'a> CommandExecutor<'a> {
     fn execute_return_supplies(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() || !unit.can_move() {
@@ -3834,7 +3840,7 @@ impl<'a> CommandExecutor<'a> {
             // Pure residual acquire: nearest friendly supply center (3D).
             let sc_cands: Vec<_> = self
                 .game_logic
-                .get_objects()
+                .host_objects()
                 .iter()
                 .filter_map(|(&id, obj)| {
                     if obj.team != team || !obj.is_alive() || obj.status.under_construction {
@@ -3879,7 +3885,7 @@ impl<'a> CommandExecutor<'a> {
             };
             let sc_pos = self
                 .game_logic
-                .get_object(sc_id)
+                .host_object(sc_id)
                 .map(|o| o.get_position())
                 .unwrap_or(pos);
             // Wave 233: return-supplies via GameLogic authority API.
@@ -3906,7 +3912,7 @@ impl<'a> CommandExecutor<'a> {
             // Wave 233: mine-clearing detail via GameLogic authority API.
             if self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .is_some_and(|u| u.is_alive())
                 && self
                     .game_logic
@@ -4035,7 +4041,7 @@ impl<'a> CommandExecutor<'a> {
         }
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() || !unit.can_attack() {
@@ -4044,7 +4050,7 @@ impl<'a> CommandExecutor<'a> {
             let team = unit.team;
             // Find nearest enemy of this unit inside area.
             let mut best: Option<(ObjectId, f32)> = None;
-            for (cid, cand) in self.game_logic.get_objects().iter() {
+            for (cid, cand) in self.game_logic.host_objects().iter() {
                 if !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
                     continue;
                 }
@@ -4084,7 +4090,7 @@ impl<'a> CommandExecutor<'a> {
         use crate::game_logic::host_mines::{is_mine_clearer, DOZER_MINE_CLEAR_SCAN_RANGE};
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() || !unit.can_move() {
@@ -4111,7 +4117,7 @@ impl<'a> CommandExecutor<'a> {
             // Pure residual acquire: nearest enemy mine in clear scan range (XZ).
             let mine_cands: Vec<_> = self
                 .game_logic
-                .get_objects()
+                .host_objects()
                 .iter()
                 .filter_map(|(&id, obj)| {
                     if !obj.is_alive() || obj.mine_data.is_none() || obj.team == team {
@@ -4146,7 +4152,7 @@ impl<'a> CommandExecutor<'a> {
             };
             let mpos = self
                 .game_logic
-                .get_object(mine_id)
+                .host_object(mine_id)
                 .map(|o| o.get_position())
                 .unwrap_or(pos);
             // Wave 233: mine order-target via GameLogic authority API.
@@ -4165,7 +4171,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_dock(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
-        let target_pos = if let Some(target) = self.game_logic.get_object(target_id) {
+        let target_pos = if let Some(target) = self.game_logic.host_object(target_id) {
             if target.is_alive() && !target.status.under_construction && target.can_contain() {
                 target.get_position()
             } else {
@@ -4205,7 +4211,7 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
             DropTarget::Object(target_id) => {
-                if let Some(target_obj) = self.game_logic.get_object(*target_id) {
+                if let Some(target_obj) = self.game_logic.host_object(*target_id) {
                     let target_pos = target_obj.position;
                     for &unit_id in units {
                         // Wave 233: combat-drop order-target via GameLogic authority API.
@@ -4236,7 +4242,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_is_damaged,
             target_under_construction,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -4257,7 +4263,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     unit.can_repair() && (unit.team == target_team || target_team == Team::Neutral)
                 })
@@ -4291,7 +4297,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_under_construction,
             target_building_type,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -4315,7 +4321,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     let is_damaged = unit.health.current + 0.01 < unit.health.maximum;
                     let is_aircraft = unit.is_kind_of(KindOf::Aircraft);
@@ -4363,7 +4369,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_under_construction,
             target_building_type,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -4391,7 +4397,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     let is_injured = unit.health.current + 0.01 < unit.health.maximum;
                     unit.team == target_team
@@ -4556,7 +4562,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             // C++ queueMaxed / MaxQueueEntries residual: refuse before charging.
             let producer_ok =
-                self.game_logic.get_object(unit_id).is_some_and(|source| {
+                self.game_logic.host_object(unit_id).is_some_and(|source| {
                     if !Self::can_source_queue_upgrade(source) {
                         return false;
                     }
@@ -4579,7 +4585,7 @@ impl<'a> CommandExecutor<'a> {
             }
             let team = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|source| source.team);
             if let Some(team) = team {
                 if !seen_teams.insert(team) {
@@ -4641,7 +4647,7 @@ impl<'a> CommandExecutor<'a> {
         // resolve from the first selected producer's PRODUCTION_UPGRADE head.
         let resolved_name = if upgrade_name.trim().is_empty() {
             units.iter().find_map(|&unit_id| {
-                self.game_logic.get_object(unit_id).and_then(|obj| {
+                self.game_logic.host_object(unit_id).and_then(|obj| {
                     obj.building_data.as_ref().and_then(|b| {
                         b.production_queue
                             .iter()
@@ -4667,7 +4673,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let team = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .filter(|source| Self::can_source_queue_upgrade(source))
                 .map(|source| source.team);
             if let Some(team) = team {
@@ -4723,7 +4729,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_vehicle,
             target_is_airborne,
             target_hijacked,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -4750,7 +4756,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
                 .unwrap_or(false);
             if !can_issue {
@@ -4784,7 +4790,7 @@ impl<'a> CommandExecutor<'a> {
     fn execute_sabotage(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
         // C++ Sabotage*CrateCollide residual: GLA Saboteur only → enemy structure.
         let (target_team, target_pos, target_alive, target_is_structure) =
-            match self.game_logic.get_object(target_id) {
+            match self.game_logic.host_object(target_id) {
                 Some(target) => (
                     target.team,
                     target.get_position(),
@@ -4803,7 +4809,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     unit.is_alive()
                         && unit.can_move()
@@ -4848,7 +4854,7 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         // C++ ConvertToCarBombCrateCollide: vehicle only (not aircraft/boat),
         // not already IS_CARBOMB. Neutral civilian cars are valid.
-        let (target_pos, target_ok) = match self.game_logic.get_object(target_id) {
+        let (target_pos, target_ok) = match self.game_logic.host_object(target_id) {
             Some(target) if target.is_alive() => {
                 let is_vehicle = target.is_kind_of(KindOf::Vehicle);
                 let is_airborne =
@@ -4871,7 +4877,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| unit.is_alive() && unit.can_move() && unit_id != target_id)
                 .unwrap_or(false);
             if !can_issue {
@@ -4912,7 +4918,7 @@ impl<'a> CommandExecutor<'a> {
         };
 
         let (building_pos, is_structure, is_alive, is_under_construction, target_team) =
-            match self.game_logic.get_object(target_id) {
+            match self.game_logic.host_object(target_id) {
                 Some(building) => (
                     building.get_position(),
                     building.is_kind_of(KindOf::Structure),
@@ -4935,7 +4941,7 @@ impl<'a> CommandExecutor<'a> {
 
             let can_capture = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     let is_lotus = is_black_lotus_template(&unit.template_name);
                     // Black Lotus / heroes capture without infantry Capture research.
@@ -4978,7 +4984,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_vehicle,
             target_is_airborne,
             target_unmanned,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -5005,7 +5011,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
                 .unwrap_or(false);
             if !can_issue {
@@ -5044,7 +5050,7 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> CommandResult {
         let (target_team, target_pos, target_alive, target_is_structure) =
-            match self.game_logic.get_object(target_id) {
+            match self.game_logic.host_object(target_id) {
                 Some(target) => (
                     target.team,
                     target.get_position(),
@@ -5063,7 +5069,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     use crate::game_logic::host_booby_trap::{
                         has_booby_trap_upgrade, is_booby_trap_planter_template,
@@ -5115,7 +5121,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_is_vehicle,
             target_is_airborne,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -5139,7 +5145,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
                 .unwrap_or(false);
             if !can_issue {
@@ -5184,7 +5190,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_is_vehicle,
             target_is_airborne,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -5208,7 +5214,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
                 .unwrap_or(false);
             if !can_issue {
@@ -5247,7 +5253,7 @@ impl<'a> CommandExecutor<'a> {
             .copied()
             .filter(|id| {
                 self.game_logic
-                    .get_object(*id)
+                    .host_object(*id)
                     .map(|u| u.is_alive())
                     .unwrap_or(false)
             })
@@ -5302,7 +5308,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_under_construction,
             is_cash_generator,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -5337,7 +5343,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     can_activate_black_lotus_ability(
                         is_black_lotus_template(&unit.template_name),
@@ -5398,7 +5404,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_airborne,
             target_hacked,
             target_unmanned,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -5427,7 +5433,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     can_activate_black_lotus_ability(
                         is_black_lotus_template(&unit.template_name),
@@ -5484,7 +5490,7 @@ impl<'a> CommandExecutor<'a> {
             target_is_structure,
             target_under_construction,
             target_hacked,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.team,
                 target.get_position(),
@@ -5512,7 +5518,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| {
                     can_activate_hacker_disable_building(
                         should_apply_hacker_disable(&unit.template_name),
@@ -5564,13 +5570,13 @@ impl<'a> CommandExecutor<'a> {
     ) -> bool {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
-        let Some(unit) = self.game_logic.get_object(unit_id) else {
+        let Some(unit) = self.game_logic.host_object(unit_id) else {
             return false;
         };
         if !unit.is_alive() || !unit.can_move() {
             return false;
         }
-        let Some(target) = self.game_logic.get_object(target_id) else {
+        let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
         if !target.is_alive() {
@@ -5600,13 +5606,13 @@ impl<'a> CommandExecutor<'a> {
     fn queue_special_remote_charge(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
-        let Some(unit) = self.game_logic.get_object(unit_id) else {
+        let Some(unit) = self.game_logic.host_object(unit_id) else {
             return false;
         };
         if !unit.is_alive() || !unit.can_move() {
             return false;
         }
-        let Some(target) = self.game_logic.get_object(target_id) else {
+        let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
         if !target.is_alive() {
@@ -5632,7 +5638,7 @@ impl<'a> CommandExecutor<'a> {
         };
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
-        let Some(unit) = self.game_logic.get_object(unit_id) else {
+        let Some(unit) = self.game_logic.host_object(unit_id) else {
             return false;
         };
         if !unit.is_alive() || !is_tank_hunter_template(&unit.template_name) {
@@ -5644,7 +5650,7 @@ impl<'a> CommandExecutor<'a> {
         ) {
             return false;
         }
-        let Some(target) = self.game_logic.get_object(target_id) else {
+        let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
         if !target.is_alive() {
@@ -5660,7 +5666,7 @@ impl<'a> CommandExecutor<'a> {
             // If already in range, still queue plant.
             let unit_pos = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|o| o.get_position())
                 .unwrap_or(target_pos);
             let dx = unit_pos.x - target_pos.x;
@@ -5695,7 +5701,7 @@ impl<'a> CommandExecutor<'a> {
             target_disguised,
             target_template,
             target_pos,
-        ) = match self.game_logic.get_object(target_id) {
+        ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.is_alive(),
                 target.is_kind_of(KindOf::Vehicle),
@@ -5724,7 +5730,7 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let can_issue = self
                 .game_logic
-                .get_object(unit_id)
+                .host_object(unit_id)
                 .map(|unit| unit.is_alive() && is_bomb_truck_template(&unit.template_name))
                 .unwrap_or(false);
             if !can_issue {
@@ -5796,7 +5802,7 @@ impl<'a> CommandExecutor<'a> {
 
         let mut members: Vec<(ObjectId, Vec3, u32)> = Vec::new();
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object(unit_id) else {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
             if !unit.is_alive() || !unit.can_move() {
@@ -6018,7 +6024,7 @@ impl<'a> CommandExecutor<'a> {
 
         // Check if player owns all selected units
         for &unit_id in &command.selected_units {
-            if let Some(unit) = self.game_logic.get_object(unit_id) {
+            if let Some(unit) = self.game_logic.host_object(unit_id) {
                 if unit.team != player_team {
                     warn!(
                         "Player {} doesn't own unit {}",
@@ -6032,7 +6038,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn validate_target_exists(&self, target_id: ObjectId) -> bool {
-        self.game_logic.get_object(target_id).is_some()
+        self.game_logic.host_object(target_id).is_some()
     }
 
     fn validate_build_location(&self, location: Vec3) -> bool {
@@ -6057,10 +6063,10 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-        let Some(unit) = self.game_logic.get_object(unit_id) else {
+        let Some(unit) = self.game_logic.host_object(unit_id) else {
             return false;
         };
-        let Some(target) = self.game_logic.get_object(target_id) else {
+        let Some(target) = self.game_logic.host_object(target_id) else {
             return false;
         };
 
@@ -6176,7 +6182,7 @@ mod group_move_tests {
 
     #[test]
     fn group_move_destinations_spreads_multi_unit() {
-        // Source-level: multi-unit move must call group_move_destinations.
+        // Wave 955: multi-unit move spreads via group_move_destinations + unit_command_move_free.
         let src = include_str!("command_executor.rs");
         let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
         assert!(
@@ -6184,13 +6190,13 @@ mod group_move_tests {
                 && prod.contains("group_move_destinations(units, destination)"),
             "multi-unit move must spread destinations"
         );
-        // Production execute_move must not assign the raw destination alone for groups.
         let i = prod.find("fn execute_move(").expect("execute_move");
-        let w = &prod[i..prod.len().min(i + 1200)];
+        let w = &prod[i..prod.len().min(i + 2500)];
         assert!(
             w.contains("group_move_destinations")
+                && w.contains("unit_command_move_free")
                 && !w.contains("assign_unit_path(unit_id, destination, &[])"),
-            "execute_move must path to per-unit goals"
+            "execute_move must path to per-unit goals via unit_command_move_free"
         );
     }
 
@@ -8006,21 +8012,24 @@ mod group_move_tests {
 
     #[test]
     fn attack_move_uses_assign_unit_path() {
+        // Wave 955: attack/force move last-write via GameLogic unit_command_* helpers.
         let src = include_str!("command_executor.rs");
         let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
         let i = prod.find("fn execute_attack_move").expect("attack_move");
         let w = &prod[i..prod.len().min(i + 1500)];
         assert!(
-            w.contains("assign_unit_path")
-                && w.contains("AIState::AttackMoving")
+            w.contains("group_move_destinations")
+                && w.contains("unit_command_attack_move_to_ex")
                 && !w.contains("set_destination(goal)"),
-            "attack-move must pathfind then restore AttackMoving"
+            "attack-move must spread goals then unit_command_attack_move_to_ex"
         );
         let j = prod.find("fn execute_force_move").expect("force_move");
         let w2 = &prod[j..prod.len().min(j + 1200)];
         assert!(
-            w2.contains("assign_unit_path") && !w2.contains("set_destination(goal)"),
-            "force-move must pathfind like Move"
+            w2.contains("group_move_destinations")
+                && w2.contains("unit_command_force_move_to")
+                && !w2.contains("set_destination(goal)"),
+            "force-move must pathfind like Move via unit_command_force_move_to"
         );
     }
 
@@ -8087,15 +8096,22 @@ mod group_move_tests {
 
     #[test]
     fn execute_stop_clears_guard_residual() {
+        // Wave 955: Stop delegates guard clear to GameLogic::unit_command_stop.
         let src = include_str!("command_executor.rs");
+        let gl = include_str!("game_logic/game_logic.rs");
         let start = src.find("fn execute_stop").expect("execute_stop");
-        let body = &src[start..start + 1200];
+        let body = &src[start..start + 800];
         assert!(
-            body.contains("set_guard_position(None)")
-                && body.contains("end_guard_retaliate")
-                && body.contains("set_target(None)")
-                && body.contains("apply_player_stealth_mood_delay"),
-            "Stop must clear guard anchors/targets and apply stealth mood delay"
+            body.contains("unit_command_stop") && body.contains("apply_player_stealth_mood_delay"),
+            "Stop must call unit_command_stop and apply stealth mood delay"
+        );
+        let gs = gl.find("fn unit_command_stop").expect("unit_command_stop");
+        let gbody = &gl[gs..gs + 900];
+        assert!(
+            gbody.contains("set_guard_position(None)")
+                && gbody.contains("end_guard_retaliate")
+                && gbody.contains("set_target(None)"),
+            "unit_command_stop must clear guard anchors/targets"
         );
         assert!(
             src.contains("fn apply_player_stealth_mood_delay")
