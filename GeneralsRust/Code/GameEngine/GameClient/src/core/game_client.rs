@@ -3591,6 +3591,18 @@ impl GameClient {
         ui.push_hud_message(text.to_string());
     }
 
+    /// Wave 964: presentation selection residual → InGameUI (host empty dual-world).
+    pub fn apply_presentation_selection_residual(
+        &mut self,
+        units: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
+    ) {
+        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+            if let Ok(mut guard) = ui.lock() {
+                guard.set_presentation_selection_residual(units);
+            }
+        }
+    }
+
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
     /// Mirrors the safe subset of C++ `GameClient::update` ordering that Main does not

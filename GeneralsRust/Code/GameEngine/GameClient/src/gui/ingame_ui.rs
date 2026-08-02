@@ -849,12 +849,26 @@ pub struct WorldAnimationData {
 }
 
 /// Main in-game UI manager
+/// Wave 964: presentation-owned selection residual for host path (no OBJECT_REGISTRY).
+#[derive(Debug, Clone)]
+pub struct PresentationSelectedUnitResidual {
+    pub object_id: u32,
+    pub template_name: String,
+    pub position: [f32; 3],
+    pub health_pct: f32,
+    /// Debug/Display names of KindOf flags from presentation freeze.
+    pub kind_names: Vec<String>,
+}
+
 pub struct InGameUI {
     /// Selection box state
     selection_box: SelectionBox,
 
     /// Selection state
     selection_state: SelectionState,
+
+    /// Wave 964: presentation selection residual (host empty dual-world path).
+    presentation_selected: Vec<PresentationSelectedUnitResidual>,
 
     /// Current placement preview (if any)
     placement_preview: Option<PlacementPreview>,
@@ -1038,6 +1052,7 @@ impl InGameUI {
         Self {
             selection_box: SelectionBox::new(),
             selection_state: SelectionState::new(MAX_SELECTION_COUNT),
+            presentation_selected: Vec::new(),
             placement_preview: None,
             minimap: Minimap::new(
                 Vec2::new(
@@ -1851,6 +1866,19 @@ impl InGameUI {
             .collect()
     }
 
+    /// Wave 964: stamp presentation selection residual for host empty dual-world path.
+    pub fn set_presentation_selection_residual(
+        &mut self,
+        units: Vec<PresentationSelectedUnitResidual>,
+    ) {
+        self.presentation_selected = units;
+    }
+
+    /// Wave 964: read-only presentation selection residual.
+    pub fn presentation_selection_residual(&self) -> &[PresentationSelectedUnitResidual] {
+        &self.presentation_selected
+    }
+
     /// Set selection group
     pub fn set_selection_group(&mut self, group: usize) {
         if group < 10 {
@@ -2399,10 +2427,56 @@ impl InGameUI {
     /// C++: drawSelectionAnims() — iterates selected drawables, draws
     /// health bars (green/yellow/red based on HP), veterancy pips, and
     /// selection rings on terrain.
+    /// Wave 964: selection health bars from presentation residual (no OBJECT_REGISTRY).
+    fn draw_selection_anims_from_presentation(
+        &self,
+        renderer: &mut UIRenderer,
+    ) -> std::result::Result<(), String> {
+        for u in &self.presentation_selected {
+            let world = Coord3D::new(u.position[0], u.position[1], u.position[2]);
+            let Some(screen) = self.world_to_screen(&world) else {
+                continue;
+            };
+            let health_pct = u.health_pct.clamp(0.0, 1.0);
+            if health_pct <= 0.0 {
+                continue;
+            }
+            let bar_width = 40.0;
+            let bar_height = 4.0;
+            let bar_x = screen.x - bar_width / 2.0;
+            let bar_y = screen.y - 30.0;
+
+            renderer
+                .draw_rect_with_scissor(
+                    UIRect::new(bar_x, bar_y, bar_width, bar_height),
+                    [0.2, 0.2, 0.2, 0.7],
+                    None,
+                )
+                .map_err(|e| e.to_string())?;
+
+            let fill_color = if health_pct > 0.66 {
+                [0.0, 1.0, 0.0, 0.9]
+            } else if health_pct > 0.33 {
+                [1.0, 1.0, 0.0, 0.9]
+            } else {
+                [1.0, 0.0, 0.0, 0.9]
+            };
+
+            renderer
+                .draw_rect_with_scissor(
+                    UIRect::new(bar_x, bar_y, bar_width * health_pct, bar_height),
+                    fill_color,
+                    None,
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     fn draw_selection_anims(&self, renderer: &mut UIRenderer) -> std::result::Result<(), String> {
-        // Wave 273: empty dual-world → Ok(()).
+        // Wave 964: host empty dual-world → draw from presentation selection residual.
         if dual_world_registry_unavailable() {
-            return Ok(());
+            return self.draw_selection_anims_from_presentation(renderer);
         }
 
         let selected = self.get_selection();
@@ -3117,9 +3191,14 @@ impl InGameUI {
     }
 
     pub fn is_any_selected_kind_of(&self, kind_of: KindOf) -> bool {
-        // Wave 273: empty dual-world → fail-closed.
+        // Wave 964: host empty dual-world → presentation kind residual.
         if dual_world_registry_unavailable() {
-            return false;
+            let name = format!("{kind_of:?}");
+            return self.presentation_selected.iter().any(|u| {
+                u.kind_names
+                    .iter()
+                    .any(|k| k == &name || k.eq_ignore_ascii_case(&name))
+            });
         }
 
         let selection_manager = get_selection_manager();
@@ -3142,9 +3221,17 @@ impl InGameUI {
     }
 
     pub fn is_all_selected_kind_of(&self, kind_of: KindOf) -> bool {
-        // Wave 273: empty dual-world → fail-closed.
+        // Wave 964: host empty dual-world → presentation kind residual.
         if dual_world_registry_unavailable() {
-            return false;
+            if self.presentation_selected.is_empty() {
+                return true;
+            }
+            let name = format!("{kind_of:?}");
+            return self.presentation_selected.iter().all(|u| {
+                u.kind_names
+                    .iter()
+                    .any(|k| k == &name || k.eq_ignore_ascii_case(&name))
+            });
         }
 
         let selection_manager = get_selection_manager();
