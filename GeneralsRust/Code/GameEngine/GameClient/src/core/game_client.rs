@@ -3679,6 +3679,7 @@ impl GameClient {
                     kind_names: u.kind_names.clone(),
                     special_power_ready: u.special_power_ready,
                     position: u.position,
+                    airborne_target: u.airborne_target,
                 },
             )
             .collect();
@@ -3721,6 +3722,7 @@ impl GameClient {
                             kind_names: u.kind_names.clone(),
                             special_power_ready: u.special_power_ready,
                             position: u.position,
+                            airborne_target: u.airborne_target,
                         },
                     )
                     .collect();
