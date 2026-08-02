@@ -363,6 +363,21 @@ pub struct RenderableObject {
     pub unselectable: bool,
     /// C++ RebuildHole residual frozen for presentation/UI.
     pub is_rebuild_hole: bool,
+    /// Wave 993: C++ RebuildHoleBehavior m_rebuildTemplate residual.
+    #[serde(default)]
+    pub rebuild_template_name: String,
+    /// Wave 993: host rebuild_ready_frame residual.
+    #[serde(default)]
+    pub rebuild_ready_frame: u32,
+    /// Wave 993: RebuildHoleBehavior m_spawnerID residual.
+    #[serde(default)]
+    pub rebuild_spawner_id: Option<ObjectId>,
+    /// Wave 993: RebuildHoleBehavior m_workerID residual.
+    #[serde(default)]
+    pub rebuild_worker_id: Option<ObjectId>,
+    /// Wave 993: RebuildHoleBehavior m_reconstructingID residual.
+    #[serde(default)]
+    pub rebuild_reconstructing_id: Option<ObjectId>,
     /// C++ OBJECT_STATUS_RECONSTRUCTING residual frozen for presentation.
     pub reconstructing: bool,
     /// Veterancy rank residual for chevrons / UI.
@@ -3780,6 +3795,11 @@ impl PresentationFrame {
                 sold: obj.status.sold,
                 unselectable: obj.status.unselectable,
                 is_rebuild_hole: obj.is_rebuild_hole,
+                rebuild_template_name: obj.rebuild_template_name.clone().unwrap_or_default(),
+                rebuild_ready_frame: obj.rebuild_ready_frame,
+                rebuild_spawner_id: obj.rebuild_spawner_id,
+                rebuild_worker_id: obj.rebuild_worker_id,
+                rebuild_reconstructing_id: obj.rebuild_reconstructing_id,
                 reconstructing: obj.status.reconstructing,
                 veterancy: PresentationVeterancy::from_host(obj.experience.level),
                 experience_points: obj.experience.current.max(0.0),
@@ -7074,6 +7094,37 @@ impl PresentationFrame {
                 obj.producer_id = ent_producer;
                 dirty = true;
             }
+            if obj.is_rebuild_hole != ent.is_rebuild_hole {
+                obj.is_rebuild_hole = ent.is_rebuild_hole;
+                dirty = true;
+            }
+            if obj.rebuild_template_name != ent.rebuild_template_name {
+                obj.rebuild_template_name = ent.rebuild_template_name.clone();
+                dirty = true;
+            }
+            if obj.rebuild_ready_frame != ent.rebuild_ready_frame {
+                obj.rebuild_ready_frame = ent.rebuild_ready_frame;
+                dirty = true;
+            }
+            let spawner = ent.rebuild_spawner_id.map(ObjectId);
+            if obj.rebuild_spawner_id != spawner {
+                obj.rebuild_spawner_id = spawner;
+                dirty = true;
+            }
+            let worker = ent.rebuild_worker_id.map(ObjectId);
+            if obj.rebuild_worker_id != worker {
+                obj.rebuild_worker_id = worker;
+                dirty = true;
+            }
+            let recon = ent.rebuild_reconstructing_id.map(ObjectId);
+            if obj.rebuild_reconstructing_id != recon {
+                obj.rebuild_reconstructing_id = recon;
+                dirty = true;
+            }
+            if obj.reconstructing != ent.reconstructing {
+                obj.reconstructing = ent.reconstructing;
+                dirty = true;
+            }
             if obj.has_secondary_weapon != ent.has_secondary_weapon {
                 obj.has_secondary_weapon = ent.has_secondary_weapon;
                 dirty = true;
@@ -7438,6 +7489,11 @@ impl PresentationFrame {
             sold: ent.sold,
             unselectable: ent.unselectable,
             is_rebuild_hole: ent.is_rebuild_hole,
+            rebuild_template_name: ent.rebuild_template_name.clone(),
+            rebuild_ready_frame: ent.rebuild_ready_frame,
+            rebuild_spawner_id: ent.rebuild_spawner_id.map(ObjectId),
+            rebuild_worker_id: ent.rebuild_worker_id.map(ObjectId),
+            rebuild_reconstructing_id: ent.rebuild_reconstructing_id.map(ObjectId),
             reconstructing: ent.reconstructing,
             // Wave 490: XP/veterancy from GW entity.
             veterancy: PresentationVeterancy::from_ordinal(ent.veterancy_ordinal),
