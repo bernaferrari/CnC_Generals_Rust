@@ -299,6 +299,9 @@ pub struct RenderableObject {
     pub occupant_count: u16,
     /// Structure production queue residual (empty for non-buildings).
     pub production_queue: Vec<PresentationProductionItem>,
+    /// Wave 986: host BuildingData production pause residual.
+    #[serde(default)]
+    pub production_paused: bool,
     /// Structure rally point residual.
     pub rally_point: Option<Vec3>,
     /// Guard position residual (units).
@@ -3666,6 +3669,11 @@ impl PresentationFrame {
                             .collect()
                     })
                     .unwrap_or_default(),
+                production_paused: obj
+                    .building_data
+                    .as_ref()
+                    .map(|b| b.production_paused)
+                    .unwrap_or(false),
                 rally_point: obj.building_data.as_ref().and_then(|b| b.rally_point),
                 guard_position: obj.guard_position,
                 garrisoned_units: obj
@@ -7370,6 +7378,7 @@ impl PresentationFrame {
                 .iter()
                 .map(PresentationProductionItem::from_entity_item)
                 .collect(),
+            production_paused: false, // Wave 986: GW entity pause not yet mirrored.
             rally_point: ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2])),
             guard_position: ent
                 .guard_position
@@ -8266,6 +8275,7 @@ impl PresentationFrame {
             production_progress,
             production_template,
             production_is_upgrade,
+            production_paused: ro.production_paused,
             command_set_override: ro.command_set_override.clone(),
             can_produce: ro.can_produce,
         }
@@ -9140,6 +9150,7 @@ impl PresentationFrame {
                     panel.production_template =
                         panel.production_queue.first().map(|(t, _, _)| t.clone());
                 }
+                panel.production_paused = ro.production_paused;
                 panel.production_is_upgrade = panel
                     .production_queue
                     .first()
@@ -9232,6 +9243,7 @@ impl PresentationFrame {
             panel.production_progress,
             panel.production_template.as_deref(),
             &panel.production_queue,
+            panel.production_paused,
         );
         control_bar.sync_structure_context_from_presentation(
             panel.max_garrison,
