@@ -4,7 +4,7 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
-## Authoritative simulation (production surface, 2026-07-14)
+## Authoritative simulation (production surface, 2026-08-02)
 
 ```
 OS input → normalized commands → Main GameLogic (30 Hz host sim)
@@ -14,6 +14,21 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
   → PresentationFrame built from host, then shadow overlay (HP/pose/economy/power)
   → GameClient / audio / renderer  (draw path is presentation-only; no live &GameLogic)
 ```
+
+
+## Host object access idiom (Wave 955–961)
+
+Main `GameLogic` object map access:
+
+| API | Role |
+|-----|------|
+| `host_object` / `host_objects` / `host_object_mut` | **Canonical** — reads `self.objects` directly |
+| `get_object` / `get_objects` / `find_object` | **Legacy aliases** only (thin wrappers) |
+| `PresentationFrame` | **Only** client/render/input dual-read surface |
+
+Production rule: no `.get_object(` / `.find_object(` call sites in Main outside alias definitions.
+Wave 961 residual pack locks this seal. `playable_claim` stays false until retail WND/GPU match honesty.
+
 
 | Concern | Production default | Opt out |
 |---------|-------------------|---------|
