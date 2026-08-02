@@ -302,6 +302,7 @@ pub mod host_live_host_redundant_authority_write_skip_residual_wave913;
 pub mod host_live_host_refresh_sim_failclosed_residual_wave901;
 pub mod host_live_host_remaining_clippy_wave890;
 pub mod host_live_host_residual_failclosed_peels_wave859;
+pub mod host_live_host_save_load_skirmish_boundaries_residual_wave928;
 pub mod host_live_host_science_points_residual_wave868;
 pub mod host_live_host_sciences_ai_residual_wave894;
 pub mod host_live_host_scorpion_missile_dual_peel_residual_wave805;
@@ -2995,6 +2996,13 @@ pub use host_live_host_post_logic_shadow_boundary_residual_wave927::{
     honesty_host_post_logic_shadow_boundary_residual_pack_wave927,
     simulate_live_host_post_logic_shadow_boundary_honesty,
 };
+pub use host_live_host_save_load_skirmish_boundaries_residual_wave928::{
+    honesty_host_save_load_skirmish_boundaries_method_names_residual_wave928,
+    honesty_host_save_load_skirmish_boundaries_nav_commands_residual_wave928,
+    honesty_host_save_load_skirmish_boundaries_residual_pack_wave928,
+    simulate_live_host_save_load_skirmish_boundaries_honesty,
+};
+
 pub use host_live_host_presentation_build_boundary_residual_wave926::{
     honesty_host_presentation_build_boundary_method_names_residual_wave926,
     honesty_host_presentation_build_boundary_nav_commands_residual_wave926,
