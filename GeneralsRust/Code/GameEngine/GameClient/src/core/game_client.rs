@@ -3583,6 +3583,7 @@ impl GameClient {
             e.disabled,
             e.is_carbomb,
             e.weapon_bonus_enthusiastic,
+            e.orientation,
         );
     }
 
@@ -3800,8 +3801,8 @@ impl GameClient {
         self.update_display_only()?;
         // C++ W3DView::drawablePostDraw icon UI residual (health/status icons).
         self.draw_drawable_icon_ui();
-        self.draw_presentation_selection_residual();
-        // Wave 978: presentation selection residual HUD (host empty dual-world InGameUI).
+        // Wave 980: weapon/UI residual peels companion.
+        // Wave 978/980: presentation selection residual HUD (host empty dual-world InGameUI).
         self.draw_presentation_selection_residual();
         // C++ DisplayStringManager after drawable/effects residual.
         self.update_display_string_manager()?;

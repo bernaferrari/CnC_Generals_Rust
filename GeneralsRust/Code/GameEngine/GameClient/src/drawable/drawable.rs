@@ -1696,6 +1696,8 @@ pub struct BasicDrawable {
     presentation_health_pct: f32,
     /// Wave 965: presentation selected residual.
     presentation_selected: bool,
+    /// Wave 980: presentation orientation residual (radians).
+    presentation_orientation: f32,
     /// Wave 970: presentation veterancy residual.
     presentation_veterancy_level: u8,
     /// Wave 970: presentation construction residual.
@@ -1804,6 +1806,7 @@ impl BasicDrawable {
             presentation_effectively_stealthed: false,
             presentation_health_pct: 0.0,
             presentation_selected: false,
+            presentation_orientation: 0.0,
             presentation_veterancy_level: 0,
             presentation_under_construction: false,
             presentation_construction_percent: 0.0,
@@ -1885,12 +1888,14 @@ impl BasicDrawable {
         disabled: bool,
         is_carbomb: bool,
         weapon_bonus_enthusiastic: bool,
+        orientation: f32,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
         self.presentation_effectively_stealthed = effectively_stealthed;
         self.presentation_health_pct = health_pct.clamp(0.0, 1.0);
         self.presentation_selected = selected;
+        self.presentation_orientation = orientation;
         self.selected = selected;
         self.presentation_veterancy_level = veterancy_level;
         self.presentation_under_construction = under_construction;
@@ -3410,6 +3415,40 @@ impl BasicDrawable {
     // Weapon fire FX dispatch
     // -----------------------------------------------------------------------
 
+    /// Wave 980: host group/UI text residual without OBJECT_REGISTRY.
+    fn draw_ui_text_from_presentation(&self) -> Result<(), Box<dyn Error>> {
+        let Some(screen_pos) = with_tactical_view_ref(|view| {
+            view.world_to_screen(&Point3::new(
+                self.position.x,
+                self.position.y,
+                self.position.z,
+            ))
+        }) else {
+            return Ok(());
+        };
+
+        let draw_group_info = get_draw_group_info()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+
+        let mut text_color = draw_group_info.color_for_text;
+        if draw_group_info.use_player_color {
+            if let Some((r, g, b)) = self.presentation_indicator_color {
+                text_color = (0xFFu32 << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+            }
+        }
+
+        // Caption residual ready; full DisplayString path remains factory-owned.
+        let _ = (
+            screen_pos,
+            text_color,
+            draw_group_info,
+            self.overlay_data.caption.as_ref(),
+        );
+        Ok(())
+    }
+
     /// Handle weapon fire FX: apply recoil, then dispatch FX to draw modules.
     /// C++ parity: `Drawable::handleWeaponFireFX` (Drawable.cpp:4216-4239).
     /// Applies recoil impulse to loco info, then iterates draw modules to
@@ -3425,15 +3464,15 @@ impl BasicDrawable {
         victim_pos: Option<&Vector3>,
         damage_radius: f32,
     ) -> bool {
-        // Wave 270: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
+        // Wave 980: host empty dual-world still applies recoil + draw-module FX.
+        // Orientation residual comes from presentation pose when registry is empty.
 
         // C++ applies recoil impulse if recoil_amount != 0
         if recoil_amount != 0.0 {
             let mut adjusted_angle = recoil_angle;
-            if let Some(obj_id) = self.object_id {
+            if dual_world_registry_unavailable() {
+                adjusted_angle -= self.presentation_orientation;
+            } else if let Some(obj_id) = self.object_id {
                 if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
                     if let Ok(obj_guard) = obj_arc.read() {
                         adjusted_angle -= obj_guard.get_orientation();
@@ -4095,9 +4134,9 @@ impl Drawable for BasicDrawable {
     }
 
     fn draw_ui_text(&self) -> Result<(), Box<dyn Error>> {
-        // Wave 270: empty dual-world → Ok(()).
+        // Wave 980: host empty dual-world → drawable pose + presentation team color residual.
         if dual_world_registry_unavailable() {
-            return Ok(());
+            return self.draw_ui_text_from_presentation();
         }
 
         let Some(object_id) = self.object_id else {
