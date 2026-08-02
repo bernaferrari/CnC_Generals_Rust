@@ -11,7 +11,8 @@ use ww3d_engine::FrameTiming;
 
 const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / 30.0;
 
-use crate::game_logic::GameLogic;
+use crate::game_logic::{GameLogic, Team};
+use crate::presentation_frame::PresentationFrame;
 use crate::graphics::RenderPipeline;
 use crate::ui::{
     update_minimap_state, MinimapClickEvent, MinimapUIState, UiColor, UiPos2, UiTextureId,
@@ -24,6 +25,10 @@ pub struct MinimapFowIntegration {
 
     /// UI state for minimap
     minimap_ui_state: MinimapUIState,
+            presentation_frame: None,
+
+    /// Wave 952: presentation freeze for unit-dot dual-read peel.
+    presentation_frame: Option<PresentationFrame>,
 
     /// Camera position for viewport indicator
     camera_position: Vec3,
@@ -41,6 +46,11 @@ pub struct MinimapFowIntegration {
 }
 
 impl MinimapFowIntegration {
+    /// Wave 952: install presentation freeze for minimap unit dots.
+    pub fn set_presentation_frame(&mut self, frame: Option<PresentationFrame>) {
+        self.presentation_frame = frame;
+    }
+
     /// Create new minimap FOW integration
     pub fn new(
         device: Arc<wgpu::Device>,
@@ -135,27 +145,28 @@ impl MinimapFowIntegration {
         // This happens in render_pipeline.execute() but we can also call it manually:
         self.render_pipeline.update_minimap_fow_texture()?;
 
-        // Collect unit positions for minimap dots
+        // Wave 952: collect unit dots from presentation freeze (no live get_objects dual-read).
         let mut unit_positions = Vec::new();
-        for (object_id, object) in game_logic.get_objects() {
-            if object.is_alive() {
-                let position = object.get_position();
-
-                // Determine color based on ownership
-                let color = if object.get_owner() == current_player {
-                    UiColor::from_rgb(0, 255, 0) // Friendly units
-                } else if object.get_owner() == 0 {
-                    UiColor::from_rgb(255, 255, 255) // Neutral
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let local_team = frame.local_team;
+            let selected = &frame.selected;
+            for o in &frame.objects {
+                if o.destroyed {
+                    continue;
+                }
+                let position = o.position;
+                let color = if o.team == local_team {
+                    UiColor::from_rgb(0, 255, 0)
+                } else if matches!(o.team, Team::Neutral) {
+                    UiColor::from_rgb(255, 255, 255)
                 } else {
-                    UiColor::from_rgb(255, 0, 0) // Enemy units (if visible)
+                    UiColor::from_rgb(255, 0, 0)
                 };
-
-                // Check if unit is selected
-                let is_selected = self.selected_units.contains(object_id);
-
+                let is_selected = selected.contains(&o.id);
                 unit_positions.push((position, color, is_selected));
             }
         }
+        let _ = (game_logic, current_player);
 
         // Calculate camera viewport size based on zoom
         let viewport_size = 200.0 / self.camera_zoom;
