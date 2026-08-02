@@ -424,11 +424,7 @@ fn format_extent_debug(geometry: &GeometryInfo) -> String {
 }
 
 fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
-    // Wave 345: empty dual-world → no-op.
-    if dual_world_registry_unavailable() {
-        return;
-    }
-
+    // Wave 976: host empty dual-world still routes extent adjust through TheGameLogic IDs.
     for object_id in local_selection_object_ids() {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             continue;
@@ -1305,11 +1301,8 @@ fn report_drawable_id_lookup_performance() {
 }
 
 fn kill_local_player_selection() {
-    // Wave 345: empty dual-world → no-op.
-    if dual_world_registry_unavailable() {
-        return;
-    }
-
+    // Wave 976: host empty dual-world still routes kills through TheGameLogic IDs
+    // (selection manager + TheGameLogic::find_object_by_id), not OBJECT_REGISTRY walks.
     let selected_ids = local_selection_object_ids();
 
     for object_id in selected_ids {
@@ -1336,7 +1329,8 @@ fn kill_all_enemy_objects_for_local_player() {
         return;
     };
 
-    // Wave 345: empty dual-world → no-op.
+    // Wave 976: host empty dual-world → no OBJECT_REGISTRY walk (no-op).
+    // Full enemy wipe remains dual-world factory path; host uses Main debug peels.
     if dual_world_registry_unavailable() {
         return;
     }
@@ -1364,11 +1358,7 @@ fn first_selected_object_id_for_local_player() -> Option<u32> {
 }
 
 fn adjust_local_selection_veterancy(delta: i32) {
-    // Wave 345: empty dual-world → no-op.
-    if dual_world_registry_unavailable() {
-        return;
-    }
-
+    // Wave 976: host empty dual-world still routes veterancy through TheGameLogic IDs.
     for object_id in local_selection_object_ids() {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             continue;

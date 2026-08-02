@@ -1575,15 +1575,19 @@ impl GameClient {
     }
 
     fn resolve_drawable_template_name(drawable: &dyn Drawable) -> Option<String> {
-        // Wave 269: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
+        // Prefer drawable residual template name first (host presentation path).
         if let Some(name) = drawable.get_template_name() {
             if !name.is_empty() {
                 return Some(name.to_string());
             }
+        }
+
+        // Wave 976: host empty dual-world → presentation translator catalog residual.
+        if dual_world_registry_unavailable() {
+            let object_id = drawable.get_object_id()?;
+            return crate::presentation_translator_residual::translator_catalog_entry(object_id)
+                .map(|e| e.template_name)
+                .filter(|n| !n.is_empty());
         }
 
         let object_id = drawable.get_object_id()?;
@@ -1725,12 +1729,8 @@ impl GameClient {
         mut drawable: Box<dyn Drawable>,
         template_name: Option<String>,
     ) -> GameClientResult<DrawableId> {
-        // Wave 269: empty dual-world → no factory drawable registration.
-        if dual_world_registry_unavailable() {
-            return Err(GameClientError::InvalidOperation(
-                "dual-world registry unavailable".to_string(),
-            ));
-        }
+        // Wave 976: host empty dual-world still allows presentation/template registration.
+        // Factory OBJECT_REGISTRY binds remain dual-world-only below.
 
         if let Some(name) = template_name {
             drawable.set_template_name(Some(name));
@@ -3671,6 +3671,7 @@ impl GameClient {
             .map(
                 |u| crate::presentation_translator_residual::TranslatorCatalogEntry {
                     object_id: u.object_id,
+                    template_name: u.template_name.clone(),
                     team_name: u.team_name.clone(),
                     selectable: u.selectable,
                     kind_names: u.kind_names.clone(),
@@ -3712,6 +3713,7 @@ impl GameClient {
                     .map(
                         |u| crate::presentation_translator_residual::TranslatorCatalogEntry {
                             object_id: u.object_id,
+                            template_name: u.template_name.clone(),
                             team_name: u.team_name.clone(),
                             selectable: u.selectable,
                             kind_names: u.kind_names.clone(),

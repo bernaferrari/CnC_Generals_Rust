@@ -12,6 +12,8 @@ use once_cell::sync::Lazy;
 #[derive(Debug, Clone)]
 pub struct TranslatorCatalogEntry {
     pub object_id: u32,
+    /// Wave 976: template residual for host drawable template resolve.
+    pub template_name: String,
     pub team_name: String,
     pub selectable: bool,
     pub kind_names: Vec<String>,
