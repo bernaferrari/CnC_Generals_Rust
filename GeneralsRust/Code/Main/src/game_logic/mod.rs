@@ -161,6 +161,7 @@ pub mod host_live_host_cold_stamp_supplies_failclosed_residual_wave909;
 pub mod host_live_host_combat_field_dual_peel_residual_wave826;
 pub mod host_live_host_command_barracks_complete_peels_residual_wave917;
 pub mod host_live_host_command_executor_host_object_seal_residual_wave955;
+pub mod host_live_host_command_hint_catalog_residual_wave969;
 pub mod host_live_host_command_pipeline_boundary_residual_wave932;
 pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
 pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
@@ -3301,6 +3302,13 @@ pub use host_live_host_mouseover_hint_catalog_residual_wave968::{
     honesty_host_mouseover_hint_catalog_nav_commands_residual_wave968,
     honesty_host_mouseover_hint_catalog_residual_pack_wave968,
     simulate_live_host_mouseover_hint_catalog_honesty,
+};
+
+pub use host_live_host_command_hint_catalog_residual_wave969::{
+    honesty_host_command_hint_catalog_method_names_residual_wave969,
+    honesty_host_command_hint_catalog_nav_commands_residual_wave969,
+    honesty_host_command_hint_catalog_residual_pack_wave969,
+    simulate_live_host_command_hint_catalog_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
