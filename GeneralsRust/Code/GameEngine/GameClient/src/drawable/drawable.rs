@@ -1696,6 +1696,11 @@ pub struct BasicDrawable {
     presentation_health_pct: f32,
     /// Wave 965: presentation selected residual.
     presentation_selected: bool,
+    /// Wave 970: presentation veterancy residual.
+    presentation_veterancy_level: u8,
+    /// Wave 970: presentation construction residual.
+    presentation_under_construction: bool,
+    presentation_construction_percent: f32,
 
     /// Animation loop duration in frames (matches C++ setAnimationLoopDuration)
     animation_loop_duration: u32,
@@ -1791,6 +1796,9 @@ impl BasicDrawable {
             presentation_effectively_stealthed: false,
             presentation_health_pct: 0.0,
             presentation_selected: false,
+            presentation_veterancy_level: 0,
+            presentation_under_construction: false,
+            presentation_construction_percent: 0.0,
 
             animation_loop_duration: 0,
             animation_completion_time: 0,
@@ -1852,15 +1860,29 @@ impl BasicDrawable {
         effectively_stealthed: bool,
         health_pct: f32,
         selected: bool,
+        veterancy_level: u8,
+        under_construction: bool,
+        construction_percent: f32,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
         self.presentation_effectively_stealthed = effectively_stealthed;
         self.presentation_health_pct = health_pct.clamp(0.0, 1.0);
         self.presentation_selected = selected;
+        self.presentation_veterancy_level = veterancy_level;
+        self.presentation_under_construction = under_construction;
+        self.presentation_construction_percent = construction_percent.clamp(0.0, 1.0);
         self.hidden_by_stealth = effectively_stealthed;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
+        }
+        // Wave 970: keep overlay residual coherent for host draw path.
+        self.overlay_data.health_ratio = self.presentation_health_pct;
+        self.overlay_data.veterancy_level = self.presentation_veterancy_level;
+        self.overlay_data.is_under_construction = self.presentation_under_construction;
+        self.overlay_data.construction_percent = self.presentation_construction_percent;
+        if selected {
+            self.overlay_data.visible = true;
         }
     }
 
@@ -2768,14 +2790,14 @@ impl BasicDrawable {
         ))
     }
 
-    pub fn draw_health_bar(&mut self, health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+    fn draw_health_bar(&mut self, health_region: &IRegion2D) {
+        // Wave 970: host empty dual-world → presentation health residual.
         self.overlay_data.health_region = Some(*health_region);
         self.overlay_data.visible = true;
+        if dual_world_registry_unavailable() {
+            self.overlay_data.health_ratio = self.presentation_health_pct;
+            return;
+        }
 
         if let Some(obj_id) = self.object_id {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
@@ -2792,9 +2814,10 @@ impl BasicDrawable {
         }
     }
 
-    pub fn draw_veterancy(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+    fn draw_veterancy(&mut self, _health_region: &IRegion2D) {
+        // Wave 970: host empty dual-world → presentation veterancy residual.
         if dual_world_registry_unavailable() {
+            self.overlay_data.veterancy_level = self.presentation_veterancy_level;
             return;
         }
 
@@ -2811,9 +2834,11 @@ impl BasicDrawable {
         }
     }
 
-    pub fn draw_construct_percent(&mut self, _health_region: &IRegion2D) {
-        // Wave 270: empty dual-world → no factory object walks.
+    fn draw_construct_percent(&mut self, _health_region: &IRegion2D) {
+        // Wave 970: host empty dual-world → presentation construction residual.
         if dual_world_registry_unavailable() {
+            self.overlay_data.is_under_construction = self.presentation_under_construction;
+            self.overlay_data.construction_percent = self.presentation_construction_percent;
             return;
         }
 

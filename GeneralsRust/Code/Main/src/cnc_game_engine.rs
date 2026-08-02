@@ -20120,13 +20120,21 @@ impl CnCGameEngine {
                     destroyed: o.destroyed,
                     model_condition_bits: o.model_condition_bits,
                     body_damage_state: o.body_damage_state,
-                    // Wave 965: kind/stealth/color/health residual for host drawables.
+                    // Wave 970: overlay residual (vet/construct) on Wave 965 kind/stealth/color/health.
                     kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                     team_color: o.team_color,
                     effectively_stealthed: o.effectively_stealthed,
                     health_current: o.health_current,
                     health_max: o.health_max,
                     selected: o.selected,
+                    veterancy_level: match o.veterancy {
+                        crate::presentation_frame::PresentationVeterancy::Rookie => 0,
+                        crate::presentation_frame::PresentationVeterancy::Veteran => 1,
+                        crate::presentation_frame::PresentationVeterancy::Elite => 2,
+                        crate::presentation_frame::PresentationVeterancy::Heroic => 3,
+                    },
+                    under_construction: o.under_construction,
+                    construction_percent: o.construction_percent.clamp(0.0, 1.0),
                 }
             });
             let (created, updated, pruned) =

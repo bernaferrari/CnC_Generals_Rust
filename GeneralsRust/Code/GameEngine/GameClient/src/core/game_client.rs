@@ -158,6 +158,10 @@ pub struct PresentationDrawableSync {
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
+    /// Wave 970: overlay residual for host empty dual-world icon UI.
+    pub veterancy_level: u8,
+    pub under_construction: bool,
+    pub construction_percent: f32,
 }
 
 /// Wave 269: host-only path has no dual-world factory objects.
@@ -3426,6 +3430,9 @@ impl GameClient {
                 health_current: 0.0,
                 health_max: 0.0,
                 selected: false,
+                veterancy_level: 0,
+                under_construction: false,
+                construction_percent: 0.0,
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -3549,6 +3556,9 @@ impl GameClient {
             e.effectively_stealthed,
             health_pct,
             e.selected,
+            e.veterancy_level,
+            e.under_construction,
+            e.construction_percent,
         );
     }
 
