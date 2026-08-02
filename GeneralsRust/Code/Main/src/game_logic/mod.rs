@@ -402,6 +402,7 @@ pub mod host_live_host_unmapped_damage_fallback_residual_wave943;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_victory_fps_failclosed_residual_wave907;
 pub mod host_live_host_victory_fps_legal_failclosed_residual_wave910;
+pub mod host_live_host_weapon_ui_text_residual_wave980;
 pub mod host_live_host_world_bounds_ui_residual_wave862;
 pub mod host_live_host_wp_audio_clippy_residual_wave889;
 pub mod host_live_host_writeback_core_boundary_residual_wave944;
@@ -3389,6 +3390,13 @@ pub use host_live_host_meta_airborne_catalog_residual_wave979::{
     honesty_host_meta_airborne_catalog_nav_commands_residual_wave979,
     honesty_host_meta_airborne_catalog_residual_pack_wave979,
     simulate_live_host_meta_airborne_catalog_honesty,
+};
+
+pub use host_live_host_weapon_ui_text_residual_wave980::{
+    honesty_host_weapon_ui_text_residual_method_names_residual_wave980,
+    honesty_host_weapon_ui_text_residual_nav_commands_residual_wave980,
+    honesty_host_weapon_ui_text_residual_residual_pack_wave980,
+    simulate_live_host_weapon_ui_text_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

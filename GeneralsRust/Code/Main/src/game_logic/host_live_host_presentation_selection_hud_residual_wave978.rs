@@ -79,7 +79,7 @@ pub fn honesty_host_presentation_selection_hud_residual_pack_wave978() -> bool {
     let gl = gl_source();
     let client = client_source();
     let shell = match client.find("fn update_presentation_shell") {
-        Some(i) => &client[i..client.len().min(i + 2500)],
+        Some(i) => &client[i..client.len().min(i + 5000)],
         None => "",
     };
     let draw = match client.find("fn draw_presentation_selection_residual") {
