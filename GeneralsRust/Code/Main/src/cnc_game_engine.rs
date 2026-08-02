@@ -17332,9 +17332,12 @@ impl CnCGameEngine {
     }
 
     fn host_process_commands_with_command_sound(&mut self) {
-        // Wave 576/870/914/915/918: process + Command SFX residual + stamp sim timing.
+        // Wave 576/870/914/915/918/932: process + Command SFX via command-pipeline authority.
         // Empty queue skips process dual-write and Command SFX (no has_pending dual-read).
-        if !self.game_logic.process_commands_if_needed() {
+        if !self
+            .game_logic
+            .apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::ProcessIfNeeded)
+        {
             return;
         }
         self.play_sound_effect(SoundType::Command);
@@ -17347,9 +17350,11 @@ impl CnCGameEngine {
     /// Wave 584: host queue-command residual (no immediate process flush).
     #[inline]
     fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
-        // Wave 584/872/874/916: host queue residual (authority write; no dual-read peel).
+        // Wave 584/872/874/916/932: host queue residual via command-pipeline authority.
         // Queue-only path does not stamp sim timing — process/tick residuals own clocks.
-        self.game_logic.queue_command(command);
+        let _ = self
+            .game_logic
+            .apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::Queue { command });
     }
 
     /// Wave 576: queue a GameCommand then flush with Command SFX.
@@ -17367,9 +17372,11 @@ impl CnCGameEngine {
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
-        // Wave 576/578/871/914/918/922: silent queue+process single authority boundary.
+        // Wave 576/578/871/914/918/922/932: silent queue+process via command-pipeline authority.
         // Skip mid-command stamp when presentation freeze owns clocks.
-        let processed = self.game_logic.queue_and_process_command(command);
+        let processed = self.game_logic.apply_command_pipeline_op(
+            crate::game_logic::CommandPipelineOp::QueueAndProcess { command },
+        );
         if processed && self.last_presentation_frame.is_none() {
             self.host_stamp_sim_timing_residuals();
         }
@@ -20804,9 +20811,11 @@ impl CnCGameEngine {
     /// Distinct from InGame `host_process_commands_with_command_sound`.
     #[inline]
     fn host_process_shell_menu_commands(&mut self) {
-        // Wave 582/871/914/918: shell/menu command drain residual + stamp sim timing.
+        // Wave 582/871/914/918/932: shell/menu command drain via command-pipeline authority.
         // Empty queue skips process dual-write; stamp only when work ran without freeze.
-        let processed = self.game_logic.process_commands_if_needed();
+        let processed = self
+            .game_logic
+            .apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::ProcessIfNeeded);
         if processed && self.last_presentation_frame.is_none() {
             self.host_stamp_sim_timing_residuals();
         }

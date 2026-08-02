@@ -3031,6 +3031,18 @@ pub enum ObjectLifecycleResult {
     Destroyed,
 }
 
+/// Wave 932: command-pipeline authority payload (queue/process).
+#[derive(Debug, Clone)]
+pub enum CommandPipelineOp {
+    Queue {
+        command: crate::command_system::GameCommand,
+    },
+    QueueAndProcess {
+        command: crate::command_system::GameCommand,
+    },
+    ProcessIfNeeded,
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27556,6 +27568,21 @@ impl GameLogic {
             ObjectLifecycleOp::CancelProduction { id, template_name } => {
                 ObjectLifecycleResult::Bool(self.cancel_production(id, template_name))
             }
+        }
+    }
+
+    /// Wave 932: single command-pipeline authority boundary.
+    #[inline]
+    pub fn apply_command_pipeline_op(&mut self, op: CommandPipelineOp) -> bool {
+        match op {
+            CommandPipelineOp::Queue { command } => {
+                self.queue_command(command);
+                false
+            }
+            CommandPipelineOp::QueueAndProcess { command } => {
+                self.queue_and_process_command(command)
+            }
+            CommandPipelineOp::ProcessIfNeeded => self.process_commands_if_needed(),
         }
     }
 
