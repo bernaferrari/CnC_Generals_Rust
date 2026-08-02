@@ -140,6 +140,18 @@ use gamelogic::object::update::{
 use gamelogic::object::Object as GameLogicObject;
 use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 
+/// Wave 963: presentation → drawable sync residual (host path, no dual-world registry).
+#[derive(Debug, Clone)]
+pub struct PresentationDrawableSync {
+    pub object_id: u32,
+    pub template_name: String,
+    pub position: [f32; 3],
+    pub orientation: f32,
+    pub destroyed: bool,
+    pub model_condition_bits: u128,
+    pub body_damage_state: u8,
+}
+
 /// Wave 269: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
@@ -3382,36 +3394,140 @@ impl GameClient {
         updated
     }
 
-    /// Wave 962: host presentation drawable ensure (no OBJECT_REGISTRY dual-world).
+    /// Wave 962/963: host presentation drawable ensure (no OBJECT_REGISTRY dual-world).
     ///
     /// Creates missing drawables bound to presentation object ids so pose/shroud
-    /// residuals apply without populating the dual-world registry. Existing
-    /// bindings are left untouched (pose path updates them).
+    /// residuals apply without populating the dual-world registry.
     pub fn ensure_presentation_drawables<I>(&mut self, entries: I) -> usize
     where
         I: IntoIterator<Item = (u32, String, [f32; 3], f32)>,
     {
+        let sync = entries
+            .into_iter()
+            .map(|(id, tmpl, pos, ori)| PresentationDrawableSync {
+                object_id: id,
+                template_name: tmpl,
+                position: pos,
+                orientation: ori,
+                destroyed: false,
+                model_condition_bits: 0,
+                body_damage_state: 0,
+            });
+        self.sync_presentation_drawables(sync).0
+    }
+
+    /// Wave 963: presentation drawable sync residual (ensure + pose/model + prune).
+    ///
+    /// Returns `(created, updated, pruned)`. No OBJECT_REGISTRY dual-world populate.
+    pub fn sync_presentation_drawables<I>(&mut self, entries: I) -> (usize, usize, usize)
+    where
+        I: IntoIterator<Item = PresentationDrawableSync>,
+    {
+        use crate::drawable::DrawableExt;
+        use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionFlags};
+        use gamelogic::common::types::BodyDamageType;
+
         let mut created = 0usize;
-        for (object_id, template_name, pos, orientation) in entries {
-            if self.drawable_object_map.contains_key(&object_id) {
+        let mut updated = 0usize;
+        let mut live_ids = std::collections::HashSet::new();
+
+        for e in entries {
+            if e.destroyed {
                 continue;
             }
-            let mut drawable = BasicDrawable::new(DrawableId::INVALID);
-            if !template_name.is_empty() {
-                drawable.set_template_name(Some(template_name));
+            live_ids.insert(e.object_id);
+
+            if let Some(&drawable_id) = self.drawable_object_map.get(&e.object_id) {
+                if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+                    let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
+                    drawable.set_position(position);
+                    let transform =
+                        Matrix4::translation(position).mul(&Matrix4::rotation_y(e.orientation));
+                    drawable.set_instance_transform(transform);
+                    if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
+                        if !e.template_name.is_empty() {
+                            basic.set_template_name(Some(e.template_name.clone()));
+                        }
+                        Self::stamp_presentation_model_residual(
+                            basic,
+                            e.model_condition_bits,
+                            e.body_damage_state,
+                        );
+                    }
+                    updated = updated.saturating_add(1);
+                }
+                continue;
             }
-            drawable.set_object_id(Some(object_id));
-            let position = Vector3::new(pos[0], pos[1], pos[2]);
+
+            let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+            if !e.template_name.is_empty() {
+                drawable.set_template_name(Some(e.template_name.clone()));
+            }
+            drawable.set_object_id(Some(e.object_id));
+            let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
             drawable.set_position(position);
-            let transform = Matrix4::translation(position).mul(&Matrix4::rotation_y(orientation));
+            let transform = Matrix4::translation(position).mul(&Matrix4::rotation_y(e.orientation));
             drawable.set_instance_transform(transform);
+            Self::stamp_presentation_model_residual(
+                &mut drawable,
+                e.model_condition_bits,
+                e.body_damage_state,
+            );
             let id = self.alloc_drawable_id();
             drawable.set_id(id);
             self.drawable_map.insert(id, Box::new(drawable));
-            self.drawable_object_map.insert(object_id, id);
+            self.drawable_object_map.insert(e.object_id, id);
             created = created.saturating_add(1);
         }
-        created
+
+        let stale: Vec<(u32, DrawableId)> = self
+            .drawable_object_map
+            .iter()
+            .filter_map(|(&oid, &did)| {
+                if live_ids.contains(&oid) {
+                    None
+                } else {
+                    Some((oid, did))
+                }
+            })
+            .collect();
+        let mut pruned = 0usize;
+        for (oid, did) in stale {
+            let _ = self.destroy_drawable(did);
+            self.drawable_object_map.remove(&oid);
+            pruned = pruned.saturating_add(1);
+        }
+
+        (created, updated, pruned)
+    }
+
+    fn stamp_presentation_model_residual(
+        drawable: &mut BasicDrawable,
+        model_condition_bits: u128,
+        body_damage_state: u8,
+    ) {
+        use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionFlags};
+        use gamelogic::common::types::BodyDamageType;
+
+        let bit_names = ModelConditionFlags::BIT_NAMES;
+        let mut set = create_model_condition_flags();
+        let mut clear_all = create_model_condition_flags();
+        let n = bit_names.len().min(128);
+        for i in 0..n {
+            clear_all.set(i, true);
+            if (model_condition_bits >> i) & 1 == 1 {
+                set.set(i, true);
+            }
+        }
+        drawable.clear_and_set_model_condition_flags(&clear_all, &set);
+
+        let body = match body_damage_state {
+            1 => BodyDamageType::Damaged,
+            2 => BodyDamageType::ReallyDamaged,
+            3 => BodyDamageType::Rubble,
+            _ => BodyDamageType::Pristine,
+        };
+        drawable.react_to_body_damage_state_change(body);
     }
 
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
