@@ -20198,6 +20198,25 @@ impl CnCGameEngine {
             };
             self.game_client
                 .apply_presentation_selection_residual(sel_units);
+
+            // Wave 966: full unit catalog residual for host select-similar.
+            let catalog: Vec<game_client::gui::ingame_ui::PresentationUnitCatalogEntry> = {
+                use crate::unit_control::UnitControlSystem;
+                pres.objects
+                    .iter()
+                    .filter(|o| !o.destroyed)
+                    .map(
+                        |o| game_client::gui::ingame_ui::PresentationUnitCatalogEntry {
+                            object_id: o.id.0,
+                            template_name: o.template_name.clone(),
+                            team_name: format!("{:?}", o.team),
+                            selectable: UnitControlSystem::presentation_is_selectable(o),
+                            position: [o.position.x, o.position.y, o.position.z],
+                        },
+                    )
+                    .collect()
+            };
+            self.game_client.apply_presentation_unit_catalog(catalog);
         }
         // PRES_SHELL_ONLY_DRAWABLE_TICK: client modules via update_drawables_local.
         // Wave 862: presentation pose/shroud/caption residual already applied above.
