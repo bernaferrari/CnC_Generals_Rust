@@ -267,6 +267,7 @@ pub mod host_live_host_patriot_laser_dual_peel_residual_wave823;
 pub mod host_live_host_pause_boot_player_residual_wave892;
 pub mod host_live_host_paused_tick_guard_refresh_peels_residual_wave919;
 pub mod host_live_host_pending_patriot_dual_peel_residual_wave824;
+pub mod host_live_host_placement_legal_build_cache_residual_wave924;
 pub mod host_live_host_player_alive_dual_peel_residual_wave816;
 pub mod host_live_host_player_radar_dual_peel_residual_wave818;
 pub mod host_live_host_pob_failclosed_boot_residual_wave895;
@@ -2990,6 +2991,12 @@ pub use host_live_host_load_queue_process_boundaries_residual_wave922::{
     honesty_host_load_queue_process_boundaries_nav_commands_residual_wave922,
     honesty_host_load_queue_process_boundaries_residual_pack_wave922,
     simulate_live_host_load_queue_process_boundaries_honesty,
+};
+pub use host_live_host_placement_legal_build_cache_residual_wave924::{
+    honesty_host_placement_legal_build_cache_method_names_residual_wave924,
+    honesty_host_placement_legal_build_cache_nav_commands_residual_wave924,
+    honesty_host_placement_legal_build_cache_residual_pack_wave924,
+    simulate_live_host_placement_legal_build_cache_honesty,
 };
 pub use host_live_host_tick_logic_frame_boundary_residual_wave923::{
     honesty_host_tick_logic_frame_boundary_method_names_residual_wave923,
