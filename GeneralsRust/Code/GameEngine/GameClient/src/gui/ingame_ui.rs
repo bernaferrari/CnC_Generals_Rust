@@ -3348,10 +3348,113 @@ impl InGameUI {
         self.select_matching_across_region(&region)
     }
 
-    fn select_matching_across_region(&mut self, region: &IRegion2D) -> i32 {
-        // Wave 273: empty dual-world → zero.
-        if dual_world_registry_unavailable() {
+    /// Wave 967: host empty dual-world select-matching via presentation unit catalog.
+    fn select_matching_from_presentation_catalog(&mut self, region: Option<&IRegion2D>) -> i32 {
+        // Seed templates from selection manager, else presentation selection residual.
+        let selection_manager = get_selection_manager();
+        let mut selected_ids: Vec<ObjectID> = if let Ok(manager) = selection_manager.read() {
+            manager
+                .get_player_selection_ref(self.player_id as i32)
+                .map(|s| s.get_selected_objects())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if selected_ids.is_empty() {
+            selected_ids = self
+                .presentation_selected
+                .iter()
+                .map(|u| u.object_id)
+                .collect();
+        }
+        if selected_ids.is_empty() || self.presentation_unit_catalog.is_empty() {
+            return -1;
+        }
+
+        let mut templates: Vec<String> = Vec::new();
+        let mut local_team: Option<String> = None;
+        for &object_id in &selected_ids {
+            let Some(entry) = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|u| u.object_id == object_id)
+            else {
+                // Fall back to presentation_selected residual for template name.
+                if let Some(sel) = self
+                    .presentation_selected
+                    .iter()
+                    .find(|u| u.object_id == object_id)
+                {
+                    if !sel.template_name.is_empty() && !templates.contains(&sel.template_name) {
+                        templates.push(sel.template_name.clone());
+                    }
+                }
+                continue;
+            };
+            if !entry.selectable {
+                continue;
+            }
+            if local_team.is_none() {
+                local_team = Some(entry.team_name.clone());
+            }
+            if local_team.as_deref() != Some(entry.team_name.as_str()) {
+                continue;
+            }
+            if !entry.template_name.is_empty() && !templates.contains(&entry.template_name) {
+                templates.push(entry.template_name.clone());
+            }
+        }
+        if templates.is_empty() {
+            return -1;
+        }
+        let team_filter = local_team;
+
+        let mut matching: Vec<ObjectID> = self
+            .presentation_unit_catalog
+            .iter()
+            .filter(|u| {
+                if !u.selectable {
+                    return false;
+                }
+                if let Some(team) = team_filter.as_ref() {
+                    if &u.team_name != team {
+                        return false;
+                    }
+                }
+                if let Some(region) = region {
+                    let (x, y) = (u.position[0], u.position[1]);
+                    if x < region.lo.x as f32
+                        || x > region.hi.x as f32
+                        || y < region.lo.y as f32
+                        || y > region.hi.y as f32
+                    {
+                        return false;
+                    }
+                }
+                templates.iter().any(|t| t == &u.template_name)
+            })
+            .map(|u| u.object_id)
+            .collect();
+        if matching.is_empty() {
             return 0;
+        }
+        matching.sort_unstable();
+        matching.dedup();
+        let count = matching.len() as i32;
+        if let Ok(mut manager) = selection_manager.write() {
+            if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
+                selection.select_objects(matching, SelectionType::Add);
+            }
+        }
+        self.frame_selection_changed = self.current_frame;
+        self.sync_selection_state();
+        count
+    }
+
+    fn select_matching_across_region(&mut self, region: &IRegion2D) -> i32 {
+        // Wave 967: host empty dual-world → presentation unit catalog residual.
+        if dual_world_registry_unavailable() {
+            return self.select_matching_from_presentation_catalog(Some(region));
         }
 
         let selection_manager = get_selection_manager();
@@ -3424,9 +3527,9 @@ impl InGameUI {
     }
 
     pub fn select_matching_across_map(&mut self) -> i32 {
-        // Wave 273: empty dual-world → zero.
+        // Wave 967: host empty dual-world → presentation unit catalog residual.
         if dual_world_registry_unavailable() {
-            return 0;
+            return self.select_matching_from_presentation_catalog(None);
         }
 
         // C++: InGameUI.cpp:4671 (selectMatchingAcrossRegion with NULL region)
