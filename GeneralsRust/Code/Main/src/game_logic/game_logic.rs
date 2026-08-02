@@ -2807,6 +2807,7 @@ pub enum AttackAimResult {
     Failure,
 }
 
+// Wave 960: chained .find_object/.get_object → host_object idiom.
 // Wave 959: internal host_object idiom (legacy get_object/find_object aliases only).
 impl GameLogic {
     fn seed_sample_objectives() -> Vec<ObjectiveDisplay> {
@@ -24665,7 +24666,7 @@ impl GameLogic {
                     continue;
                 }
                 let pos = self
-                    .find_object(crate_id)
+                    .host_object(crate_id)
                     .map(|o| o.get_position())
                     .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
@@ -24688,7 +24689,7 @@ impl GameLogic {
                     continue;
                 }
                 let pos = self
-                    .find_object(crate_id)
+                    .host_object(crate_id)
                     .map(|o| o.get_position())
                     .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
@@ -24715,7 +24716,7 @@ impl GameLogic {
                     continue;
                 }
                 let pos = self
-                    .find_object(crate_id)
+                    .host_object(crate_id)
                     .map(|o| o.get_position())
                     .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
@@ -24742,7 +24743,7 @@ impl GameLogic {
                     continue;
                 }
                 let pos = self
-                    .find_object(crate_id)
+                    .host_object(crate_id)
                     .map(|o| o.get_position())
                     .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                     .unwrap_or(glam::Vec3::ZERO);
@@ -24787,7 +24788,7 @@ impl GameLogic {
                     self.supply_lines_bonus_cash_total.saturating_add(boost);
             }
             let pos = self
-                .find_object(crate_id)
+                .host_object(crate_id)
                 .map(|o| o.get_position())
                 .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                 .unwrap_or(Vec3::ZERO);
@@ -28588,7 +28589,7 @@ impl GameLogic {
                 continue;
             }
             let eligible = self
-                .get_objects()
+                .host_objects()
                 .get(&ev.target)
                 .is_some_and(|o| !o.status.destroyed);
             if !eligible {
@@ -75177,7 +75178,7 @@ mod tests {
         assert!(
             logic.host_ai_activity_count() >= 1
                 || logic
-                    .get_objects()
+                    .host_objects()
                     .values()
                     .any(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure)),
             "AI rebuild soup should progress after rebind"
@@ -75390,7 +75391,7 @@ mod tests {
         let id = game_logic
             .create_object("TestTransport", Team::USA, pos)
             .expect("TestTransport");
-        if let Some(obj) = game_logic.find_object_mut(id) {
+        if let Some(obj) = game_logic.host_object_mut(id) {
             obj.max_transport = capacity;
         }
         id
@@ -75427,7 +75428,7 @@ mod tests {
         let id = game_logic
             .create_object("TestOverlord", Team::China, pos)
             .expect("TestOverlord");
-        if let Some(obj) = game_logic.find_object_mut(id) {
+        if let Some(obj) = game_logic.host_object_mut(id) {
             // Mark overlord-style residual; slots=None means no bunker installed.
             obj.overlord_bunker_capacity = Some(bunker_slots.unwrap_or(0));
         }
@@ -75460,7 +75461,7 @@ mod tests {
             .expect("GLAVehicleBattleBus");
         // create_object auto-installs Battle Bus residual via template name.
         // Fail-closed reinstall for test honesty if auto-bind missed.
-        if let Some(obj) = game_logic.find_object_mut(id) {
+        if let Some(obj) = game_logic.host_object_mut(id) {
             if !obj.is_battle_bus_style_container() {
                 obj.install_battle_bus_transport();
             }
@@ -75492,7 +75493,7 @@ mod tests {
         let id = game_logic
             .create_object("GLATunnelNetwork", Team::GLA, pos)
             .expect("GLATunnelNetwork");
-        if let Some(obj) = game_logic.find_object_mut(id) {
+        if let Some(obj) = game_logic.host_object_mut(id) {
             if !obj.is_tunnel_network_style_container() {
                 obj.install_tunnel_network_residual();
             }
@@ -75529,7 +75530,7 @@ mod tests {
         let id = game_logic
             .create_object("AirF_AmericaVehicleChinook", Team::USA, pos)
             .expect("AirF_AmericaVehicleChinook");
-        if let Some(obj) = game_logic.find_object_mut(id) {
+        if let Some(obj) = game_logic.host_object_mut(id) {
             if !obj.is_combat_chinook_style_container() {
                 obj.install_combat_chinook_transport();
             }
@@ -75565,7 +75566,7 @@ mod tests {
         let id = game_logic
             .create_object("ChinaVehicleListeningOutpost", Team::China, pos)
             .expect("ChinaVehicleListeningOutpost");
-        if let Some(obj) = game_logic.find_object_mut(id) {
+        if let Some(obj) = game_logic.host_object_mut(id) {
             if !obj.is_listening_outpost_style_container() {
                 obj.install_listening_outpost_transport();
             }
@@ -75601,7 +75602,7 @@ mod tests {
         let id = game_logic
             .create_object("ChinaVehicleTroopCrawler", Team::China, pos)
             .expect("ChinaVehicleTroopCrawler");
-        if let Some(obj) = game_logic.find_object_mut(id) {
+        if let Some(obj) = game_logic.host_object_mut(id) {
             if !obj.is_troop_crawler_style_container() {
                 obj.install_troop_crawler_transport();
             }
@@ -75773,7 +75774,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 10.0))
             .expect("object should be created");
         let object = game_logic
-            .find_object(object_id)
+            .host_object(object_id)
             .expect("object should exist");
 
         assert!(GameLogic::is_object_visible_for_team(
@@ -75792,7 +75793,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 10.0))
             .expect("object should be created");
         let object = game_logic
-            .find_object(object_id)
+            .host_object(object_id)
             .expect("object should exist");
 
         let mut visible_only = ShroudVisibilitySnapshot {
@@ -75839,7 +75840,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 10.0))
             .expect("object should be created");
         let object = game_logic
-            .find_object(object_id)
+            .host_object(object_id)
             .expect("object should exist");
 
         let mut explored_only = ShroudVisibilitySnapshot {
@@ -75871,7 +75872,7 @@ mod tests {
             .create_object("TestStructure", Team::GLA, Vec3::new(20.0, 0.0, 20.0))
             .expect("structure should be created");
         let object = game_logic
-            .find_object(object_id)
+            .host_object(object_id)
             .expect("structure should exist");
 
         let mut explored_only = ShroudVisibilitySnapshot {
@@ -75899,7 +75900,7 @@ mod tests {
             .expect("attacker should be created from template");
 
         let attacker = game_logic
-            .find_object_mut(attacker_id)
+            .host_object_mut(attacker_id)
             .expect("attacker should exist");
         attacker.set_force_attack(true);
         attacker.set_target_location(Some(target_location));
@@ -75930,7 +75931,7 @@ mod tests {
 
         {
             let unit = game_logic
-                .find_object_mut(unit_id)
+                .host_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(transport_id);
             unit.set_ai_state(AIState::Entering);
@@ -75940,14 +75941,14 @@ mod tests {
         game_logic.update_ai(&[transport_id, unit_id], 1.0 / 60.0);
 
         let transport = game_logic
-            .find_object(transport_id)
+            .host_object(transport_id)
             .expect("transport should exist");
         assert!(
             transport.contained_units().contains(&unit_id),
             "entering unit should be registered as transport occupant"
         );
 
-        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
         assert_eq!(unit.ai_state, AIState::Docked);
         assert_eq!(unit.target, Some(transport_id));
         assert!(!unit.can_move(), "docked units should not be movable");
@@ -75971,7 +75972,7 @@ mod tests {
 
         {
             let unit = game_logic
-                .find_object_mut(unit_id)
+                .host_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(transport_id);
             unit.set_ai_state(AIState::Docking);
@@ -75979,7 +75980,7 @@ mod tests {
 
         game_logic.update_ai(&[transport_id, unit_id], 1.0 / 60.0);
 
-        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
         let destination = unit
             .movement
             .target_position
@@ -76005,7 +76006,7 @@ mod tests {
 
         {
             let enemy_transport = game_logic
-                .find_object_mut(enemy_transport_id)
+                .host_object_mut(enemy_transport_id)
                 .expect("enemy transport should exist");
             assert!(
                 enemy_transport.add_occupant(enemy_occupant_id),
@@ -76014,7 +76015,7 @@ mod tests {
         }
         {
             let enemy_occupant = game_logic
-                .find_object_mut(enemy_occupant_id)
+                .host_object_mut(enemy_occupant_id)
                 .expect("enemy occupant should exist");
             enemy_occupant.target = Some(enemy_transport_id);
             enemy_occupant.set_ai_state(AIState::Docked);
@@ -76033,7 +76034,7 @@ mod tests {
         game_logic.process_commands();
 
         let friendly = game_logic
-            .find_object(friendly_unit_id)
+            .host_object(friendly_unit_id)
             .expect("friendly unit should exist");
         assert_ne!(
             friendly.target,
@@ -76074,7 +76075,7 @@ mod tests {
         game_logic.process_commands();
 
         let friendly = game_logic
-            .find_object(friendly_unit_id)
+            .host_object(friendly_unit_id)
             .expect("friendly unit should exist");
         assert_eq!(friendly.target, Some(enemy_garrison_id));
         assert_eq!(friendly.ai_state, AIState::Entering);
@@ -76095,7 +76096,7 @@ mod tests {
 
         {
             let unit = game_logic
-                .find_object_mut(unit_id)
+                .host_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(enemy_barracks_id);
             unit.set_ai_state(AIState::Entering);
@@ -76104,7 +76105,7 @@ mod tests {
 
         game_logic.update_ai(&[unit_id, enemy_barracks_id], 1.0 / 60.0);
 
-        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
         assert!(
             unit.target.is_none(),
             "entering should clear enemy structure targets"
@@ -76131,7 +76132,7 @@ mod tests {
 
         {
             let unit = game_logic
-                .find_object_mut(unit_id)
+                .host_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(enemy_garrison_id);
             unit.set_ai_state(AIState::Entering);
@@ -76141,11 +76142,11 @@ mod tests {
         game_logic.update_ai(&[unit_id, enemy_garrison_id], 1.0 / 60.0);
 
         let garrison = game_logic
-            .find_object(enemy_garrison_id)
+            .host_object(enemy_garrison_id)
             .expect("garrison should exist");
         assert!(garrison.contained_units().contains(&unit_id));
 
-        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
         assert_eq!(unit.ai_state, AIState::Garrisoned);
         assert_eq!(unit.target, Some(enemy_garrison_id));
         assert_eq!(unit.contained_by, Some(enemy_garrison_id));
@@ -76165,7 +76166,7 @@ mod tests {
 
         {
             let guard = game_logic
-                .find_object_mut(guard_id)
+                .host_object_mut(guard_id)
                 .expect("guard should exist");
             guard.set_ai_state(AIState::GuardingArea);
             guard.guard_position = Some(Vec3::new(0.0, 0.0, 0.0));
@@ -76175,7 +76176,7 @@ mod tests {
         game_logic.update_ai(&[guard_id, enemy_id], 1.0 / 60.0);
 
         let guard = game_logic
-            .find_object(guard_id)
+            .host_object(guard_id)
             .expect("guard should exist");
         assert_eq!(guard.ai_state, AIState::Attacking);
         assert_eq!(guard.target, Some(enemy_id));
@@ -76194,7 +76195,7 @@ mod tests {
             .expect("enemy should be created");
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker should exist");
             attacker.weapon = Some(Weapon {
                 range: 150.0,
@@ -76203,7 +76204,7 @@ mod tests {
         }
 
         let attacker = game_logic
-            .find_object(attacker_id)
+            .host_object(attacker_id)
             .expect("attacker should exist");
         let command = game_logic.process_ai_behavior(
             attacker_id,
@@ -76237,7 +76238,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("attacker should be created");
         let attacker = game_logic
-            .find_object(attacker_id)
+            .host_object(attacker_id)
             .expect("attacker should exist");
 
         let command = game_logic.process_ai_behavior(
@@ -76265,7 +76266,7 @@ mod tests {
         let unit_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, -20.0))
             .expect("unit should be created");
-        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
         let start = unit.get_position();
         let frame = unit_id.0;
 
@@ -76311,19 +76312,19 @@ mod tests {
 
         {
             let damaged = game_logic
-                .find_object_mut(damaged_id)
+                .host_object_mut(damaged_id)
                 .expect("damaged unit should exist");
             let _ = damaged.take_damage(80.0);
         }
         {
             let repairer = game_logic
-                .find_object_mut(repairer_id)
+                .host_object_mut(repairer_id)
                 .expect("repairer should exist");
             repairer.target = Some(damaged_id);
             repairer.set_ai_state(AIState::Repairing);
         }
         let before = game_logic
-            .find_object(damaged_id)
+            .host_object(damaged_id)
             .expect("damaged unit should exist")
             .health
             .current;
@@ -76331,7 +76332,7 @@ mod tests {
         game_logic.update_ai(&[repairer_id, damaged_id], 1.0);
 
         let after = game_logic
-            .find_object(damaged_id)
+            .host_object(damaged_id)
             .expect("damaged unit should exist")
             .health
             .current;
@@ -76356,14 +76357,14 @@ mod tests {
 
         {
             let unit = game_logic
-                .find_object_mut(unit_id)
+                .host_object_mut(unit_id)
                 .expect("unit should exist");
             let _ = unit.take_damage(90.0);
             unit.target = Some(repair_bay_id);
             unit.set_ai_state(AIState::SeekingRepair);
         }
         let before = game_logic
-            .find_object(unit_id)
+            .host_object(unit_id)
             .expect("unit should exist")
             .health
             .current;
@@ -76371,7 +76372,7 @@ mod tests {
         game_logic.update_ai(&[repair_bay_id, unit_id], 1.0);
 
         let after = game_logic
-            .find_object(unit_id)
+            .host_object(unit_id)
             .expect("unit should exist")
             .health
             .current;
@@ -76396,13 +76397,13 @@ mod tests {
 
         {
             let repair_bay = game_logic
-                .find_object_mut(repair_bay_id)
+                .host_object_mut(repair_bay_id)
                 .expect("repair source should exist");
             repair_bay.set_status_under_construction(true);
         }
         {
             let unit = game_logic
-                .find_object_mut(unit_id)
+                .host_object_mut(unit_id)
                 .expect("unit should exist");
             let _ = unit.take_damage(90.0);
             unit.target = Some(repair_bay_id);
@@ -76412,7 +76413,7 @@ mod tests {
 
         game_logic.update_ai(&[repair_bay_id, unit_id], 1.0 / 60.0);
 
-        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
         assert!(
             unit.target.is_none(),
             "seeking repair should clear under-construction destinations"
@@ -76434,13 +76435,13 @@ mod tests {
 
         {
             let transport = game_logic
-                .find_object_mut(transport_id)
+                .host_object_mut(transport_id)
                 .expect("transport should exist");
             assert!(transport.add_occupant(unit_id));
         }
         {
             let unit = game_logic
-                .find_object_mut(unit_id)
+                .host_object_mut(unit_id)
                 .expect("unit should exist");
             unit.target = Some(transport_id);
             unit.set_ai_state(AIState::Docked);
@@ -76458,13 +76459,13 @@ mod tests {
         game_logic.process_commands();
 
         let transport = game_logic
-            .find_object(transport_id)
+            .host_object(transport_id)
             .expect("transport should exist");
         assert!(
             !transport.contained_units().contains(&unit_id),
             "evacuate should remove occupants from selected transport"
         );
-        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
         assert_eq!(unit.ai_state, AIState::Idle);
         assert!(unit.target.is_none());
         assert!(unit.can_move());
@@ -76496,7 +76497,7 @@ mod tests {
         game_logic.process_commands();
 
         let building = game_logic
-            .find_object(building_id)
+            .host_object(building_id)
             .expect("building should exist");
         assert_eq!(
             building.team,
@@ -76505,7 +76506,7 @@ mod tests {
         );
 
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor should exist");
         assert_eq!(captor.ai_state, AIState::Capturing);
         assert_eq!(captor.target, Some(building_id));
@@ -76538,7 +76539,7 @@ mod tests {
         game_logic.process_commands();
 
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor should exist");
         assert_ne!(captor.ai_state, AIState::Capturing);
         assert_ne!(captor.target, Some(building_id));
@@ -76562,7 +76563,7 @@ mod tests {
         game_logic.process_commands();
 
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor should exist after upgraded command");
         assert_eq!(captor.ai_state, AIState::Capturing);
         assert_eq!(captor.target, Some(building_id));
@@ -76583,7 +76584,7 @@ mod tests {
 
         {
             let captor = game_logic
-                .find_object_mut(captor_id)
+                .host_object_mut(captor_id)
                 .expect("captor should exist");
             captor.target = Some(building_id);
             captor.set_ai_state(AIState::Capturing);
@@ -76592,7 +76593,7 @@ mod tests {
         game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
 
         let building = game_logic
-            .find_object(building_id)
+            .host_object(building_id)
             .expect("building should exist");
         assert_eq!(
             building.team,
@@ -76601,7 +76602,7 @@ mod tests {
         );
 
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor should exist");
         assert_eq!(captor.ai_state, AIState::Idle);
         assert!(captor.target.is_none());
@@ -76641,7 +76642,7 @@ mod tests {
 
         {
             let captor = game_logic
-                .find_object_mut(captor_id)
+                .host_object_mut(captor_id)
                 .expect("captor should exist");
             captor.target = Some(barracks_id);
             captor.set_ai_state(AIState::Capturing);
@@ -76650,7 +76651,7 @@ mod tests {
         game_logic.update_ai(&[captor_id, barracks_id], 1.0 / 60.0);
 
         let barracks = game_logic
-            .find_object(barracks_id)
+            .host_object(barracks_id)
             .expect("captured barracks should still exist");
         assert_eq!(barracks.team, Team::USA);
         assert_eq!(
@@ -76697,7 +76698,7 @@ mod tests {
             .expect("building should be created");
         {
             let building = game_logic
-                .find_object_mut(building_id)
+                .host_object_mut(building_id)
                 .expect("building should exist");
             building.set_status_under_construction(true);
         }
@@ -76715,13 +76716,13 @@ mod tests {
         game_logic.process_commands();
 
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor should exist");
         assert_ne!(captor.ai_state, AIState::Capturing);
         assert_ne!(captor.target, Some(building_id));
 
         let building = game_logic
-            .find_object(building_id)
+            .host_object(building_id)
             .expect("building should exist");
         assert_eq!(building.team, Team::GLA);
     }
@@ -76740,13 +76741,13 @@ mod tests {
             .expect("building should be created");
         {
             let building = game_logic
-                .find_object_mut(building_id)
+                .host_object_mut(building_id)
                 .expect("building should exist");
             building.set_status_under_construction(true);
         }
         {
             let captor = game_logic
-                .find_object_mut(captor_id)
+                .host_object_mut(captor_id)
                 .expect("captor should exist");
             captor.target = Some(building_id);
             captor.set_ai_state(AIState::Capturing);
@@ -76755,12 +76756,12 @@ mod tests {
         game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
 
         let building = game_logic
-            .find_object(building_id)
+            .host_object(building_id)
             .expect("building should exist");
         assert_eq!(building.team, Team::GLA);
 
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor should exist");
         assert_eq!(captor.ai_state, AIState::Idle);
         assert!(captor.target.is_none());
@@ -76791,12 +76792,12 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let tank = game_logic.find_object(tank_id).expect("tank should exist");
+        let tank = game_logic.host_object(tank_id).expect("tank should exist");
         assert_ne!(tank.ai_state, AIState::Capturing);
         assert_ne!(tank.target, Some(building_id));
 
         let building = game_logic
-            .find_object(building_id)
+            .host_object(building_id)
             .expect("building should exist");
         assert_eq!(building.team, Team::GLA);
     }
@@ -76820,7 +76821,7 @@ mod tests {
 
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target should exist");
             let _ = target.take_damage(50.0);
         }
@@ -76836,10 +76837,10 @@ mod tests {
         game_logic.process_commands();
 
         let a = game_logic
-            .find_object(repairer_a)
+            .host_object(repairer_a)
             .expect("repairer A should exist");
         let b = game_logic
-            .find_object(repairer_b)
+            .host_object(repairer_b)
             .expect("repairer B should exist");
 
         assert_eq!(a.ai_state, AIState::Repairing);
@@ -76863,7 +76864,7 @@ mod tests {
 
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target should exist");
             let _ = target.take_damage(75.0);
         }
@@ -76878,7 +76879,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let tank = game_logic.find_object(tank_id).expect("tank should exist");
+        let tank = game_logic.host_object(tank_id).expect("tank should exist");
         assert_ne!(
             tank.ai_state,
             AIState::Repairing,
@@ -76901,13 +76902,13 @@ mod tests {
 
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target should exist");
             let _ = target.take_damage(60.0);
         }
 
         let before = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -76924,13 +76925,13 @@ mod tests {
         game_logic.update_ai(&[repairer_id, target_id], 1.0 / 60.0);
 
         let repairer = game_logic
-            .find_object(repairer_id)
+            .host_object(repairer_id)
             .expect("repairer should exist");
         assert_eq!(repairer.ai_state, AIState::Repairing);
         assert_eq!(repairer.target, Some(target_id));
 
         let after = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -76968,7 +76969,7 @@ mod tests {
             .expect("war factory structure");
 
         {
-            let structure = game_logic.find_object_mut(structure_id).expect("structure");
+            let structure = game_logic.host_object_mut(structure_id).expect("structure");
             let _ = structure.take_damage(400.0);
             assert!(
                 structure.health.current + 0.01 < structure.health.maximum,
@@ -76976,7 +76977,7 @@ mod tests {
             );
         }
         let before = game_logic
-            .find_object(structure_id)
+            .host_object(structure_id)
             .expect("structure")
             .health
             .current;
@@ -77002,7 +77003,7 @@ mod tests {
             "successful Repair command must record honesty"
         );
         {
-            let dozer = game_logic.find_object(dozer_id).expect("dozer");
+            let dozer = game_logic.host_object(dozer_id).expect("dozer");
             assert_eq!(dozer.ai_state, AIState::Repairing);
             assert_eq!(dozer.target, Some(structure_id));
         }
@@ -77013,7 +77014,7 @@ mod tests {
         }
 
         let after = game_logic
-            .find_object(structure_id)
+            .host_object(structure_id)
             .expect("structure")
             .health
             .current;
@@ -77048,11 +77049,11 @@ mod tests {
             .expect("structure");
 
         {
-            let structure = game_logic.find_object_mut(structure_id).expect("structure");
+            let structure = game_logic.host_object_mut(structure_id).expect("structure");
             let _ = structure.take_damage(300.0);
         }
         let before = game_logic
-            .find_object(structure_id)
+            .host_object(structure_id)
             .expect("structure")
             .health
             .current;
@@ -77070,14 +77071,14 @@ mod tests {
         game_logic.process_commands();
 
         {
-            let dozer = game_logic.find_object(dozer_id).expect("dozer");
+            let dozer = game_logic.host_object(dozer_id).expect("dozer");
             assert_eq!(dozer.ai_state, AIState::Repairing);
             assert_eq!(dozer.target, Some(structure_id));
         }
         // Must not heal while still out of range on first short step.
         game_logic.update();
         let mid = game_logic
-            .find_object(structure_id)
+            .host_object(structure_id)
             .expect("structure")
             .health
             .current;
@@ -77088,7 +77089,7 @@ mod tests {
         for _ in 0..900 {
             game_logic.update();
             if game_logic
-                .find_object(structure_id)
+                .host_object(structure_id)
                 .map(|s| s.health.current > before + 0.5)
                 .unwrap_or(false)
             {
@@ -77106,7 +77107,7 @@ mod tests {
         );
 
         // Repairing must not be clobbered to Idle mid-approach without finishing.
-        let dozer = game_logic.find_object(dozer_id).expect("dozer");
+        let dozer = game_logic.host_object(dozer_id).expect("dozer");
         assert!(
             matches!(dozer.ai_state, AIState::Repairing | AIState::Idle),
             "dozer should still be repairing or finished idle, got {:?}",
@@ -77136,7 +77137,7 @@ mod tests {
             .create_object("China_WarFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("war factory");
         {
-            let wf = game_logic.find_object(war_factory_id).expect("wf");
+            let wf = game_logic.host_object(war_factory_id).expect("wf");
             assert_eq!(
                 wf.building_data.as_ref().map(|b| b.building_type),
                 Some(BuildingType::WarFactory)
@@ -77147,11 +77148,11 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(6.0, 0.0, 0.0))
             .expect("vehicle");
         {
-            let vehicle = game_logic.find_object_mut(vehicle_id).expect("vehicle");
+            let vehicle = game_logic.host_object_mut(vehicle_id).expect("vehicle");
             let _ = vehicle.take_damage(120.0);
         }
         let before = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle")
             .health
             .current;
@@ -77171,7 +77172,7 @@ mod tests {
         game_logic.process_commands();
 
         {
-            let vehicle = game_logic.find_object(vehicle_id).expect("vehicle");
+            let vehicle = game_logic.host_object(vehicle_id).expect("vehicle");
             assert_eq!(
                 vehicle.ai_state,
                 AIState::SeekingRepair,
@@ -77185,7 +77186,7 @@ mod tests {
         }
 
         let after = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle")
             .health
             .current;
@@ -77229,7 +77230,7 @@ mod tests {
             .expect("infantry");
 
         {
-            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
+            let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
             let _ = infantry.take_damage(40.0);
             assert!(
                 infantry.health.current + 0.01 < infantry.health.maximum,
@@ -77237,7 +77238,7 @@ mod tests {
             );
         }
         let before = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry")
             .health
             .current;
@@ -77252,7 +77253,7 @@ mod tests {
         }
 
         let after = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry")
             .health
             .current;
@@ -77273,7 +77274,7 @@ mod tests {
         // Ambulance itself still present (not self-healed as infantry residual).
         assert!(
             game_logic
-                .find_object(ambulance_id)
+                .host_object(ambulance_id)
                 .map(|a| a.is_alive())
                 .unwrap_or(false),
             "ambulance must remain alive"
@@ -77303,11 +77304,11 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(200.0, 0.0, 0.0))
             .expect("infantry");
         {
-            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
+            let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
             let _ = infantry.take_damage(30.0);
         }
         let before = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry")
             .health
             .current;
@@ -77317,7 +77318,7 @@ mod tests {
             game_logic.update_ambulance_auto_heal(1.0 / 30.0);
         }
         let mid = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry")
             .health
             .current;
@@ -77329,14 +77330,14 @@ mod tests {
 
         // Move into radius.
         {
-            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
+            let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
             infantry.set_position(Vec3::new(30.0, 0.0, 0.0));
         }
         for _ in 0..30 {
             game_logic.update_ambulance_auto_heal(1.0 / 30.0);
         }
         let after = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry")
             .health
             .current;
@@ -77370,11 +77371,11 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
             .expect("enemy infantry");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             let _ = enemy.take_damage(40.0);
         }
         let before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .expect("enemy")
             .health
             .current;
@@ -77383,7 +77384,7 @@ mod tests {
             game_logic.update_ambulance_auto_heal(1.0 / 30.0);
         }
         let after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .expect("enemy")
             .health
             .current;
@@ -77420,7 +77421,7 @@ mod tests {
             .expect("unit");
 
         {
-            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let unit = game_logic.host_object_mut(unit_id).expect("unit");
             let _ = unit.take_damage(40.0);
             assert!(
                 unit.health.current + 0.01 < unit.health.maximum,
@@ -77430,7 +77431,7 @@ mod tests {
             assert!(!unit.weapon_bonus_subliminal);
         }
         let before = game_logic
-            .find_object(unit_id)
+            .host_object(unit_id)
             .expect("unit")
             .health
             .current;
@@ -77444,7 +77445,7 @@ mod tests {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
 
-        let unit = game_logic.find_object(unit_id).expect("unit");
+        let unit = game_logic.host_object(unit_id).expect("unit");
         assert!(
             unit.health.current > before,
             "propaganda residual must restore HP (before={before}, after={})",
@@ -77472,7 +77473,7 @@ mod tests {
 
         assert!(
             game_logic
-                .find_object(tower_id)
+                .host_object(tower_id)
                 .map(|t| t.is_alive())
                 .unwrap_or(false),
             "tower must remain alive"
@@ -77502,11 +77503,11 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
             .expect("unit");
         {
-            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let unit = game_logic.host_object_mut(unit_id).expect("unit");
             let _ = unit.take_damage(30.0);
         }
         let before = game_logic
-            .find_object(unit_id)
+            .host_object(unit_id)
             .expect("unit")
             .health
             .current;
@@ -77516,7 +77517,7 @@ mod tests {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
         {
-            let unit = game_logic.find_object(unit_id).expect("unit");
+            let unit = game_logic.host_object(unit_id).expect("unit");
             assert!(
                 (unit.health.current - before).abs() < 0.01,
                 "out-of-range unit must not receive propaganda heal"
@@ -77527,14 +77528,14 @@ mod tests {
 
         // Move into radius.
         {
-            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let unit = game_logic.host_object_mut(unit_id).expect("unit");
             unit.set_position(Vec3::new(40.0, 0.0, 0.0));
         }
         for _ in 0..30 {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
         {
-            let unit = game_logic.find_object(unit_id).expect("unit");
+            let unit = game_logic.host_object(unit_id).expect("unit");
             assert!(
                 unit.health.current > before,
                 "in-range unit must recover HP from propaganda residual"
@@ -77545,12 +77546,12 @@ mod tests {
 
         // Leave radius: buff clears.
         {
-            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let unit = game_logic.host_object_mut(unit_id).expect("unit");
             unit.set_position(Vec3::new(300.0, 0.0, 0.0));
         }
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
-            let unit = game_logic.find_object(unit_id).expect("unit");
+            let unit = game_logic.host_object(unit_id).expect("unit");
             assert!(
                 !unit.weapon_bonus_enthusiastic,
                 "leaving radius must clear ENTHUSIASTIC residual buff"
@@ -77582,11 +77583,11 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             let _ = enemy.take_damage(40.0);
         }
         let before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .expect("enemy")
             .health
             .current;
@@ -77594,7 +77595,7 @@ mod tests {
         for _ in 0..30 {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
-        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        let enemy = game_logic.host_object(enemy_id).expect("enemy");
         assert!(
             (enemy.health.current - before).abs() < 0.01,
             "enemy unit must not be healed by China speaker tower residual"
@@ -77623,7 +77624,7 @@ mod tests {
             .create_object("ChinaSpeakerTower", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("speaker tower");
         {
-            let tower = game_logic.find_object_mut(tower_id).expect("tower");
+            let tower = game_logic.host_object_mut(tower_id).expect("tower");
             tower.apply_upgrade_tag(
                 crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
             );
@@ -77633,11 +77634,11 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(20.0, 0.0, 0.0))
             .expect("unit");
         {
-            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let unit = game_logic.host_object_mut(unit_id).expect("unit");
             let _ = unit.take_damage(40.0);
         }
         let before = game_logic
-            .find_object(unit_id)
+            .host_object(unit_id)
             .expect("unit")
             .health
             .current;
@@ -77646,7 +77647,7 @@ mod tests {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
 
-        let unit = game_logic.find_object(unit_id).expect("unit");
+        let unit = game_logic.host_object(unit_id).expect("unit");
         assert!(unit.weapon_bonus_enthusiastic);
         assert!(
             unit.weapon_bonus_subliminal,
@@ -77689,11 +77690,11 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(25.0, 0.0, 0.0))
             .expect("unit");
         {
-            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let unit = game_logic.host_object_mut(unit_id).expect("unit");
             let _ = unit.take_damage(30.0);
         }
         let before = game_logic
-            .find_object(unit_id)
+            .host_object(unit_id)
             .expect("unit")
             .health
             .current;
@@ -77701,7 +77702,7 @@ mod tests {
         for _ in 0..30 {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
-        let unit = game_logic.find_object(unit_id).expect("unit");
+        let unit = game_logic.host_object(unit_id).expect("unit");
         assert!(unit.health.current > before);
         assert!(unit.weapon_bonus_enthusiastic);
         assert!(game_logic.honesty_propaganda_ok());
@@ -77731,11 +77732,11 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("infantry");
         {
-            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
+            let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
             let _ = infantry.take_damage(40.0);
         }
         let before = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry")
             .health
             .current;
@@ -77755,7 +77756,7 @@ mod tests {
         game_logic.process_commands();
 
         {
-            let infantry = game_logic.find_object(infantry_id).expect("infantry");
+            let infantry = game_logic.host_object(infantry_id).expect("infantry");
             assert_eq!(infantry.ai_state, AIState::SeekingHealing);
             assert_eq!(infantry.target, Some(heal_pad_id));
         }
@@ -77765,7 +77766,7 @@ mod tests {
         }
 
         let after = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry")
             .health
             .current;
@@ -77809,13 +77810,13 @@ mod tests {
 
         {
             let vehicle = game_logic
-                .find_object_mut(vehicle_id)
+                .host_object_mut(vehicle_id)
                 .expect("vehicle should exist");
             let _ = vehicle.take_damage(80.0);
         }
         {
             let infantry = game_logic
-                .find_object_mut(infantry_id)
+                .host_object_mut(infantry_id)
                 .expect("infantry should exist");
             let _ = infantry.take_damage(20.0);
         }
@@ -77833,10 +77834,10 @@ mod tests {
         game_logic.process_commands();
 
         let vehicle = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle should exist");
         let infantry = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry should exist");
         assert_eq!(vehicle.ai_state, AIState::SeekingRepair);
         assert_ne!(infantry.ai_state, AIState::SeekingRepair);
@@ -77856,7 +77857,7 @@ mod tests {
             .expect("vehicle should be created");
         {
             let vehicle = game_logic
-                .find_object_mut(vehicle_id)
+                .host_object_mut(vehicle_id)
                 .expect("vehicle should exist");
             let _ = vehicle.take_damage(80.0);
         }
@@ -77874,7 +77875,7 @@ mod tests {
         game_logic.process_commands();
 
         let vehicle = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle should exist");
         assert_ne!(vehicle.ai_state, AIState::SeekingRepair);
         assert_ne!(vehicle.target, Some(non_repair_structure));
@@ -77894,13 +77895,13 @@ mod tests {
             .expect("vehicle should be created");
         {
             let vehicle = game_logic
-                .find_object_mut(vehicle_id)
+                .host_object_mut(vehicle_id)
                 .expect("vehicle should exist");
             let _ = vehicle.take_damage(80.0);
         }
         {
             let repair_pad = game_logic
-                .find_object_mut(repair_pad_id)
+                .host_object_mut(repair_pad_id)
                 .expect("repair pad should exist");
             repair_pad.set_status_under_construction(true);
         }
@@ -77918,7 +77919,7 @@ mod tests {
         game_logic.process_commands();
 
         let vehicle = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle should exist");
         assert_ne!(vehicle.ai_state, AIState::SeekingRepair);
         assert_ne!(vehicle.target, Some(repair_pad_id));
@@ -77942,7 +77943,7 @@ mod tests {
             .expect("aircraft should be created");
         {
             let aircraft = game_logic
-                .find_object_mut(aircraft_id)
+                .host_object_mut(aircraft_id)
                 .expect("aircraft should exist");
             let _ = aircraft.take_damage(100.0);
         }
@@ -77959,7 +77960,7 @@ mod tests {
         });
         game_logic.process_commands();
         let aircraft = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .expect("aircraft should exist");
         assert_ne!(aircraft.ai_state, AIState::SeekingRepair);
 
@@ -77975,7 +77976,7 @@ mod tests {
         });
         game_logic.process_commands();
         let aircraft = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .expect("aircraft should exist");
         assert_eq!(aircraft.ai_state, AIState::SeekingRepair);
         assert_eq!(aircraft.target, Some(airfield_id));
@@ -78000,13 +78001,13 @@ mod tests {
 
         {
             let infantry = game_logic
-                .find_object_mut(infantry_id)
+                .host_object_mut(infantry_id)
                 .expect("infantry should exist");
             let _ = infantry.take_damage(20.0);
         }
         {
             let vehicle = game_logic
-                .find_object_mut(vehicle_id)
+                .host_object_mut(vehicle_id)
                 .expect("vehicle should exist");
             let _ = vehicle.take_damage(80.0);
         }
@@ -78024,10 +78025,10 @@ mod tests {
         game_logic.process_commands();
 
         let infantry = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry should exist");
         let vehicle = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle should exist");
         assert_eq!(infantry.ai_state, AIState::SeekingHealing);
         assert_ne!(vehicle.ai_state, AIState::SeekingHealing);
@@ -78047,7 +78048,7 @@ mod tests {
             .expect("infantry should be created");
         {
             let infantry = game_logic
-                .find_object_mut(infantry_id)
+                .host_object_mut(infantry_id)
                 .expect("infantry should exist");
             let _ = infantry.take_damage(20.0);
         }
@@ -78065,7 +78066,7 @@ mod tests {
         game_logic.process_commands();
 
         let infantry = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry should exist");
         assert_ne!(infantry.ai_state, AIState::SeekingHealing);
         assert_ne!(infantry.target, Some(non_heal_structure));
@@ -78085,13 +78086,13 @@ mod tests {
             .expect("infantry should be created");
         {
             let infantry = game_logic
-                .find_object_mut(infantry_id)
+                .host_object_mut(infantry_id)
                 .expect("infantry should exist");
             let _ = infantry.take_damage(20.0);
         }
         {
             let heal_pad = game_logic
-                .find_object_mut(heal_pad_id)
+                .host_object_mut(heal_pad_id)
                 .expect("heal pad should exist");
             heal_pad.set_status_under_construction(true);
         }
@@ -78109,7 +78110,7 @@ mod tests {
         game_logic.process_commands();
 
         let infantry = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .expect("infantry should exist");
         assert_ne!(infantry.ai_state, AIState::SeekingHealing);
         assert_ne!(infantry.target, Some(heal_pad_id));
@@ -78129,7 +78130,7 @@ mod tests {
 
         {
             let actor = game_logic
-                .find_object_mut(actor_id)
+                .host_object_mut(actor_id)
                 .expect("actor should exist");
             actor.target = Some(target_id);
             actor.set_ai_state(AIState::SpecialAbility);
@@ -78138,7 +78139,7 @@ mod tests {
         game_logic.update_ai(&[actor_id, target_id], 1.0 / 60.0);
 
         let actor = game_logic
-            .find_object(actor_id)
+            .host_object(actor_id)
             .expect("actor should exist");
         assert_eq!(actor.ai_state, AIState::Idle);
         assert!(actor.target.is_none());
@@ -78170,13 +78171,13 @@ mod tests {
         game_logic.process_commands();
 
         let created_structures = game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name == "TestBuilding")
             .count();
         assert_eq!(created_structures, 0);
 
-        let tank = game_logic.find_object(tank_id).expect("tank should exist");
+        let tank = game_logic.host_object(tank_id).expect("tank should exist");
         assert_ne!(tank.ai_state, AIState::Constructing);
     }
 
@@ -78211,10 +78212,10 @@ mod tests {
         game_logic.process_commands();
 
         let dozer_a_state = game_logic
-            .find_object(dozer_a)
+            .host_object(dozer_a)
             .expect("dozer A should exist");
         let dozer_b_state = game_logic
-            .find_object(dozer_b)
+            .host_object(dozer_b)
             .expect("dozer B should exist");
         assert_eq!(dozer_a_state.ai_state, AIState::Constructing);
         assert_eq!(dozer_b_state.ai_state, AIState::Constructing);
@@ -78231,7 +78232,7 @@ mod tests {
         assert!(b_dest.distance(end) < 0.01);
 
         let created_structures = game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name == "TestBuilding")
             .count();
@@ -78262,7 +78263,7 @@ mod tests {
         game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
 
         let target = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(target.team, Team::USA);
         assert_eq!(target.team_color, Team::USA.get_color());
@@ -78279,7 +78280,7 @@ mod tests {
         );
 
         let hijacker = game_logic
-            .find_object(hijacker_id)
+            .host_object(hijacker_id)
             .expect("hijacker should exist");
         assert!(
             hijacker.status.destroyed,
@@ -78300,7 +78301,7 @@ mod tests {
             .expect("target should be created");
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target should exist");
             target.apply_hijacked();
         }
@@ -78317,7 +78318,7 @@ mod tests {
         game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
 
         let target = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target.team,
@@ -78326,7 +78327,7 @@ mod tests {
         );
         assert!(!game_logic.honesty_hijack_ok());
         let hijacker = game_logic
-            .find_object(hijacker_id)
+            .host_object(hijacker_id)
             .expect("hijacker should exist");
         assert!(
             !hijacker.status.destroyed,
@@ -78357,7 +78358,7 @@ mod tests {
         game_logic.process_commands();
 
         let target_after_command = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_command.team,
@@ -78367,7 +78368,7 @@ mod tests {
 
         game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
         let target_after_far_update = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_far_update.team,
@@ -78377,7 +78378,7 @@ mod tests {
 
         {
             let hijacker = game_logic
-                .find_object_mut(hijacker_id)
+                .host_object_mut(hijacker_id)
                 .expect("hijacker should exist");
             hijacker.set_position(Vec3::new(2.0, 0.0, 0.0));
             hijacker.set_ai_state(AIState::SpecialAbility);
@@ -78386,12 +78387,12 @@ mod tests {
         game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
 
         let target_after_contact = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(target_after_contact.team, Team::USA);
 
         let hijacker = game_logic
-            .find_object(hijacker_id)
+            .host_object(hijacker_id)
             .expect("hijacker should exist");
         assert!(hijacker.status.destroyed);
     }
@@ -78481,7 +78482,7 @@ mod tests {
 
         {
             let saboteur = game_logic
-                .find_object_mut(saboteur_id)
+                .host_object_mut(saboteur_id)
                 .expect("saboteur should exist");
             saboteur.set_position(Vec3::new(2.0, 0.0, 0.0));
             saboteur.set_ai_state(AIState::SpecialAbility);
@@ -78504,7 +78505,7 @@ mod tests {
         );
         // Saboteur consumed residual.
         let sab_alive = game_logic
-            .find_object(saboteur_id)
+            .host_object(saboteur_id)
             .map(|s| s.is_alive() && !s.status.destroyed)
             .unwrap_or(false);
         assert!(!sab_alive, "saboteur must be consumed on success");
@@ -78534,7 +78535,7 @@ mod tests {
         game_logic.process_commands();
 
         let saboteur = game_logic
-            .find_object(saboteur_id)
+            .host_object(saboteur_id)
             .expect("saboteur should exist");
         assert_ne!(saboteur.ai_state, AIState::SpecialAbility);
         assert_ne!(saboteur.target, Some(target_id));
@@ -78564,7 +78565,7 @@ mod tests {
         });
         game_logic.process_commands();
         {
-            let s = game_logic.find_object_mut(saboteur_id).unwrap();
+            let s = game_logic.host_object_mut(saboteur_id).unwrap();
             s.set_position(Vec3::new(1.0, 0.0, 0.0));
             s.set_ai_state(AIState::SpecialAbility);
             s.target = Some(target_id);
@@ -78576,7 +78577,7 @@ mod tests {
             game_logic.honesty_saboteur_military_ok(),
             "military factory sabotage residual honesty"
         );
-        let factory = game_logic.find_object(target_id).expect("factory");
+        let factory = game_logic.host_object(target_id).expect("factory");
         assert!(
             factory.is_hacked_disabled() || factory.status.disabled_hacked,
             "factory must be DISABLED_HACKED residual"
@@ -78610,7 +78611,7 @@ mod tests {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         game_logic.process_commands();
-        let tank = game_logic.find_object(tank_id).expect("tank");
+        let tank = game_logic.host_object(tank_id).expect("tank");
         assert_ne!(tank.ai_state, AIState::SpecialAbility);
         assert!(!game_logic.honesty_saboteur_ok());
     }
@@ -78628,7 +78629,7 @@ mod tests {
             .expect("target should be created");
 
         let initial_health = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -78644,7 +78645,7 @@ mod tests {
         game_logic.process_commands();
 
         let target_after_command = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_command.health.current, initial_health,
@@ -78657,7 +78658,7 @@ mod tests {
 
         game_logic.update_ai(&[sniper_id, target_id], 1.0 / 60.0);
         let target_after_far_update = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_far_update.health.current, initial_health,
@@ -78667,7 +78668,7 @@ mod tests {
 
         {
             let sniper = game_logic
-                .find_object_mut(sniper_id)
+                .host_object_mut(sniper_id)
                 .expect("sniper should exist");
             sniper.set_position(Vec3::new(2.0, 0.0, 0.0));
             sniper.set_ai_state(AIState::SpecialAbility);
@@ -78676,7 +78677,7 @@ mod tests {
         game_logic.update_ai(&[sniper_id, target_id], 1.0 / 60.0);
 
         let target_after_contact = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         // C++ DAMAGE_KILLPILOT residual: no HP damage; vehicle unmanned + Neutral.
         assert_eq!(
@@ -78726,7 +78727,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(2.0, 0.0, 0.0))
             .expect("pilot");
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot obj");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot obj");
             assert!(is_pilot_template(&p.template_name));
             // Seed residual VETERAN (VeterancyGainCreate StartingLevel).
             p.experience.level = pilot_default_veterancy();
@@ -78737,13 +78738,13 @@ mod tests {
             .create_object("TestTank", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
             .expect("tank");
         {
-            let t = game_logic.find_object_mut(tank_id).expect("tank");
+            let t = game_logic.host_object_mut(tank_id).expect("tank");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.experience.level = VeterancyLevel::Rookie;
         }
         assert!(
-            game_logic.find_object(tank_id).unwrap().is_unmanned(),
+            game_logic.host_object(tank_id).unwrap().is_unmanned(),
             "precondition: unmanned vehicle"
         );
 
@@ -78757,14 +78758,14 @@ mod tests {
         });
         game_logic.process_commands();
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot after cmd");
+            let p = game_logic.host_object(pilot_id).expect("pilot after cmd");
             assert_eq!(p.ai_state, AIState::Entering);
             assert_eq!(p.target, Some(tank_id));
         }
 
         game_logic.update_ai(&[pilot_id, tank_id], 1.0 / 30.0);
 
-        let tank = game_logic.find_object(tank_id).expect("tank after recrew");
+        let tank = game_logic.host_object(tank_id).expect("tank after recrew");
         assert!(!tank.is_unmanned(), "recrew must clear DISABLED_UNMANNED");
         assert_eq!(tank.team, Team::USA, "recrew transfers pilot team");
         assert_eq!(
@@ -78784,7 +78785,7 @@ mod tests {
         assert_eq!(game_logic.usa_pilot_residual().recrews, 1);
 
         let pilot = game_logic
-            .find_object(pilot_id)
+            .host_object(pilot_id)
             .expect("pilot after recrew");
         assert!(
             pilot.status.destroyed,
@@ -78816,7 +78817,7 @@ mod tests {
         let tank_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("tank");
-        assert!(!game_logic.find_object(tank_id).unwrap().is_unmanned());
+        assert!(!game_logic.host_object(tank_id).unwrap().is_unmanned());
 
         game_logic.queue_command(GameCommand {
             command_type: CommandType::Enter { target_id: tank_id },
@@ -78829,8 +78830,8 @@ mod tests {
         game_logic.process_commands();
         // Manned enemy vehicle: enter may fail (team/capacity) — recrew honesty stays false.
         assert!(!game_logic.honesty_pilot_recrew_ok());
-        assert!(!game_logic.find_object(tank_id).unwrap().is_unmanned());
-        assert_eq!(game_logic.find_object(tank_id).unwrap().team, Team::GLA);
+        assert!(!game_logic.host_object(tank_id).unwrap().is_unmanned());
+        assert_eq!(game_logic.host_object(tank_id).unwrap().team, Team::GLA);
     }
 
     /// Residual: WorkerShoes QueueUpgrade → speed 30 + supply boost +8 on drop-off.
@@ -78881,7 +78882,7 @@ mod tests {
             .expect("supply");
 
         {
-            let w = game_logic.find_object(worker_id).expect("worker");
+            let w = game_logic.host_object(worker_id).expect("worker");
             assert!(is_gla_worker_template(&w.template_name));
             assert!(
                 (w.movement.max_speed - WORKER_BASE_SPEED).abs() < 0.01
@@ -78917,7 +78918,7 @@ mod tests {
         );
 
         let worker = game_logic
-            .find_object(worker_id)
+            .host_object(worker_id)
             .expect("worker after shoes");
         assert!(
             worker.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES),
@@ -78935,7 +78936,7 @@ mod tests {
 
         // Drop-off residual: worker with cargo deposits +8 shoes boost.
         {
-            let w = game_logic.find_object_mut(worker_id).expect("worker mut");
+            let w = game_logic.host_object_mut(worker_id).expect("worker mut");
             w.set_stored_supplies(100);
             w.set_position(Vec3::new(5.0, 0.0, 0.0));
             w.target = Some(supply_id);
@@ -79035,7 +79036,7 @@ mod tests {
             logic.detonate_booby_trap_at(structure, Vec3::new(40.0, 0.0, 20.0), None, false, true);
         let _ = hits;
         assert!(logic
-            .find_object(cid)
+            .host_object(cid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
         assert!(!logic.booby_trap.is_booby_trapped(structure));
@@ -79100,7 +79101,7 @@ mod tests {
         let (hits, _) = logic.apply_comanche_rocket_pod_area_at(aim, Some(heli));
         assert!(hits >= 1);
         let hp_after = logic
-            .find_object(tgt)
+            .host_object(tgt)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hp_after < hp_before || hits > 0);
@@ -79108,7 +79109,7 @@ mod tests {
         logic.frame = logic.frame.saturating_add(20);
         logic.update_comanche_rocket_pod_projectiles();
         assert!(logic
-            .find_object(pid)
+            .host_object(pid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -79173,7 +79174,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_stealth_jet_missile_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.stealth_jet_missile_projectile)
                 .unwrap_or(false)
             {
@@ -79184,7 +79185,7 @@ mod tests {
         assert!(hit, "StealthJetMissile should impact within fuel lifetime");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -79241,7 +79242,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_mig_missile_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.mig_missile_projectile)
                 .unwrap_or(false)
             {
@@ -79252,7 +79253,7 @@ mod tests {
         assert!(hit, "MiG NapalmMissile should impact");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -79325,7 +79326,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_flashbang_grenade_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.flashbang_grenade_projectile)
                 .unwrap_or(false)
             {
@@ -79334,7 +79335,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -79413,12 +79414,12 @@ mod tests {
         // Process destruction → FireWeaponWhenDead residual.
         logic.process_destroy_list();
         let bomb_alive = logic
-            .find_object(bomb_id)
+            .host_object(bomb_id)
             .map(|o| o.is_alive())
             .unwrap_or(false);
         assert!(!bomb_alive, "NapalmBomb should HeightDie");
         let enemy_hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -79468,7 +79469,7 @@ mod tests {
             .saturating_add(AVENGER_LASER_BEAM_LIFETIME_FRAMES + 2);
         logic.update_weapon_laser_beam_objects();
         assert!(logic
-            .find_object(bid)
+            .host_object(bid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -79502,7 +79503,7 @@ mod tests {
         logic.update_angry_mobs();
         assert!(logic.honesty_angry_mob_member_spawn_ok());
         let members: Vec<_> = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
             .collect();
@@ -79521,7 +79522,7 @@ mod tests {
         logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
         logic.update_angry_mobs();
         let members2 = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
             .count();
@@ -79536,7 +79537,7 @@ mod tests {
         }
         logic.update_angry_mob_member_follow();
         let mid = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.angry_mob_member)
             .unwrap()
@@ -79560,7 +79561,7 @@ mod tests {
         }
         logic.update_angry_mob_member_follow();
         assert!(logic
-            .find_object(mid)
+            .host_object(mid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -79599,7 +79600,7 @@ mod tests {
         logic.flush_countermeasure_flare_spawns();
         assert!(logic.honesty_countermeasure_flare_object_ok());
         let flares: Vec<_> = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.countermeasure_flare)
             .collect();
@@ -79615,7 +79616,7 @@ mod tests {
         logic.frame = logic.frame.saturating_add(FLARE_LIFETIME_FRAMES + 2);
         logic.update_countermeasure_flare_objects();
         assert!(logic
-            .find_object(fid)
+            .host_object(fid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -79666,7 +79667,7 @@ mod tests {
         assert!(logic.honesty_aurora_fuel_air_gas_object_ok());
         assert!(logic.aurora_fuel_air_gas_spawned >= 1);
         let gas = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.template_name == AIRF_AURORA_BOMB_GAS_OBJECT)
             .expect("AirF_AuroraBombGas");
@@ -79691,7 +79692,7 @@ mod tests {
         );
         assert!(
             logic
-                .find_object(gid)
+                .host_object(gid)
                 .map(|o| {
                     !o.is_alive()
                         || o.status.destroyed
@@ -79886,7 +79887,7 @@ mod tests {
         }
         logic.cleanup_remote_charges_when_owner_dies();
         assert!(logic
-            .find_object(remote)
+            .host_object(remote)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
         assert!(logic.host_object(timed).unwrap().is_alive());
@@ -79954,7 +79955,7 @@ mod tests {
 
         {
             let burton = game_logic
-                .find_object_mut(burton_id)
+                .host_object_mut(burton_id)
                 .expect("burton should exist");
             burton.set_position(Vec3::new(2.0, 0.0, 0.0));
             burton.set_ai_state(AIState::SpecialAbility);
@@ -79972,7 +79973,7 @@ mod tests {
         );
 
         let charge_count = game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| {
                 o.mine_data
@@ -80012,7 +80013,7 @@ mod tests {
             .expect("enemy near charge");
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
 
@@ -80031,7 +80032,7 @@ mod tests {
 
         {
             let burton = game_logic
-                .find_object_mut(burton_id)
+                .host_object_mut(burton_id)
                 .expect("burton should exist");
             burton.set_position(Vec3::new(2.0, 0.0, 0.0));
             burton.set_ai_state(AIState::SpecialAbility);
@@ -80049,7 +80050,7 @@ mod tests {
         );
 
         let charge_id = game_logic
-            .get_objects()
+            .host_objects()
             .iter()
             .find_map(|(id, o)| {
                 o.mine_data.as_ref().and_then(|d| {
@@ -80074,7 +80075,7 @@ mod tests {
         }
         assert!(
             game_logic
-                .find_object(charge_id)
+                .host_object(charge_id)
                 .and_then(|o| o.mine_data.as_ref())
                 .map(|d| d.is_active())
                 .unwrap_or(false),
@@ -80106,7 +80107,7 @@ mod tests {
             "remote detonate uses manual detonation residual counter"
         );
 
-        let enemy_after = game_logic.find_object(enemy_id).expect("enemy");
+        let enemy_after = game_logic.host_object(enemy_id).expect("enemy");
         assert!(
             enemy_after.health.current < enemy_hp_before || enemy_after.status.destroyed,
             "remote detonate must damage nearby enemy (before={enemy_hp_before}, after={})",
@@ -80134,7 +80135,7 @@ mod tests {
         let cc_id = game_logic
             .create_object("TestCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("command center");
-        if let Some(obj) = game_logic.find_object_mut(cc_id) {
+        if let Some(obj) = game_logic.host_object_mut(cc_id) {
             obj.set_status_under_construction(false);
             obj.construction_percent = 1.0;
         }
@@ -80168,7 +80169,7 @@ mod tests {
         );
 
         // Destroy CC → radar offline.
-        if let Some(obj) = game_logic.find_object_mut(cc_id) {
+        if let Some(obj) = game_logic.host_object_mut(cc_id) {
             // Wave 753: under damage authority, do not zero host HP mid-frame
             // (dual with GW HP writeback). Project lethal via damage log + flags.
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
@@ -80213,7 +80214,7 @@ mod tests {
         let van_id = game_logic
             .create_object("TestRadarVan", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
             .expect("radar van");
-        if let Some(obj) = game_logic.find_object_mut(van_id) {
+        if let Some(obj) = game_logic.host_object_mut(van_id) {
             obj.set_status_under_construction(false);
             obj.construction_percent = 1.0;
         }
@@ -80251,7 +80252,7 @@ mod tests {
         let fake_id = game_logic
             .create_object("FakeGLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("fake cc");
-        if let Some(obj) = game_logic.find_object_mut(fake_id) {
+        if let Some(obj) = game_logic.host_object_mut(fake_id) {
             obj.set_status_under_construction(false);
             obj.construction_percent = 1.0;
         }
@@ -80294,7 +80295,7 @@ mod tests {
             .create_object("TestBlackMarket", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("black market");
         // Ensure constructed residual (create_object may leave under-construction off for tests).
-        if let Some(obj) = game_logic.find_object_mut(market_id) {
+        if let Some(obj) = game_logic.host_object_mut(market_id) {
             obj.set_status_under_construction(false);
         }
 
@@ -80371,7 +80372,7 @@ mod tests {
         let fake_id = game_logic
             .create_object("FakeGLABlackMarket", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("fake market");
-        if let Some(obj) = game_logic.find_object_mut(fake_id) {
+        if let Some(obj) = game_logic.host_object_mut(fake_id) {
             obj.set_status_under_construction(false);
         }
         let deposits_before_fake = game_logic.black_markets().deposits;
@@ -80419,7 +80420,7 @@ mod tests {
         let derrick_id = game_logic
             .create_object("TestOilDerrick", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
             .expect("oil derrick");
-        if let Some(obj) = game_logic.find_object_mut(derrick_id) {
+        if let Some(obj) = game_logic.host_object_mut(derrick_id) {
             obj.set_status_under_construction(false);
         }
 
@@ -80439,7 +80440,7 @@ mod tests {
         assert_eq!(mid, cash_before, "neutral derrick must not deposit");
 
         // Capture residual: flip team to USA → InitialCaptureBonus.
-        if let Some(obj) = game_logic.find_object_mut(derrick_id) {
+        if let Some(obj) = game_logic.host_object_mut(derrick_id) {
             obj.set_team(Team::USA);
         }
         game_logic.frame = 0;
@@ -80598,7 +80599,7 @@ mod tests {
         let zone_id = game_logic
             .create_object("TestSupplyDropZone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("supply drop zone");
-        if let Some(obj) = game_logic.find_object_mut(zone_id) {
+        if let Some(obj) = game_logic.host_object_mut(zone_id) {
             obj.set_status_under_construction(false);
         }
 
@@ -80606,7 +80607,7 @@ mod tests {
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
-        let objects_before = game_logic.get_objects().len();
+        let objects_before = game_logic.host_objects().len();
 
         // First observation schedules without flight (C++ m_nextCreationFrame == 0).
         game_logic.frame = 0;
@@ -80654,7 +80655,7 @@ mod tests {
         assert_eq!(flight0.model_name, "AVCargoPln");
         assert!(!game_logic.honesty_supply_drop_zone_ok());
         assert_eq!(
-            game_logic.get_objects().len(),
+            game_logic.host_objects().len(),
             objects_before,
             "no crates before approach delay"
         );
@@ -80680,7 +80681,7 @@ mod tests {
         game_logic.frame = first_item - 1;
         game_logic.update_deliver_payloads();
         assert_eq!(
-            game_logic.get_objects().len(),
+            game_logic.host_objects().len(),
             objects_before,
             "still no crates one frame before first DropDelay item"
         );
@@ -80689,7 +80690,7 @@ mod tests {
         game_logic.frame = first_item;
         game_logic.update_deliver_payloads();
         assert_eq!(
-            game_logic.get_objects().len(),
+            game_logic.host_objects().len(),
             objects_before + 1,
             "first DropDelay item must spawn one crate"
         );
@@ -80749,7 +80750,7 @@ mod tests {
         );
         assert_eq!(game_logic.supply_drop_zones().drops, 1);
         assert_eq!(
-            game_logic.get_objects().len(),
+            game_logic.host_objects().len(),
             objects_before + SUPPLY_DROP_PAYLOAD_COUNT as usize,
             "must spawn residual SupplyDropZoneCrate count"
         );
@@ -80767,7 +80768,7 @@ mod tests {
         assert_eq!(completed[0].transport_template, "AmericaJetCargoPlane");
         assert_eq!(completed[0].put_in_container, "AmericaCrateParachute");
         for id in &completed[0].spawned_payload_ids {
-            let obj = game_logic.find_object(*id).expect("spawned crate");
+            let obj = game_logic.host_object(*id).expect("spawned crate");
             assert_eq!(obj.team, Team::USA);
             assert!(
                 obj.thing.template.name == SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE
@@ -80799,7 +80800,7 @@ mod tests {
             }
             if payload_ids.iter().all(|id| {
                 game_logic
-                    .find_object(*id)
+                    .host_object(*id)
                     .map(|o| !o.is_parachuting() && o.get_position().y <= 0.5)
                     .unwrap_or(true)
             }) {
@@ -80819,7 +80820,7 @@ mod tests {
             "CreateAtEdge + DeliveryDistance flight residual honesty"
         );
         for id in &payload_ids {
-            let obj = game_logic.find_object(*id).expect("landed crate");
+            let obj = game_logic.host_object(*id).expect("landed crate");
             assert!(
                 !obj.is_parachuting(),
                 "crate must clear parachuting on land"
@@ -81126,7 +81127,7 @@ mod tests {
         for _ in 0..80 {
             game_logic.tick_crate_parachute_residual(crate_id);
             if game_logic
-                .find_object(crate_id)
+                .host_object(crate_id)
                 .map(|o| !o.is_parachuting())
                 .unwrap_or(true)
             {
@@ -81135,7 +81136,7 @@ mod tests {
         }
         assert!(
             game_logic
-                .find_object(crate_id)
+                .host_object(crate_id)
                 .map(|o| !o.is_parachuting() && o.get_position().y <= 0.5)
                 .unwrap_or(false),
             "crate parachute residual must land"
@@ -81209,7 +81210,7 @@ mod tests {
         let uc_id = game_logic
             .create_object("AmericaSupplyDropZone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("uc zone");
-        if let Some(obj) = game_logic.find_object_mut(uc_id) {
+        if let Some(obj) = game_logic.host_object_mut(uc_id) {
             obj.set_status_under_construction(true);
         }
 
@@ -81221,7 +81222,7 @@ mod tests {
                 Vec3::new(50.0, 0.0, 0.0),
             )
             .expect("neutral zone");
-        if let Some(obj) = game_logic.find_object_mut(neutral_id) {
+        if let Some(obj) = game_logic.host_object_mut(neutral_id) {
             obj.set_status_under_construction(false);
         }
 
@@ -81264,7 +81265,7 @@ mod tests {
         let derrick_id = game_logic
             .create_object("TestOilDerrick", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("oil derrick");
-        if let Some(obj) = game_logic.find_object_mut(derrick_id) {
+        if let Some(obj) = game_logic.host_object_mut(derrick_id) {
             obj.set_status_under_construction(true);
         }
 
@@ -81321,7 +81322,7 @@ mod tests {
         let ic_id = game_logic
             .create_object("TestInternetCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("internet center");
-        if let Some(obj) = game_logic.find_object_mut(ic_id) {
+        if let Some(obj) = game_logic.host_object_mut(ic_id) {
             obj.set_status_under_construction(false);
         }
 
@@ -81329,7 +81330,7 @@ mod tests {
             .create_object("TestHacker", Team::China, Vec3::new(1.0, 0.0, 0.0))
             .expect("hacker");
         // Residual: place hacker inside Internet Center.
-        if let Some(obj) = game_logic.find_object_mut(hacker_id) {
+        if let Some(obj) = game_logic.host_object_mut(hacker_id) {
             obj.set_contained_by(Some(ic_id));
             obj.set_ai_state(AIState::Docked);
         }
@@ -81527,7 +81528,7 @@ mod tests {
         );
         {
             let lotus = game_logic
-                .find_object(lotus_id)
+                .host_object(lotus_id)
                 .expect("lotus should exist");
             assert_eq!(
                 lotus.ai_state,
@@ -81539,7 +81540,7 @@ mod tests {
         // StartAbilityRange 150 residual: mid-range should still complete.
         {
             let lotus = game_logic
-                .find_object_mut(lotus_id)
+                .host_object_mut(lotus_id)
                 .expect("lotus should exist");
             lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
             lotus.set_ai_state(AIState::SpecialAbility);
@@ -81611,7 +81612,7 @@ mod tests {
         });
         game_logic.process_commands();
         {
-            let tank = game_logic.find_object(tank_id).expect("tank");
+            let tank = game_logic.host_object(tank_id).expect("tank");
             assert_ne!(
                 tank.ai_state,
                 AIState::SpecialAbility,
@@ -81639,7 +81640,7 @@ mod tests {
         });
         game_logic.process_commands();
         {
-            let lotus = game_logic.find_object(lotus_id).expect("lotus");
+            let lotus = game_logic.host_object(lotus_id).expect("lotus");
             assert_ne!(
                 lotus.ai_state,
                 AIState::SpecialAbility,
@@ -81669,7 +81670,7 @@ mod tests {
             .expect("target should be created");
 
         let initial_health = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -81687,7 +81688,7 @@ mod tests {
         // Confirm command was accepted (pending special ability + SpecialAbility state).
         {
             let lotus = game_logic
-                .find_object(lotus_id)
+                .host_object(lotus_id)
                 .expect("lotus should exist");
             assert_eq!(
                 lotus.ai_state,
@@ -81698,7 +81699,7 @@ mod tests {
         }
         assert!(
             !game_logic
-                .find_object(target_id)
+                .host_object(target_id)
                 .expect("target")
                 .is_hacked_disabled(),
             "disable hack must not apply immediately on command issue"
@@ -81709,7 +81710,7 @@ mod tests {
         game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
         assert!(
             !game_logic
-                .find_object(target_id)
+                .host_object(target_id)
                 .expect("target")
                 .is_hacked_disabled(),
             "disable hack stays pending out of range"
@@ -81718,7 +81719,7 @@ mod tests {
         // Within StartAbilityRange 150 residual (not melee pad).
         {
             let lotus = game_logic
-                .find_object_mut(lotus_id)
+                .host_object_mut(lotus_id)
                 .expect("lotus should exist");
             lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
             lotus.set_ai_state(AIState::SpecialAbility);
@@ -81727,7 +81728,7 @@ mod tests {
         game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
 
         let target_after = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after.health.current, initial_health,
@@ -81755,7 +81756,7 @@ mod tests {
         game_logic.frame = until;
         game_logic.update_ai(&[target_id], 1.0 / 60.0);
         let recovered = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert!(
             !recovered.is_hacked_disabled(),
@@ -81800,7 +81801,7 @@ mod tests {
         game_logic.process_commands();
 
         {
-            let lotus = game_logic.find_object(lotus_id).expect("lotus");
+            let lotus = game_logic.host_object(lotus_id).expect("lotus");
             assert_eq!(
                 lotus.ai_state,
                 AIState::Capturing,
@@ -81813,14 +81814,14 @@ mod tests {
         // Beyond StartAbilityRange 150 — still walking.
         game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
         assert_eq!(
-            game_logic.find_object(building_id).expect("building").team,
+            game_logic.host_object(building_id).expect("building").team,
             Team::GLA,
             "capture must not complete out of StartAbilityRange"
         );
 
         // Within residual range 150.
         {
-            let lotus = game_logic.find_object_mut(lotus_id).expect("lotus");
+            let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
             lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
             lotus.set_ai_state(AIState::Capturing);
             lotus.target = Some(building_id);
@@ -81828,7 +81829,7 @@ mod tests {
         game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
 
         assert_eq!(
-            game_logic.find_object(building_id).expect("building").team,
+            game_logic.host_object(building_id).expect("building").team,
             Team::China,
             "Black Lotus residual capture must transfer ownership"
         );
@@ -81838,7 +81839,7 @@ mod tests {
         );
         assert_eq!(game_logic.hero_abilities().building_captures, 1);
         {
-            let lotus = game_logic.find_object(lotus_id).expect("lotus");
+            let lotus = game_logic.host_object(lotus_id).expect("lotus");
             assert_ne!(
                 lotus.ai_state,
                 AIState::Capturing,
@@ -81870,7 +81871,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let actor = game_logic.find_object(actor_id).expect("actor");
+        let actor = game_logic.host_object(actor_id).expect("actor");
         assert_ne!(
             actor.ai_state,
             AIState::SpecialAbility,
@@ -82058,7 +82059,7 @@ mod tests {
 
         // Bind weapons so residual jam target filter accepts units.
         for id in [enemy_id, ally_id, ecm_id] {
-            let unit = game_logic.find_object_mut(id).expect("unit");
+            let unit = game_logic.host_object_mut(id).expect("unit");
             unit.weapon = Some(Weapon {
                 damage: 25.0,
                 range: 150.0,
@@ -82072,7 +82073,7 @@ mod tests {
         assert!(!game_logic.honesty_ecm_jam_ok());
         assert!(
             !game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .expect("enemy")
                 .is_weapons_jammed(),
             "enemy must not start jammed"
@@ -82081,7 +82082,7 @@ mod tests {
         // One residual pulse — continuous aura, no command required.
         game_logic.update_ecm_jam_field();
 
-        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        let enemy = game_logic.host_object(enemy_id).expect("enemy");
         assert!(
             enemy.is_weapons_jammed(),
             "enemy weapons must be jammed near ECM residual"
@@ -82100,7 +82101,7 @@ mod tests {
             "weapons jam residual must not freeze movement"
         );
 
-        let ally = game_logic.find_object(ally_id).expect("ally");
+        let ally = game_logic.host_object(ally_id).expect("ally");
         assert!(
             !ally.is_weapons_jammed(),
             "same-team ally must not be jammed by own ECM"
@@ -82118,14 +82119,14 @@ mod tests {
 
         // Combat path must not fire while jammed.
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.target = Some(ecm_id);
             enemy.set_ai_state(AIState::Attacking);
             enemy.set_status_attacking(true);
         }
-        let ecm_hp_before = game_logic.find_object(ecm_id).expect("ecm").health.current;
+        let ecm_hp_before = game_logic.host_object(ecm_id).expect("ecm").health.current;
         game_logic.update_combat(&[enemy_id, ecm_id, ally_id], 1.0 / 30.0);
-        let ecm_hp_after = game_logic.find_object(ecm_id).expect("ecm").health.current;
+        let ecm_hp_after = game_logic.host_object(ecm_id).expect("ecm").health.current;
         assert_eq!(
             ecm_hp_before, ecm_hp_after,
             "jammed enemy must not damage ECM via combat residual"
@@ -82133,11 +82134,11 @@ mod tests {
 
         // Leave radius → jam clears.
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_position(Vec3::new(400.0, 0.0, 0.0));
         }
         game_logic.update_ecm_jam_field();
-        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        let enemy = game_logic.host_object(enemy_id).expect("enemy");
         assert!(
             !enemy.is_weapons_jammed(),
             "enemy leaving jam radius must recover weapons"
@@ -82146,7 +82147,7 @@ mod tests {
 
         assert!(
             game_logic
-                .find_object(ecm_id)
+                .host_object(ecm_id)
                 .map(|e| e.is_alive())
                 .unwrap_or(false),
             "ECM tank must remain alive"
@@ -82176,7 +82177,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(300.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 120.0,
@@ -82188,7 +82189,7 @@ mod tests {
         game_logic.update_ecm_jam_field();
         assert!(
             !game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .expect("enemy")
                 .is_weapons_jammed(),
             "out-of-range enemy must not be jammed"
@@ -82198,13 +82199,13 @@ mod tests {
         assert!(!game_logic.honesty_ecm_jam_ok());
 
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_position(Vec3::new(20.0, 0.0, 0.0));
         }
         game_logic.update_ecm_jam_field();
         assert!(
             game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .expect("enemy")
                 .is_weapons_jammed(),
             "walk-in to ECM radius must jam weapons"
@@ -82749,7 +82750,7 @@ mod tests {
             .honesty_howitzer_shell_object_spawn_ok());
         assert!(logic.special_power_strikes.howitzer_shell_objects_spawned() >= 1);
         let shell = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.spectre_howitzer_shell)
             .expect("SpectreHowitzerShell");
@@ -82760,7 +82761,7 @@ mod tests {
             .saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 2);
         logic.update_spectre_howitzer_shell_objects();
         assert!(logic
-            .find_object(sid)
+            .host_object(sid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -82800,7 +82801,7 @@ mod tests {
         assert_eq!(field.object_template, SCUD_POISON_UPGRADED_OBJECT_NAME);
         assert!(ScudStormAnthraxTier::AnthraxBeta.is_upgraded());
         let obj = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.anthrax_toxin_field && o.template_name == SCUD_POISON_UPGRADED_OBJECT_NAME)
             .expect("PoisonFieldUpgradedLarge");
@@ -82809,7 +82810,7 @@ mod tests {
         logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
         logic.update_anthrax_toxin_field_objects();
         assert!(logic
-            .find_object(oid)
+            .host_object(oid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -82845,7 +82846,7 @@ mod tests {
             .expect("toxin field");
         assert_eq!(field.object_template, SCUD_POISON_OBJECT_NAME);
         let obj = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.anthrax_toxin_field && o.template_name == SCUD_POISON_OBJECT_NAME)
             .expect("PoisonFieldLarge object");
@@ -82854,7 +82855,7 @@ mod tests {
         logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
         logic.update_anthrax_toxin_field_objects();
         assert!(logic
-            .find_object(oid)
+            .host_object(oid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -82884,7 +82885,7 @@ mod tests {
         assert!(logic.special_power_strikes.honesty_toxin_object_spawn_ok());
         assert!(logic.special_power_strikes.toxin_objects_spawned() >= 1);
         let obj = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.anthrax_toxin_field)
             .expect("toxin field object");
@@ -82900,7 +82901,7 @@ mod tests {
         logic.frame = ANTHRAX_TOXIN_DURATION_FRAMES + 5;
         logic.update_anthrax_toxin_field_objects();
         assert!(logic
-            .find_object(oid)
+            .host_object(oid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -82937,7 +82938,7 @@ mod tests {
             .honesty_radiation_object_spawn_ok());
         assert!(logic.special_power_strikes.radiation_objects_spawned() >= 1);
         let obj = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.nuke_radiation_field)
             .expect("radiation field object");
@@ -82953,7 +82954,7 @@ mod tests {
         logic.frame = NUKE_RADIATION_DURATION_FRAMES + 5;
         logic.update_nuke_radiation_field_objects();
         assert!(logic
-            .find_object(oid)
+            .host_object(oid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -82989,7 +82990,7 @@ mod tests {
         assert!(logic.honesty_point_defense_laser_beam_ok());
         assert!(logic.point_defense_laser_beams_spawned >= 1);
         let beam = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.point_defense_laser_beam)
             .expect("PDL beam object");
@@ -83001,7 +83002,7 @@ mod tests {
             .saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES + 2);
         logic.update_point_defense_laser_beam_objects();
         assert!(logic
-            .find_object(bid)
+            .host_object(bid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -83038,7 +83039,7 @@ mod tests {
             .honesty_connector_object_spawn_ok());
         assert!(logic.special_power_strikes.connector_objects_spawned() >= 2);
         let names: Vec<_> = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.particle_connector_laser)
             .map(|o| o.template_name.clone())
@@ -83058,7 +83059,7 @@ mod tests {
         logic.update_particle_connector_laser_objects();
         for id in ids {
             assert!(logic
-                .find_object(id)
+                .host_object(id)
                 .map(|o| !o.is_alive() || o.status.destroyed)
                 .unwrap_or(true));
         }
@@ -83093,7 +83094,7 @@ mod tests {
         assert!(logic.special_power_strikes.honesty_beam_object_spawn_ok());
         assert!(logic.special_power_strikes.beam_objects_spawned() >= 1);
         let laser = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.particle_orbital_laser)
             .expect("OrbitalLaser");
@@ -83117,7 +83118,7 @@ mod tests {
         logic.frame = exp + 2;
         logic.update_particle_orbital_laser_objects();
         assert!(logic
-            .find_object(lid)
+            .host_object(lid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -83157,7 +83158,7 @@ mod tests {
             .honesty_remnant_object_spawn_ok());
         assert!(logic.special_power_strikes.remnant_objects_spawned() >= 1);
         let obj = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.particle_trail_remnant)
             .expect("trail remnant object");
@@ -83173,7 +83174,7 @@ mod tests {
         logic.frame = PARTICLE_REMNANT_DURATION_FRAMES + 5;
         logic.update_particle_trail_remnant_objects();
         assert!(logic
-            .find_object(oid)
+            .host_object(oid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -83195,7 +83196,7 @@ mod tests {
         assert!(logic.apply_emp_pulse_at(0, Vec3::new(100.0, 0.0, 100.0), Some(caster)));
         assert!(logic.emp_pulses().honesty_spheroid_ok());
         let sph = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.emp_pulse_spheroid)
             .expect("spheroid");
@@ -83204,7 +83205,7 @@ mod tests {
         logic.frame = EMP_SPHEROID_LIFETIME_FRAMES + 5;
         logic.update_emp_pulse_spheroids();
         assert!(logic
-            .find_object(sid)
+            .host_object(sid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -83229,7 +83230,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -83249,7 +83250,7 @@ mod tests {
 
         // Give vehicle a weapon so can_attack residual is meaningful.
         for id in [vehicle_id, far_vehicle_id] {
-            let unit = game_logic.find_object_mut(id).expect("unit");
+            let unit = game_logic.host_object_mut(id).expect("unit");
             unit.weapon = Some(Weapon {
                 damage: 25.0,
                 range: 150.0,
@@ -83260,7 +83261,7 @@ mod tests {
         }
 
         let vehicle_hp = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle")
             .health
             .current;
@@ -83310,7 +83311,7 @@ mod tests {
         );
 
         // In-radius vehicle: DISABLED_EMP, cannot move/attack, no HP damage.
-        let vehicle = game_logic.find_object(vehicle_id).expect("vehicle");
+        let vehicle = game_logic.host_object(vehicle_id).expect("vehicle");
         assert!(
             vehicle.is_emp_disabled(),
             "in-radius vehicle must be DISABLED_EMP"
@@ -83328,7 +83329,7 @@ mod tests {
         );
 
         // Out-of-radius vehicle: unaffected.
-        let far = game_logic.find_object(far_vehicle_id).expect("far");
+        let far = game_logic.host_object(far_vehicle_id).expect("far");
         assert!(
             !far.is_emp_disabled(),
             "out-of-radius vehicle must not be EMP'd"
@@ -83337,14 +83338,14 @@ mod tests {
         assert!(far.can_attack());
 
         // Infantry residual: not disabled (EMPUpdate skips non-vehicle/structure).
-        let infantry = game_logic.find_object(infantry_id).expect("infantry");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry");
         assert!(
             !infantry.is_emp_disabled(),
             "infantry must not receive DISABLED_EMP residual"
         );
 
         // Faction structure residual: disabled.
-        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        let barracks = game_logic.host_object(barracks_id).expect("barracks");
         assert!(
             barracks.is_emp_disabled(),
             "faction barracks must be DISABLED_EMP"
@@ -83352,19 +83353,19 @@ mod tests {
 
         // Combat path: EMP'd vehicle must not fire.
         {
-            let vehicle = game_logic.find_object_mut(vehicle_id).expect("vehicle");
+            let vehicle = game_logic.host_object_mut(vehicle_id).expect("vehicle");
             vehicle.target = Some(far_vehicle_id);
             vehicle.set_ai_state(AIState::Attacking);
             vehicle.set_status_attacking(true);
         }
         let far_hp_before = game_logic
-            .find_object(far_vehicle_id)
+            .host_object(far_vehicle_id)
             .expect("far")
             .health
             .current;
         game_logic.update_combat(&[vehicle_id, far_vehicle_id], 1.0 / 30.0);
         let far_hp_after = game_logic
-            .find_object(far_vehicle_id)
+            .host_object(far_vehicle_id)
             .expect("far")
             .health
             .current;
@@ -83375,21 +83376,21 @@ mod tests {
 
         // Expire residual timer → vehicle recovers.
         let until = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .expect("vehicle")
             .status
             .disabled_emp_until_frame;
         assert!(until > game_logic.frame);
         game_logic.frame = until;
         game_logic.update_ai(&[vehicle_id, barracks_id], 1.0 / 60.0);
-        let recovered = game_logic.find_object(vehicle_id).expect("vehicle");
+        let recovered = game_logic.host_object(vehicle_id).expect("vehicle");
         assert!(
             !recovered.is_emp_disabled(),
             "DISABLED_EMP must clear after DisabledDuration"
         );
         assert!(recovered.can_move(), "recovered vehicle can move again");
         assert!(recovered.can_attack(), "recovered vehicle can attack again");
-        let barracks_recovered = game_logic.find_object(barracks_id).expect("barracks");
+        let barracks_recovered = game_logic.host_object(barracks_id).expect("barracks");
         assert!(
             !barracks_recovered.is_emp_disabled(),
             "structure EMP must clear after duration"
@@ -83413,7 +83414,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -83441,7 +83442,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -83485,7 +83486,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -83505,7 +83506,7 @@ mod tests {
 
         // Bind residual weapons so combat damage is measurable.
         for id in [ally_id, far_ally_id, enemy_id] {
-            let unit = game_logic.find_object_mut(id).expect("unit");
+            let unit = game_logic.host_object_mut(id).expect("unit");
             unit.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 150.0,
@@ -83517,7 +83518,7 @@ mod tests {
 
         assert!(!game_logic.honesty_frenzy_ok());
         assert_eq!(game_logic.frenzies().activation_count(), 0);
-        assert!(!game_logic.find_object(ally_id).unwrap().is_frenzy_buffed());
+        assert!(!game_logic.host_object(ally_id).unwrap().is_frenzy_buffed());
 
         let impact = Vec3::new(0.0, 0.0, 0.0);
         game_logic.queue_command(GameCommand {
@@ -83557,7 +83558,7 @@ mod tests {
         );
 
         // In-radius ally: FRENZY residual buff + 110% damage mult.
-        let ally = game_logic.find_object(ally_id).expect("ally");
+        let ally = game_logic.host_object(ally_id).expect("ally");
         assert!(
             ally.is_frenzy_buffed(),
             "in-radius ally must receive FRENZY residual buff"
@@ -83570,21 +83571,21 @@ mod tests {
         );
 
         // Out-of-radius ally: unaffected.
-        let far = game_logic.find_object(far_ally_id).expect("far");
+        let far = game_logic.host_object(far_ally_id).expect("far");
         assert!(
             !far.is_frenzy_buffed(),
             "out-of-radius ally must not receive Frenzy residual"
         );
 
         // Enemy residual: not buffed (same-team filter).
-        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        let enemy = game_logic.host_object(enemy_id).expect("enemy");
         assert!(
             !enemy.is_frenzy_buffed(),
             "enemy must not receive Frenzy residual"
         );
 
         // Structure residual: ForbiddenAffectKindOf STRUCTURE.
-        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        let barracks = game_logic.host_object(barracks_id).expect("barracks");
         assert!(
             !barracks.is_frenzy_buffed(),
             "structure must not receive Frenzy residual"
@@ -83592,12 +83593,12 @@ mod tests {
 
         // Observable combat effect: frenzied ally deals 110% damage.
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .expect("enemy")
             .health
             .current;
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
             ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
@@ -83605,12 +83606,12 @@ mod tests {
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
         }
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
         }
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .expect("enemy")
             .health
             .current;
@@ -83622,13 +83623,13 @@ mod tests {
 
         // Expire residual timer → buff clears.
         let until = game_logic
-            .find_object(ally_id)
+            .host_object(ally_id)
             .expect("ally")
             .weapon_bonus_frenzy_until_frame;
         assert!(until > game_logic.frame);
         game_logic.frame = until;
         game_logic.update_ai(&[ally_id], 1.0 / 60.0);
-        let recovered = game_logic.find_object(ally_id).expect("ally");
+        let recovered = game_logic.host_object(ally_id).expect("ally");
         assert!(
             !recovered.is_frenzy_buffed(),
             "FRENZY residual must clear after BonusDuration"
@@ -83652,7 +83653,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             // Caster can self-buff residual (WeaponBonusUpdate iterates all allies
@@ -83685,7 +83686,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -83695,7 +83696,7 @@ mod tests {
         );
         assert!(
             game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .is_frenzy_buffed(),
             "caster ally in radius must receive Frenzy residual"
@@ -83777,7 +83778,7 @@ mod tests {
             .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         {
-            let center = game_logic.find_object_mut(center_id).expect("center");
+            let center = game_logic.host_object_mut(center_id).expect("center");
             center.set_special_power_ready(true);
             center.special_power_cooldown_remaining = 0.0;
             center.object_type = ObjectType::Building;
@@ -83800,7 +83801,7 @@ mod tests {
             .expect("aircraft");
 
         for id in [ally_id, infantry_id, enemy_id] {
-            let unit = game_logic.find_object_mut(id).expect("unit");
+            let unit = game_logic.host_object_mut(id).expect("unit");
             unit.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 100.0,
@@ -83810,7 +83811,7 @@ mod tests {
             });
         }
         {
-            let air = game_logic.find_object_mut(aircraft_id).expect("air");
+            let air = game_logic.host_object_mut(aircraft_id).expect("air");
             air.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 100.0,
@@ -83844,7 +83845,7 @@ mod tests {
         // Delayed ACTIVE residual: buffs not applied until unpack completes.
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "army buffs must wait for unpack ACTIVE residual"
@@ -83873,13 +83874,13 @@ mod tests {
             Some(HostBattlePlan::Bombardment)
         );
 
-        let ally = game_logic.find_object(ally_id).expect("ally");
+        let ally = game_logic.host_object(ally_id).expect("ally");
         assert!(
             ally.weapon_bonus_battle_plan_bombardment,
             "ally tank must receive Bombardment residual after ACTIVE"
         );
         assert!((ally.battle_plan_damage_multiplier() - BOMBARDMENT_DAMAGE_MULT).abs() < 0.001);
-        let infantry = game_logic.find_object(infantry_id).expect("infantry");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry");
         assert!(
             infantry.weapon_bonus_battle_plan_bombardment,
             "ally infantry must receive Bombardment residual"
@@ -83887,7 +83888,7 @@ mod tests {
         // Enemy residual: not buffed (same-team filter).
         assert!(
             !game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "enemy must not receive battle plan residual"
@@ -83895,7 +83896,7 @@ mod tests {
         // Structure residual: InvalidMember STRUCTURE.
         assert!(
             !game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "structure must not receive army battle plan residual"
@@ -83903,7 +83904,7 @@ mod tests {
         // Aircraft residual: InvalidMember AIRCRAFT.
         assert!(
             !game_logic
-                .find_object(aircraft_id)
+                .host_object(aircraft_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "aircraft must not receive army battle plan residual"
@@ -83911,26 +83912,26 @@ mod tests {
 
         // Observable combat effect: Bombardment ally deals 120% damage.
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .expect("enemy")
             .health
             .current;
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
             ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
         }
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
             enemy.thing.template.armor = 0.0;
         }
         crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .expect("enemy")
             .health
             .current;
@@ -83942,11 +83943,11 @@ mod tests {
 
         // --- HoldTheLine residual: armor damage scalar 0.9 + center max-health ×2 ---
         {
-            let center = game_logic.find_object_mut(center_id).expect("center");
+            let center = game_logic.host_object_mut(center_id).expect("center");
             center.set_special_power_ready(true);
             center.special_power_cooldown_remaining = 0.0;
         }
-        let center_max_before = game_logic.find_object(center_id).unwrap().max_health;
+        let center_max_before = game_logic.host_object(center_id).unwrap().max_health;
         assert!(
             game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(center_id)),
             "HoldTheLine residual must activate"
@@ -83954,21 +83955,21 @@ mod tests {
         // Pack clears Bombardment immediately; new buffs after pack+unpack ACTIVE.
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "PACKING residual must clear prior army buffs"
         );
         assert!(game_logic.honesty_battle_plan_pack_clear_ok());
         advance_battle_plan_switch_to_active(&mut game_logic);
-        let ally = game_logic.find_object(ally_id).expect("ally");
+        let ally = game_logic.host_object(ally_id).expect("ally");
         assert!(ally.weapon_bonus_battle_plan_hold_the_line);
         assert!(!ally.weapon_bonus_battle_plan_bombardment);
         assert!(
             (ally.battle_plan_armor_damage_scalar() - HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR).abs()
                 < 0.001
         );
-        let center = game_logic.find_object(center_id).expect("center");
+        let center = game_logic.host_object(center_id).expect("center");
         assert!(
             (center.max_health
                 - center_max_before * STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR)
@@ -83979,15 +83980,15 @@ mod tests {
 
         // Observable armor effect: ally takes 90% damage under HoldTheLine.
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.thing.template.armor = 0.0;
             ally.health.current = 100.0;
             ally.max_health = 100.0;
             ally.health.maximum = 100.0;
         }
-        let ally_hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        let ally_hp_before = game_logic.host_object(ally_id).unwrap().health.current;
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 150.0,
@@ -84002,7 +84003,7 @@ mod tests {
             enemy.thing.template.armor = 0.0;
         }
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
             ally.target = None;
             ally.set_status_attacking(false);
@@ -84010,7 +84011,7 @@ mod tests {
         crate::game_logic::host_damage_log::clear();
         crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[enemy_id, ally_id], 1.0 / 30.0);
-        let ally_hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        let ally_hp_after = game_logic.host_object(ally_id).unwrap().health.current;
         let taken = test_observed_damage_to(ally_id, ally_hp_before, ally_hp_after);
         assert!(
             (taken - 18.0).abs() < 0.05,
@@ -84019,7 +84020,7 @@ mod tests {
 
         // --- SearchAndDestroy residual: RANGE 120% ---
         {
-            let center = game_logic.find_object_mut(center_id).expect("center");
+            let center = game_logic.host_object_mut(center_id).expect("center");
             center.set_special_power_ready(true);
             center.special_power_cooldown_remaining = 0.0;
         }
@@ -84029,13 +84030,13 @@ mod tests {
             Some(center_id)
         ));
         advance_battle_plan_switch_to_active(&mut game_logic);
-        let ally = game_logic.find_object(ally_id).expect("ally");
+        let ally = game_logic.host_object(ally_id).expect("ally");
         assert!(ally.weapon_bonus_battle_plan_search_and_destroy);
         assert!(!ally.weapon_bonus_battle_plan_hold_the_line);
         assert!(
             (ally.battle_plan_range_multiplier() - SEARCH_AND_DESTROY_RANGE_MULT).abs() < 0.001
         );
-        let center = game_logic.find_object(center_id).expect("center");
+        let center = game_logic.host_object(center_id).expect("center");
         assert!(
             center.is_detector,
             "SearchAndDestroy residual must enable Strategy Center stealth detect after ACTIVE"
@@ -84048,7 +84049,7 @@ mod tests {
         game_logic.pathfinding_height_samples = None;
         game_logic.pathfinding_system.clear_static_blocks();
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.set_status_disabled_paralyzed(false);
             ally.status.disabled_paralyzed_until_frame = 0;
             ally.weapon = Some(Weapon {
@@ -84067,17 +84068,17 @@ mod tests {
             ally.status.is_firing_weapon = false;
         }
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_position(Vec3::new(110.0, 0.0, 0.0)); // 110 > 100 base, < 120 residual
             enemy.thing.template.armor = 0.0;
             enemy.health.current = 100.0;
             enemy.target = None;
             enemy.set_status_attacking(false);
         }
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
-        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         let sn_dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
         assert!(
             sn_dealt > 0.5,
@@ -84128,7 +84129,7 @@ mod tests {
             .create_object("TestAircraft", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .expect("aircraft");
         for id in [ally_id, infantry_id, enemy_id, aircraft_id] {
-            let u = game_logic.find_object_mut(id).expect("unit");
+            let u = game_logic.host_object_mut(id).expect("unit");
             u.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 100.0,
@@ -84145,7 +84146,7 @@ mod tests {
         assert_eq!(game_logic.battle_plans().paralyze_count(), 0);
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .is_paralyzed_disabled(),
             "first select must not paralyze army"
@@ -84159,7 +84160,7 @@ mod tests {
         );
         assert!(game_logic.battle_plans().paralyze_count() >= 2);
         {
-            let ally = game_logic.find_object(ally_id).expect("ally");
+            let ally = game_logic.host_object(ally_id).expect("ally");
             assert!(ally.is_paralyzed_disabled(), "ally tank must be paralyzed");
             assert!(ally.is_disabled());
             assert_eq!(
@@ -84169,43 +84170,43 @@ mod tests {
         }
         assert!(
             game_logic
-                .find_object(infantry_id)
+                .host_object(infantry_id)
                 .unwrap()
                 .is_paralyzed_disabled(),
             "ally infantry must be paralyzed"
         );
         assert!(
             !game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .unwrap()
                 .is_paralyzed_disabled(),
             "enemy must not be paralyzed"
         );
         assert!(
             !game_logic
-                .find_object(aircraft_id)
+                .host_object(aircraft_id)
                 .unwrap()
                 .is_paralyzed_disabled(),
             "aircraft InvalidMember must not be paralyzed"
         );
 
         // Observable: paralyzed unit cannot fire residual.
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
             ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
         }
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
             enemy.thing.template.armor = 0.0;
         }
         crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
-        let enemy_hp_mid = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_mid = game_logic.host_object(enemy_id).unwrap().health.current;
         let dealt_mid = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_mid);
         assert!(
             dealt_mid.abs() < 0.05,
@@ -84215,12 +84216,12 @@ mod tests {
         // Expire DISABLED_PARALYZED residual after 150 frames.
         game_logic.frame = game_logic.frame.saturating_add(BATTLE_PLAN_PARALYZE_FRAMES);
         let expire_frame = game_logic.frame;
-        if let Some(ally) = game_logic.find_object_mut(ally_id) {
+        if let Some(ally) = game_logic.host_object_mut(ally_id) {
             ally.tick_disabled_paralyzed(expire_frame);
         }
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .is_paralyzed_disabled(),
             "paralyze must expire after BattlePlanChangeParalyzeTime"
@@ -84228,7 +84229,7 @@ mod tests {
 
         // After expiry, fire residual works again (HoldTheLine has no damage mult).
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.target = Some(enemy_id);
             ally.set_ai_state(AIState::Attacking);
             ally.set_status_attacking(true);
@@ -84242,7 +84243,7 @@ mod tests {
         }
         crate::game_logic::host_damage_log::clear();
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
-        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         let dealt_after = test_observed_damage_to(enemy_id, enemy_hp_mid, enemy_hp_after);
         assert!(
             dealt_after > 0.5,
@@ -84287,7 +84288,7 @@ mod tests {
             .expect("humvee");
         {
             // VeterancyLevels = ALL -REGULAR residual: only vet+ ejects.
-            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let h = game_logic.host_object_mut(humvee_id).expect("humvee");
             h.experience.level = VeterancyLevel::Veteran;
         }
         let tank_id = game_logic
@@ -84299,7 +84300,7 @@ mod tests {
 
         // Destroy eligible Humvee → pilot spawn residual.
         {
-            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let h = game_logic.host_object_mut(humvee_id).expect("humvee");
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.destroyed = true;
         }
@@ -84339,7 +84340,7 @@ mod tests {
 
         // Ineligible vehicle death must not eject.
         {
-            let t = game_logic.find_object_mut(tank_id).expect("tank");
+            let t = game_logic.host_object_mut(tank_id).expect("tank");
             let _ = t.take_damage(t.max_health * 2.0);
             t.status.destroyed = true;
         }
@@ -84360,7 +84361,7 @@ mod tests {
             )
             .expect("humvee2");
         {
-            let h = game_logic.find_object_mut(humvee2).expect("humvee2");
+            let h = game_logic.host_object_mut(humvee2).expect("humvee2");
             h.experience.level = VeterancyLevel::Veteran;
             h.apply_kill_pilot_unmanned();
             let _ = h.take_damage(h.max_health * 2.0);
@@ -84404,7 +84405,7 @@ mod tests {
             )
             .expect("rookie humvee");
         {
-            let h = game_logic.find_object_mut(rookie_id).expect("rookie");
+            let h = game_logic.host_object_mut(rookie_id).expect("rookie");
             h.experience.level = VeterancyLevel::Rookie;
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.destroyed = true;
@@ -84440,7 +84441,7 @@ mod tests {
             )
             .expect("vet humvee");
         {
-            let h = game_logic.find_object_mut(vet_id).expect("vet");
+            let h = game_logic.host_object_mut(vet_id).expect("vet");
             h.experience.level = VeterancyLevel::Veteran;
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.destroyed = true;
@@ -84463,7 +84464,7 @@ mod tests {
             )
             .expect("elite humvee");
         {
-            let h = game_logic.find_object_mut(elite_id).expect("elite");
+            let h = game_logic.host_object_mut(elite_id).expect("elite");
             h.experience.level = VeterancyLevel::Elite;
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.destroyed = true;
@@ -84508,7 +84509,7 @@ mod tests {
             )
             .expect("crushed humvee");
         {
-            let h = game_logic.find_object_mut(crushed_id).expect("crushed");
+            let h = game_logic.host_object_mut(crushed_id).expect("crushed");
             h.experience.level = VeterancyLevel::Veteran;
             let _ = h.take_damage(h.max_health * 2.0);
             // take_damage sets death_type from damage class — restore DieMux residual.
@@ -84546,7 +84547,7 @@ mod tests {
             )
             .expect("splat humvee");
         {
-            let h = game_logic.find_object_mut(splat_id).expect("splat");
+            let h = game_logic.host_object_mut(splat_id).expect("splat");
             h.experience.level = VeterancyLevel::Veteran;
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.death_type = HostDeathType::Splatted;
@@ -84574,7 +84575,7 @@ mod tests {
             )
             .expect("hijacked humvee");
         {
-            let h = game_logic.find_object_mut(hijack_id).expect("hijacked");
+            let h = game_logic.host_object_mut(hijack_id).expect("hijacked");
             h.experience.level = VeterancyLevel::Veteran;
             h.apply_hijacked();
             let _ = h.take_damage(h.max_health * 2.0);
@@ -84607,7 +84608,7 @@ mod tests {
             )
             .expect("normal humvee");
         {
-            let h = game_logic.find_object_mut(normal_id).expect("normal");
+            let h = game_logic.host_object_mut(normal_id).expect("normal");
             h.experience.level = VeterancyLevel::Veteran;
             h.status.death_type = HostDeathType::Normal;
             let _ = h.take_damage(h.max_health * 2.0);
@@ -84671,7 +84672,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             p.experience.level = VeterancyLevel::Veteran; // levels_to_gain = 1
             p.set_ai_state(AIState::Idle);
         }
@@ -84682,7 +84683,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("heroic tank");
         {
-            let t = game_logic.find_object_mut(heroic_id).expect("heroic");
+            let t = game_logic.host_object_mut(heroic_id).expect("heroic");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.experience.level = VeterancyLevel::Heroic;
@@ -84700,7 +84701,7 @@ mod tests {
             )
             .expect("elevated tank");
         {
-            let t = game_logic.find_object_mut(elevated_id).expect("elevated");
+            let t = game_logic.host_object_mut(elevated_id).expect("elevated");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.experience.level = VeterancyLevel::Rookie;
@@ -84712,7 +84713,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .expect("ok tank");
         {
-            let t = game_logic.find_object_mut(ok_id).expect("ok");
+            let t = game_logic.host_object_mut(ok_id).expect("ok");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.experience.level = VeterancyLevel::Rookie;
@@ -84739,11 +84740,11 @@ mod tests {
 
         // Complete Enter if not finished same-frame.
         if game_logic
-            .find_object(pilot_id)
+            .host_object(pilot_id)
             .map(|p| !p.status.destroyed)
             .unwrap_or(false)
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            let p = game_logic.host_object(pilot_id).expect("pilot after scan");
             assert_eq!(
                 p.target,
                 Some(ok_id),
@@ -84752,20 +84753,20 @@ mod tests {
             game_logic.update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0);
         }
 
-        let ok = game_logic.find_object(ok_id).expect("ok after recrew");
+        let ok = game_logic.host_object(ok_id).expect("ok after recrew");
         assert!(!ok.is_unmanned(), "valid vehicle must be recrewed");
         assert_eq!(ok.team, Team::USA, "recrew transfers pilot team");
         assert!(
-            game_logic.find_object(heroic_id).unwrap().is_unmanned(),
+            game_logic.host_object(heroic_id).unwrap().is_unmanned(),
             "Heroic residual must remain unmanned (CollideModule reject)"
         );
         assert!(
-            game_logic.find_object(elevated_id).unwrap().is_unmanned(),
+            game_logic.host_object(elevated_id).unwrap().is_unmanned(),
             "elevated residual must remain unmanned (CollideModule reject)"
         );
         assert!(
             game_logic
-                .find_object(pilot_id)
+                .host_object(pilot_id)
                 .map(|p| p.status.destroyed)
                 .unwrap_or(true),
             "pilot consumed after CollideModule-gated auto-recrew residual"
@@ -84814,7 +84815,7 @@ mod tests {
             .expect("humvee");
 
         {
-            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let h = game_logic.host_object_mut(humvee_id).expect("humvee");
             // VeterancyLevels = ALL -REGULAR residual required for eject path.
             h.experience.level = VeterancyLevel::Veteran;
             let _ = h.take_damage(h.max_health * 2.0);
@@ -84836,7 +84837,7 @@ mod tests {
             .expect("ejected pilot");
 
         {
-            let pilot = game_logic.find_object(pilot_id).expect("pilot");
+            let pilot = game_logic.host_object(pilot_id).expect("pilot");
             assert!(
                 pilot.is_eject_invulnerable(),
                 "pilot must be invulnerable immediately after eject"
@@ -84848,7 +84849,7 @@ mod tests {
             );
         }
 
-        let hp_before = game_logic.find_object(pilot_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(pilot_id).unwrap().health.current;
         let (destroyed, blocked) = game_logic.apply_host_damage(pilot_id, 50.0);
         assert!(!destroyed, "invulnerable pilot must not die");
         assert!(blocked, "InvulnerableTime must block damage");
@@ -84856,7 +84857,7 @@ mod tests {
             game_logic.honesty_pilot_invulnerable_block_ok(),
             "block honesty must record"
         );
-        let hp_mid = game_logic.find_object(pilot_id).unwrap().health.current;
+        let hp_mid = game_logic.host_object(pilot_id).unwrap().health.current;
         assert!(
             (hp_mid - hp_before).abs() < 0.001,
             "HP must be unchanged during InvulnerableTime, got {hp_mid} vs {hp_before}"
@@ -84865,12 +84866,12 @@ mod tests {
         // Expire InvulnerableTime residual.
         let expire = game_logic.frame + EJECT_PILOT_INVULNERABLE_FRAMES;
         game_logic.frame = expire;
-        if let Some(pilot) = game_logic.find_object_mut(pilot_id) {
+        if let Some(pilot) = game_logic.host_object_mut(pilot_id) {
             pilot.tick_eject_invulnerable(expire);
         }
         assert!(
             !game_logic
-                .find_object(pilot_id)
+                .host_object(pilot_id)
                 .unwrap()
                 .is_eject_invulnerable(),
             "InvulnerableTime must expire after 60 frames"
@@ -84879,7 +84880,7 @@ mod tests {
         let (destroyed2, blocked2) = game_logic.apply_host_damage(pilot_id, 25.0);
         assert!(!blocked2, "post-expiry damage must not be blocked");
         assert!(!destroyed2);
-        let hp_after = game_logic.find_object(pilot_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(pilot_id).unwrap().health.current;
         assert!(
             hp_after < hp_mid - 0.5,
             "post-expiry pilot must take damage"
@@ -84927,7 +84928,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             assert!(is_pilot_template(&p.template_name));
             p.experience.level = VeterancyLevel::Veteran;
             p.set_ai_state(AIState::Idle);
@@ -84939,7 +84940,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .expect("tank");
         {
-            let t = game_logic.find_object_mut(tank_id).expect("tank");
+            let t = game_logic.host_object_mut(tank_id).expect("tank");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.health.current = t.max_health;
@@ -84950,7 +84951,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("low tank");
         {
-            let t = game_logic.find_object_mut(low_id).expect("low");
+            let t = game_logic.host_object_mut(low_id).expect("low");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.health.current = t.max_health * (PILOT_FIND_VEHICLE_MIN_HEALTH - 0.1);
@@ -84969,11 +84970,11 @@ mod tests {
         // Same-frame process_ai_behavior may complete recrew when already in enter
         // range (selection radii residual). Otherwise a second tick finishes Enter.
         if game_logic
-            .find_object(pilot_id)
+            .host_object(pilot_id)
             .map(|p| !p.status.destroyed)
             .unwrap_or(false)
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            let p = game_logic.host_object(pilot_id).expect("pilot after scan");
             assert_eq!(
                 p.ai_state,
                 AIState::Entering,
@@ -84987,18 +84988,18 @@ mod tests {
             game_logic.update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0);
         }
 
-        let tank = game_logic.find_object(tank_id).expect("tank after recrew");
+        let tank = game_logic.host_object(tank_id).expect("tank after recrew");
         assert!(!tank.is_unmanned(), "recrew must clear unmanned");
         assert_eq!(tank.team, Team::USA, "recrew transfers AI pilot team");
         assert!(game_logic.honesty_pilot_recrew_ok());
         // Low-HP closer vehicle must remain unmanned (MinHealth residual skip).
         assert!(
-            game_logic.find_object(low_id).unwrap().is_unmanned(),
+            game_logic.host_object(low_id).unwrap().is_unmanned(),
             "MinHealth residual must not recrew low-HP vehicle"
         );
         assert!(
             game_logic
-                .find_object(pilot_id)
+                .host_object(pilot_id)
                 .map(|p| p.status.destroyed)
                 .unwrap_or(true),
             "pilot consumed after auto-recrew residual"
@@ -85023,14 +85024,14 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("human pilot");
         {
-            let p = human_logic.find_object_mut(hp).expect("hp");
+            let p = human_logic.host_object_mut(hp).expect("hp");
             p.set_ai_state(AIState::Idle);
         }
         let ht = human_logic
             .create_object("TestTank", Team::Neutral, Vec3::new(10.0, 0.0, 0.0))
             .expect("ht");
         {
-            let t = human_logic.find_object_mut(ht).expect("ht");
+            let t = human_logic.host_object_mut(ht).expect("ht");
             t.apply_kill_pilot_unmanned();
         }
         human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
@@ -85046,7 +85047,7 @@ mod tests {
         );
         // Human pilot must not auto-recrew unmanned vehicle without player Enter.
         assert!(
-            human_logic.find_object(ht).unwrap().is_unmanned(),
+            human_logic.host_object(ht).unwrap().is_unmanned(),
             "human pilot residual must not auto-recrew unmanned vehicle"
         );
         assert!(
@@ -85113,7 +85114,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             p.set_ai_state(AIState::Idle);
             assert!(!p.status.pilot_did_move_to_base);
         }
@@ -85129,7 +85130,7 @@ mod tests {
         assert_eq!(game_logic.usa_pilot_residual().base_center_moves, 1);
         {
             let p = game_logic
-                .find_object(pilot_id)
+                .host_object(pilot_id)
                 .expect("pilot after fallback");
             assert!(
                 p.status.pilot_did_move_to_base,
@@ -85153,7 +85154,7 @@ mod tests {
         // Second scan while still idle must not re-issue (m_didMoveToBase).
         // Reset to Idle so residual is eligible again but did_move latches.
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             p.set_ai_state(AIState::Idle);
             p.stop_moving();
         }
@@ -85200,7 +85201,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("hp");
         {
-            let p = human_logic.find_object_mut(hp).expect("hp");
+            let p = human_logic.host_object_mut(hp).expect("hp");
             p.set_ai_state(AIState::Idle);
         }
         human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
@@ -85265,7 +85266,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             // Below NeverHeal 0.85 residual (50% HP).
             p.health.current = 50.0;
             p.set_ai_state(AIState::Idle);
@@ -85281,7 +85282,7 @@ mod tests {
         );
         assert_eq!(game_logic.usa_pilot_residual().auto_heal_orders, 1);
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            let p = game_logic.host_object(pilot_id).expect("pilot after scan");
             assert_eq!(
                 p.ai_state,
                 AIState::SeekingHealing,
@@ -85296,7 +85297,7 @@ mod tests {
             game_logic.update_ai(&[pilot_id, pad_id], 1.0 / 30.0);
         }
         let hp_after = game_logic
-            .find_object(pilot_id)
+            .host_object(pilot_id)
             .expect("pilot")
             .health
             .current;
@@ -85331,7 +85332,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("healthy pilot");
         {
-            let p = healthy_logic.find_object_mut(hpilot).expect("hp");
+            let p = healthy_logic.host_object_mut(hpilot).expect("hp");
             // Just above NeverHeal threshold residual.
             p.health.current = 100.0 * AUTO_FIND_HEALING_NEVER_HEAL + 1.0;
             p.set_ai_state(AIState::Idle);
@@ -85344,7 +85345,7 @@ mod tests {
         );
         assert_eq!(healthy_logic.usa_pilot_residual().auto_heal_orders, 0);
         assert_eq!(
-            healthy_logic.find_object(hpilot).unwrap().ai_state,
+            healthy_logic.host_object(hpilot).unwrap().ai_state,
             AIState::Idle,
             "healthy pilot residual stays Idle"
         );
@@ -85371,7 +85372,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("human pilot");
         {
-            let p = human_logic.find_object_mut(hp2).expect("hp");
+            let p = human_logic.host_object_mut(hp2).expect("hp");
             p.health.current = 40.0;
             p.set_ai_state(AIState::Idle);
         }
@@ -85383,7 +85384,7 @@ mod tests {
         );
         assert_eq!(human_logic.usa_pilot_residual().auto_heal_orders, 0);
         assert_eq!(
-            human_logic.find_object(hp2).unwrap().ai_state,
+            human_logic.host_object(hp2).unwrap().ai_state,
             AIState::Idle,
             "human injured pilot residual stays Idle without GetHealed command"
         );
@@ -85442,7 +85443,7 @@ mod tests {
             .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ranger");
         {
-            let r = game_logic.find_object_mut(ranger_id).expect("ranger");
+            let r = game_logic.host_object_mut(ranger_id).expect("ranger");
             r.health.current = 40.0;
             r.set_ai_state(AIState::Idle);
         }
@@ -85463,7 +85464,7 @@ mod tests {
         assert_eq!(game_logic.usa_pilot_residual().auto_heal_orders, 1);
         {
             let r = game_logic
-                .find_object(ranger_id)
+                .host_object(ranger_id)
                 .expect("ranger after scan");
             assert_eq!(
                 r.ai_state,
@@ -85478,7 +85479,7 @@ mod tests {
             game_logic.update_ai(&[ranger_id, pad_id], 1.0 / 30.0);
         }
         let hp_after = game_logic
-            .find_object(ranger_id)
+            .host_object(ranger_id)
             .expect("ranger")
             .health
             .current;
@@ -85513,7 +85514,7 @@ mod tests {
             )
             .expect("redguard");
         {
-            let r = china_logic.find_object_mut(cred).expect("rg");
+            let r = china_logic.host_object_mut(cred).expect("rg");
             r.health.current = 30.0;
             r.set_ai_state(AIState::Idle);
         }
@@ -85524,7 +85525,7 @@ mod tests {
             "China Redguard residual must not AutoFindHealing"
         );
         assert_eq!(
-            china_logic.find_object(cred).unwrap().ai_state,
+            china_logic.host_object(cred).unwrap().ai_state,
             AIState::Idle
         );
 
@@ -85574,7 +85575,7 @@ mod tests {
             )
             .expect("airborne humvee");
         {
-            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let h = game_logic.host_object_mut(humvee_id).expect("humvee");
             h.experience.level = VeterancyLevel::Veteran;
             h.status.airborne_target = true;
             let _ = h.take_damage(h.max_health * 2.0);
@@ -85602,7 +85603,7 @@ mod tests {
             .expect("ejected pilot");
 
         {
-            let pilot = game_logic.find_object(pilot_id).expect("pilot");
+            let pilot = game_logic.host_object(pilot_id).expect("pilot");
             assert!(
                 pilot.is_parachuting(),
                 "air-ejected pilot residual must be parachuting"
@@ -85643,7 +85644,7 @@ mod tests {
         );
         assert_eq!(game_logic.usa_pilot_residual().parachute_lands, 1);
         {
-            let pilot = game_logic.find_object(pilot_id).expect("landed pilot");
+            let pilot = game_logic.host_object(pilot_id).expect("landed pilot");
             assert!(
                 !pilot.is_parachuting(),
                 "landed pilot residual clears parachuting"
@@ -85675,7 +85676,7 @@ mod tests {
             )
             .expect("ground humvee");
         {
-            let h = ground_logic.find_object_mut(g_id).expect("humvee");
+            let h = ground_logic.host_object_mut(g_id).expect("humvee");
             h.experience.level = VeterancyLevel::Veteran;
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.destroyed = true;
@@ -85739,7 +85740,7 @@ mod tests {
             .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             p.experience.level = VeterancyLevel::Veteran;
             p.set_ai_state(AIState::Idle);
         }
@@ -85749,7 +85750,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(5.0, 0.0, 0.0))
             .expect("foreign tank");
         {
-            let t = game_logic.find_object_mut(foreign_id).expect("foreign");
+            let t = game_logic.host_object_mut(foreign_id).expect("foreign");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.experience.level = VeterancyLevel::Rookie;
@@ -85762,7 +85763,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .expect("own tank");
         {
-            let t = game_logic.find_object_mut(own_id).expect("own");
+            let t = game_logic.host_object_mut(own_id).expect("own");
             t.apply_kill_pilot_unmanned();
             t.set_team(Team::Neutral);
             t.experience.level = VeterancyLevel::Rookie;
@@ -85785,11 +85786,11 @@ mod tests {
         );
 
         if game_logic
-            .find_object(pilot_id)
+            .host_object(pilot_id)
             .map(|p| !p.status.destroyed)
             .unwrap_or(false)
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            let p = game_logic.host_object(pilot_id).expect("pilot after scan");
             assert_eq!(
                 p.target,
                 Some(own_id),
@@ -85798,16 +85799,16 @@ mod tests {
             game_logic.update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0);
         }
 
-        let own = game_logic.find_object(own_id).expect("own after recrew");
+        let own = game_logic.host_object(own_id).expect("own after recrew");
         assert!(!own.is_unmanned(), "own-owner vehicle must be recrewed");
         assert_eq!(own.team, Team::USA);
         assert!(
-            game_logic.find_object(foreign_id).unwrap().is_unmanned(),
+            game_logic.host_object(foreign_id).unwrap().is_unmanned(),
             "foreign-owner residual must remain unmanned"
         );
         assert!(
             game_logic
-                .find_object(pilot_id)
+                .host_object(pilot_id)
                 .map(|p| p.status.destroyed)
                 .unwrap_or(true),
             "pilot consumed after same-player-gated auto-recrew residual"
@@ -85855,14 +85856,14 @@ mod tests {
             .create_object(EJECT_PILOT_TEMPLATE, Team::USA, Vec3::new(0.0, low_y, 0.0))
             .expect("pilot");
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             p.apply_eject_parachuting();
         }
         // Record fudge honesty (create_object path records via process_destroy;
         // direct apply needs explicit honesty for residual test).
         game_logic.usa_pilot.record_parachute_open_fudge();
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot");
+            let p = game_logic.host_object(pilot_id).expect("pilot");
             assert!(p.is_parachuting());
             assert!(
                 (p.status.parachute_start_height - 2.0 * PARACHUTE_OPEN_DIST).abs() < 0.01,
@@ -85876,15 +85877,15 @@ mod tests {
         // Raise pilot so significantly-above-terrain gate passes.
         {
             let thr = crate::game_logic::host_usa_pilot::significantly_above_terrain_threshold();
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             let mut pos = p.get_position();
             pos.y = thr + 50.0;
             p.set_position(pos);
             p.set_status_parachute_open(true); // open chute then cut residual
             p.health.current = p.health.maximum;
         }
-        let hp_before = game_logic.find_object(pilot_id).unwrap().health.current;
-        let max_hp = game_logic.find_object(pilot_id).unwrap().health.maximum;
+        let hp_before = game_logic.host_object(pilot_id).unwrap().health.current;
+        let max_hp = game_logic.host_object(pilot_id).unwrap().health.maximum;
         assert!(!game_logic.honesty_pilot_free_fall_damage_ok());
         assert!(
             game_logic.destroy_eject_parachute_midair(pilot_id),
@@ -85893,7 +85894,7 @@ mod tests {
         assert!(game_logic.honesty_pilot_free_fall_damage_ok());
         assert_eq!(game_logic.usa_pilot_residual().free_fall_damages, 1);
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot");
+            let p = game_logic.host_object(pilot_id).expect("pilot");
             assert!(
                 !p.is_parachute_open(),
                 "chute destroyed residual must close chute"
@@ -85911,7 +85912,7 @@ mod tests {
         }
         // Ground pilot residual: FreeFallDamage must not apply.
         {
-            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let p = game_logic.host_object_mut(pilot_id).expect("pilot");
             let mut pos = p.get_position();
             pos.y = 0.0;
             p.set_position(pos);
@@ -85964,7 +85965,7 @@ mod tests {
         assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         advance_battle_plan_door_to_active(&mut game_logic);
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(sc.weapon.is_some(), "Bombardment ACTIVE equips gun");
             assert!(
                 turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
@@ -85982,7 +85983,7 @@ mod tests {
         // Ensure idle: no target / not attacking; force scan due this frame.
         let due_frame = game_logic.frame;
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.target = None;
             sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
@@ -86001,7 +86002,7 @@ mod tests {
         );
         assert_eq!(game_logic.battle_plans().turret_idle_scan_start_count(), 1);
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             let desired = idle_scan_desired_angle_deg(0);
             assert!((desired - (-60.0)).abs() < 0.01);
             // Stepped toward desired: from -90 toward -60 at 2 deg/frame → -88.
@@ -86026,7 +86027,7 @@ mod tests {
         for _ in 0..30 {
             game_logic.frame = game_logic.frame.saturating_add(1);
             game_logic.tick_battle_plan_door_residuals();
-            let sc = game_logic.find_object(sc_id).unwrap();
+            let sc = game_logic.host_object(sc_id).unwrap();
             if !sc.turret_idle_scanning
                 && game_logic.battle_plans().turret_idle_scan_complete_count() > 0
             {
@@ -86038,7 +86039,7 @@ mod tests {
             "idle-scan residual must complete"
         );
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 !sc.turret_idle_scanning,
                 "scan complete residual clears scanning flag"
@@ -86066,7 +86067,7 @@ mod tests {
 
         // Busy residual: attacking cancels mid-scan / hold.
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.turret_idle_scanning = true;
             sc.turret_holding = false;
             sc.turret_idle_scan_desired_angle_deg = idle_scan_desired_angle_deg(1);
@@ -86076,7 +86077,7 @@ mod tests {
         game_logic.frame = game_logic.frame.saturating_add(1);
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 !sc.turret_idle_scanning,
                 "busy residual must cancel idle-scan"
@@ -86128,7 +86129,7 @@ mod tests {
         let desired = idle_scan_desired_angle_deg(0);
         let hold_start = game_logic.frame;
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.target = None;
             sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
@@ -86144,7 +86145,7 @@ mod tests {
         }
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(sc.turret_holding, "scan complete → HoldTurret residual");
             assert!(!sc.turret_idle_scanning);
             assert_eq!(
@@ -86162,7 +86163,7 @@ mod tests {
         game_logic.frame = hold_start.saturating_add(30);
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(sc.turret_holding, "must still be holding mid RecenterTime");
             assert!(!sc.turret_idle_recentering);
             assert!((sc.turret_angle_deg - desired).abs() < 0.5);
@@ -86176,7 +86177,7 @@ mod tests {
             "HoldTurret residual must complete after RecenterTime"
         );
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(!sc.turret_holding, "hold complete clears holding");
             // Either mid idle-recenter or already finished (if already natural).
             assert!(
@@ -86205,7 +86206,7 @@ mod tests {
         for _ in 0..40 {
             game_logic.frame = game_logic.frame.saturating_add(1);
             game_logic.tick_battle_plan_door_residuals();
-            let sc = game_logic.find_object(sc_id).unwrap();
+            let sc = game_logic.host_object(sc_id).unwrap();
             if !sc.turret_idle_recentering
                 && turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg)
             {
@@ -86213,7 +86214,7 @@ mod tests {
             }
         }
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
                 "idle-recenter residual must restore natural angles, a={} p={}",
@@ -86287,7 +86288,7 @@ mod tests {
             )
             .expect("enemy");
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.target = None;
             sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
@@ -86300,7 +86301,7 @@ mod tests {
         }
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 sc.turret_mood_target,
                 "idle mood-target residual must flag m_targetWasSetByIdleMood"
@@ -86336,12 +86337,12 @@ mod tests {
 
         // Move enemy out of max range → mood clear residual.
         {
-            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let e = game_logic.host_object_mut(enemy_id).expect("enemy");
             e.set_position(Vec3::new(900.0, 0.0, 0.0));
         }
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 !sc.turret_mood_target,
                 "out-of-range residual must clear mood target"
@@ -86404,7 +86405,7 @@ mod tests {
 
         // --- Sleep: IgnoreAll → no mood-target acquire ---
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.target = None;
             sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
@@ -86419,7 +86420,7 @@ mod tests {
         }
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 !sc.turret_mood_target,
                 "Sleep mood residual must not auto-acquire"
@@ -86429,7 +86430,7 @@ mod tests {
 
         // --- Passive without last damage: WaitForAttack blocks free acquire ---
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.set_ai_attitude(HostAiAttitude::Passive);
             sc.last_damage_source = None;
             sc.turret_mood_target = false;
@@ -86439,7 +86440,7 @@ mod tests {
         }
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 !sc.turret_mood_target,
                 "Passive without last damage must not free-acquire"
@@ -86448,7 +86449,7 @@ mod tests {
 
         // --- Passive with last damage source = enemy → retaliate residual ---
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.set_ai_attitude(HostAiAttitude::Passive);
             sc.last_damage_source = Some(enemy_id);
             sc.turret_mood_target = false;
@@ -86458,7 +86459,7 @@ mod tests {
         }
         game_logic.tick_battle_plan_door_residuals();
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 sc.turret_mood_target,
                 "Passive WaitForAttack residual must retaliate vs last damage source"
@@ -86517,7 +86518,7 @@ mod tests {
             )
             .expect("airborne humvee");
         {
-            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let h = game_logic.host_object_mut(humvee_id).expect("humvee");
             h.experience.level = VeterancyLevel::Veteran;
             h.status.airborne_target = true;
             let _ = h.take_damage(h.max_health * 2.0);
@@ -86532,10 +86533,10 @@ mod tests {
             .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
             .map(|(id, _)| *id)
             .expect("ejected pilot");
-        let start_y = game_logic.find_object(pilot_id).unwrap().get_position().y;
+        let start_y = game_logic.host_object(pilot_id).unwrap().get_position().y;
         assert!(
             !game_logic
-                .find_object(pilot_id)
+                .host_object(pilot_id)
                 .unwrap()
                 .is_parachute_open(),
             "starts freefall closed"
@@ -86546,7 +86547,7 @@ mod tests {
         let mut opened_y = None;
         for _ in 0..20 {
             game_logic.update_ai(&ids, 1.0 / 30.0);
-            let p = game_logic.find_object(pilot_id).expect("pilot");
+            let p = game_logic.host_object(pilot_id).expect("pilot");
             if p.is_parachute_open() {
                 opened_y = Some(p.get_position().y);
                 break;
@@ -86581,7 +86582,7 @@ mod tests {
         assert!(game_logic.honesty_pilot_parachute_land_ok());
         assert!(
             game_logic
-                .find_object(pilot_id)
+                .host_object(pilot_id)
                 .unwrap()
                 .get_position()
                 .y
@@ -86625,7 +86626,7 @@ mod tests {
             )
             .expect("airborne humvee");
         {
-            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let h = game_logic.host_object_mut(humvee_id).expect("humvee");
             h.experience.level = VeterancyLevel::Veteran;
             h.status.airborne_target = true;
             let _ = h.take_damage(h.max_health * 2.0);
@@ -86645,7 +86646,7 @@ mod tests {
         // Freefall residual: pitch/roll stay 0 until open.
         for _ in 0..5 {
             game_logic.update_ai(&ids, 1.0 / 30.0);
-            let p = game_logic.find_object(pilot_id).expect("pilot");
+            let p = game_logic.host_object(pilot_id).expect("pilot");
             if p.is_parachute_open() {
                 break;
             }
@@ -86660,7 +86661,7 @@ mod tests {
         let mut saw_non_zero_sway = false;
         for _ in 0..80 {
             game_logic.update_ai(&ids, 1.0 / 30.0);
-            let p = game_logic.find_object(pilot_id).expect("pilot");
+            let p = game_logic.host_object(pilot_id).expect("pilot");
             if p.is_parachute_open() {
                 saw_open = true;
                 // Open frame seeds rates; subsequent frames integrate angles.
@@ -86695,7 +86696,7 @@ mod tests {
             }
         }
         assert!(game_logic.honesty_pilot_parachute_land_ok());
-        let landed = game_logic.find_object(pilot_id).expect("pilot");
+        let landed = game_logic.host_object(pilot_id).expect("pilot");
         assert!(!landed.is_parachuting(), "land residual clears parachuting");
         assert!(
             landed.parachute_pitch().abs() < 1e-6 && landed.parachute_roll().abs() < 1e-6,
@@ -86744,7 +86745,7 @@ mod tests {
 
         // Without Bombardment: no StrategyCenterGun residual.
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(sc.weapon.is_none(), "turret disabled without Bombardment");
         }
 
@@ -86757,29 +86758,29 @@ mod tests {
             )
             .expect("enemy");
         {
-            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let e = game_logic.host_object_mut(enemy_id).expect("enemy");
             e.health.current = e.health.maximum; // full
         }
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
 
         // Too-close enemy residual (inside min range) must not be preferred when
         // a legal in-band target exists; still create for range-band honesty.
         let close_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .expect("close enemy");
-        let close_hp_before = game_logic.find_object(close_id).unwrap().health.current;
+        let close_hp_before = game_logic.host_object(close_id).unwrap().health.current;
 
         assert!(!game_logic.honesty_battle_plan_turret_fire_ok());
 
         // Activate Bombardment → equip StrategyCenterGun only after unpack ACTIVE.
         assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         assert!(
-            game_logic.find_object(sc_id).unwrap().weapon.is_none(),
+            game_logic.host_object(sc_id).unwrap().weapon.is_none(),
             "turret must not equip during UNPACKING residual"
         );
         advance_battle_plan_door_to_active(&mut game_logic);
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             let w = sc
                 .weapon
                 .as_ref()
@@ -86800,7 +86801,7 @@ mod tests {
 
         // Fire residual (force readiness: last_fire_time far past).
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             if let Some(w) = sc.weapon.as_mut() {
                 w.last_fire_time = -100.0;
             }
@@ -86812,7 +86813,7 @@ mod tests {
                 turret_angles_are_natural, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
                 STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
             };
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
                 "turret residual starts at NaturalTurretAngle/Pitch"
@@ -86833,7 +86834,7 @@ mod tests {
             use crate::game_logic::host_strategy_center::{
                 turret_angles_are_natural, STRATEGY_CENTER_FIRE_PITCH_DEG,
             };
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 !turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
                 "fire residual must aim turret off NaturalTurretAngle"
@@ -86848,7 +86849,7 @@ mod tests {
             );
         }
 
-        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             // HP last-write via damage log; host HP stays until GameWorld writeback.
             let dmg_events = crate::game_logic::host_damage_log::snapshot();
@@ -86870,7 +86871,7 @@ mod tests {
 
         // Close enemy may take splash if within 25 of impact (impact is on far enemy at x=150).
         // At x=20 vs impact x=150 → no splash. Must remain undamaged by min-range gate.
-        let close_hp_after = game_logic.find_object(close_id).unwrap().health.current;
+        let close_hp_after = game_logic.host_object(close_id).unwrap().health.current;
         assert!(
             (close_hp_after - close_hp_before).abs() < 0.001,
             "min-range residual must not target close enemy as primary"
@@ -86882,7 +86883,7 @@ mod tests {
             use crate::game_logic::host_strategy_center::{
                 STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
             };
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.target = None;
             sc.set_ai_state(AIState::Idle);
             sc.set_status_attacking(false);
@@ -86894,7 +86895,7 @@ mod tests {
         }
         assert!(game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(sc_id),));
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 sc.weapon.is_none(),
                 "PACKING residual must disable StrategyCenterGun"
@@ -87032,7 +87033,7 @@ mod tests {
             .expect("strategy center");
         {
             // InitiallyDisabled residual: Strategy Center is not a detector until S&D.
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.is_detector = false;
             sc.detection_range = 0.0;
             sc.object_type = ObjectType::Building;
@@ -87043,7 +87044,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 0.0))
             .expect("near stealthed");
         {
-            let e = game_logic.find_object_mut(near_id).expect("near");
+            let e = game_logic.host_object_mut(near_id).expect("near");
             e.apply_grant_stealth();
             assert!(e.is_effectively_stealthed());
         }
@@ -87052,16 +87053,16 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(600.0, 0.0, 0.0))
             .expect("far stealthed");
         {
-            let e = game_logic.find_object_mut(far_id).expect("far");
+            let e = game_logic.host_object_mut(far_id).expect("far");
             e.apply_grant_stealth();
         }
 
         // Without S&D: detector off → no residual detect.
-        assert!(!game_logic.find_object(sc_id).unwrap().is_detector);
+        assert!(!game_logic.host_object(sc_id).unwrap().is_detector);
         game_logic.update_stealth_and_detection();
         assert!(
             game_logic
-                .find_object(near_id)
+                .host_object(near_id)
                 .unwrap()
                 .is_effectively_stealthed(),
             "InitiallyDisabled residual must not detect before S&D"
@@ -87071,7 +87072,7 @@ mod tests {
         assert!(!game_logic.honesty_battle_plan_stealth_detector_ok());
         assert!(game_logic.activate_battle_plan(0, HostBattlePlan::SearchAndDestroy, Some(sc_id),));
         assert!(
-            !game_logic.find_object(sc_id).unwrap().is_detector,
+            !game_logic.host_object(sc_id).unwrap().is_detector,
             "StealthDetector must wait for unpack ACTIVE residual"
         );
         advance_battle_plan_door_to_active(&mut game_logic);
@@ -87080,7 +87081,7 @@ mod tests {
             "S&D ACTIVE must record StealthDetector enable honesty"
         );
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(sc.is_detector, "S&D must enable StealthDetector residual");
             assert!(
                 (sc.detection_range - STRATEGY_CENTER_STEALTH_DETECTION_RANGE).abs() < 0.1,
@@ -87104,21 +87105,21 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(near_id)
+                .host_object(near_id)
                 .unwrap()
                 .is_effectively_stealthed(),
             "near stealthed enemy must be detected at DetectionRange 500"
         );
         assert!(
             game_logic
-                .find_object(far_id)
+                .host_object(far_id)
                 .unwrap()
                 .is_effectively_stealthed(),
             "far stealthed enemy beyond 500 must remain undetected"
         );
         // After first scan, next DetectionRate wake is frame + 15.
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert_eq!(
                 sc.next_detection_scan_frame,
                 game_logic.frame + STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
@@ -87129,7 +87130,7 @@ mod tests {
         // Leave S&D → PACKING setSDEnabled(false) residual.
         assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert!(
                 !sc.is_detector,
                 "PACKING residual must disable StealthDetector"
@@ -87150,13 +87151,13 @@ mod tests {
 
         // After disable: clear detected and re-stealth for residual recheck.
         {
-            let e = game_logic.find_object_mut(near_id).expect("near");
+            let e = game_logic.host_object_mut(near_id).expect("near");
             e.apply_grant_stealth();
         }
         game_logic.update_stealth_and_detection();
         assert!(
             game_logic
-                .find_object(near_id)
+                .host_object(near_id)
                 .unwrap()
                 .is_effectively_stealthed(),
             "disabled StealthDetector residual must not detect"
@@ -87195,7 +87196,7 @@ mod tests {
             .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         {
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.is_detector = false;
             sc.detection_range = 0.0;
             sc.object_type = ObjectType::Building;
@@ -87205,7 +87206,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(200.0, 0.0, 0.0))
             .expect("stealthed enemy");
         {
-            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let e = game_logic.host_object_mut(enemy_id).expect("enemy");
             e.apply_grant_stealth();
         }
 
@@ -87221,7 +87222,7 @@ mod tests {
             "first DetectionRate residual scan must fire immediately"
         );
         {
-            let e = game_logic.find_object(enemy_id).expect("enemy");
+            let e = game_logic.host_object(enemy_id).expect("enemy");
             assert!(
                 e.status.detected,
                 "first scan must detect in-range stealthed"
@@ -87232,7 +87233,7 @@ mod tests {
             );
         }
         {
-            let sc = game_logic.find_object(sc_id).expect("sc");
+            let sc = game_logic.host_object(sc_id).expect("sc");
             assert_eq!(
                 sc.next_detection_scan_frame, STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
                 "next scan residual at frame 15"
@@ -87257,7 +87258,7 @@ mod tests {
             "DetectionRate residual must re-scan after 15 frames"
         );
         {
-            let e = game_logic.find_object(enemy_id).expect("enemy");
+            let e = game_logic.host_object(enemy_id).expect("enemy");
             assert!(
                 e.status.detected,
                 "rate re-scan must refresh detected residual"
@@ -87306,7 +87307,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("ally");
         {
-            let u = game_logic.find_object_mut(ally_id).expect("ally");
+            let u = game_logic.host_object_mut(ally_id).expect("ally");
             u.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 100.0,
@@ -87338,7 +87339,7 @@ mod tests {
         }
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "army buff residual must wait for unpack ACTIVE"
@@ -87356,7 +87357,7 @@ mod tests {
         );
         assert!(
             game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "ACTIVE residual must apply Bombardment army buffs"
@@ -87387,7 +87388,7 @@ mod tests {
         }
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .has_battle_plan_bonus(),
             "PACKING residual must clear army buffs (setBattlePlan NONE)"
@@ -87413,7 +87414,7 @@ mod tests {
         // HoldTheLine now ACTIVE.
         assert!(
             game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_hold_the_line
         );
@@ -87473,7 +87474,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("ally");
         {
-            let u = game_logic.find_object_mut(ally_id).expect("ally");
+            let u = game_logic.host_object_mut(ally_id).expect("ally");
             u.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 100.0,
@@ -87489,25 +87490,25 @@ mod tests {
         // Select Bombardment — no buffs until ACTIVE.
         assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         assert!(!game_logic
-            .find_object(ally_id)
+            .host_object(ally_id)
             .unwrap()
             .has_battle_plan_bonus());
         advance_battle_plan_door_to_active(&mut game_logic);
         assert!(game_logic.honesty_battle_plan_delayed_active_ok());
         assert!(
             game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment
         );
-        assert!(game_logic.find_object(sc_id).unwrap().weapon.is_some());
+        assert!(game_logic.host_object(sc_id).unwrap().weapon.is_some());
 
         // Make turret non-natural via pitch/yaw residual (off NaturalTurretAngle)
         // plus busy gate, then switch plan.
         let fire_time = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
         {
             use crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            let sc = game_logic.host_object_mut(sc_id).expect("sc");
             sc.set_ai_state(AIState::Attacking);
             sc.set_status_attacking(true);
             sc.target = Some(ally_id);
@@ -87540,18 +87541,18 @@ mod tests {
         // During recenter: Bombardment buffs still active (not packed yet).
         assert!(
             game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
             "recenter residual must not clear army buffs until pack"
         );
-        assert!(game_logic.find_object(sc_id).unwrap().weapon.is_some());
+        assert!(game_logic.host_object(sc_id).unwrap().weapon.is_some());
 
         // Step recenter frames: turret angles advance toward natural each tick.
         // 60° at 2 deg/frame → exactly 30 steps to NaturalTurretAngle.
         {
             use crate::game_logic::host_strategy_center::turret_angles_are_natural;
-            let mut last_angle = game_logic.find_object(sc_id).unwrap().turret_angle_deg;
+            let mut last_angle = game_logic.host_object(sc_id).unwrap().turret_angle_deg;
             for step in 1..=BATTLE_PLAN_TURRET_RECENTER_FRAMES {
                 game_logic.frame = switch_frame.saturating_add(step);
                 let centering = game_logic
@@ -87560,7 +87561,7 @@ mod tests {
                     .map(|s| s.centering_turret)
                     .unwrap_or(false);
                 assert!(centering, "must still be recentering at step {step}");
-                if let Some(sc) = game_logic.find_object_mut(sc_id) {
+                if let Some(sc) = game_logic.host_object_mut(sc_id) {
                     let (a, p) =
                         crate::game_logic::host_strategy_center::step_turret_toward_natural(
                             sc.turret_angle_deg,
@@ -87569,7 +87570,7 @@ mod tests {
                     sc.turret_angle_deg = a;
                     sc.turret_pitch_deg = p;
                 }
-                let a_now = game_logic.find_object(sc_id).unwrap().turret_angle_deg;
+                let a_now = game_logic.host_object(sc_id).unwrap().turret_angle_deg;
                 // Angle should move toward natural (-90 from -30) or already natural.
                 assert!(
                     a_now <= last_angle + 0.01,
@@ -87580,12 +87581,12 @@ mod tests {
             // After full recenter frames, angles natural residual.
             assert!(
                 turret_angles_are_natural(
-                    game_logic.find_object(sc_id).unwrap().turret_angle_deg,
-                    game_logic.find_object(sc_id).unwrap().turret_pitch_deg,
+                    game_logic.host_object(sc_id).unwrap().turret_angle_deg,
+                    game_logic.host_object(sc_id).unwrap().turret_pitch_deg,
                 ),
                 "recenter residual must restore NaturalTurretAngle/Pitch, angle={} pitch={}",
-                game_logic.find_object(sc_id).unwrap().turret_angle_deg,
-                game_logic.find_object(sc_id).unwrap().turret_pitch_deg,
+                game_logic.host_object(sc_id).unwrap().turret_angle_deg,
+                game_logic.host_object(sc_id).unwrap().turret_pitch_deg,
             );
         }
 
@@ -87604,15 +87605,15 @@ mod tests {
         }
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .has_battle_plan_bonus(),
             "PACKING after recenter must clear army buffs"
         );
-        assert!(game_logic.find_object(sc_id).unwrap().weapon.is_none());
+        assert!(game_logic.host_object(sc_id).unwrap().weapon.is_none());
         assert!(
             game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .is_paralyzed_disabled(),
             "PACKING residual must paralyze army (setBattlePlan NONE)"
@@ -87629,7 +87630,7 @@ mod tests {
         game_logic.tick_battle_plan_door_residuals();
         assert!(
             game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_hold_the_line,
             "HoldTheLine buffs after full pack+unpack ACTIVE residual"
@@ -87666,7 +87667,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -87689,15 +87690,15 @@ mod tests {
 
         // Damage targets so SingleBurst heal is observable.
         for id in [ally_id, far_ally_id, enemy_id, infantry_id] {
-            let unit = game_logic.find_object_mut(id).expect("unit");
+            let unit = game_logic.host_object_mut(id).expect("unit");
             unit.health.current = unit.health.maximum * 0.25;
         }
 
-        let ally_hp_before = game_logic.find_object(ally_id).unwrap().health.current;
-        let far_hp_before = game_logic.find_object(far_ally_id).unwrap().health.current;
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let infantry_hp_before = game_logic.find_object(infantry_id).unwrap().health.current;
-        let full_hp_before = game_logic.find_object(full_hp_id).unwrap().health.current;
+        let ally_hp_before = game_logic.host_object(ally_id).unwrap().health.current;
+        let far_hp_before = game_logic.host_object(far_ally_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let infantry_hp_before = game_logic.host_object(infantry_id).unwrap().health.current;
+        let full_hp_before = game_logic.host_object(full_hp_id).unwrap().health.current;
 
         assert!(!game_logic.honesty_emergency_repair_ok());
         assert_eq!(game_logic.emergency_repairs().activation_count(), 0);
@@ -87740,13 +87741,13 @@ mod tests {
             HostEmergencyRepairLevel::One
         );
 
-        let ally_hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        let ally_hp_after = game_logic.host_object(ally_id).unwrap().health.current;
         let restored = ally_hp_after - ally_hp_before;
         assert!(
             (restored - HostEmergencyRepairLevel::One.heal_amount()).abs() < 0.05
                 || restored > 0.0
                     && ally_hp_after
-                        >= game_logic.find_object(ally_id).unwrap().health.maximum - 0.01,
+                        >= game_logic.host_object(ally_id).unwrap().health.maximum - 0.01,
             "in-radius damaged ally vehicle must receive Level1 heal (+100), restored={restored}"
         );
         assert!(
@@ -87755,28 +87756,28 @@ mod tests {
         );
 
         // Full-HP ally: no heal (not damaged residual).
-        let full_hp_after = game_logic.find_object(full_hp_id).unwrap().health.current;
+        let full_hp_after = game_logic.host_object(full_hp_id).unwrap().health.current;
         assert!(
             (full_hp_after - full_hp_before).abs() < 0.01,
             "full-HP ally must not receive Emergency Repair residual"
         );
 
         // Out-of-radius ally: unaffected.
-        let far_hp_after = game_logic.find_object(far_ally_id).unwrap().health.current;
+        let far_hp_after = game_logic.host_object(far_ally_id).unwrap().health.current;
         assert!(
             (far_hp_after - far_hp_before).abs() < 0.01,
             "out-of-radius ally must not receive Emergency Repair residual"
         );
 
         // Enemy residual: not healed (same-team filter).
-        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             (enemy_hp_after - enemy_hp_before).abs() < 0.01,
             "enemy must not receive Emergency Repair residual"
         );
 
         // Infantry residual: KindOf VEHICLE only.
-        let infantry_hp_after = game_logic.find_object(infantry_id).unwrap().health.current;
+        let infantry_hp_after = game_logic.host_object(infantry_id).unwrap().health.current;
         assert!(
             (infantry_hp_after - infantry_hp_before).abs() < 0.01,
             "infantry must not receive Emergency Repair residual"
@@ -87799,7 +87800,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.health.current = caster.health.maximum * 0.5;
@@ -87824,7 +87825,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -87860,7 +87861,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -87883,7 +87884,7 @@ mod tests {
 
         // Bind residual weapons so stealth break-on-attack is measurable.
         for id in [ally_vehicle_id, enemy_id] {
-            let unit = game_logic.find_object_mut(id).expect("unit");
+            let unit = game_logic.host_object_mut(id).expect("unit");
             unit.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 150.0,
@@ -87896,7 +87897,7 @@ mod tests {
         assert!(!game_logic.honesty_gps_scrambler_ok());
         assert_eq!(game_logic.gps_scramblers().activation_count(), 0);
         assert!(!game_logic
-            .find_object(ally_vehicle_id)
+            .host_object(ally_vehicle_id)
             .unwrap()
             .is_effectively_stealthed());
 
@@ -87941,7 +87942,7 @@ mod tests {
 
         // In-radius ally vehicle + infantry: STEALTHED residual.
         let ally_v = game_logic
-            .find_object(ally_vehicle_id)
+            .host_object(ally_vehicle_id)
             .expect("ally vehicle");
         assert!(
             ally_v.is_effectively_stealthed(),
@@ -87951,7 +87952,7 @@ mod tests {
         assert!(!ally_v.status.detected);
 
         let ally_i = game_logic
-            .find_object(ally_infantry_id)
+            .host_object(ally_infantry_id)
             .expect("ally infantry");
         assert!(
             ally_i.is_effectively_stealthed(),
@@ -87959,21 +87960,21 @@ mod tests {
         );
 
         // Out-of-radius ally: unaffected.
-        let far = game_logic.find_object(far_ally_id).expect("far");
+        let far = game_logic.host_object(far_ally_id).expect("far");
         assert!(
             !far.is_effectively_stealthed(),
             "out-of-radius ally must not receive GPS Scrambler residual"
         );
 
         // Enemy residual: not stealthed (same-team filter).
-        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        let enemy = game_logic.host_object(enemy_id).expect("enemy");
         assert!(
             !enemy.is_effectively_stealthed(),
             "enemy must not receive GPS Scrambler residual"
         );
 
         // Structure residual: KindOf VEHICLE|INFANTRY only.
-        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        let barracks = game_logic.host_object(barracks_id).expect("barracks");
         assert!(
             !barracks.is_effectively_stealthed(),
             "structure must not receive GPS Scrambler residual"
@@ -87994,7 +87995,7 @@ mod tests {
         // Attack breaks stealth (STEALTH_NOT_WHILE_ATTACKING residual).
         {
             let ally = game_logic
-                .find_object_mut(ally_vehicle_id)
+                .host_object_mut(ally_vehicle_id)
                 .expect("ally vehicle");
             ally.target = Some(enemy_id);
             ally.set_ai_state(AIState::Attacking);
@@ -88002,12 +88003,12 @@ mod tests {
             ally.set_position(Vec3::new(10.0, 0.0, 0.0));
         }
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
         }
         game_logic.update_combat(&[ally_vehicle_id, enemy_id], 1.0 / 30.0);
         let after_fire = game_logic
-            .find_object(ally_vehicle_id)
+            .host_object(ally_vehicle_id)
             .expect("ally vehicle");
         assert!(
             !after_fire.is_effectively_stealthed(),
@@ -88031,7 +88032,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -88055,7 +88056,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -88065,7 +88066,7 @@ mod tests {
         );
         assert!(
             game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .is_effectively_stealthed(),
             "caster vehicle in radius must receive GPS Scrambler residual"
@@ -88102,7 +88103,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -88125,7 +88126,7 @@ mod tests {
             .expect("enemy barracks");
 
         for id in [enemy_vehicle_id, far_vehicle_id, ally_vehicle_id] {
-            let unit = game_logic.find_object_mut(id).expect("unit");
+            let unit = game_logic.host_object_mut(id).expect("unit");
             unit.weapon = Some(Weapon {
                 damage: 25.0,
                 range: 150.0,
@@ -88136,7 +88137,7 @@ mod tests {
         }
 
         let vehicle_hp = game_logic
-            .find_object(enemy_vehicle_id)
+            .host_object(enemy_vehicle_id)
             .expect("vehicle")
             .health
             .current;
@@ -88187,7 +88188,7 @@ mod tests {
 
         // Before delay: no disables yet.
         assert!(!game_logic
-            .find_object(enemy_vehicle_id)
+            .host_object(enemy_vehicle_id)
             .unwrap()
             .is_emp_disabled());
 
@@ -88195,7 +88196,7 @@ mod tests {
         game_logic.update_leaflet_drops();
         assert!(
             !game_logic
-                .find_object(enemy_vehicle_id)
+                .host_object(enemy_vehicle_id)
                 .unwrap()
                 .is_emp_disabled(),
             "still no disable one frame before Delay"
@@ -88229,7 +88230,7 @@ mod tests {
 
         // In-radius enemy vehicle: DISABLED_EMP, no HP damage.
         let vehicle = game_logic
-            .find_object(enemy_vehicle_id)
+            .host_object(enemy_vehicle_id)
             .expect("enemy vehicle");
         assert!(
             vehicle.is_emp_disabled(),
@@ -88249,7 +88250,7 @@ mod tests {
 
         // In-radius enemy infantry: DISABLED_EMP (unlike EMP Pulse residual).
         let infantry = game_logic
-            .find_object(enemy_infantry_id)
+            .host_object(enemy_infantry_id)
             .expect("enemy infantry");
         assert!(
             infantry.is_emp_disabled(),
@@ -88257,7 +88258,7 @@ mod tests {
         );
 
         // Out-of-radius enemy vehicle: unaffected.
-        let far = game_logic.find_object(far_vehicle_id).expect("far");
+        let far = game_logic.host_object(far_vehicle_id).expect("far");
         assert!(
             !far.is_emp_disabled(),
             "out-of-radius must not be leaflet'd"
@@ -88265,14 +88266,14 @@ mod tests {
         assert!(far.can_move());
 
         // Same-team ally residual: not disabled (enemies only).
-        let ally = game_logic.find_object(ally_vehicle_id).expect("ally");
+        let ally = game_logic.host_object(ally_vehicle_id).expect("ally");
         assert!(
             !ally.is_emp_disabled(),
             "ally must not receive leaflet DISABLED_EMP residual"
         );
 
         // Structure residual: not disabled (LeafletDropBehavior INFANTRY|VEHICLE only).
-        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        let barracks = game_logic.host_object(barracks_id).expect("barracks");
         assert!(
             !barracks.is_emp_disabled(),
             "structures must not receive leaflet DISABLED_EMP residual"
@@ -88292,14 +88293,14 @@ mod tests {
 
         // Expire residual timer → vehicle recovers.
         let until = game_logic
-            .find_object(enemy_vehicle_id)
+            .host_object(enemy_vehicle_id)
             .expect("vehicle")
             .status
             .disabled_emp_until_frame;
         assert!(until > game_logic.frame);
         game_logic.frame = until;
         game_logic.update_ai(&[enemy_vehicle_id, enemy_infantry_id], 1.0 / 60.0);
-        let recovered = game_logic.find_object(enemy_vehicle_id).expect("vehicle");
+        let recovered = game_logic.host_object(enemy_vehicle_id).expect("vehicle");
         assert!(
             !recovered.is_emp_disabled(),
             "DISABLED_EMP must clear after DisabledDuration"
@@ -88337,7 +88338,7 @@ mod tests {
         assert!(logic.radar_scans.pings_spawned >= 1);
         assert!(logic.radar_scans.honesty_ping_ok());
         let ping = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.radar_van_ping)
             .expect("RadarVanPing");
@@ -88346,7 +88347,7 @@ mod tests {
         logic.frame = RADAR_SCAN_DURATION_FRAMES + 5;
         logic.update_radar_van_pings();
         assert!(logic
-            .find_object(pid)
+            .host_object(pid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -88376,7 +88377,7 @@ mod tests {
         assert!(logic.spy_satellites.pings_spawned >= 1);
         assert!(logic.spy_satellites.honesty_ping_ok());
         let ping = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.spy_satellite_ping)
             .expect("ping");
@@ -88386,7 +88387,7 @@ mod tests {
         logic.frame = SPY_SATELLITE_DURATION_FRAMES + 5;
         logic.update_spy_satellite_pings();
         assert!(logic
-            .find_object(pid)
+            .host_object(pid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -88422,7 +88423,7 @@ mod tests {
         assert!(logic.emergency_repairs.honesty_marker_ok());
         // Marker dies same frame (DeletionUpdate 0).
         let alive_markers = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.emergency_repair_marker && o.is_alive())
             .count();
@@ -88462,7 +88463,7 @@ mod tests {
         assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(near)));
         assert!(logic.gps_scramblers.markers_spawned >= 1);
         assert!(logic
-            .get_objects()
+            .host_objects()
             .values()
             .any(|o| o.gps_scrambler_marker && o.template_name == GPS_SCRAMBLER_INVISIBLE_MARKER));
         assert!(logic.host_object(near).unwrap().is_effectively_stealthed());
@@ -88535,7 +88536,7 @@ mod tests {
         logic.mark_object_for_destruction(rebel, None);
         assert!(logic.host_ambushes.honesty_dies_on_bad_land_ok());
         assert!(logic
-            .find_object(rebel)
+            .host_object(rebel)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
     }
@@ -88576,7 +88577,7 @@ mod tests {
                 || logic.host_ambushes.fade_in_grants >= 1
         );
         let stealthed = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.ambush_fade_in && o.status.stealthed)
             .count();
@@ -88589,7 +88590,7 @@ mod tests {
         }
         assert!(logic.host_ambushes.fade_in_clears >= 1);
         let still_fading = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.ambush_fade_in)
             .count();
@@ -88627,7 +88628,7 @@ mod tests {
         assert!(logic.frenzies.markers_spawned >= 1);
         assert!(logic.frenzies.honesty_marker_ok());
         let marker = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.frenzy_invisible_marker)
             .expect("marker");
@@ -88637,20 +88638,20 @@ mod tests {
         logic.update_frenzy_invisible_markers();
         assert!(
             logic
-                .find_object(mid)
+                .host_object(mid)
                 .map(|o| o.is_alive())
                 .unwrap_or(false),
             "marker should survive spawn frame"
         );
         logic.update_frenzy_invisible_markers();
         let gone = logic
-            .find_object(mid)
+            .host_object(mid)
             .map(|o| !o.is_alive() || o.status.destroyed || o.frenzy_invisible_marker)
             .unwrap_or(true);
         // After delete residual, object is dead or removed from world.
         assert!(
             gone && logic
-                .find_object(mid)
+                .host_object(mid)
                 .map(|o| !o.is_alive() || o.status.destroyed)
                 .unwrap_or(true),
             "marker should be deleted after 1-frame residual"
@@ -88697,7 +88698,7 @@ mod tests {
         assert!(logic.emp_pulse_flight_reg.detonations >= 1);
         assert!(
             logic
-                .find_object(foe)
+                .host_object(foe)
                 .map(|o| o.is_disabled())
                 .unwrap_or(false)
                 || logic.honesty_emp_pulse_disable_ok()
@@ -88721,13 +88722,13 @@ mod tests {
             .spawn_cluster_mines_flight(cc_id, Vec3::new(180.0, 0.0, 0.0))
             .expect("cargo");
         assert!(logic
-            .find_object(jet)
+            .host_object(jet)
             .unwrap()
             .cluster_mines_transport
             .is_some());
         assert!(logic.cluster_mines_flight_reg.transports_spawned >= 1);
         let mines_before = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("Mine") || o.template_name.contains("mine"))
             .count();
@@ -88742,7 +88743,7 @@ mod tests {
         assert!(logic.cluster_mines_flight_reg.minefields_placed >= 1);
         assert!(logic.cluster_mines_flight_reg.mines_spawned >= 1);
         let mines_after = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("Mine") || o.template_name.contains("mine"))
             .count();
@@ -88776,7 +88777,7 @@ mod tests {
             .spawn_anthrax_bomb_flight(cc_id, Vec3::new(150.0, 0.0, 0.0))
             .expect("cargo");
         assert!(logic
-            .find_object(jet)
+            .host_object(jet)
             .unwrap()
             .anthrax_bomb_transport
             .is_some());
@@ -88792,13 +88793,13 @@ mod tests {
         assert!(logic.anthrax_bomb_flight_reg.detonations >= 1);
         assert!(logic.anthrax_bomb_flight_reg.toxin_fields_spawned >= 1);
         let hp1 = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
             hp1 < hp0
                 || logic
-                    .find_object(foe)
+                    .host_object(foe)
                     .map(|o| !o.is_alive())
                     .unwrap_or(true),
             "anthrax bomb should damage nearby units"
@@ -88848,7 +88849,7 @@ mod tests {
         assert!(logic.host_sneak_attacks.tunnel_spawn_count >= 1);
         assert!(
             logic
-                .find_object(start_id)
+                .host_object(start_id)
                 .map(|o| !o.is_alive())
                 .unwrap_or(true),
             "TunnelStart should die when real tunnel spawns"
@@ -88903,13 +88904,13 @@ mod tests {
         assert!(logic.host_sneak_attacks.honesty_multi_pulse_ok());
         assert!(logic.host_sneak_attacks.tunnel_spawn_count >= 1);
         let hp1 = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
             hp1 < hp0
                 || logic
-                    .find_object(foe)
+                    .host_object(foe)
                     .map(|o| !o.is_alive())
                     .unwrap_or(true),
             "multi-pulse shockwaves should damage nearby units"
@@ -88937,7 +88938,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -88960,9 +88961,9 @@ mod tests {
             )
             .expect("far enemy");
 
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_hp_before = game_logic.find_object(far_enemy_id).unwrap().health.current;
-        let objects_before = game_logic.get_objects().len();
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_hp_before = game_logic.host_object(far_enemy_id).unwrap().health.current;
+        let objects_before = game_logic.host_objects().len();
 
         assert!(!game_logic.honesty_sneak_attack_ok());
 
@@ -88985,7 +88986,7 @@ mod tests {
         );
         assert_eq!(game_logic.host_sneak_attacks().pending_count(), 1);
         assert!(!game_logic.honesty_sneak_attack_tunnel_ok());
-        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        let caster = game_logic.host_object(caster_id).expect("caster after cmd");
         assert!(!caster.special_power_ready);
         assert!(caster.special_power_cooldown_remaining > 0.0);
         assert_eq!(caster.ai_state, AIState::SpecialAbility);
@@ -88998,7 +88999,7 @@ mod tests {
         );
         // TunnelStart residual may spawn immediately; real tunnel must not yet exist.
         let real_tunnels = |gl: &GameLogic| {
-            gl.get_objects()
+            gl.host_objects()
                 .values()
                 .filter(|o| {
                     o.is_alive()
@@ -89012,7 +89013,7 @@ mod tests {
             real_tunnels(&game_logic),
             0,
             "no real tunnel before Lifetime delay residual (objects={})",
-            game_logic.get_objects().len()
+            game_logic.host_objects().len()
         );
         assert!(
             game_logic.host_sneak_attacks.tunnel_starts_spawned >= 1,
@@ -89061,7 +89062,7 @@ mod tests {
             "shockwave residual must hit nearby enemy"
         );
 
-        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel object");
+        let tunnel = game_logic.host_object(tunnel_id).expect("tunnel object");
         assert_eq!(tunnel.team, Team::GLA);
         assert!(
             tunnel.is_kind_of(KindOf::Structure),
@@ -89077,8 +89078,8 @@ mod tests {
             "tunnel must spawn at target location"
         );
 
-        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_hp_after = game_logic.find_object(far_enemy_id).unwrap().health.current;
+        let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_hp_after = game_logic.host_object(far_enemy_id).unwrap().health.current;
         assert!(
             (enemy_hp_before - enemy_hp_after - SNEAK_ATTACK_SHOCKWAVE_DAMAGE).abs() < 0.01
                 || enemy_hp_after < enemy_hp_before,
@@ -89119,7 +89120,7 @@ mod tests {
             .expect("target should be created");
 
         let initial_health = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -89135,7 +89136,7 @@ mod tests {
         game_logic.process_commands();
 
         let target_after_command = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_command.health.current, initial_health,
@@ -89146,7 +89147,7 @@ mod tests {
 
         game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
         let target_after_far_update = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_far_update.health.current, initial_health,
@@ -89156,7 +89157,7 @@ mod tests {
 
         {
             let bomber = game_logic
-                .find_object_mut(bomber_id)
+                .host_object_mut(bomber_id)
                 .expect("bomber should exist");
             bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
             bomber.set_ai_state(AIState::SpecialAbility);
@@ -89165,7 +89166,7 @@ mod tests {
         game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
 
         let target_after_contact = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_contact.health.current, initial_health,
@@ -89190,7 +89191,7 @@ mod tests {
         );
 
         let bomber = game_logic
-            .find_object(bomber_id)
+            .host_object(bomber_id)
             .expect("bomber should exist");
         assert!(
             bomber.status.destroyed,
@@ -89212,7 +89213,7 @@ mod tests {
             .expect("neutral target should be created");
 
         let initial_health = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -89229,7 +89230,7 @@ mod tests {
 
         {
             let bomber = game_logic
-                .find_object(bomber_id)
+                .host_object(bomber_id)
                 .expect("bomber should exist");
             assert_eq!(bomber.ai_state, AIState::SpecialAbility);
             assert_eq!(bomber.target, Some(target_id));
@@ -89237,7 +89238,7 @@ mod tests {
 
         {
             let bomber = game_logic
-                .find_object_mut(bomber_id)
+                .host_object_mut(bomber_id)
                 .expect("bomber should exist");
             bomber.set_position(Vec3::new(2.0, 0.0, 0.0));
             bomber.set_ai_state(AIState::SpecialAbility);
@@ -89246,7 +89247,7 @@ mod tests {
         game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
 
         let target_after_contact = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist");
         assert_eq!(
             target_after_contact.health.current, initial_health,
@@ -89259,7 +89260,7 @@ mod tests {
         assert_eq!(target_after_contact.team, Team::USA);
 
         let bomber = game_logic
-            .find_object(bomber_id)
+            .host_object(bomber_id)
             .expect("bomber should exist");
         assert!(bomber.status.destroyed);
     }
@@ -89280,7 +89281,7 @@ mod tests {
 
         {
             let car = game_logic
-                .find_object_mut(car_id)
+                .host_object_mut(car_id)
                 .expect("car should exist");
             car.apply_convert_to_car_bomb();
             car.set_team(Team::GLA);
@@ -89294,7 +89295,7 @@ mod tests {
         game_logic.car_bomb.record_conversion();
 
         let structure_hp_before = game_logic
-            .find_object(structure_id)
+            .host_object(structure_id)
             .expect("structure should exist")
             .health
             .current;
@@ -89305,7 +89306,7 @@ mod tests {
         game_logic.update_combat(&[car_id, structure_id], 1.0 / 30.0);
 
         let structure_after = game_logic
-            .find_object(structure_id)
+            .host_object(structure_id)
             .expect("structure should exist");
         assert!(
             structure_after.health.current < structure_hp_before
@@ -89320,7 +89321,7 @@ mod tests {
             game_logic.car_bomb_residual().detonation_damage_dealt
         );
 
-        let car = game_logic.find_object(car_id).expect("car should exist");
+        let car = game_logic.host_object(car_id).expect("car should exist");
         assert!(
             car.status.destroyed || !car.is_alive(),
             "car bomb destroys itself on detonation"
@@ -89341,7 +89342,7 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker should exist");
             attacker.attack_target(target_id);
             if let Some(weapon) = attacker.weapon.as_mut() {
@@ -89355,7 +89356,7 @@ mod tests {
         game_logic.update_combat(&[attacker_id, target_id], 1.0 / 60.0);
 
         let attacker = game_logic
-            .find_object(attacker_id)
+            .host_object(attacker_id)
             .expect("attacker should exist");
         let chase_target = attacker
             .movement
@@ -89383,13 +89384,13 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker should exist");
             attacker.attack_target(target_id);
         }
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target should exist");
             target.status.destroyed = true;
         }
@@ -89398,7 +89399,7 @@ mod tests {
         game_logic.update_combat(&[attacker_id, target_id], 1.0 / 60.0);
 
         let attacker = game_logic
-            .find_object(attacker_id)
+            .host_object(attacker_id)
             .expect("attacker should exist");
         assert!(attacker.target.is_none(), "dead targets should be cleared");
         assert_eq!(attacker.ai_state, AIState::Idle);
@@ -89507,7 +89508,7 @@ mod tests {
             "queued AI production should charge exactly once"
         );
         let queue = &game_logic
-            .find_object(factory_id)
+            .host_object(factory_id)
             .and_then(|factory| factory.building_data.as_ref())
             .expect("factory should have building data")
             .production_queue;
@@ -89561,13 +89562,13 @@ mod tests {
         // One queue entry pays once, QuantityModifier yields two exits.
         assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
         let qlen = logic
-            .get_object(bid)
+            .host_object(bid)
             .and_then(|o| o.building_data.as_ref())
             .map(|b| b.production_queue.len())
             .unwrap_or(0);
         assert_eq!(qlen, 1, "single queue entry for modifier batch");
         let qty = logic
-            .get_object(bid)
+            .host_object(bid)
             .and_then(|o| o.building_data.as_ref())
             .and_then(|b| b.production_queue.first())
             .map(|i| i.quantity_total)
@@ -89579,7 +89580,7 @@ mod tests {
             logic.update();
         }
         let living = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
             .count();
@@ -89589,14 +89590,14 @@ mod tests {
         );
         // Queue empty after batch.
         let qlen_end = logic
-            .get_object(bid)
+            .host_object(bid)
             .and_then(|o| o.building_data.as_ref())
             .map(|b| b.production_queue.len())
             .unwrap_or(99);
         assert_eq!(qlen_end, 0);
         // Exit path residual: units should be Moving toward natural/doubled rally.
         let moving = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| {
                 o.template_name.contains("Redguard")
@@ -89693,14 +89694,14 @@ mod tests {
             logic.update();
         }
         let living = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
             .count();
         assert!(living >= 1, "first redguard should spawn, living={living}");
         // Exit delay armed residual.
         let delay = logic
-            .get_object(bid)
+            .host_object(bid)
             .and_then(|o| o.building_data.as_ref())
             .map(|b| b.exit_delay_remaining())
             .unwrap_or(0.0);
@@ -89709,14 +89710,14 @@ mod tests {
             "ChinaBarracks should arm exit delay after first release, delay={delay}"
         );
         let living_mid = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
             .count();
         // Immediate next frame should still hold second unit if progress complete.
         logic.update();
         let living_held = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
             .count();
@@ -89729,7 +89730,7 @@ mod tests {
             logic.update();
         }
         let living_end = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
             .count();
@@ -89961,7 +89962,7 @@ mod tests {
         );
         assert_eq!(
             game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .and_then(|building| building.building_data.as_ref())
                 .expect("barracks should have building data")
                 .production_queue
@@ -89981,7 +89982,7 @@ mod tests {
         );
         assert_eq!(
             game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .and_then(|building| building.building_data.as_ref())
                 .expect("barracks should have building data")
                 .production_queue
@@ -90004,7 +90005,7 @@ mod tests {
         assert!(!game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
         assert_eq!(
             game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .and_then(|building| building.building_data.as_ref())
                 .expect("barracks should have building data")
                 .production_queue
@@ -90030,7 +90031,7 @@ mod tests {
         assert!(!game_logic.cancel_production(barracks_id, "TestInfantry".to_string()));
         assert_eq!(
             game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .and_then(|building| building.building_data.as_ref())
                 .expect("barracks should have building data")
                 .production_queue
@@ -90084,7 +90085,7 @@ mod tests {
         let mut removed = false;
         for _ in 0..600 {
             game_logic.update();
-            if game_logic.find_object(barracks_id).is_none() {
+            if game_logic.host_object(barracks_id).is_none() {
                 removed = true;
                 break;
             }
@@ -90109,7 +90110,7 @@ mod tests {
 
         game_logic.frame = 60; // t=1s, enough for first shot with reload_time 0.25
         let health_before = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -90117,7 +90118,7 @@ mod tests {
         game_logic.update_combat(&[attacker_id, target_id], 1.0 / 60.0);
 
         let health_after = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("target should exist")
             .health
             .current;
@@ -90138,7 +90139,7 @@ mod tests {
 
         game_logic.frame = 60; // t=1s
         let last_fire_before = game_logic
-            .find_object(attacker_id)
+            .host_object(attacker_id)
             .and_then(|obj| obj.weapon.as_ref())
             .map(|weapon| weapon.last_fire_time)
             .unwrap_or_default();
@@ -90146,7 +90147,7 @@ mod tests {
         game_logic.update_combat(&[attacker_id], 1.0 / 60.0);
 
         let last_fire_after = game_logic
-            .find_object(attacker_id)
+            .host_object(attacker_id)
             .and_then(|obj| obj.weapon.as_ref())
             .map(|weapon| weapon.last_fire_time)
             .unwrap_or_default();
@@ -90170,7 +90171,7 @@ mod tests {
 
         game_logic.frame = 60; // t=1s
         let health_before = game_logic
-            .find_object(friendly_id)
+            .host_object(friendly_id)
             .expect("friendly should exist")
             .health
             .current;
@@ -90178,7 +90179,7 @@ mod tests {
         game_logic.update_combat(&[attacker_id, friendly_id], 1.0 / 60.0);
 
         let health_after = game_logic
-            .find_object(friendly_id)
+            .host_object(friendly_id)
             .expect("friendly should exist")
             .health
             .current;
@@ -90455,19 +90456,19 @@ mod tests {
             .expect("baseline unit should be created");
         {
             let obj = baseline
-                .find_object_mut(baseline_unit)
+                .host_object_mut(baseline_unit)
                 .expect("baseline unit should exist");
             obj.move_to(Vec3::new(120.0, 0.0, 0.0));
             obj.movement.max_speed = 60.0;
             obj.movement.acceleration = 3600.0;
         }
         let baseline_before = baseline
-            .find_object(baseline_unit)
+            .host_object(baseline_unit)
             .expect("baseline unit should exist")
             .get_position();
         baseline.update_with_dt(1.0 / 30.0);
         let baseline_after = baseline
-            .find_object(baseline_unit)
+            .host_object(baseline_unit)
             .expect("baseline unit should exist")
             .get_position();
         assert!(
@@ -90483,7 +90484,7 @@ mod tests {
             .expect("frozen unit should be created");
         {
             let obj = frozen
-                .find_object_mut(frozen_unit)
+                .host_object_mut(frozen_unit)
                 .expect("frozen unit should exist");
             obj.move_to(Vec3::new(120.0, 0.0, 0.0));
             obj.movement.max_speed = 60.0;
@@ -90504,12 +90505,12 @@ mod tests {
         assert!(frozen.is_time_frozen_for_simulation());
 
         let frozen_before = frozen
-            .find_object(frozen_unit)
+            .host_object(frozen_unit)
             .expect("frozen unit should exist")
             .get_position();
         frozen.update_with_dt(1.0 / 60.0);
         let frozen_after = frozen
-            .find_object(frozen_unit)
+            .host_object(frozen_unit)
             .expect("frozen unit should exist")
             .get_position();
         assert!(
@@ -91174,7 +91175,7 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker exists");
             attacker.attack_target(target_id);
             attacker.weapon = Some(Weapon {
@@ -91187,7 +91188,7 @@ mod tests {
         }
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
@@ -91215,7 +91216,7 @@ mod tests {
         game_logic.process_destroy_list();
 
         assert!(
-            game_logic.find_object(target_id).is_none(),
+            game_logic.host_object(target_id).is_none(),
             "target must be removed after kill"
         );
         assert!(
@@ -91310,7 +91311,7 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker exists");
             attacker.attack_target(target_id);
             attacker.weapon = Some(Weapon {
@@ -91323,7 +91324,7 @@ mod tests {
         }
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
@@ -91334,7 +91335,7 @@ mod tests {
         game_logic.process_destroy_list();
 
         assert!(
-            game_logic.find_object(target_id).is_none(),
+            game_logic.host_object(target_id).is_none(),
             "target must be removed after kill"
         );
 
@@ -91402,7 +91403,7 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker exists");
             attacker.attack_target(target_id);
             attacker.weapon = Some(Weapon {
@@ -91415,7 +91416,7 @@ mod tests {
         }
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
@@ -91472,7 +91473,7 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker exists");
             attacker.attack_target(target_id);
             attacker.weapon = Some(Weapon {
@@ -91488,7 +91489,7 @@ mod tests {
         game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
 
         assert!(
-            game_logic.find_object(target_id).is_some(),
+            game_logic.host_object(target_id).is_some(),
             "target should survive low damage"
         );
         assert_eq!(
@@ -91521,7 +91522,7 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker exists");
             attacker.attack_target(target_id);
             attacker.weapon = Some(Weapon {
@@ -91577,7 +91578,7 @@ mod tests {
 
         {
             let attacker = game_logic
-                .find_object_mut(attacker_id)
+                .host_object_mut(attacker_id)
                 .expect("attacker exists");
             attacker.attack_target(target_id);
             attacker.weapon = Some(Weapon {
@@ -91590,7 +91591,7 @@ mod tests {
         }
         {
             let target = game_logic
-                .find_object_mut(target_id)
+                .host_object_mut(target_id)
                 .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
@@ -91629,7 +91630,7 @@ mod tests {
         assert_eq!(die.object_id, Some(target_id));
         assert!(die.position.is_some(), "death audio must be positional");
         assert!(
-            game_logic.find_object(target_id).is_none(),
+            game_logic.host_object(target_id).is_none(),
             "target must be removed after kill"
         );
     }
@@ -91663,25 +91664,25 @@ mod tests {
             .expect("friend");
 
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 500.0;
             enemy.health.maximum = 500.0;
             enemy.thing.template.armor = 0.0;
         }
         {
-            let friend = game_logic.find_object_mut(friend_id).expect("friend");
+            let friend = game_logic.host_object_mut(friend_id).expect("friend");
             friend.health.current = 500.0;
             friend.health.maximum = 500.0;
             friend.thing.template.armor = 0.0;
         }
         {
-            let far = game_logic.find_object_mut(far_enemy_id).expect("far");
+            let far = game_logic.host_object_mut(far_enemy_id).expect("far");
             far.health.current = 500.0;
             far.health.maximum = 500.0;
             far.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -91708,7 +91709,7 @@ mod tests {
                 .honesty_queue_ok(HostSuperweaponKind::DaisyCutter),
             "DaisyCutter must queue a pending host strike"
         );
-        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        let caster = game_logic.host_object(caster_id).expect("caster after cmd");
         assert!(!caster.special_power_ready);
         assert!(caster.special_power_cooldown_remaining > 0.0);
         assert_eq!(caster.ai_state, AIState::SpecialAbility);
@@ -91721,11 +91722,11 @@ mod tests {
         );
 
         // Before impact delay: no damage.
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.frame = 89;
         game_logic.update_special_power_strikes();
         assert_eq!(
-            game_logic.find_object(enemy_id).unwrap().health.current,
+            game_logic.host_object(enemy_id).unwrap().health.current,
             health_before,
             "no damage before impact frame"
         );
@@ -91750,7 +91751,7 @@ mod tests {
             "host path honesty requires completed strike"
         );
 
-        let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
         // Epicenter damage is large enough to kill residual test tank or leave 0.
         let enemy_dealt = test_observed_damage_to(enemy_id, 500.0, enemy_after.unwrap_or(0.0));
         assert!(
@@ -91758,7 +91759,7 @@ mod tests {
                 || enemy_after.is_none()
                 || enemy_after == Some(0.0)
                 || game_logic
-                    .find_object(enemy_id)
+                    .host_object(enemy_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
             "enemy at epicenter must take lethal DaisyCutter residual damage (dealt={enemy_dealt})"
@@ -91767,21 +91768,21 @@ mod tests {
             friend_id,
             500.0,
             game_logic
-                .find_object(friend_id)
+                .host_object(friend_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0),
         );
         assert!(
             friend_dealt > 0.0
                 || game_logic
-                    .find_object(friend_id)
+                    .host_object(friend_id)
                     .map(|o| o.health.current < 500.0 || o.status.destroyed)
                     .unwrap_or(true),
             "friendly units take DaisyCutter residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
-                .find_object(far_enemy_id)
+                .host_object(far_enemy_id)
                 .map(|o| (o.health.current - 500.0).abs() < 0.1)
                 .unwrap_or(false),
             "enemies outside radius must be untouched"
@@ -91832,13 +91833,13 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 200.0;
             enemy.health.maximum = 200.0;
             enemy.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -91916,13 +91917,13 @@ mod tests {
             .expect("friend");
 
         for id in [enemy_center_id, enemy_outer_id, far_enemy_id, friend_id] {
-            let obj = game_logic.find_object_mut(id).expect("obj");
+            let obj = game_logic.host_object_mut(id).expect("obj");
             obj.health.current = 500.0;
             obj.health.maximum = 500.0;
             obj.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -91947,7 +91948,7 @@ mod tests {
                 .honesty_queue_ok(HostSuperweaponKind::CarpetBomb),
             "CarpetBomb must queue a pending host strike"
         );
-        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        let caster = game_logic.host_object(caster_id).expect("caster after cmd");
         assert!(!caster.special_power_ready);
         assert_eq!(caster.ai_state, AIState::SpecialAbility);
         assert!(
@@ -91960,12 +91961,12 @@ mod tests {
 
         // Before impact delay: no damage.
         let health_before_center = game_logic
-            .find_object(enemy_center_id)
+            .host_object(enemy_center_id)
             .unwrap()
             .health
             .current;
         let health_before_outer = game_logic
-            .find_object(enemy_outer_id)
+            .host_object(enemy_outer_id)
             .unwrap()
             .health
             .current;
@@ -91973,7 +91974,7 @@ mod tests {
         game_logic.update_special_power_strikes();
         assert_eq!(
             game_logic
-                .find_object(enemy_center_id)
+                .host_object(enemy_center_id)
                 .unwrap()
                 .health
                 .current,
@@ -91982,7 +91983,7 @@ mod tests {
         );
         assert_eq!(
             game_logic
-                .find_object(enemy_outer_id)
+                .host_object(enemy_outer_id)
                 .unwrap()
                 .health
                 .current,
@@ -92040,10 +92041,10 @@ mod tests {
         );
 
         let center_hp = game_logic
-            .find_object(enemy_center_id)
+            .host_object(enemy_center_id)
             .map(|o| o.health.current);
         let outer_hp = game_logic
-            .find_object(enemy_outer_id)
+            .host_object(enemy_outer_id)
             .map(|o| o.health.current);
         // Epicenter residual damage = CARPET_BOMB_DAMAGE (300) per bomb hit.
         let center_dealt = test_observed_damage_to(
@@ -92059,7 +92060,7 @@ mod tests {
                 || center_hp.map(|h| h < health_before_center - CARPET_BOMB_DAMAGE + 1.0) == Some(true)
                 || center_hp == Some(0.0)
                 || game_logic
-                    .find_object(enemy_center_id)
+                    .host_object(enemy_center_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
             "enemy at center bomb line must take carpet bomb residual damage, got {center_hp:?} dealt={center_dealt}"
@@ -92070,7 +92071,7 @@ mod tests {
                 || outer_hp.map(|h| h < health_before_outer - CARPET_BOMB_DAMAGE + 1.0) == Some(true)
                 || outer_hp == Some(0.0)
                 || game_logic
-                    .find_object(enemy_outer_id)
+                    .host_object(enemy_outer_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
             "enemy on outer bomb epicenter must take multi-strike residual damage, got {outer_hp:?} dealt={outer_dealt}"
@@ -92079,21 +92080,21 @@ mod tests {
             friend_id,
             500.0,
             game_logic
-                .find_object(friend_id)
+                .host_object(friend_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0),
         );
         assert!(
             friend_dealt > 0.0
                 || game_logic
-                    .find_object(friend_id)
+                    .host_object(friend_id)
                     .map(|o| o.health.current < 500.0 || o.status.destroyed)
                     .unwrap_or(true),
             "friendly units take CarpetBomb residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
-                .find_object(far_enemy_id)
+                .host_object(far_enemy_id)
                 .map(|o| (o.health.current - 500.0).abs() < 0.1)
                 .unwrap_or(false),
             "enemies off the bomb line must be untouched"
@@ -92174,13 +92175,13 @@ mod tests {
             .expect("friend");
 
         for id in [enemy_center_id, enemy_outer_id, far_enemy_id, friend_id] {
-            let obj = game_logic.find_object_mut(id).expect("obj");
+            let obj = game_logic.host_object_mut(id).expect("obj");
             obj.health.current = 500.0;
             obj.health.maximum = 500.0;
             obj.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -92205,7 +92206,7 @@ mod tests {
                 .honesty_queue_ok(HostSuperweaponKind::ArtilleryBarrage),
             "ArtilleryBarrage must queue a pending host strike"
         );
-        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        let caster = game_logic.host_object(caster_id).expect("caster after cmd");
         assert!(!caster.special_power_ready);
         assert_eq!(caster.ai_state, AIState::SpecialAbility);
         assert!(
@@ -92218,12 +92219,12 @@ mod tests {
 
         // Before impact delay: no damage.
         let health_before_center = game_logic
-            .find_object(enemy_center_id)
+            .host_object(enemy_center_id)
             .unwrap()
             .health
             .current;
         let health_before_outer = game_logic
-            .find_object(enemy_outer_id)
+            .host_object(enemy_outer_id)
             .unwrap()
             .health
             .current;
@@ -92231,7 +92232,7 @@ mod tests {
         game_logic.update_special_power_strikes();
         assert_eq!(
             game_logic
-                .find_object(enemy_center_id)
+                .host_object(enemy_center_id)
                 .unwrap()
                 .health
                 .current,
@@ -92240,7 +92241,7 @@ mod tests {
         );
         assert_eq!(
             game_logic
-                .find_object(enemy_outer_id)
+                .host_object(enemy_outer_id)
                 .unwrap()
                 .health
                 .current,
@@ -92287,10 +92288,10 @@ mod tests {
         );
 
         let center_hp = game_logic
-            .find_object(enemy_center_id)
+            .host_object(enemy_center_id)
             .map(|o| o.health.current);
         let outer_hp = game_logic
-            .find_object(enemy_outer_id)
+            .host_object(enemy_outer_id)
             .map(|o| o.health.current);
         // Epicenter residual damage = ARTILLERY_BARRAGE_DAMAGE (105) per shell hit.
         let center_dealt = test_observed_damage_to(
@@ -92307,7 +92308,7 @@ mod tests {
                     == Some(true)
                 || center_hp == Some(0.0)
                 || game_logic
-                    .find_object(enemy_center_id)
+                    .host_object(enemy_center_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
             "enemy at center shell must take artillery residual damage, got {center_hp:?} dealt={center_dealt}"
@@ -92319,7 +92320,7 @@ mod tests {
                     == Some(true)
                 || outer_hp == Some(0.0)
                 || game_logic
-                    .find_object(enemy_outer_id)
+                    .host_object(enemy_outer_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
             "enemy on outer shell epicenter must take multi-shell residual damage, got {outer_hp:?} dealt={outer_dealt}"
@@ -92328,21 +92329,21 @@ mod tests {
             friend_id,
             500.0,
             game_logic
-                .find_object(friend_id)
+                .host_object(friend_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0),
         );
         assert!(
             friend_dealt > 0.0
                 || game_logic
-                    .find_object(friend_id)
+                    .host_object(friend_id)
                     .map(|o| o.health.current < 500.0 || o.status.destroyed)
                     .unwrap_or(true),
             "friendly units take ArtilleryBarrage residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
-                .find_object(far_enemy_id)
+                .host_object(far_enemy_id)
                 .map(|o| (o.health.current - 500.0).abs() < 0.1)
                 .unwrap_or(false),
             "enemies outside shell scatter must be untouched"
@@ -92416,13 +92417,13 @@ mod tests {
             .expect("friend");
 
         for id in [enemy_id, near_enemy_id, far_enemy_id, friend_id] {
-            let obj = game_logic.find_object_mut(id).expect("obj");
+            let obj = game_logic.host_object_mut(id).expect("obj");
             obj.health.current = 500.0;
             obj.health.maximum = 500.0;
             obj.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -92447,7 +92448,7 @@ mod tests {
                 .honesty_queue_ok(HostSuperweaponKind::CruiseMissile),
             "CruiseMissile must queue a pending host strike"
         );
-        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        let caster = game_logic.host_object(caster_id).expect("caster after cmd");
         assert!(!caster.special_power_ready);
         assert_eq!(caster.ai_state, AIState::SpecialAbility);
         assert!(
@@ -92459,22 +92460,22 @@ mod tests {
         );
 
         // Before impact delay: no damage (loft residual in flight).
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
         let near_health_before = game_logic
-            .find_object(near_enemy_id)
+            .host_object(near_enemy_id)
             .unwrap()
             .health
             .current;
         game_logic.frame = CRUISE_MISSILE_IMPACT_DELAY_FRAMES - 1;
         game_logic.update_special_power_strikes();
         assert_eq!(
-            game_logic.find_object(enemy_id).unwrap().health.current,
+            game_logic.host_object(enemy_id).unwrap().health.current,
             health_before,
             "no damage before cruise missile impact frame"
         );
         assert_eq!(
             game_logic
-                .find_object(near_enemy_id)
+                .host_object(near_enemy_id)
                 .unwrap()
                 .health
                 .current,
@@ -92502,9 +92503,9 @@ mod tests {
             "host path honesty requires completed cruise missile strike"
         );
 
-        let enemy_hp = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let enemy_hp = game_logic.host_object(enemy_id).map(|o| o.health.current);
         let near_hp = game_logic
-            .find_object(near_enemy_id)
+            .host_object(near_enemy_id)
             .map(|o| o.health.current);
         // Epicenter residual damage = CRUISE_MISSILE_DAMAGE (2000) — lethal to 500 HP.
         let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_hp.unwrap_or(0.0));
@@ -92515,7 +92516,7 @@ mod tests {
                 || enemy_hp.is_none()
                 || enemy_hp == Some(0.0)
                 || game_logic
-                    .find_object(enemy_id)
+                    .host_object(enemy_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
             "enemy at epicenter must take lethal CruiseMissile residual damage, got {enemy_hp:?} dealt={enemy_dealt}"
@@ -92530,21 +92531,21 @@ mod tests {
             friend_id,
             500.0,
             game_logic
-                .find_object(friend_id)
+                .host_object(friend_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0),
         );
         assert!(
             friend_dealt > 0.0
                 || game_logic
-                    .find_object(friend_id)
+                    .host_object(friend_id)
                     .map(|o| o.health.current < 500.0 || o.status.destroyed)
                     .unwrap_or(true),
             "friendly units take CruiseMissile residual damage (RadiusDamageAffects ALLIES) dealt={friend_dealt}"
         );
         assert!(
             game_logic
-                .find_object(far_enemy_id)
+                .host_object(far_enemy_id)
                 .map(|o| (o.health.current - 500.0).abs() < 0.1)
                 .unwrap_or(false),
             "enemies outside MOAB radius must be untouched"
@@ -92606,7 +92607,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -92614,7 +92615,7 @@ mod tests {
 
         let target = Vec3::new(200.0, 0.0, 100.0);
         let infantry_count = |gl: &GameLogic| {
-            gl.get_objects()
+            gl.host_objects()
                 .values()
                 .filter(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
                 .count()
@@ -92640,7 +92641,7 @@ mod tests {
                 .honesty_queue_ok(HostParadropKind::AmericaParadrop),
             "Paradrop must queue a pending host mission"
         );
-        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        let caster = game_logic.host_object(caster_id).expect("caster after cmd");
         assert!(!caster.special_power_ready);
         assert!(caster.special_power_cooldown_remaining > 0.0);
         assert_eq!(caster.ai_state, AIState::SpecialAbility);
@@ -92703,7 +92704,7 @@ mod tests {
 
         let mut near_target = 0_u32;
         for id in &completed[0].spawned_unit_ids {
-            let obj = game_logic.find_object(*id).expect("spawned infantry");
+            let obj = game_logic.host_object(*id).expect("spawned infantry");
             assert_eq!(obj.team, Team::USA);
             assert!(
                 obj.thing.template.name == PARADROP_RESIDUAL_TEMPLATE
@@ -92760,14 +92761,14 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
         }
 
         let target = Vec3::new(200.0, 0.0, 100.0);
-        let objects_before = game_logic.get_objects().len();
+        let objects_before = game_logic.host_objects().len();
 
         game_logic.queue_command(GameCommand {
             command_type: CommandType::DoSpecialPower {
@@ -92788,7 +92789,7 @@ mod tests {
                 .honesty_queue_ok(HostAmbushKind::GLARebelAmbush),
             "Ambush must queue a pending host mission"
         );
-        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        let caster = game_logic.host_object(caster_id).expect("caster after cmd");
         assert!(!caster.special_power_ready);
         assert!(caster.special_power_cooldown_remaining > 0.0);
         assert_eq!(caster.ai_state, AIState::SpecialAbility);
@@ -92800,7 +92801,7 @@ mod tests {
             "activation must queue RebelAmbushActivated audio"
         );
         assert_eq!(
-            game_logic.get_objects().len(),
+            game_logic.host_objects().len(),
             objects_before,
             "no infantry before ambush fade delay"
         );
@@ -92811,7 +92812,7 @@ mod tests {
         game_logic.frame = 89;
         game_logic.update_ambushes();
         assert_eq!(
-            game_logic.get_objects().len(),
+            game_logic.host_objects().len(),
             objects_before,
             "still no infantry one frame before spawn"
         );
@@ -92845,7 +92846,7 @@ mod tests {
 
         let mut near_target = 0_u32;
         for id in &completed[0].spawned_unit_ids {
-            let obj = game_logic.find_object(*id).expect("spawned infantry");
+            let obj = game_logic.host_object(*id).expect("spawned infantry");
             assert_eq!(obj.team, Team::GLA);
             assert!(
                 obj.thing.template.name == AMBUSH_RESIDUAL_TEMPLATE
@@ -92874,7 +92875,7 @@ mod tests {
             "spawn must queue RebelAmbushSpawn audio"
         );
         assert_eq!(
-            game_logic.get_objects().len(),
+            game_logic.host_objects().len(),
             objects_before + GLA_AMBUSH1_UNIT_COUNT as usize
         );
     }
@@ -92895,13 +92896,13 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 800.0;
             enemy.health.maximum = 800.0;
             enemy.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -93019,14 +93020,14 @@ mod tests {
             .create_object("TestTank", Team::GLA, first_pulse_pos)
             .expect("enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             // Survive first pulse so multi-pulse residual is observable.
             enemy.health.current = 500.0;
             enemy.health.maximum = 500.0;
             enemy.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -93051,11 +93052,11 @@ mod tests {
             "beam must not spawn before charge residual completes"
         );
 
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.frame = 119;
         game_logic.update_special_power_strikes();
         assert_eq!(
-            game_logic.find_object(enemy_id).unwrap().health.current,
+            game_logic.host_object(enemy_id).unwrap().health.current,
             health_before,
             "no beam damage before charge residual frame 120"
         );
@@ -93081,7 +93082,7 @@ mod tests {
         );
 
         let after_first = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         let first_dealt = test_observed_damage_to(enemy_id, health_before, after_first);
@@ -93104,7 +93105,7 @@ mod tests {
         game_logic.frame = 120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES;
         game_logic.update_special_power_strikes();
         let after_second = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         let second_dealt = test_observed_damage_to(enemy_id, after_first, after_second);
@@ -93230,7 +93231,7 @@ mod tests {
             .create_object("USA_Ambulance", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ambulance");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -93262,7 +93263,7 @@ mod tests {
             .place_land_mine(Team::GLA, Vec3::new(15.0, 0.0, 0.0), Some(anthrax_caster))
             .expect("mine");
         assert!(game_logic
-            .find_object(mine_id)
+            .host_object(mine_id)
             .and_then(|o| o.mine_data.as_ref())
             .is_some());
 
@@ -93314,7 +93315,7 @@ mod tests {
         );
         // Mine disarmed (detonated residual bookkeeping) and queued for destroy.
         let mine_disarmed = game_logic
-            .find_object(mine_id)
+            .host_object(mine_id)
             .and_then(|o| o.mine_data.as_ref())
             .map(|d| d.detonated)
             .unwrap_or(true);
@@ -93324,9 +93325,9 @@ mod tests {
         );
         game_logic.process_destroy_list();
         assert!(
-            game_logic.find_object(mine_id).is_none()
+            game_logic.host_object(mine_id).is_none()
                 || game_logic
-                    .find_object(mine_id)
+                    .host_object(mine_id)
                     .map(|o| !o.is_alive() || o.status.destroyed)
                     .unwrap_or(true),
             "disarmed mine must leave destroy residual"
@@ -93364,7 +93365,7 @@ mod tests {
             .create_object("USA_Ambulance", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ambulance");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -93419,14 +93420,14 @@ mod tests {
             .expect("far enemy");
 
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 800.0;
             enemy.health.maximum = 800.0;
             enemy.thing.template.armor = 0.0;
         }
         {
             let v = game_logic
-                .find_object_mut(rad_victim_id)
+                .host_object_mut(rad_victim_id)
                 .expect("rad victim");
             // Blast falloff at 150: inner 60, outer 210 → t=(150-60)/150=0.6 → dmg=3500*0.4=1400
             v.health.current = 5000.0;
@@ -93434,13 +93435,13 @@ mod tests {
             v.thing.template.armor = 0.0;
         }
         {
-            let far = game_logic.find_object_mut(far_id).expect("far");
+            let far = game_logic.host_object_mut(far_id).expect("far");
             far.health.current = 500.0;
             far.health.maximum = 500.0;
             far.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -93482,16 +93483,16 @@ mod tests {
         );
 
         // Before impact delay: no damage.
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
         let rad_before = game_logic
-            .find_object(rad_victim_id)
+            .host_object(rad_victim_id)
             .unwrap()
             .health
             .current;
         game_logic.frame = 179;
         game_logic.update_special_power_strikes();
         assert_eq!(
-            game_logic.find_object(enemy_id).unwrap().health.current,
+            game_logic.host_object(enemy_id).unwrap().health.current,
             health_before,
             "no blast damage before impact frame 180"
         );
@@ -93535,7 +93536,7 @@ mod tests {
             game_logic.update_nuclear_radiation_fields();
         }
 
-        let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
         let enemy_dealt =
             test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
         assert!(
@@ -93543,7 +93544,7 @@ mod tests {
                 || enemy_after.is_none()
                 || enemy_after == Some(0.0)
                 || game_logic
-                    .find_object(enemy_id)
+                    .host_object(enemy_id)
                     .map(|o| o.status.destroyed || !o.is_alive())
                     .unwrap_or(true),
             "enemy at epicenter must take lethal NuclearMissile multi-blast residual damage (dealt={enemy_dealt}, after={enemy_after:?})"
@@ -93551,7 +93552,7 @@ mod tests {
 
         // Radiation victim took multi-blast falloff and/or radiation ticks.
         let rad_after = game_logic
-            .find_object(rad_victim_id)
+            .host_object(rad_victim_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         let rad_dealt = test_observed_damage_to(rad_victim_id, rad_before, rad_after);
@@ -93562,7 +93563,7 @@ mod tests {
         // Far unit untouched.
         assert!(
             game_logic
-                .find_object(far_id)
+                .host_object(far_id)
                 .map(|o| (o.health.current - 500.0).abs() < 0.1)
                 .unwrap_or(false),
             "enemies outside blast/radiation radius must be untouched"
@@ -93592,7 +93593,7 @@ mod tests {
 
         // Second radiation tick after interval: more residual damage if still alive.
         let rad_mid = game_logic
-            .find_object(rad_victim_id)
+            .host_object(rad_victim_id)
             .map(|o| o.health.current);
         if let Some(mid_hp) = rad_mid {
             crate::game_logic::host_damage_log::clear();
@@ -93601,7 +93602,7 @@ mod tests {
             game_logic.update_special_power_strikes();
             game_logic.update_nuclear_radiation_fields();
             let rad_later = game_logic
-                .find_object(rad_victim_id)
+                .host_object(rad_victim_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0);
             let tick_dealt = test_observed_damage_to(rad_victim_id, mid_hp, rad_later);
@@ -93609,7 +93610,7 @@ mod tests {
                 tick_dealt + 0.1 >= NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
                     || rad_later < mid_hp - NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
                     || rad_later == 0.0
-                    || game_logic.find_object(rad_victim_id).is_none(),
+                    || game_logic.host_object(rad_victim_id).is_none(),
                 "second radiation tick must apply residual damage (mid={mid_hp}, later={rad_later}, dealt={tick_dealt})"
             );
             assert!(
@@ -93675,20 +93676,20 @@ mod tests {
             .expect("far enemy");
 
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             // Enough HP for multiple howitzer residual ticks.
             enemy.health.current = 500.0;
             enemy.health.maximum = 500.0;
             enemy.thing.template.armor = 0.0;
         }
         {
-            let far = game_logic.find_object_mut(far_id).expect("far");
+            let far = game_logic.host_object_mut(far_id).expect("far");
             far.health.current = 500.0;
             far.health.maximum = 500.0;
             far.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -93727,11 +93728,11 @@ mod tests {
         );
 
         // Before insertion delay: no damage.
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.frame = 89;
         game_logic.update_special_power_strikes();
         assert_eq!(
-            game_logic.find_object(enemy_id).unwrap().health.current,
+            game_logic.host_object(enemy_id).unwrap().health.current,
             health_before,
             "no orbit damage before insertion frame 90"
         );
@@ -93761,7 +93762,7 @@ mod tests {
         );
 
         let enemy_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_after);
@@ -93784,7 +93785,7 @@ mod tests {
         // Far unit untouched.
         assert!(
             game_logic
-                .find_object(far_id)
+                .host_object(far_id)
                 .map(|o| (o.health.current - 500.0).abs() < 0.1)
                 .unwrap_or(false),
             "enemies outside AttackAreaRadius must be untouched"
@@ -93807,14 +93808,14 @@ mod tests {
 
         // Second orbit tick after interval: more residual damage over time.
         let mid_hp = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|o| o.health.current)
             .expect("enemy still alive for second tick");
         crate::game_logic::host_damage_log::clear();
         game_logic.frame = 90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES;
         game_logic.update_special_power_strikes();
         let later_hp = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         let tick_dealt = test_observed_damage_to(enemy_id, mid_hp, later_hp);
@@ -93822,7 +93823,7 @@ mod tests {
             tick_dealt + 0.1 >= SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5
                 || later_hp < mid_hp - SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5
                 || later_hp == 0.0
-                || game_logic.find_object(enemy_id).is_none(),
+                || game_logic.host_object(enemy_id).is_none(),
             "second orbit tick must apply residual damage over time (mid={mid_hp}, later={later_hp}, dealt={tick_dealt})"
         );
         assert!(
@@ -93878,7 +93879,7 @@ mod tests {
             .expect("far enemy");
 
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             // Blast = 200; keep HP so we can also observe toxin if still alive.
             enemy.health.current = 100.0;
             enemy.health.maximum = 100.0;
@@ -93886,20 +93887,20 @@ mod tests {
         }
         {
             let v = game_logic
-                .find_object_mut(tox_victim_id)
+                .host_object_mut(tox_victim_id)
                 .expect("tox victim");
             v.health.current = 500.0;
             v.health.maximum = 500.0;
             v.thing.template.armor = 0.0;
         }
         {
-            let far = game_logic.find_object_mut(far_id).expect("far");
+            let far = game_logic.host_object_mut(far_id).expect("far");
             far.health.current = 500.0;
             far.health.maximum = 500.0;
             far.thing.template.armor = 0.0;
         }
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.special_power_cooldown = 10.0;
@@ -93938,16 +93939,16 @@ mod tests {
         );
 
         // Before impact delay: no damage.
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
         let tox_before = game_logic
-            .find_object(tox_victim_id)
+            .host_object(tox_victim_id)
             .unwrap()
             .health
             .current;
         game_logic.frame = 89;
         game_logic.update_special_power_strikes();
         assert_eq!(
-            game_logic.find_object(enemy_id).unwrap().health.current,
+            game_logic.host_object(enemy_id).unwrap().health.current,
             health_before,
             "no blast damage before impact frame 90"
         );
@@ -93977,7 +93978,7 @@ mod tests {
             "host path honesty requires complete blast + toxin spawn"
         );
 
-        let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
         let enemy_dealt =
             test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
         assert!(
@@ -93985,7 +93986,7 @@ mod tests {
                 || enemy_after.is_none()
                 || enemy_after == Some(0.0)
                 || game_logic
-                    .find_object(enemy_id)
+                    .host_object(enemy_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true)
                 || enemy_after.map(|h| h < health_before).unwrap_or(false),
@@ -93994,7 +93995,7 @@ mod tests {
 
         // Toxin victim outside blast radius took toxin tick only.
         let tox_after = game_logic
-            .find_object(tox_victim_id)
+            .host_object(tox_victim_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         let tox_dealt = test_observed_damage_to(tox_victim_id, tox_before, tox_after);
@@ -94005,7 +94006,7 @@ mod tests {
         // Far unit untouched.
         assert!(
             game_logic
-                .find_object(far_id)
+                .host_object(far_id)
                 .map(|o| (o.health.current - 500.0).abs() < 0.1)
                 .unwrap_or(false),
             "enemies outside blast/toxin radius must be untouched"
@@ -94035,14 +94036,14 @@ mod tests {
 
         // Second toxin tick after interval: more residual damage if still alive.
         let tox_mid = game_logic
-            .find_object(tox_victim_id)
+            .host_object(tox_victim_id)
             .map(|o| o.health.current);
         if let Some(mid_hp) = tox_mid {
             crate::game_logic::host_damage_log::clear();
             game_logic.frame = 90 + 15;
             game_logic.update_special_power_strikes();
             let tox_later = game_logic
-                .find_object(tox_victim_id)
+                .host_object(tox_victim_id)
                 .map(|o| o.health.current)
                 .unwrap_or(0.0);
             let tick_dealt = test_observed_damage_to(tox_victim_id, mid_hp, tox_later);
@@ -94050,7 +94051,7 @@ mod tests {
                 tick_dealt + 0.1 >= ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
                     || tox_later < mid_hp - ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
                     || tox_later == 0.0
-                    || game_logic.find_object(tox_victim_id).is_none(),
+                    || game_logic.host_object(tox_victim_id).is_none(),
                 "second toxin tick must apply residual damage (mid={mid_hp}, later={tox_later}, dealt={tick_dealt})"
             );
             assert!(
@@ -94080,7 +94081,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -94104,7 +94105,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -94140,7 +94141,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -94200,7 +94201,7 @@ mod tests {
         // Charge consumed, not a superweapon strike.
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -94246,7 +94247,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -94270,7 +94271,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -94308,7 +94309,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -94376,7 +94377,7 @@ mod tests {
         // Charge consumed, not a superweapon strike.
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -94426,7 +94427,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -94454,7 +94455,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -94548,7 +94549,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -94560,7 +94561,7 @@ mod tests {
             .expect("enemy");
         // Stealthed residual: CIA must make unit detectable.
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.set_status_stealthed(true);
             enemy.set_status_detected(false);
         }
@@ -94576,14 +94577,14 @@ mod tests {
         }
         assert!(
             game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .unwrap()
                 .is_effectively_stealthed(),
             "precondition: enemy starts stealthed+undetected"
         );
         assert!(
             !game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .unwrap()
                 .is_vision_spied_by_player(0),
             "precondition: not vision-spied yet"
@@ -94620,7 +94621,7 @@ mod tests {
         );
         assert!(
             game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .unwrap()
                 .is_vision_spied_by_player(0),
             "enemy Object residual vision_spied_mask must be set"
@@ -94636,7 +94637,7 @@ mod tests {
         }
 
         // Detectable residual: stealthed enemy becomes DETECTED / visible / targetable.
-        let enemy_after = game_logic.find_object(enemy_id).unwrap();
+        let enemy_after = game_logic.host_object(enemy_id).unwrap();
         assert!(
             enemy_after.status.detected,
             "stealthed enemy must become DETECTED residual"
@@ -94662,7 +94663,7 @@ mod tests {
         // Charge consumed, not a superweapon strike.
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -94679,7 +94680,7 @@ mod tests {
         assert!(game_logic.cia_intelligence().expirations() >= 1);
         assert!(
             !game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .unwrap()
                 .is_vision_spied_by_player(0),
             "vision_spied residual mark must clear after expiry"
@@ -94772,7 +94773,7 @@ mod tests {
         let hp_before = logic.host_object(victim).unwrap().health.current;
         logic.update_firewalls();
         let hp_after = logic
-            .find_object(victim)
+            .host_object(victim)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -94843,7 +94844,7 @@ mod tests {
         assert!(logic.fire_walls().honesty_segment_spawn_ok());
         assert!(logic.fire_walls().segments_spawned >= 1);
         let segs: Vec<_> = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.firewall_segment)
             .collect();
@@ -94856,7 +94857,7 @@ mod tests {
         logic.update_firewall_segment_objects();
         for sid in ids {
             assert!(logic
-                .find_object(sid)
+                .host_object(sid)
                 .map(|o| !o.is_alive() || o.status.destroyed)
                 .unwrap_or(true));
         }
@@ -94872,7 +94873,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -94896,7 +94897,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(caster_id)
+                .host_object(caster_id)
                 .unwrap()
                 .special_power_ready
         );
@@ -94926,7 +94927,7 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            let caster = game_logic.host_object_mut(caster_id).expect("caster");
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
             caster.thing.template.armor = 0.0;
@@ -94937,7 +94938,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 100.0;
             enemy.health.maximum = 100.0;
             enemy.thing.template.armor = 0.0;
@@ -94948,7 +94949,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 500.0))
             .expect("far enemy");
         {
-            let far = game_logic.find_object_mut(far_id).expect("far");
+            let far = game_logic.host_object_mut(far_id).expect("far");
             far.health.current = 100.0;
             far.health.maximum = 100.0;
             far.thing.template.armor = 0.0;
@@ -94982,13 +94983,13 @@ mod tests {
             "enemy position must lie in residual fire line"
         );
 
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_before = game_logic.find_object(far_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_before = game_logic.host_object(far_id).unwrap().health.current;
 
         // Immediate tick on activation frame applies damage.
         game_logic.update_firewalls();
-        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_after = game_logic.find_object(far_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_after = game_logic.host_object(far_id).unwrap().health.current;
 
         assert!(
             hp_after < hp_before,
@@ -95013,17 +95014,17 @@ mod tests {
         );
 
         // Second tick only after residual interval.
-        let mid_hp = game_logic.find_object(enemy_id).unwrap().health.current;
+        let mid_hp = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.frame = 1;
         game_logic.update_firewalls();
         assert!(
-            (game_logic.find_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
+            (game_logic.host_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
             "no damage before tick interval"
         );
         game_logic.frame = FIREWALL_TICK_INTERVAL_FRAMES;
         game_logic.update_firewalls();
         assert!(
-            game_logic.find_object(enemy_id).unwrap().health.current < mid_hp,
+            game_logic.host_object(enemy_id).unwrap().health.current < mid_hp,
             "second fire tick after interval must apply more damage"
         );
 
@@ -95077,7 +95078,7 @@ mod tests {
             )
             .expect("inferno cannon");
         {
-            let c = game_logic.find_object(cannon_id).expect("cannon");
+            let c = game_logic.host_object(cannon_id).expect("cannon");
             assert!(
                 is_inferno_cannon_template(&c.template_name),
                 "template name residual must identify Inferno Cannon"
@@ -95104,7 +95105,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 200.0;
             enemy.health.maximum = 200.0;
             enemy.thing.template.armor = 0.0;
@@ -95113,7 +95114,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 500.0))
             .expect("far enemy");
         {
-            let far = game_logic.find_object_mut(far_id).expect("far");
+            let far = game_logic.host_object_mut(far_id).expect("far");
             far.health.current = 200.0;
             far.health.maximum = 200.0;
             far.thing.template.armor = 0.0;
@@ -95121,7 +95122,7 @@ mod tests {
 
         // Ready weapon + attack enemy in range.
         {
-            let c = game_logic.find_object_mut(cannon_id).expect("cannon");
+            let c = game_logic.host_object_mut(cannon_id).expect("cannon");
             c.attack_target(enemy_id);
             if let Some(w) = c.weapon.as_mut() {
                 w.last_fire_time = -100.0;
@@ -95132,8 +95133,8 @@ mod tests {
             c.thing.template.armor = 0.0;
         }
 
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_hp_before = game_logic.find_object(far_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_hp_before = game_logic.host_object(far_id).unwrap().health.current;
 
         game_logic.set_current_frame(10);
         game_logic.update_combat(&[cannon_id, enemy_id, far_id], LOGIC_FRAME_TIMESTEP);
@@ -95141,11 +95142,11 @@ mod tests {
             && !game_logic.honesty_inferno_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(cannon_id)
+                .host_object(cannon_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
             assert!(game_logic
@@ -95183,7 +95184,7 @@ mod tests {
         );
 
         // Shell impact damage may have already reduced HP; capture residual baseline after shot.
-        let hp_after_shot = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after_shot = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             hp_after_shot < enemy_hp_before,
             "shell impact residual must deal damage (before={enemy_hp_before}, after={hp_after_shot})"
@@ -95191,8 +95192,8 @@ mod tests {
 
         // Immediate fire-zone tick on activation frame applies DoT.
         game_logic.update_inferno_fire_zones();
-        let hp_after_dot = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_after = game_logic.find_object(far_id).unwrap().health.current;
+        let hp_after_dot = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_after = game_logic.host_object(far_id).unwrap().health.current;
 
         assert!(
             hp_after_dot < hp_after_shot,
@@ -95218,17 +95219,17 @@ mod tests {
 
         // Second tick only after residual interval (relative to zone spawn frame).
         let zone_frame = game_logic.frame;
-        let mid_hp = game_logic.find_object(enemy_id).unwrap().health.current;
+        let mid_hp = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.frame = zone_frame.saturating_add(1);
         game_logic.update_inferno_fire_zones();
         assert!(
-            (game_logic.find_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
+            (game_logic.host_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
             "no fire DoT before tick interval"
         );
         game_logic.frame = zone_frame.saturating_add(INFERNO_FIRE_TICK_INTERVAL_FRAMES);
         game_logic.update_inferno_fire_zones();
         assert!(
-            game_logic.find_object(enemy_id).unwrap().health.current < mid_hp,
+            game_logic.host_object(enemy_id).unwrap().health.current < mid_hp,
             "second fire tick after interval must apply more damage"
         );
 
@@ -95286,7 +95287,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
         let hp_before = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -95323,7 +95324,7 @@ mod tests {
         logic.process_destroy_list();
 
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -95376,7 +95377,7 @@ mod tests {
             )
             .expect("angry mob nexus");
         {
-            let m = game_logic.find_object(mob_id).expect("mob");
+            let m = game_logic.host_object(mob_id).expect("mob");
             assert!(
                 is_angry_mob_nexus_template(&m.template_name),
                 "template name residual must identify Angry Mob nexus"
@@ -95400,7 +95401,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
             .expect("near enemy");
         {
-            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
             enemy.health.current = 5_000.0;
             enemy.health.maximum = 5_000.0;
             enemy.thing.template.armor = 0.0;
@@ -95409,7 +95410,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 0.0))
             .expect("far enemy");
         {
-            let far = game_logic.find_object_mut(far_id).expect("far");
+            let far = game_logic.host_object_mut(far_id).expect("far");
             far.health.current = 5_000.0;
             far.health.maximum = 5_000.0;
             far.thing.template.armor = 0.0;
@@ -95419,15 +95420,15 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
             .expect("ally");
         {
-            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            let ally = game_logic.host_object_mut(ally_id).expect("ally");
             ally.health.current = 5_000.0;
             ally.health.maximum = 5_000.0;
             ally.thing.template.armor = 0.0;
         }
 
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_hp_before = game_logic.find_object(far_id).unwrap().health.current;
-        let ally_hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_hp_before = game_logic.host_object(far_id).unwrap().health.current;
+        let ally_hp_before = game_logic.host_object(ally_id).unwrap().health.current;
 
         game_logic.set_current_frame(0);
         game_logic.update_angry_mobs();
@@ -95442,7 +95443,7 @@ mod tests {
             Some(ANGRY_MOB_INITIAL_MEMBERS)
         );
 
-        let hp_after_first = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after_first = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             hp_after_first < enemy_hp_before,
             "near enemy must take residual Angry Mob damage on first tick (before={enemy_hp_before}, after={hp_after_first})"
@@ -95454,11 +95455,11 @@ mod tests {
             "first tick damage expected {expected}, got {dealt}"
         );
         assert!(
-            (game_logic.find_object(far_id).unwrap().health.current - far_hp_before).abs() < 0.01,
+            (game_logic.host_object(far_id).unwrap().health.current - far_hp_before).abs() < 0.01,
             "far enemy outside range must not take residual damage"
         );
         assert!(
-            (game_logic.find_object(ally_id).unwrap().health.current - ally_hp_before).abs() < 0.01,
+            (game_logic.host_object(ally_id).unwrap().health.current - ally_hp_before).abs() < 0.01,
             "same-team ally must not take residual Angry Mob damage"
         );
         assert!(
@@ -95471,16 +95472,16 @@ mod tests {
         );
 
         // Second tick only after residual interval (damage over frames).
-        let mid_hp = game_logic.find_object(enemy_id).unwrap().health.current;
+        let mid_hp = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.frame = 1;
         game_logic.update_angry_mobs();
         assert!(
-            (game_logic.find_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
+            (game_logic.host_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
             "no Angry Mob damage before tick interval"
         );
         game_logic.frame = ANGRY_MOB_TICK_INTERVAL_FRAMES;
         game_logic.update_angry_mobs();
-        let hp_after_second = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after_second = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             hp_after_second < mid_hp,
             "second fire tick after interval must apply more damage (mid={mid_hp}, after={hp_after_second})"
@@ -95506,11 +95507,11 @@ mod tests {
 
         // Expanded mob deals more damage on next due tick.
         // Force next tick due: set frame to expand frame (tick also due after interval).
-        let hp_pre_expand_fire = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_pre_expand_fire = game_logic.host_object(enemy_id).unwrap().health.current;
         // Ensure tick is due: advance to a frame past last next_tick.
         game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES + ANGRY_MOB_TICK_INTERVAL_FRAMES;
         game_logic.update_angry_mobs();
-        let hp_post_expand_fire = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_post_expand_fire = game_logic.host_object(enemy_id).unwrap().health.current;
         let expand_dealt = hp_pre_expand_fire - hp_post_expand_fire;
         let expected_expanded = angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS + 1, false);
         // Expand may coincide with tick; accept either expanded damage or that members grew.
@@ -95546,14 +95547,14 @@ mod tests {
             .expect("armed probe enemy");
         {
             let e = game_logic
-                .find_object_mut(armed_enemy_id)
+                .host_object_mut(armed_enemy_id)
                 .expect("armed enemy");
             e.health.current = 500.0;
             e.health.maximum = 500.0;
             e.thing.template.armor = 0.0;
         }
         let hp_pre_armed = game_logic
-            .find_object(armed_enemy_id)
+            .host_object(armed_enemy_id)
             .unwrap()
             .health
             .current;
@@ -95563,7 +95564,7 @@ mod tests {
             .saturating_add(ANGRY_MOB_TICK_INTERVAL_FRAMES + 2);
         game_logic.update_angry_mobs();
         let hp_post_armed = game_logic
-            .find_object(armed_enemy_id)
+            .host_object(armed_enemy_id)
             .unwrap()
             .health
             .current;
@@ -95628,7 +95629,7 @@ mod tests {
             .create_object("AmericaJetAurora", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("aurora");
         {
-            let a = game_logic.find_object(aurora_id).expect("aurora obj");
+            let a = game_logic.host_object(aurora_id).expect("aurora obj");
             assert!(
                 is_aurora_aircraft_template(&a.template_name),
                 "template residual must identify Aurora aircraft"
@@ -95653,14 +95654,14 @@ mod tests {
             .expect("friend");
 
         for id in [enemy_id, near_id, far_id, friend_id] {
-            let obj = game_logic.find_object_mut(id).expect("obj");
+            let obj = game_logic.host_object_mut(id).expect("obj");
             obj.health.current = 500.0;
             obj.health.maximum = 500.0;
             obj.thing.template.armor = 0.0;
         }
 
         {
-            let a = game_logic.find_object_mut(aurora_id).expect("aurora");
+            let a = game_logic.host_object_mut(aurora_id).expect("aurora");
             a.attack_target(enemy_id);
             if let Some(w) = a.weapon.as_mut() {
                 w.last_fire_time = -100.0;
@@ -95670,10 +95671,10 @@ mod tests {
             }
         }
 
-        let enemy_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let near_before = game_logic.find_object(near_id).unwrap().health.current;
-        let far_before = game_logic.find_object(far_id).unwrap().health.current;
-        let friend_before = game_logic.find_object(friend_id).unwrap().health.current;
+        let enemy_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let near_before = game_logic.host_object(near_id).unwrap().health.current;
+        let far_before = game_logic.host_object(far_id).unwrap().health.current;
+        let friend_before = game_logic.host_object(friend_id).unwrap().health.current;
 
         game_logic.set_current_frame(10);
         game_logic.update_combat(
@@ -95701,7 +95702,7 @@ mod tests {
         game_logic.frame = 10 + AURORA_BOMB_DIVE_DELAY_FRAMES - 1;
         game_logic.update_aurora_bombs();
         assert_eq!(
-            game_logic.find_object(enemy_id).unwrap().health.current,
+            game_logic.host_object(enemy_id).unwrap().health.current,
             enemy_before,
             "no damage before Aurora dive impact frame"
         );
@@ -95725,8 +95726,8 @@ mod tests {
             "combined Aurora host path honesty"
         );
 
-        let enemy_hp = game_logic.find_object(enemy_id).map(|o| o.health.current);
-        let near_hp = game_logic.find_object(near_id).map(|o| o.health.current);
+        let enemy_hp = game_logic.host_object(enemy_id).map(|o| o.health.current);
+        let near_hp = game_logic.host_object(near_id).map(|o| o.health.current);
         let enemy_dealt = test_observed_damage_to(enemy_id, enemy_before, enemy_hp.unwrap_or(0.0));
         let near_dealt = test_observed_damage_to(near_id, near_before, near_hp.unwrap_or(0.0));
         assert!(
@@ -95740,11 +95741,11 @@ mod tests {
             "enemy inside Aurora radius must take residual damage, got {near_hp:?} dealt={near_dealt}"
         );
         assert!(
-            (game_logic.find_object(far_id).unwrap().health.current - far_before).abs() < 0.1,
+            (game_logic.host_object(far_id).unwrap().health.current - far_before).abs() < 0.1,
             "far enemy outside radius must not take residual damage"
         );
         // RadiusDamageAffects ALLIES residual: friendly at epicenter takes blast.
-        let friend_hp = game_logic.find_object(friend_id).map(|o| o.health.current);
+        let friend_hp = game_logic.host_object(friend_id).map(|o| o.health.current);
         let friend_dealt =
             test_observed_damage_to(friend_id, friend_before, friend_hp.unwrap_or(0.0));
         assert!(
@@ -95752,13 +95753,13 @@ mod tests {
                 || friend_hp.map(|h| h < friend_before).unwrap_or(true)
                 || friend_hp == Some(0.0)
                 || game_logic
-                    .find_object(friend_id)
+                    .host_object(friend_id)
                     .map(|o| o.status.destroyed)
                     .unwrap_or(true),
             "friendly at epicenter must take Aurora residual damage (ALLIES residual), got {friend_hp:?} dealt={friend_dealt}"
         );
         // last_damage_source residual: victim records Aurora aircraft as killer.
-        if let Some(enemy) = game_logic.find_object(enemy_id) {
+        if let Some(enemy) = game_logic.host_object(enemy_id) {
             if !enemy.is_alive() || enemy.health.current < enemy_before {
                 assert_eq!(
                     enemy.last_damage_source,
@@ -95787,13 +95788,13 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
             .expect("fuel enemy");
         {
-            let e = game_logic.find_object_mut(fuel_enemy).expect("e");
+            let e = game_logic.host_object_mut(fuel_enemy).expect("e");
             e.health.current = 1500.0;
             e.health.maximum = 1500.0;
             e.thing.template.armor = 0.0;
         }
         {
-            let a = game_logic.find_object_mut(fuel_id).expect("fuel");
+            let a = game_logic.host_object_mut(fuel_id).expect("fuel");
             a.attack_target(fuel_enemy);
             if let Some(w) = a.weapon.as_mut() {
                 w.last_fire_time = -100.0;
@@ -95819,12 +95820,12 @@ mod tests {
             AIRF_AURORA_BOMB_GAS_OBJECT, FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES,
         };
 
-        let fuel_before = game_logic.find_object(fuel_enemy).unwrap().health.current;
+        let fuel_before = game_logic.host_object(fuel_enemy).unwrap().health.current;
         // Dive impact spawns gas SpecialObject; primary blast waits for SlowDeath FINAL.
         game_logic.frame = 1000 + AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES - 1;
         game_logic.update_aurora_bombs();
         assert_eq!(
-            game_logic.find_object(fuel_enemy).unwrap().health.current,
+            game_logic.host_object(fuel_enemy).unwrap().health.current,
             fuel_before,
             "no FuelAir damage before dive/gas spawn frame"
         );
@@ -95835,13 +95836,13 @@ mod tests {
         assert!(
             game_logic.honesty_aurora_fuel_air_gas_object_ok()
                 || game_logic
-                    .get_objects()
+                    .host_objects()
                     .values()
                     .any(|o| o.template_name == AIRF_AURORA_BOMB_GAS_OBJECT),
             "FuelAir dive must spawn AirF_AuroraBombGas SpecialObject residual"
         );
         assert_eq!(
-            game_logic.find_object(fuel_enemy).unwrap().health.current,
+            game_logic.host_object(fuel_enemy).unwrap().health.current,
             fuel_before,
             "gas path defers primary blast until SlowDeath FINAL"
         );
@@ -95864,7 +95865,7 @@ mod tests {
             game_logic.frame = game_logic.frame.saturating_add(1);
             game_logic.update_fuel_air_gas_slow_death();
         }
-        let fuel_after = game_logic.find_object(fuel_enemy).map(|o| o.health.current);
+        let fuel_after = game_logic.host_object(fuel_enemy).map(|o| o.health.current);
         let fuel_dealt =
             test_observed_damage_to(fuel_enemy, fuel_before, fuel_after.unwrap_or(0.0));
         assert!(
@@ -95910,7 +95911,7 @@ mod tests {
 
         // PRODUCTION_UPGRADE residual sits on the producer queue.
         let (kind, qty, progress) = logic
-            .get_object(barracks_id)
+            .host_object(barracks_id)
             .and_then(|o| o.building_data.as_ref())
             .and_then(|b| b.production_queue.first())
             .map(|i| (i.kind, i.quantity_total, i.progress))
@@ -95945,7 +95946,7 @@ mod tests {
         );
         assert!(
             logic
-                .get_object(barracks_id)
+                .host_object(barracks_id)
                 .and_then(|o| o.building_data.as_ref())
                 .map(|b| b.production_queue.is_empty())
                 .unwrap_or(false),
@@ -95977,7 +95978,7 @@ mod tests {
             .expect("barracks");
         assert!(
             game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .map(|b| b.building_data.is_some() && b.is_constructed())
                 .unwrap_or(false),
             "barracks must be a constructed producer for QueueUpgrade"
@@ -96002,7 +96003,7 @@ mod tests {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         game_logic.process_commands();
-        let captor = game_logic.find_object(captor_id).expect("captor");
+        let captor = game_logic.host_object(captor_id).expect("captor");
         assert_ne!(captor.ai_state, AIState::Capturing);
         assert_ne!(captor.target, Some(building_id));
 
@@ -96065,7 +96066,7 @@ mod tests {
         );
 
         // Infantry should carry upgrade tag after complete.
-        let captor = game_logic.find_object(captor_id).expect("captor tagged");
+        let captor = game_logic.host_object(captor_id).expect("captor tagged");
         assert!(
             captor.has_upgrade_tag(UPGRADE_INFANTRY_CAPTURE),
             "captor must receive capture upgrade tag"
@@ -96085,7 +96086,7 @@ mod tests {
         game_logic.process_commands();
 
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor after unlock");
         assert_eq!(
             captor.ai_state,
@@ -96099,7 +96100,7 @@ mod tests {
         game_logic.update_ai(&[captor_id, building_id], 1.0 / 30.0);
 
         let building = game_logic
-            .find_object(building_id)
+            .host_object(building_id)
             .expect("building after capture");
         assert_eq!(
             building.team,
@@ -96107,7 +96108,7 @@ mod tests {
             "CaptureBuilding residual must transfer ownership after unlock + Capturing"
         );
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor after capture complete");
         assert_eq!(captor.ai_state, AIState::Idle);
         assert!(captor.target.is_none());
@@ -96152,12 +96153,12 @@ mod tests {
         game_logic.process_commands();
 
         {
-            let captor = game_logic.find_object(captor_id).expect("captor after cmd");
+            let captor = game_logic.host_object(captor_id).expect("captor after cmd");
             assert_eq!(captor.ai_state, AIState::Capturing);
             assert_eq!(captor.target, Some(building_id));
         }
         {
-            let building = game_logic.find_object(building_id).expect("building");
+            let building = game_logic.host_object(building_id).expect("building");
             assert_eq!(
                 building.team,
                 Team::GLA,
@@ -96170,7 +96171,7 @@ mod tests {
         for _ in 0..900 {
             game_logic.update();
             if game_logic
-                .find_object(building_id)
+                .host_object(building_id)
                 .map(|b| b.team == Team::USA)
                 .unwrap_or(false)
             {
@@ -96184,7 +96185,7 @@ mod tests {
             "upgraded infantry must walk into range and transfer building ownership"
         );
         let captor = game_logic
-            .find_object(captor_id)
+            .host_object(captor_id)
             .expect("captor after transfer");
         assert_eq!(
             captor.ai_state,
@@ -96233,7 +96234,7 @@ mod tests {
             .create_object("USA_Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ranger");
         {
-            let r = game_logic.find_object(ranger_id).expect("ranger");
+            let r = game_logic.host_object(ranger_id).expect("ranger");
             assert!(
                 r.secondary_weapon.is_none(),
                 "pre-upgrade ranger must lack FlashBang secondary"
@@ -96277,7 +96278,7 @@ mod tests {
             .host_upgrades()
             .honesty_host_path_ok(HostUpgradeKind::FlashBangGrenade));
 
-        let ranger = game_logic.find_object(ranger_id).expect("ranger after");
+        let ranger = game_logic.host_object(ranger_id).expect("ranger after");
         assert!(
             ranger.has_upgrade_tag(UPGRADE_AMERICA_FLASHBANG),
             "ranger must receive FlashBang upgrade tag"
@@ -96343,7 +96344,7 @@ mod tests {
         assert!(game_logic
             .host_upgrades()
             .honesty_host_path_ok(HostUpgradeKind::SupplyLines));
-        let sc = game_logic.find_object(producer_id).expect("sc after");
+        let sc = game_logic.host_object(producer_id).expect("sc after");
         assert!(
             sc.has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES),
             "Supply Lines must tag the supply center"
@@ -96384,7 +96385,7 @@ mod tests {
                     .expect("black market");
                 assert!(
                     game_logic
-                        .find_object(market_id)
+                        .host_object(market_id)
                         .map(|o| o.is_constructed() && o.is_alive())
                         .unwrap_or(false),
                     "market must be alive and constructed"
@@ -96474,7 +96475,7 @@ mod tests {
             .expect("under-construction market");
         assert!(
             game_logic
-                .find_object(market_id)
+                .host_object(market_id)
                 .map(|o| !o.is_constructed())
                 .unwrap_or(false),
             "market must start under construction"
@@ -96594,7 +96595,7 @@ mod tests {
                 .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
                 .expect("dozer");
             {
-                let dozer = game_logic.find_object_mut(dozer_id).expect("dozer mut");
+                let dozer = game_logic.host_object_mut(dozer_id).expect("dozer mut");
                 dozer.set_stored_supplies(CARGO);
                 dozer.set_ai_state(AIState::ReturningResources);
             }
@@ -96609,7 +96610,7 @@ mod tests {
 
             // Carried cargo must be cleared after deposit.
             let remaining = game_logic
-                .find_object(dozer_id)
+                .host_object(dozer_id)
                 .map(|o| o.stored_resources.supplies)
                 .unwrap_or(u32::MAX);
             assert_eq!(remaining, 0, "cargo must clear on drop-off");
@@ -96674,7 +96675,7 @@ mod tests {
             .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("bunker");
 
-        let bunker = game_logic.find_object(bunker_id).expect("bunker");
+        let bunker = game_logic.host_object(bunker_id).expect("bunker");
         assert!(
             bunker.can_contain() && bunker.garrison_capacity() > 0,
             "TestBunker must be residual-garrisonable"
@@ -96694,7 +96695,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry cmd");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry cmd");
         assert_eq!(
             infantry.ai_state,
             AIState::Entering,
@@ -96705,7 +96706,7 @@ mod tests {
         // Walk-into-range residual: close enough that Entering completes this frame.
         game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
 
-        let bunker = game_logic.find_object(bunker_id).expect("bunker after");
+        let bunker = game_logic.host_object(bunker_id).expect("bunker after");
         assert!(
             bunker.contained_units().contains(&infantry_id),
             "bunker must list garrisoned infantry"
@@ -96716,7 +96717,7 @@ mod tests {
             "must respect residual capacity"
         );
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry after");
         assert_eq!(
             infantry.ai_state,
             AIState::Garrisoned,
@@ -96746,14 +96747,14 @@ mod tests {
         // Force enter residual via Entering support-state.
         {
             let unit = game_logic
-                .find_object_mut(infantry_id)
+                .host_object_mut(infantry_id)
                 .expect("infantry mut");
             unit.target = Some(bunker_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().ai_state,
+            game_logic.host_object(infantry_id).unwrap().ai_state,
             AIState::Garrisoned
         );
         assert_eq!(game_logic.garrison_residual_enters(), 1);
@@ -96770,7 +96771,7 @@ mod tests {
         game_logic.process_commands();
 
         let bunker = game_logic
-            .find_object(bunker_id)
+            .host_object(bunker_id)
             .expect("bunker after exit");
         assert!(
             !bunker.contained_units().contains(&infantry_id),
@@ -96778,7 +96779,7 @@ mod tests {
         );
         assert_eq!(bunker.garrison_count(), 0);
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry free");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry free");
         assert_eq!(infantry.ai_state, AIState::Idle);
         assert!(infantry.contained_by.is_none());
         assert!(infantry.target.is_none());
@@ -96805,7 +96806,7 @@ mod tests {
 
         // Shrink residual capacity to 1 for a fast full test.
         {
-            let bunker = game_logic.find_object_mut(bunker_id).expect("bunker mut");
+            let bunker = game_logic.host_object_mut(bunker_id).expect("bunker mut");
             if let Some(data) = bunker.building_data.as_mut() {
                 data.max_garrison = 1;
             }
@@ -96815,13 +96816,13 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
             .expect("first");
         {
-            let unit = game_logic.find_object_mut(first_id).unwrap();
+            let unit = game_logic.host_object_mut(first_id).unwrap();
             unit.target = Some(bunker_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[first_id, bunker_id], 1.0 / 30.0);
         assert!(game_logic
-            .find_object(bunker_id)
+            .host_object(bunker_id)
             .unwrap()
             .contained_units()
             .contains(&first_id));
@@ -96842,7 +96843,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let second = game_logic.find_object(second_id).expect("second after");
+        let second = game_logic.host_object(second_id).expect("second after");
         assert_ne!(
             second.ai_state,
             AIState::Entering,
@@ -96850,7 +96851,7 @@ mod tests {
         );
         assert_ne!(second.target, Some(bunker_id));
         assert_eq!(
-            game_logic.find_object(bunker_id).unwrap().garrison_count(),
+            game_logic.host_object(bunker_id).unwrap().garrison_count(),
             1,
             "capacity stays full at residual max"
         );
@@ -96884,7 +96885,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let tank = game_logic.find_object(tank_id).expect("tank");
+        let tank = game_logic.host_object(tank_id).expect("tank");
         assert_ne!(tank.ai_state, AIState::Entering);
         assert_ne!(tank.target, Some(bunker_id));
     }
@@ -96910,7 +96911,7 @@ mod tests {
 
         // Equip residual weapon + force garrisoned state.
         {
-            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            let unit = game_logic.host_object_mut(infantry_id).unwrap();
             unit.weapon = Some(Weapon {
                 damage: 40.0,
                 range: 100.0,
@@ -96924,19 +96925,19 @@ mod tests {
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
         {
-            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            let bunker = game_logic.host_object_mut(bunker_id).unwrap();
             assert!(bunker.add_occupant(infantry_id));
         }
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
         game_logic.update_combat(&[infantry_id, bunker_id, enemy_id], 1.0 / 30.0);
 
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -96948,12 +96949,12 @@ mod tests {
             "fire-from-garrison residual honesty"
         );
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().ai_state,
+            game_logic.host_object(infantry_id).unwrap().ai_state,
             AIState::Garrisoned,
             "firing must not eject garrisoned unit"
         );
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().contained_by,
+            game_logic.host_object(infantry_id).unwrap().contained_by,
             Some(bunker_id)
         );
     }
@@ -96966,7 +96967,7 @@ mod tests {
         let barracks_id = game_logic
             .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("barracks");
-        let barracks = game_logic.find_object(barracks_id).unwrap();
+        let barracks = game_logic.host_object(barracks_id).unwrap();
         assert!(
             !barracks.can_contain(),
             "faction barracks must not accept residual garrison"
@@ -96991,7 +96992,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
             .expect("infantry");
 
-        let transport = game_logic.find_object(transport_id).expect("transport");
+        let transport = game_logic.host_object(transport_id).expect("transport");
         assert!(
             transport.can_contain() && transport.transport_capacity() == 5,
             "TestTransport must expose residual capacity"
@@ -97010,7 +97011,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry cmd");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry cmd");
         assert_eq!(
             infantry.ai_state,
             AIState::Entering,
@@ -97021,7 +97022,7 @@ mod tests {
         game_logic.update_ai(&[infantry_id, transport_id], 1.0 / 30.0);
 
         let transport = game_logic
-            .find_object(transport_id)
+            .host_object(transport_id)
             .expect("transport after");
         assert!(
             transport.contained_units().contains(&infantry_id),
@@ -97030,7 +97031,7 @@ mod tests {
         assert_eq!(transport.transport_count(), 1);
         assert!(transport.transport_count() <= transport.transport_capacity());
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry after");
         assert_eq!(
             infantry.ai_state,
             AIState::Docked,
@@ -97065,7 +97066,7 @@ mod tests {
         // Load both via Enter residual (walk-into-range completes same frame).
         for unit_id in [unit_a, unit_b] {
             {
-                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
                 unit.target = Some(transport_id);
                 unit.set_ai_state(AIState::Entering);
             }
@@ -97073,7 +97074,7 @@ mod tests {
         }
 
         let transport = game_logic
-            .find_object(transport_id)
+            .host_object(transport_id)
             .expect("transport loaded");
         assert!(
             transport.contained_units().contains(&unit_a)
@@ -97084,7 +97085,7 @@ mod tests {
         assert_eq!(game_logic.transport_residual_loads(), 2);
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            let unit = game_logic.host_object(unit_id).expect("loaded unit");
             assert_eq!(unit.ai_state, AIState::Docked);
             assert_eq!(unit.contained_by, Some(transport_id));
             assert!(!unit.can_move());
@@ -97102,7 +97103,7 @@ mod tests {
         game_logic.process_commands();
 
         let transport = game_logic
-            .find_object(transport_id)
+            .host_object(transport_id)
             .expect("transport empty");
         assert!(
             transport.contained_units().is_empty(),
@@ -97111,7 +97112,7 @@ mod tests {
         assert_eq!(transport.transport_count(), 0);
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            let unit = game_logic.host_object(unit_id).expect("freed unit");
             assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
             assert!(unit.contained_by.is_none(), "contained_by must clear");
             assert!(unit.target.is_none());
@@ -97147,7 +97148,7 @@ mod tests {
 
         for unit_id in [unit_a, unit_b] {
             {
-                let unit = game_logic.find_object_mut(unit_id).unwrap();
+                let unit = game_logic.host_object_mut(unit_id).unwrap();
                 unit.target = Some(transport_id);
                 unit.set_ai_state(AIState::Entering);
             }
@@ -97155,7 +97156,7 @@ mod tests {
         }
         assert_eq!(
             game_logic
-                .find_object(transport_id)
+                .host_object(transport_id)
                 .unwrap()
                 .transport_count(),
             2
@@ -97172,12 +97173,12 @@ mod tests {
         game_logic.process_commands();
 
         assert!(game_logic
-            .find_object(transport_id)
+            .host_object(transport_id)
             .unwrap()
             .contained_units()
             .is_empty());
-        assert!(game_logic.find_object(unit_a).unwrap().can_move());
-        assert!(game_logic.find_object(unit_b).unwrap().can_move());
+        assert!(game_logic.host_object(unit_a).unwrap().can_move());
+        assert!(game_logic.host_object(unit_b).unwrap().can_move());
         assert_eq!(game_logic.transport_residual_unloads(), 2);
     }
 
@@ -97194,13 +97195,13 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
             .expect("first");
         {
-            let unit = game_logic.find_object_mut(first_id).unwrap();
+            let unit = game_logic.host_object_mut(first_id).unwrap();
             unit.target = Some(transport_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[first_id, transport_id], 1.0 / 30.0);
         assert!(game_logic
-            .find_object(transport_id)
+            .host_object(transport_id)
             .unwrap()
             .contained_units()
             .contains(&first_id));
@@ -97221,7 +97222,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let second = game_logic.find_object(second_id).expect("second after");
+        let second = game_logic.host_object(second_id).expect("second after");
         assert_ne!(
             second.ai_state,
             AIState::Entering,
@@ -97230,7 +97231,7 @@ mod tests {
         assert_ne!(second.target, Some(transport_id));
         assert_eq!(
             game_logic
-                .find_object(transport_id)
+                .host_object(transport_id)
                 .unwrap()
                 .transport_count(),
             1
@@ -97256,7 +97257,7 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
             .expect("infantry");
 
-        let overlord = game_logic.find_object(overlord_id).expect("overlord");
+        let overlord = game_logic.host_object(overlord_id).expect("overlord");
         assert!(
             overlord.is_overlord_style_container(),
             "TestOverlord must mark overlord-style residual"
@@ -97280,7 +97281,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry");
         assert_ne!(
             infantry.ai_state,
             AIState::Entering,
@@ -97303,7 +97304,7 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
             .expect("infantry");
 
-        let overlord = game_logic.find_object(overlord_id).expect("overlord");
+        let overlord = game_logic.host_object(overlord_id).expect("overlord");
         assert!(
             overlord.can_contain() && overlord.overlord_bunker_slot_capacity() == 5,
             "BattleBunker residual must expose 5 infantry slots"
@@ -97323,7 +97324,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry cmd");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry cmd");
         assert_eq!(
             infantry.ai_state,
             AIState::Entering,
@@ -97333,7 +97334,7 @@ mod tests {
 
         game_logic.update_ai(&[infantry_id, overlord_id], 1.0 / 30.0);
 
-        let overlord = game_logic.find_object(overlord_id).expect("overlord after");
+        let overlord = game_logic.host_object(overlord_id).expect("overlord after");
         assert!(
             overlord.contained_units().contains(&infantry_id),
             "Overlord bunker residual must list loaded infantry"
@@ -97341,7 +97342,7 @@ mod tests {
         assert_eq!(overlord.transport_count(), 1);
         assert!(overlord.transport_count() <= overlord.transport_capacity());
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry after");
         assert_eq!(
             infantry.ai_state,
             AIState::Docked,
@@ -97380,7 +97381,7 @@ mod tests {
 
         for unit_id in [unit_a, unit_b] {
             {
-                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
                 unit.target = Some(overlord_id);
                 unit.set_ai_state(AIState::Entering);
             }
@@ -97388,7 +97389,7 @@ mod tests {
         }
 
         let overlord = game_logic
-            .find_object(overlord_id)
+            .host_object(overlord_id)
             .expect("overlord loaded");
         assert!(
             overlord.contained_units().contains(&unit_a)
@@ -97399,7 +97400,7 @@ mod tests {
         assert_eq!(game_logic.overlord_bunker_residual_enters(), 2);
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            let unit = game_logic.host_object(unit_id).expect("loaded unit");
             assert_eq!(unit.ai_state, AIState::Docked);
             assert_eq!(unit.contained_by, Some(overlord_id));
             assert!(!unit.can_move());
@@ -97416,7 +97417,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let overlord = game_logic.find_object(overlord_id).expect("overlord empty");
+        let overlord = game_logic.host_object(overlord_id).expect("overlord empty");
         assert!(
             overlord.contained_units().is_empty(),
             "evacuate must clear all Overlord bunker residual occupants"
@@ -97424,7 +97425,7 @@ mod tests {
         assert_eq!(overlord.transport_count(), 0);
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            let unit = game_logic.host_object(unit_id).expect("freed unit");
             assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
             assert!(unit.contained_by.is_none(), "contained_by must clear");
             assert!(unit.target.is_none());
@@ -97461,13 +97462,13 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
             .expect("first");
         {
-            let unit = game_logic.find_object_mut(first_id).unwrap();
+            let unit = game_logic.host_object_mut(first_id).unwrap();
             unit.target = Some(overlord_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[first_id, overlord_id], 1.0 / 30.0);
         assert!(game_logic
-            .find_object(overlord_id)
+            .host_object(overlord_id)
             .unwrap()
             .contained_units()
             .contains(&first_id));
@@ -97488,7 +97489,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let second = game_logic.find_object(second_id).expect("second after");
+        let second = game_logic.host_object(second_id).expect("second after");
         assert_ne!(
             second.ai_state,
             AIState::Entering,
@@ -97497,7 +97498,7 @@ mod tests {
         assert_ne!(second.target, Some(overlord_id));
         assert_eq!(
             game_logic
-                .find_object(overlord_id)
+                .host_object(overlord_id)
                 .unwrap()
                 .transport_count(),
             1
@@ -97528,7 +97529,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let tank = game_logic.find_object(tank_id).expect("tank");
+        let tank = game_logic.host_object(tank_id).expect("tank");
         assert_ne!(
             tank.ai_state,
             AIState::Entering,
@@ -97536,7 +97537,7 @@ mod tests {
         );
         assert_eq!(game_logic.overlord_bunker_residual_enters(), 0);
         assert!(game_logic
-            .find_object(overlord_id)
+            .host_object(overlord_id)
             .unwrap()
             .contained_units()
             .is_empty());
@@ -97575,7 +97576,7 @@ mod tests {
             .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("overlord");
         {
-            let o = game_logic.find_object_mut(overlord_id).unwrap();
+            let o = game_logic.host_object_mut(overlord_id).unwrap();
             assert!(is_overlord_tank_template(&o.template_name));
             assert!(o.is_overlord_style_container());
             assert!(!o.has_overlord_gattling_residual());
@@ -97600,7 +97601,7 @@ mod tests {
         // Install gattling addon residual (upgrade path).
         game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_GATTLING);
         {
-            let o = game_logic.find_object(overlord_id).unwrap();
+            let o = game_logic.host_object(overlord_id).unwrap();
             assert!(
                 o.has_overlord_gattling_residual(),
                 "gattling addon must install"
@@ -97633,11 +97634,11 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
             .expect("infantry");
         let hp_before = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|i| i.health.current)
             .unwrap_or(0.0);
         {
-            let o = game_logic.find_object_mut(overlord_id).unwrap();
+            let o = game_logic.host_object_mut(overlord_id).unwrap();
             o.active_weapon_slot = 0;
             o.attack_target(infantry_id);
             if let Some(w) = o.weapon.as_mut() {
@@ -97650,14 +97651,14 @@ mod tests {
         game_logic.update_combat(&[overlord_id, infantry_id], LOGIC_FRAME_TIMESTEP);
 
         let hp_after = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|i| i.health.current)
             .unwrap_or(0.0);
         let dealt = hp_before - hp_after;
         // 80 primary + 10 passenger gattling residual.
         assert!(
             dealt + 0.01 >= 80.0 + OVERLORD_GATTLING_GROUND_DAMAGE - 1.0
-                || !game_logic.find_object(infantry_id).map(|i| i.is_alive()).unwrap_or(true),
+                || !game_logic.host_object(infantry_id).map(|i| i.is_alive()).unwrap_or(true),
             "expected primary+passenger gattling residual damage, dealt={dealt} before={hp_before} after={hp_after}"
         );
         assert!(
@@ -97684,14 +97685,14 @@ mod tests {
             .create_object("TestAircraft", Team::USA, Vec3::new(40.0, 20.0, 0.0))
             .expect("air");
         {
-            let a = game_logic.find_object_mut(air_id).unwrap();
+            let a = game_logic.host_object_mut(air_id).unwrap();
             a.status.airborne_target = true;
         }
-        let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
+        let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;
         // Direct AA residual apply (slot 1): update_combat may still be SM-owned after
         // the ground shot; residual damage path is the playability contract under test.
         let air_pos = game_logic
-            .find_object(air_id)
+            .host_object(air_id)
             .map(|a| a.get_position())
             .unwrap_or(Vec3::new(40.0, 20.0, 0.0));
         let (aa_hits, _) = game_logic.apply_overlord_gattling_residual_at(
@@ -97701,7 +97702,7 @@ mod tests {
             1,
         );
         let air_hp_after = game_logic
-            .find_object(air_id)
+            .host_object(air_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -97735,7 +97736,7 @@ mod tests {
             .expect("overlord");
         game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_PROPAGANDA);
         {
-            let o = game_logic.find_object(overlord_id).unwrap();
+            let o = game_logic.host_object(overlord_id).unwrap();
             assert!(o.has_overlord_propaganda_residual());
             assert!(!o.has_overlord_gattling_residual());
         }
@@ -97745,15 +97746,15 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(20.0, 0.0, 0.0))
             .expect("ally");
         {
-            let a = game_logic.find_object_mut(ally_id).unwrap();
+            let a = game_logic.host_object_mut(ally_id).unwrap();
             a.health.current = a.health.maximum * 0.5;
         }
-        let hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(ally_id).unwrap().health.current;
         // Pulse residual for 1 second (30 frames @ 1/30).
         for _ in 0..30 {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
-        let hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(ally_id).unwrap().health.current;
         assert!(
             hp_after > hp_before + 0.01,
             "propaganda addon must heal ally (before={hp_before} after={hp_after})"
@@ -97793,7 +97794,7 @@ mod tests {
             )
             .expect("emperor");
         {
-            let e = game_logic.find_object(emp_id).unwrap();
+            let e = game_logic.host_object(emp_id).unwrap();
             assert!(is_emperor_template(&e.template_name));
             assert!(e.has_overlord_propaganda_residual());
         }
@@ -97806,14 +97807,14 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
             .expect("ally");
         {
-            let a = game_logic.find_object_mut(ally_id).unwrap();
+            let a = game_logic.host_object_mut(ally_id).unwrap();
             a.health.current = a.health.maximum * 0.5;
         }
-        let hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(ally_id).unwrap().health.current;
         for _ in 0..30 {
             game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
         }
-        let hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(ally_id).unwrap().health.current;
         assert!(
             hp_after > hp_before + 0.01,
             "emperor innate propaganda must heal (before={hp_before} after={hp_after})"
@@ -97834,7 +97835,7 @@ mod tests {
             .create_object("ChinaVehicleHelix", Team::China, Vec3::new(100.0, 0.0, 0.0))
             .expect("helix");
         {
-            let h = game_logic.find_object(helix_id).unwrap();
+            let h = game_logic.host_object(helix_id).unwrap();
             assert!(is_helix_template(&h.template_name));
             assert!(h.is_helix_transport);
             assert_eq!(h.transport_capacity(), HELIX_TRANSPORT_SLOTS);
@@ -97881,7 +97882,7 @@ mod tests {
             )
             .expect("cannon");
         {
-            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            let c = game_logic.host_object_mut(cannon_id).unwrap();
             assert!(is_nuke_cannon_template(&c.template_name));
             c.active_weapon_slot = 0;
             if let Some(w) = c.weapon.as_mut() {
@@ -97917,11 +97918,11 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(245.0, 0.0, 0.0))
             .expect("splash target"); // ~45 from impact if aimed at primary → secondary ring
 
-        let primary_hp = game_logic.find_object(primary_id).unwrap().health.current;
-        let splash_hp = game_logic.find_object(splash_id).unwrap().health.current;
+        let primary_hp = game_logic.host_object(primary_id).unwrap().health.current;
+        let splash_hp = game_logic.host_object(splash_id).unwrap().health.current;
 
         {
-            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            let c = game_logic.host_object_mut(cannon_id).unwrap();
             c.attack_target(primary_id);
         }
 
@@ -97931,11 +97932,11 @@ mod tests {
             && !game_logic.honesty_nuke_cannon_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(cannon_id)
+                .host_object(cannon_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(primary_id)
+                .host_object(primary_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
             assert!(game_logic
@@ -97972,11 +97973,11 @@ mod tests {
 
         // Intended target in primary radius takes huge damage (likely destroyed).
         let primary_alive = game_logic
-            .find_object(primary_id)
+            .host_object(primary_id)
             .map(|o| o.is_alive() && o.health.current > 0.0)
             .unwrap_or(false);
         let primary_after = game_logic
-            .find_object(primary_id)
+            .host_object(primary_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -98008,7 +98009,7 @@ mod tests {
     fn battle_bus_residual_capacity_and_flags_installed() {
         let mut game_logic = GameLogic::new();
         let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-        let bus = game_logic.find_object(bus_id).expect("bus");
+        let bus = game_logic.host_object(bus_id).expect("bus");
         assert!(bus.is_battle_bus_style_container());
         assert!(bus.can_contain());
         assert_eq!(
@@ -98033,7 +98034,7 @@ mod tests {
             .expect("infantry");
         // Armed rider residual (rifle) so ArmedRidersUpgradeMyWeaponSet applies.
         {
-            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            let unit = game_logic.host_object_mut(infantry_id).unwrap();
             unit.weapon = Some(Weapon {
                 damage: 25.0,
                 range: 100.0,
@@ -98054,7 +98055,7 @@ mod tests {
         game_logic.process_commands();
         game_logic.update_ai(&[infantry_id, bus_id], 1.0 / 30.0);
 
-        let bus = game_logic.find_object(bus_id).expect("bus after");
+        let bus = game_logic.host_object(bus_id).expect("bus after");
         assert!(bus.contained_units().contains(&infantry_id));
         assert_eq!(bus.transport_count(), 1);
         assert!(
@@ -98066,7 +98067,7 @@ mod tests {
             "PLAYER_UPGRADE residual binds passenger dummy weapon"
         );
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry after");
         assert_eq!(infantry.ai_state, AIState::Docked);
         assert_eq!(infantry.contained_by, Some(bus_id));
         assert_eq!(game_logic.battle_bus_residual_loads(), 1);
@@ -98099,7 +98100,7 @@ mod tests {
 
         for unit_id in [unit_a, unit_b] {
             {
-                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
                 unit.weapon = Some(Weapon {
                     damage: 20.0,
                     range: 80.0,
@@ -98113,7 +98114,7 @@ mod tests {
             game_logic.update_ai(&[unit_id, bus_id], 1.0 / 30.0);
         }
 
-        let bus = game_logic.find_object(bus_id).expect("bus loaded");
+        let bus = game_logic.host_object(bus_id).expect("bus loaded");
         assert!(
             bus.contained_units().contains(&unit_a) && bus.contained_units().contains(&unit_b),
             "both infantry must be loaded into Battle Bus residual"
@@ -98123,7 +98124,7 @@ mod tests {
         assert!(bus.weapon_set_player_upgrade);
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            let unit = game_logic.host_object(unit_id).expect("loaded unit");
             assert_eq!(unit.ai_state, AIState::Docked);
             assert_eq!(unit.contained_by, Some(bus_id));
             assert!(!unit.can_move());
@@ -98139,7 +98140,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let bus = game_logic.find_object(bus_id).expect("bus empty");
+        let bus = game_logic.host_object(bus_id).expect("bus empty");
         assert!(
             bus.contained_units().is_empty(),
             "evacuate must clear all Battle Bus residual occupants"
@@ -98151,7 +98152,7 @@ mod tests {
         );
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            let unit = game_logic.host_object(unit_id).expect("freed unit");
             assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
             assert!(unit.contained_by.is_none(), "contained_by must clear");
             assert!(unit.can_move(), "unloaded unit must be free to move");
@@ -98191,7 +98192,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            let unit = game_logic.host_object_mut(infantry_id).unwrap();
             unit.weapon = Some(Weapon {
                 damage: 40.0,
                 range: 100.0,
@@ -98205,20 +98206,20 @@ mod tests {
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
         {
-            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            let bus = game_logic.host_object_mut(bus_id).unwrap();
             assert!(bus.add_occupant(infantry_id));
         }
         game_logic.refresh_battle_bus_armed_riders_weapon_set(bus_id);
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
         game_logic.update_combat(&[infantry_id, bus_id, enemy_id], 1.0 / 30.0);
 
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -98229,14 +98230,14 @@ mod tests {
             game_logic.honesty_battle_bus_passenger_fire_ok(),
             "passenger fire residual honesty"
         );
-        let rider = game_logic.find_object(infantry_id).unwrap();
+        let rider = game_logic.host_object(infantry_id).unwrap();
         assert_eq!(
             rider.contained_by,
             Some(bus_id),
             "firing must not eject Battle Bus passenger"
         );
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().contained_by,
+            game_logic.host_object(infantry_id).unwrap().contained_by,
             Some(bus_id)
         );
     }
@@ -98261,7 +98262,7 @@ mod tests {
                 )
                 .expect("infantry");
             {
-                let unit = game_logic.find_object_mut(id).unwrap();
+                let unit = game_logic.host_object_mut(id).unwrap();
                 unit.target = Some(bus_id);
                 unit.set_ai_state(AIState::Entering);
             }
@@ -98269,7 +98270,7 @@ mod tests {
             loaded.push(id);
         }
         assert_eq!(
-            game_logic.find_object(bus_id).unwrap().transport_count(),
+            game_logic.host_object(bus_id).unwrap().transport_count(),
             crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS
         );
 
@@ -98286,14 +98287,14 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let extra = game_logic.find_object(extra_id).expect("extra after");
+        let extra = game_logic.host_object(extra_id).expect("extra after");
         assert_ne!(
             extra.ai_state,
             AIState::Entering,
             "full Battle Bus residual must reject Enter"
         );
         assert_eq!(
-            game_logic.find_object(bus_id).unwrap().transport_count(),
+            game_logic.host_object(bus_id).unwrap().transport_count(),
             crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS
         );
         let _ = loaded;
@@ -98321,7 +98322,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let tank = game_logic.find_object(tank_id).expect("tank");
+        let tank = game_logic.host_object(tank_id).expect("tank");
         assert_ne!(
             tank.ai_state,
             AIState::Entering,
@@ -98329,7 +98330,7 @@ mod tests {
         );
         assert_eq!(game_logic.battle_bus_residual_loads(), 0);
         assert!(game_logic
-            .find_object(bus_id)
+            .host_object(bus_id)
             .unwrap()
             .contained_units()
             .is_empty());
@@ -98340,14 +98341,14 @@ mod tests {
         let mut game_logic = GameLogic::new();
         let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
         {
-            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            let bus = game_logic.host_object_mut(bus_id).unwrap();
             bus.health.maximum = 400.0;
             bus.health.current = 50.0;
             bus.thing.template.armor = 0.0;
         }
         // Lethal explosion should intercept → second life 650 HP full.
         let killed = {
-            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            let bus = game_logic.host_object_mut(bus_id).unwrap();
             bus.take_damage_from_typed(
                 500.0,
                 None,
@@ -98355,7 +98356,7 @@ mod tests {
             )
         };
         assert!(!killed, "UndeadBody must intercept first lethal hit");
-        let bus = game_logic.find_object(bus_id).unwrap();
+        let bus = game_logic.host_object(bus_id).unwrap();
         assert!(bus.is_alive());
         assert!(
             (bus.health.maximum - 650.0).abs() < 0.1,
@@ -98372,7 +98373,7 @@ mod tests {
             game_logic.tick_battle_bus_slow_deaths();
         }
         assert!(game_logic.battle_bus.honesty_undeath_detonate_ok());
-        let bus = game_logic.find_object(bus_id).unwrap();
+        let bus = game_logic.host_object(bus_id).unwrap();
         let body = bus.battle_bus_body.as_ref().unwrap();
         assert!(
             body.landed_hulk,
@@ -98394,27 +98395,27 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(10.0, 12.0, 0.0))
             .expect("rider");
         {
-            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            let bus = game_logic.host_object_mut(bus_id).unwrap();
             bus.health.maximum = 400.0;
             bus.health.current = 40.0;
             bus.thing.template.armor = 0.0;
         }
         {
-            let r = game_logic.find_object_mut(rider_id).unwrap();
+            let r = game_logic.host_object_mut(rider_id).unwrap();
             r.health.maximum = 100.0;
             r.health.current = 100.0;
         }
         // Force dock residual.
-        if let Some(bus) = game_logic.find_object_mut(bus_id) {
+        if let Some(bus) = game_logic.host_object_mut(bus_id) {
             if !bus.occupants.contains(&rider_id) {
                 bus.occupants.push(rider_id);
             }
         }
-        if let Some(r) = game_logic.find_object_mut(rider_id) {
+        if let Some(r) = game_logic.host_object_mut(rider_id) {
             r.contained_by = Some(bus_id);
         }
         let _ = {
-            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            let bus = game_logic.host_object_mut(bus_id).unwrap();
             bus.take_damage_from_typed(
                 999.0,
                 None,
@@ -98425,7 +98426,7 @@ mod tests {
         game_logic.frame = 1;
         game_logic.tick_battle_bus_slow_deaths();
         let rider_hp = game_logic
-            .find_object(rider_id)
+            .host_object(rider_id)
             .map(|r| r.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -98433,10 +98434,10 @@ mod tests {
             "PercentDamageToPassengers 50% residual, got {rider_hp}"
         );
         // Unload rider so empty hulk can fire.
-        if let Some(bus) = game_logic.find_object_mut(bus_id) {
+        if let Some(bus) = game_logic.host_object_mut(bus_id) {
             bus.occupants.clear();
         }
-        if let Some(r) = game_logic.find_object_mut(rider_id) {
+        if let Some(r) = game_logic.host_object_mut(rider_id) {
             r.set_contained_by(None);
         }
         // Advance past ground check + land + empty delay.
@@ -98447,7 +98448,7 @@ mod tests {
         assert!(
             game_logic.battle_bus.honesty_empty_hulk_destruction_ok()
                 || game_logic
-                    .find_object(bus_id)
+                    .host_object(bus_id)
                     .map(|b| !b.is_alive())
                     .unwrap_or(true),
             "empty hulk should self-destruct"
@@ -98459,13 +98460,13 @@ mod tests {
         let mut game_logic = GameLogic::new();
         let bus_id = create_test_battle_bus(&mut game_logic, Vec3::ZERO);
         {
-            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            let bus = game_logic.host_object_mut(bus_id).unwrap();
             bus.health.maximum = 400.0;
             bus.health.current = 50.0;
             bus.thing.template.armor = 0.0;
         }
         let killed = {
-            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            let bus = game_logic.host_object_mut(bus_id).unwrap();
             bus.take_damage_from_typed(
                 500.0,
                 None,
@@ -98490,7 +98491,7 @@ mod tests {
             .create_object("TreeHighlanderTest", Team::Neutral, Vec3::ZERO)
             .expect("tree");
         {
-            let o = game_logic.find_object_mut(id).unwrap();
+            let o = game_logic.host_object_mut(id).unwrap();
             assert!(
                 o.highlander_body,
                 "create_object must install HighlanderBody"
@@ -98500,11 +98501,11 @@ mod tests {
             o.health.current = 50.0;
         }
         let killed = {
-            let o = game_logic.find_object_mut(id).unwrap();
+            let o = game_logic.host_object_mut(id).unwrap();
             o.take_damage_from_typed(999.0, None, crate::game_logic::combat::DamageType::Bullet)
         };
         assert!(!killed);
-        let o = game_logic.find_object(id).unwrap();
+        let o = game_logic.host_object(id).unwrap();
         assert!(o.is_alive());
         assert!(
             (o.health.current - 1.0).abs() < 0.01,
@@ -98513,7 +98514,7 @@ mod tests {
         );
         // UNRESISTABLE kills.
         let killed2 = {
-            let o = game_logic.find_object_mut(id).unwrap();
+            let o = game_logic.host_object_mut(id).unwrap();
             o.take_damage_from_typed(
                 10.0,
                 None,
@@ -98542,7 +98543,7 @@ mod tests {
             )
             .expect("sentry");
         {
-            let o = game_logic.find_object_mut(id).unwrap();
+            let o = game_logic.host_object_mut(id).unwrap();
             assert!(o.deploy_style.is_some(), "install DeployStyle residual");
             assert!(o.deploy_style_allows_move());
             assert!(!o.deploy_style_allows_fire());
@@ -98559,7 +98560,7 @@ mod tests {
             game_logic.ensure_deploy_style_ready_to_fire(id),
             "ready to attack after unpack"
         );
-        assert!(game_logic.find_object(id).unwrap().is_deployed());
+        assert!(game_logic.host_object(id).unwrap().is_deployed());
 
         // Move while deployed starts pack and blocks path.
         assert!(!game_logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
@@ -98571,7 +98572,7 @@ mod tests {
             game_logic.tick_deploy_style_updates();
         }
         assert!(game_logic
-            .find_object(id)
+            .host_object(id)
             .unwrap()
             .deploy_style_allows_move());
         assert!(game_logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
@@ -98980,7 +98981,7 @@ mod tests {
             .create_object("MOAB", Team::USA, Vec3::new(0.0, 80.0, 0.0))
             .expect("moab");
         assert!(logic
-            .find_object(id)
+            .host_object(id)
             .unwrap()
             .smart_bomb_target_homing
             .is_some());
@@ -99019,7 +99020,7 @@ mod tests {
             )
             .expect("cc");
         assert!(logic
-            .find_object(cc)
+            .host_object(cc)
             .unwrap()
             .spectre_gunship_deployment
             .is_some());
@@ -99074,7 +99075,7 @@ mod tests {
         logic.update_checkpoint_update();
         assert!(
             logic
-                .find_object(gate)
+                .host_object(gate)
                 .and_then(|o| o.checkpoint_update.as_ref().map(|c| c.open && c.ally_near))
                 .unwrap_or(false),
             "ally near must open checkpoint"
@@ -99094,7 +99095,7 @@ mod tests {
         logic.update_checkpoint_update();
         assert!(
             logic
-                .find_object(gate)
+                .host_object(gate)
                 .and_then(|o| o
                     .checkpoint_update
                     .as_ref()
@@ -99145,7 +99146,7 @@ mod tests {
         logic.set_current_frame(10);
         logic.update_radius_decal_update();
         assert!(logic
-            .find_object(id)
+            .host_object(id)
             .and_then(|o| o
                 .radius_decal_update
                 .as_ref()
@@ -99161,7 +99162,7 @@ mod tests {
         logic.set_current_frame(20);
         logic.update_radius_decal_update();
         assert!(logic
-            .find_object(id)
+            .host_object(id)
             .and_then(|o| o
                 .radius_decal_update
                 .as_ref()
@@ -99187,7 +99188,7 @@ mod tests {
         logic.set_current_frame(50);
         logic.update_float_update();
         let yaw = logic
-            .find_object(id)
+            .host_object(id)
             .and_then(|o| o.float_update.as_ref().map(|f| f.yaw))
             .unwrap_or(0.0);
         assert!(yaw.abs() > 0.0 || logic.float_update_reg.sway_ticks > 0);
@@ -99279,11 +99280,11 @@ mod tests {
         assert!(logic.fuel_air_gas_reg.final_detonations >= 1);
         assert!(logic.fuel_air_gas_reg.midpoint_flames >= 1);
         let foe_alive = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.is_alive())
             .unwrap_or(false);
         let hp1 = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -99388,7 +99389,7 @@ mod tests {
             )
             .expect("b52");
         assert!(logic
-            .find_object(jet)
+            .host_object(jet)
             .unwrap()
             .daisy_cutter_transport
             .is_some());
@@ -99403,13 +99404,13 @@ mod tests {
         assert!(logic.daisy_cutter_flight_reg.bombs_dropped >= 1);
         assert!(logic.daisy_cutter_flight_reg.detonations >= 1);
         let hp1 = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
             hp1 < hp0
                 || logic
-                    .find_object(foe)
+                    .host_object(foe)
                     .map(|o| !o.is_alive())
                     .unwrap_or(true),
             "daisy detonation should damage nearby units"
@@ -99539,7 +99540,7 @@ mod tests {
             )
             .expect("a10");
         assert!(logic
-            .find_object(jet)
+            .host_object(jet)
             .unwrap()
             .a10_strike_transport
             .is_some());
@@ -99583,7 +99584,7 @@ mod tests {
             )
             .expect("cannon");
         assert!(logic
-            .find_object(transport)
+            .host_object(transport)
             .unwrap()
             .artillery_barrage_transport
             .is_some());
@@ -99689,7 +99690,7 @@ mod tests {
             )
             .expect("b52");
         assert!(logic
-            .find_object(transport)
+            .host_object(transport)
             .unwrap()
             .carpet_bomb_transport
             .is_some());
@@ -99706,7 +99707,7 @@ mod tests {
         // Damage is applied at drop epicenters along the residual line; foe may
         // miss variance/line if off the stripe — check damage if still alive near center.
         let hp1 = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         let _ = (hp0, hp1, foe);
@@ -99751,13 +99752,13 @@ mod tests {
                 || logic.scud_storm_missile_flight_reg.exhaust_fx >= 1
         );
         let hp1 = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
             hp1 < hp0
                 || logic
-                    .find_object(foe)
+                    .host_object(foe)
                     .map(|o| !o.is_alive())
                     .unwrap_or(true),
             "chem scud toxin primary should damage nearby units"
@@ -99809,13 +99810,13 @@ mod tests {
         );
         assert!(logic.scud_storm_missile_flight_reg.grounded >= 1);
         let hp1 = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
             hp1 < hp0
                 || logic
-                    .find_object(foe)
+                    .host_object(foe)
                     .map(|o| !o.is_alive())
                     .unwrap_or(true),
             "scud impact should damage nearby units"
@@ -99857,7 +99858,7 @@ mod tests {
             )
             .expect("cruise");
         assert!(logic
-            .find_object(proj)
+            .host_object(proj)
             .unwrap()
             .neutron_missile_update
             .as_ref()
@@ -99882,13 +99883,13 @@ mod tests {
             "cruise must not spawn neutron SlowDeath field"
         );
         let foe_hp = logic
-            .find_object(foe)
+            .host_object(foe)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
             foe_hp < hp0
                 || logic
-                    .find_object(foe)
+                    .host_object(foe)
                     .map(|o| !o.is_alive())
                     .unwrap_or(true),
             "MOAB residual should damage nearby enemy"
@@ -99921,13 +99922,13 @@ mod tests {
             )
             .expect("missile");
         assert!(logic
-            .find_object(proj)
+            .host_object(proj)
             .unwrap()
             .neutron_missile_update
             .is_some());
         assert!(
             logic
-                .find_object(proj)
+                .host_object(proj)
                 .unwrap()
                 .radius_decal_update
                 .as_ref()
@@ -99935,7 +99936,7 @@ mod tests {
                 .unwrap_or(false)
                 || logic.radius_decal_update_reg.creates > 0
                 || logic
-                    .find_object(launcher)
+                    .host_object(launcher)
                     .and_then(|o| o.radius_decal_update.as_ref())
                     .map(|d| !d.delivery_decal.is_empty())
                     .unwrap_or(false),
@@ -99947,7 +99948,7 @@ mod tests {
             logic.update_neutron_missile_flights();
             if logic.host_object(proj).is_none()
                 || logic
-                    .find_object(proj)
+                    .host_object(proj)
                     .map(|o| !o.is_alive())
                     .unwrap_or(true)
             {
@@ -100064,7 +100065,7 @@ mod tests {
         logic.record_prone_go_if_needed(id, 20.0);
         assert_eq!(
             logic
-                .find_object(id)
+                .host_object(id)
                 .and_then(|o| o.prone_update.as_ref().map(|p| p.prone_frames))
                 .unwrap_or(0),
             100
@@ -100076,7 +100077,7 @@ mod tests {
             logic.update_prone_update();
         }
         assert!(logic
-            .find_object(id)
+            .host_object(id)
             .and_then(|o| o.prone_update.as_ref().map(|p| !p.is_prone()))
             .unwrap_or(false));
         assert!(logic.honesty_prone_update_ok());
@@ -100206,7 +100207,7 @@ mod tests {
         logic.update_enemy_near();
         assert!(
             logic
-                .find_object(wall)
+                .host_object(wall)
                 .and_then(|o| o
                     .enemy_near
                     .as_ref()
@@ -100306,7 +100307,7 @@ mod tests {
         );
         assert!(
             logic
-                .find_object(b)
+                .host_object(b)
                 .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
                 .unwrap_or(false)
                 || logic.fire_spread_reg.ignitions >= 2,
@@ -100327,14 +100328,14 @@ mod tests {
             .create_object("GLATunnelNetwork", Team::GLA, Vec3::ZERO)
             .expect("net");
         assert!(!logic
-            .find_object(id)
+            .host_object(id)
             .unwrap()
             .has_object_status_bit("BOOBY_TRAPPED"));
 
         let n = logic.apply_status_bits_upgrade_to_team(Team::GLA, "Upgrade_GLABoobyTrap");
         assert!(n >= 1);
         assert!(logic
-            .find_object(id)
+            .host_object(id)
             .unwrap()
             .has_object_status_bit("BOOBY_TRAPPED"));
         assert!(logic.status_bits_upgrade_reg.applies >= 1);
@@ -100373,7 +100374,7 @@ mod tests {
         assert!(
             logic.tensile_formation_registry().enables > 0
                 || logic
-                    .find_object(a)
+                    .host_object(a)
                     .and_then(|o| o.tensile_formation.as_ref().map(|t| t.enabled))
                     .unwrap_or(false),
             "damage must enable tensile formation"
@@ -100393,7 +100394,7 @@ mod tests {
         assert!(
             logic.tensile_formation_registry().rubbles > 0
                 || logic
-                    .find_object(a)
+                    .host_object(a)
                     .and_then(|o| o.tensile_formation.as_ref().map(|t| t.rubble))
                     .unwrap_or(false),
             "life>300 must rubble"
@@ -100419,7 +100420,7 @@ mod tests {
             .expect("toxin");
         assert!(is_toxin_tractor_template("GLAVehicleToxinTruck"));
         assert!(logic
-            .find_object(id)
+            .host_object(id)
             .unwrap()
             .fire_ocl_after_cooldown
             .is_some());
@@ -100466,20 +100467,20 @@ mod tests {
             )
             .expect("scout drone");
         {
-            let m = game_logic.find_object(master_id).unwrap();
+            let m = game_logic.host_object(master_id).unwrap();
             assert!(m.has_upgrade_tag(
                 crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE
             ));
         }
         {
-            let d = game_logic.find_object(drone_id).unwrap();
+            let d = game_logic.host_object(drone_id).unwrap();
             assert_eq!(d.producer_id, Some(master_id));
             assert!(d.upgrade_die.is_some());
         }
         // Kill drone → UpgradeDie frees master upgrade.
         game_logic.destroy_object(drone_id);
         // Process destruction queue if needed.
-        if let Some(d) = game_logic.find_object_mut(drone_id) {
+        if let Some(d) = game_logic.host_object_mut(drone_id) {
             // Wave 753: under damage authority, do not zero host HP mid-frame
             // (dual with GW HP writeback). Project lethal via damage log + flags.
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
@@ -100492,7 +100493,7 @@ mod tests {
             d.status.destroyed = true;
         }
         // destroy_object should have already run upgrade die via mark.
-        let m = game_logic.find_object(master_id).unwrap();
+        let m = game_logic.host_object(master_id).unwrap();
         assert!(
             !m.has_upgrade_tag(crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE),
             "UpgradeDie must remove producer upgrade"
@@ -100510,7 +100511,7 @@ mod tests {
     fn tunnel_network_residual_flags_and_capacity_installed() {
         let mut game_logic = GameLogic::new();
         let tunnel_id = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel");
+        let tunnel = game_logic.host_object(tunnel_id).expect("tunnel");
         assert!(tunnel.is_tunnel_network_style_container());
         assert!(tunnel.can_contain());
         assert_eq!(
@@ -100544,12 +100545,12 @@ mod tests {
         game_logic.process_commands();
         game_logic.update_ai(&[infantry_id, tunnel_id], 1.0 / 30.0);
 
-        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel after");
+        let tunnel = game_logic.host_object(tunnel_id).expect("tunnel after");
         assert!(
             tunnel.contained_units().contains(&infantry_id),
             "entry tunnel must list occupant"
         );
-        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry after");
         assert_eq!(infantry.ai_state, AIState::Garrisoned);
         assert_eq!(infantry.contained_by, Some(tunnel_id));
         assert!(!infantry.can_move());
@@ -100574,13 +100575,13 @@ mod tests {
 
         // Enter A.
         {
-            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            let unit = game_logic.host_object_mut(infantry_id).unwrap();
             unit.target = Some(tunnel_a);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[infantry_id, tunnel_a, tunnel_b], 1.0 / 30.0);
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().ai_state,
+            game_logic.host_object(infantry_id).unwrap().ai_state,
             AIState::Garrisoned
         );
         assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
@@ -100597,14 +100598,14 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let infantry = game_logic.find_object(infantry_id).expect("exited");
+        let infantry = game_logic.host_object(infantry_id).expect("exited");
         assert_eq!(infantry.ai_state, AIState::Idle);
         assert!(infantry.contained_by.is_none());
         assert!(infantry.can_move());
         // Dropped near tunnel B, not tunnel A.
         let pos = infantry.get_position();
-        let b_pos = game_logic.find_object(tunnel_b).unwrap().get_position();
-        let a_pos = game_logic.find_object(tunnel_a).unwrap().get_position();
+        let b_pos = game_logic.host_object(tunnel_b).unwrap().get_position();
+        let a_pos = game_logic.host_object(tunnel_a).unwrap().get_position();
         assert!(
             pos.distance(b_pos) < 20.0,
             "cross-exit must place unit near tunnel B (got dist {})",
@@ -100616,7 +100617,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(tunnel_a)
+                .host_object(tunnel_a)
                 .unwrap()
                 .contained_units()
                 .contains(&infantry_id),
@@ -100665,7 +100666,7 @@ mod tests {
                 .expect("infantry");
             unit_ids.push(id);
             {
-                let unit = game_logic.find_object_mut(id).unwrap();
+                let unit = game_logic.host_object_mut(id).unwrap();
                 unit.target = Some(tunnel);
                 unit.set_ai_state(AIState::Entering);
             }
@@ -100690,7 +100691,7 @@ mod tests {
         game_logic.process_commands();
         // Enter command may still set Entering, but AI must reject capacity.
         game_logic.update_ai(&[overflow, tunnel_a, tunnel_b], 1.0 / 30.0);
-        let overflow_obj = game_logic.find_object(overflow).unwrap();
+        let overflow_obj = game_logic.host_object(overflow).unwrap();
         assert_ne!(
             overflow_obj.ai_state,
             AIState::Garrisoned,
@@ -100727,7 +100728,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let air = game_logic.find_object(air_id).expect("aircraft");
+        let air = game_logic.host_object(air_id).expect("aircraft");
         assert_ne!(
             air.ai_state,
             AIState::Entering,
@@ -100746,7 +100747,7 @@ mod tests {
     fn combat_chinook_residual_capacity_and_flags_installed() {
         let mut game_logic = GameLogic::new();
         let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-        let chinook = game_logic.find_object(chinook_id).expect("chinook");
+        let chinook = game_logic.host_object(chinook_id).expect("chinook");
         assert!(chinook.is_combat_chinook_style_container());
         assert!(chinook.can_contain());
         assert_eq!(
@@ -100775,7 +100776,7 @@ mod tests {
             .expect("infantry");
         // Armed rider residual (rifle) so ArmedRidersUpgradeMyWeaponSet applies.
         {
-            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            let unit = game_logic.host_object_mut(infantry_id).unwrap();
             unit.weapon = Some(Weapon {
                 damage: 25.0,
                 range: 100.0,
@@ -100798,7 +100799,7 @@ mod tests {
         game_logic.process_commands();
         game_logic.update_ai(&[infantry_id, chinook_id], 1.0 / 30.0);
 
-        let chinook = game_logic.find_object(chinook_id).expect("chinook after");
+        let chinook = game_logic.host_object(chinook_id).expect("chinook after");
         assert!(chinook.contained_units().contains(&infantry_id));
         assert_eq!(chinook.transport_count(), 1);
         assert!(
@@ -100820,7 +100821,7 @@ mod tests {
                 < f32::EPSILON
         );
 
-        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        let infantry = game_logic.host_object(infantry_id).expect("infantry after");
         assert_eq!(infantry.ai_state, AIState::Docked);
         assert_eq!(infantry.contained_by, Some(chinook_id));
         assert_eq!(game_logic.combat_chinook_residual_loads(), 1);
@@ -100858,7 +100859,7 @@ mod tests {
 
         for unit_id in [unit_a, unit_b] {
             {
-                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
                 unit.weapon = Some(Weapon {
                     damage: 20.0,
                     range: 80.0,
@@ -100872,7 +100873,7 @@ mod tests {
             game_logic.update_ai(&[unit_id, chinook_id], 1.0 / 30.0);
         }
 
-        let chinook = game_logic.find_object(chinook_id).expect("chinook loaded");
+        let chinook = game_logic.host_object(chinook_id).expect("chinook loaded");
         assert!(
             chinook.contained_units().contains(&unit_a)
                 && chinook.contained_units().contains(&unit_b),
@@ -100883,7 +100884,7 @@ mod tests {
         assert!(chinook.weapon_set_player_upgrade);
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            let unit = game_logic.host_object(unit_id).expect("loaded unit");
             assert_eq!(unit.ai_state, AIState::Docked);
             assert_eq!(unit.contained_by, Some(chinook_id));
             assert!(!unit.can_move());
@@ -100899,7 +100900,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let chinook = game_logic.find_object(chinook_id).expect("chinook empty");
+        let chinook = game_logic.host_object(chinook_id).expect("chinook empty");
         assert!(
             chinook.contained_units().is_empty(),
             "evacuate must clear all Combat Chinook residual occupants"
@@ -100911,7 +100912,7 @@ mod tests {
         );
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            let unit = game_logic.host_object(unit_id).expect("freed unit");
             assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
             assert!(unit.contained_by.is_none(), "contained_by must clear");
             assert!(unit.can_move(), "unloaded unit must be free to move");
@@ -100956,7 +100957,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            let unit = game_logic.host_object_mut(infantry_id).unwrap();
             unit.weapon = Some(Weapon {
                 damage: 40.0,
                 range: 100.0,
@@ -100970,20 +100971,20 @@ mod tests {
             unit.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
         {
-            let chinook = game_logic.find_object_mut(chinook_id).unwrap();
+            let chinook = game_logic.host_object_mut(chinook_id).unwrap();
             assert!(chinook.add_occupant(infantry_id));
         }
         game_logic.refresh_battle_bus_armed_riders_weapon_set(chinook_id);
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
         game_logic.update_combat(&[infantry_id, chinook_id, enemy_id], 1.0 / 30.0);
 
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -100995,12 +100996,12 @@ mod tests {
             "passenger fire residual honesty"
         );
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().ai_state,
+            game_logic.host_object(infantry_id).unwrap().ai_state,
             AIState::Docked,
             "firing must not eject Combat Chinook passenger"
         );
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().contained_by,
+            game_logic.host_object(infantry_id).unwrap().contained_by,
             Some(chinook_id)
         );
     }
@@ -101023,7 +101024,7 @@ mod tests {
                 )
                 .expect("infantry");
             {
-                let unit = game_logic.find_object_mut(id).unwrap();
+                let unit = game_logic.host_object_mut(id).unwrap();
                 unit.target = Some(chinook_id);
                 unit.set_ai_state(AIState::Entering);
             }
@@ -101031,7 +101032,7 @@ mod tests {
         }
         assert_eq!(
             game_logic
-                .find_object(chinook_id)
+                .host_object(chinook_id)
                 .unwrap()
                 .transport_count(),
             crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS
@@ -101052,7 +101053,7 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let extra = game_logic.find_object(extra_id).expect("extra after");
+        let extra = game_logic.host_object(extra_id).expect("extra after");
         assert_ne!(
             extra.ai_state,
             AIState::Entering,
@@ -101060,7 +101061,7 @@ mod tests {
         );
         assert_eq!(
             game_logic
-                .find_object(chinook_id)
+                .host_object(chinook_id)
                 .unwrap()
                 .transport_count(),
             crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS
@@ -101078,19 +101079,19 @@ mod tests {
             .expect("tank");
 
         {
-            let unit = game_logic.find_object_mut(tank_id).unwrap();
+            let unit = game_logic.host_object_mut(tank_id).unwrap();
             unit.target = Some(chinook_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[tank_id, chinook_id], 1.0 / 30.0);
 
-        let chinook = game_logic.find_object(chinook_id).expect("chinook");
+        let chinook = game_logic.host_object(chinook_id).expect("chinook");
         assert!(
             chinook.contained_units().contains(&tank_id),
             "vehicles may enter Combat Chinook residual"
         );
         assert_eq!(game_logic.combat_chinook_residual_loads(), 1);
-        let tank = game_logic.find_object(tank_id).expect("tank");
+        let tank = game_logic.host_object(tank_id).expect("tank");
         assert_eq!(tank.ai_state, AIState::Docked);
     }
 
@@ -101109,7 +101110,7 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         let outpost_id = create_test_listening_outpost(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-        let outpost = game_logic.find_object(outpost_id).expect("outpost");
+        let outpost = game_logic.host_object(outpost_id).expect("outpost");
         assert!(is_listening_outpost_template(&outpost.template_name));
         assert!(outpost.is_listening_outpost_style_container());
         assert!(outpost.can_contain());
@@ -101180,7 +101181,7 @@ mod tests {
             )
             .expect("stealthed enemy");
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(true);
             e.set_status_detected(false);
         }
@@ -101188,7 +101189,7 @@ mod tests {
         game_logic.frame = 1;
         game_logic.update_stealth_and_detection();
         {
-            let e = game_logic.find_object(stealth_id).expect("enemy");
+            let e = game_logic.host_object(stealth_id).expect("enemy");
             assert!(
                 e.status.detected,
                 "listening outpost detector residual must reveal stealthed enemy in range"
@@ -101212,7 +101213,7 @@ mod tests {
             )
             .expect("far stealthed");
         {
-            let e = game_logic.find_object_mut(far_id).unwrap();
+            let e = game_logic.host_object_mut(far_id).unwrap();
             e.set_status_stealthed(true);
             e.set_status_detected(false);
         }
@@ -101221,7 +101222,7 @@ mod tests {
         game_logic.frame = 2;
         game_logic.update_stealth_and_detection();
         {
-            let e = game_logic.find_object(far_id).expect("far");
+            let e = game_logic.host_object(far_id).expect("far");
             assert!(
                 !e.status.detected,
                 "fail-closed: enemy outside DetectionRange 300 must not be residual-detected"
@@ -101230,27 +101231,27 @@ mod tests {
 
         // Move residual: uncloak while moving, re-cloak when idle.
         {
-            let o = game_logic.find_object_mut(outpost_id).unwrap();
+            let o = game_logic.host_object_mut(outpost_id).unwrap();
             o.set_ai_state(AIState::Moving);
             o.set_status_moving(true);
             o.set_status_stealthed(true);
         }
         game_logic.update_stealth_and_detection();
         {
-            let o = game_logic.find_object(outpost_id).expect("outpost");
+            let o = game_logic.host_object(outpost_id).expect("outpost");
             assert!(
                 !o.status.stealthed,
                 "moving listening outpost must uncloak residual"
             );
         }
         {
-            let o = game_logic.find_object_mut(outpost_id).unwrap();
+            let o = game_logic.host_object_mut(outpost_id).unwrap();
             o.set_ai_state(AIState::Idle);
             o.set_status_moving(false);
         }
         game_logic.update_stealth_and_detection();
         {
-            let o = game_logic.find_object(outpost_id).expect("outpost");
+            let o = game_logic.host_object(outpost_id).expect("outpost");
             assert!(
                 o.status.stealthed,
                 "idle listening outpost re-cloaks residual"
@@ -101272,7 +101273,7 @@ mod tests {
         // Evacuate InitialPayload residual TankHunters to free slots for transport test.
         {
             let occupants = game_logic
-                .find_object(outpost_id)
+                .host_object(outpost_id)
                 .map(|o| o.contained_units())
                 .unwrap_or_default();
             if !occupants.is_empty() {
@@ -101288,7 +101289,7 @@ mod tests {
             }
         }
         {
-            let outpost = game_logic.find_object(outpost_id).expect("outpost");
+            let outpost = game_logic.host_object(outpost_id).expect("outpost");
             assert_eq!(
                 outpost.transport_count(),
                 0,
@@ -101305,7 +101306,7 @@ mod tests {
 
         for unit_id in [unit_a, unit_b] {
             {
-                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
                 unit.weapon = Some(Weapon {
                     damage: 20.0,
                     range: 80.0,
@@ -101319,7 +101320,7 @@ mod tests {
             game_logic.update_ai(&[unit_id, outpost_id], 1.0 / 30.0);
         }
 
-        let outpost = game_logic.find_object(outpost_id).expect("outpost loaded");
+        let outpost = game_logic.host_object(outpost_id).expect("outpost loaded");
         assert!(
             outpost.contained_units().contains(&unit_a)
                 && outpost.contained_units().contains(&unit_b),
@@ -101349,13 +101350,13 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(3.0, 0.0, 0.0))
             .expect("unit c");
         {
-            let unit = game_logic.find_object_mut(unit_c).unwrap();
+            let unit = game_logic.host_object_mut(unit_c).unwrap();
             unit.target = Some(outpost_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[unit_c, outpost_id], 1.0 / 30.0);
         {
-            let outpost = game_logic.find_object(outpost_id).expect("full");
+            let outpost = game_logic.host_object(outpost_id).expect("full");
             assert_eq!(outpost.transport_count(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
             assert!(!outpost.contained_units().contains(&unit_c));
         }
@@ -101372,13 +101373,13 @@ mod tests {
         game_logic.process_commands();
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("free unit");
+            let unit = game_logic.host_object(unit_id).expect("free unit");
             assert_eq!(unit.ai_state, AIState::Idle);
             assert!(unit.contained_by.is_none());
             assert!(unit.can_move());
         }
         {
-            let outpost = game_logic.find_object(outpost_id).expect("empty");
+            let outpost = game_logic.host_object(outpost_id).expect("empty");
             assert_eq!(outpost.transport_count(), 0);
             assert!(
                 !outpost.weapon_set_player_upgrade,
@@ -101410,7 +101411,7 @@ mod tests {
         // Free InitialPayload residual slots.
         {
             let occupants = game_logic
-                .find_object(outpost_id)
+                .host_object(outpost_id)
                 .map(|o| o.contained_units())
                 .unwrap_or_default();
             if !occupants.is_empty() {
@@ -101432,13 +101433,13 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
             .expect("tank");
         {
-            let unit = game_logic.find_object_mut(tank_id).unwrap();
+            let unit = game_logic.host_object_mut(tank_id).unwrap();
             unit.target = Some(outpost_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[tank_id, outpost_id], 1.0 / 30.0);
 
-        let outpost = game_logic.find_object(outpost_id).expect("outpost");
+        let outpost = game_logic.host_object(outpost_id).expect("outpost");
         assert!(
             !outpost.contained_units().contains(&tank_id),
             "vehicles must not enter Listening Outpost residual"
@@ -101466,7 +101467,7 @@ mod tests {
             .expect("place mine");
         assert_eq!(game_logic.mine_residual_places(), 1);
 
-        let mine = game_logic.find_object(mine_id).expect("mine object");
+        let mine = game_logic.host_object(mine_id).expect("mine object");
         assert!(
             mine.mine_data.is_some(),
             "placed mine must carry residual mine_data"
@@ -101482,7 +101483,7 @@ mod tests {
                 Vec3::new(trigger + 50.0, 0.0, 0.0),
             )
             .expect("enemy");
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
 
         game_logic.update_mines_and_demo_traps();
         assert_eq!(
@@ -101490,11 +101491,11 @@ mod tests {
             0,
             "out-of-range enemy must not trigger"
         );
-        assert!(game_logic.find_object(mine_id).unwrap().is_alive());
+        assert!(game_logic.host_object(mine_id).unwrap().is_alive());
 
         // Move enemy into trigger range.
         {
-            let enemy = game_logic.find_object_mut(enemy_id).unwrap();
+            let enemy = game_logic.host_object_mut(enemy_id).unwrap();
             enemy.set_position(Vec3::new(trigger * 0.25, 0.0, 0.0));
         }
         game_logic.update_mines_and_demo_traps();
@@ -101509,14 +101510,14 @@ mod tests {
             "place+trigger honesty"
         );
 
-        let enemy = game_logic.find_object(enemy_id).expect("enemy after");
+        let enemy = game_logic.host_object(enemy_id).expect("enemy after");
         assert!(
             enemy.health.current < health_before || !enemy.is_alive() || enemy.status.destroyed,
             "enemy must take residual mine damage"
         );
 
         // Mine marked detonated / destroyed residual.
-        if let Some(mine) = game_logic.find_object(mine_id) {
+        if let Some(mine) = game_logic.host_object(mine_id) {
             assert!(
                 mine.mine_data.as_ref().map(|d| d.detonated).unwrap_or(true)
                     || mine.status.destroyed
@@ -101539,8 +101540,8 @@ mod tests {
 
         game_logic.update_mines_and_demo_traps();
         assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
-        assert!(game_logic.find_object(mine_id).unwrap().is_alive());
-        assert!(game_logic.find_object(ally_id).unwrap().is_alive());
+        assert!(game_logic.host_object(mine_id).unwrap().is_alive());
+        assert!(game_logic.host_object(ally_id).unwrap().is_alive());
     }
 
     /// Residual: GLA demo trap proximity detonation damages nearby enemy.
@@ -101552,7 +101553,7 @@ mod tests {
         let trap_id = game_logic
             .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
             .expect("trap");
-        let trap = game_logic.find_object(trap_id).unwrap();
+        let trap = game_logic.host_object(trap_id).unwrap();
         assert_eq!(
             trap.mine_data.as_ref().unwrap().kind,
             crate::game_logic::host_mines::HostMineKind::DemoTrap
@@ -101563,11 +101564,11 @@ mod tests {
         let enemy_id = game_logic
             .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("enemy");
-        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
 
         game_logic.update_mines_and_demo_traps();
         assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
-        let enemy = game_logic.find_object(enemy_id).unwrap();
+        let enemy = game_logic.host_object(enemy_id).unwrap();
         assert!(
             enemy.health.current < health_before || enemy.status.destroyed,
             "demo trap must damage enemy"
@@ -101589,13 +101590,13 @@ mod tests {
         let building_id = game_logic
             .create_object("TestBuilding", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
             .expect("building");
-        let health_before = game_logic.find_object(building_id).unwrap().health.current;
+        let health_before = game_logic.host_object(building_id).unwrap().health.current;
 
         // Before deadline: no detonation.
         game_logic.frame = 1;
         game_logic.update_mines_and_demo_traps();
         assert_eq!(game_logic.mine_residual_timed_detonations(), 0);
-        assert!(game_logic.find_object(charge_id).unwrap().is_alive());
+        assert!(game_logic.host_object(charge_id).unwrap().is_alive());
 
         // At deadline: detonate.
         game_logic.frame = 3;
@@ -101606,7 +101607,7 @@ mod tests {
             "timed charge honesty"
         );
 
-        let building = game_logic.find_object(building_id).unwrap();
+        let building = game_logic.host_object(building_id).unwrap();
         assert!(
             building.health.current < health_before || building.status.destroyed,
             "timed charge must damage nearby structure"
@@ -101635,7 +101636,7 @@ mod tests {
             .create_object("TestBuilding", Team::USA, Vec3::new(-100.0, 0.0, 0.0))
             .expect("caster");
         {
-            let caster = game_logic.find_object_mut(caster_id).unwrap();
+            let caster = game_logic.host_object_mut(caster_id).unwrap();
             caster.set_special_power_ready(true);
             caster.special_power_cooldown_remaining = 0.0;
         }
@@ -101677,7 +101678,7 @@ mod tests {
         );
 
         let mine_count = game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| {
                 o.mine_data
@@ -101709,7 +101710,7 @@ mod tests {
             .expect("enemy");
         // Disable proximity so only manual path fires.
         {
-            let trap = game_logic.find_object_mut(trap_id).unwrap();
+            let trap = game_logic.host_object_mut(trap_id).unwrap();
             if let Some(md) = trap.mine_data.as_mut() {
                 md.proximity_enabled = false;
             }
@@ -101717,7 +101718,7 @@ mod tests {
 
         assert!(game_logic.manual_detonate_mine(trap_id));
         assert_eq!(game_logic.mine_residual_manual_detonations(), 1);
-        let enemy = game_logic.find_object(enemy_id).unwrap();
+        let enemy = game_logic.host_object(enemy_id).unwrap();
         assert!(
             enemy.health.current < enemy.max_health || enemy.status.destroyed,
             "manual detonate must damage nearby enemy"
@@ -101746,10 +101747,10 @@ mod tests {
                 Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.5, 0.0, 0.0),
             )
             .expect("dozer");
-        let health_before = game_logic.find_object(dozer_id).unwrap().health.current;
+        let health_before = game_logic.host_object(dozer_id).unwrap().health.current;
         assert!(
             game_logic
-                .find_object(dozer_id)
+                .host_object(dozer_id)
                 .unwrap()
                 .is_kind_of(KindOf::Worker),
             "TestDozer must be Worker residual for mine clear"
@@ -101773,7 +101774,7 @@ mod tests {
         );
 
         // Mine disarmed / inactive residual.
-        if let Some(mine) = game_logic.find_object(mine_id) {
+        if let Some(mine) = game_logic.host_object(mine_id) {
             assert!(
                 mine.mine_data
                     .as_ref()
@@ -101784,7 +101785,7 @@ mod tests {
             );
         }
 
-        let dozer = game_logic.find_object(dozer_id).expect("dozer after clear");
+        let dozer = game_logic.host_object(dozer_id).expect("dozer after clear");
         assert!(dozer.is_alive(), "dozer must survive clear");
         assert!(
             !dozer.status.destroyed,
@@ -101825,7 +101826,7 @@ mod tests {
             "not in clear range yet"
         );
         {
-            let dozer = game_logic.find_object(dozer_id).unwrap();
+            let dozer = game_logic.host_object(dozer_id).unwrap();
             // Host residual still stores approach destination.
             assert!(
                 dozer.movement.target_position.is_some(),
@@ -101854,7 +101855,7 @@ mod tests {
 
         // Move into clear range (host residual does not sim path here).
         {
-            let dozer = game_logic.find_object_mut(dozer_id).unwrap();
+            let dozer = game_logic.host_object_mut(dozer_id).unwrap();
             dozer.set_position(Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.25, 0.0, 0.0));
             dozer.set_ai_state(AIState::Idle);
         }
@@ -101862,8 +101863,8 @@ mod tests {
 
         assert_eq!(game_logic.mine_residual_clears(), 1);
         assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
-        assert!(game_logic.find_object(dozer_id).unwrap().is_alive());
-        if let Some(mine) = game_logic.find_object(mine_id) {
+        assert!(game_logic.host_object(dozer_id).unwrap().is_alive());
+        if let Some(mine) = game_logic.host_object(mine_id) {
             assert!(mine.mine_data.as_ref().map(|d| d.detonated).unwrap_or(true));
         }
     }
@@ -101890,7 +101891,7 @@ mod tests {
         game_logic.update_mines_and_demo_traps();
         assert_eq!(game_logic.mine_residual_clears(), 0);
         assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
-        let mine = game_logic.find_object(mine_id).unwrap();
+        let mine = game_logic.host_object(mine_id).unwrap();
         assert!(
             mine.mine_data
                 .as_ref()
@@ -101910,7 +101911,7 @@ mod tests {
             .place_land_mine(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
             .expect("mine");
         let trigger = game_logic
-            .find_object(mine_id)
+            .host_object(mine_id)
             .unwrap()
             .mine_data
             .as_ref()
@@ -101946,7 +101947,7 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("attacker");
         {
-            let a = game_logic.find_object_mut(attacker_id).unwrap();
+            let a = game_logic.host_object_mut(attacker_id).unwrap();
             a.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 150.0,
@@ -101958,7 +101959,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .expect("stealthed");
         {
-            let s = game_logic.find_object_mut(stealth_id).unwrap();
+            let s = game_logic.host_object_mut(stealth_id).unwrap();
             s.set_status_stealthed(true);
             s.set_status_detected(false);
         }
@@ -101989,14 +101990,14 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(25.0, 0.0, 0.0))
             .expect("detector");
         {
-            let d = game_logic.find_object_mut(detector_id).unwrap();
+            let d = game_logic.host_object_mut(detector_id).unwrap();
             d.is_detector = true;
             d.detection_range = 50.0;
         }
 
         game_logic.update_stealth_and_detection();
 
-        let stealth = game_logic.find_object(stealth_id).unwrap();
+        let stealth = game_logic.host_object(stealth_id).unwrap();
         assert!(
             stealth.status.detected,
             "detector in range must mark stealthed unit detected"
@@ -102041,7 +102042,7 @@ mod tests {
             .expect("target");
 
         {
-            let s = game_logic.find_object_mut(shooter_id).unwrap();
+            let s = game_logic.host_object_mut(shooter_id).unwrap();
             s.set_status_stealthed(true);
             s.stealth_breaks_on_attack = true;
             s.weapon = Some(Weapon {
@@ -102066,7 +102067,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("stealth");
         {
-            let s = game_logic.find_object_mut(stealth_id).unwrap();
+            let s = game_logic.host_object_mut(stealth_id).unwrap();
             s.set_status_stealthed(true);
             s.mark_detected(5); // expires at frame 5
         }
@@ -102074,13 +102075,13 @@ mod tests {
         game_logic.frame = 4;
         game_logic.update_stealth_and_detection();
         assert!(
-            game_logic.find_object(stealth_id).unwrap().status.detected,
+            game_logic.host_object(stealth_id).unwrap().status.detected,
             "must remain detected before expiry frame"
         );
 
         game_logic.frame = 5;
         game_logic.update_stealth_and_detection();
-        let stealth = game_logic.find_object(stealth_id).unwrap();
+        let stealth = game_logic.host_object(stealth_id).unwrap();
         assert!(
             !stealth.status.detected && stealth.status.stealthed,
             "detected clears at expiry; stealthed may remain"
@@ -102122,7 +102123,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let p = game_logic.find_object(patriot_id).expect("patriot obj");
+            let p = game_logic.host_object(patriot_id).expect("patriot obj");
             assert!(
                 p.weapon.is_some(),
                 "Patriot must bind residual primary weapon"
@@ -102148,14 +102149,14 @@ mod tests {
             assert!(p.target.is_none());
         }
         {
-            let p = game_logic.find_object_mut(patriot_id).unwrap();
+            let p = game_logic.host_object_mut(patriot_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
         }
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         crate::game_logic::host_damage_log::clear();
@@ -102167,7 +102168,7 @@ mod tests {
         }
 
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let logged = crate::game_logic::host_damage_log::drain();
@@ -102320,7 +102321,7 @@ mod tests {
             .create_object("GLA_StingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("stinger");
         {
-            let s = game_logic.find_object(stinger_id).expect("stinger obj");
+            let s = game_logic.host_object(stinger_id).expect("stinger obj");
             assert!(is_stinger_site_structure(&s.template_name));
             let prim = s.weapon.as_ref().expect("stinger ground residual");
             assert!((prim.damage - STINGER_GROUND_DAMAGE).abs() < 0.01);
@@ -102337,13 +102338,13 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .expect("enemy tank");
         {
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             if let Some(w) = s.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
         }
         let hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         for f in 0..80 {
@@ -102351,7 +102352,7 @@ mod tests {
             game_logic.update_combat(&[stinger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
         }
         let hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -102368,7 +102369,7 @@ mod tests {
         );
         assert!(game_logic.stinger_slave_order_attack_count() >= 1);
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert!(
                 s.hive_slaves
                     .iter()
@@ -102383,11 +102384,11 @@ mod tests {
             .create_object("TestAircraft", Team::USA, Vec3::new(300.0, 0.0, 0.0))
             .expect("aircraft");
         {
-            let a = game_logic.find_object_mut(air_id).unwrap();
+            let a = game_logic.host_object_mut(air_id).unwrap();
             a.status.airborne_target = true;
         }
         {
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             if let Some(w) = s.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
@@ -102396,11 +102397,11 @@ mod tests {
             s.set_ai_state(AIState::Idle);
         }
         // Remove ground tank from consideration by destroying it.
-        if let Some(t) = game_logic.find_object_mut(enemy_id) {
+        if let Some(t) = game_logic.host_object_mut(enemy_id) {
             t.health.current = 0.0;
         }
         let air_hp_before = game_logic
-            .find_object(air_id)
+            .host_object(air_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         for f in 80..160 {
@@ -102408,7 +102409,7 @@ mod tests {
             game_logic.update_combat(&[stinger_id, air_id], LOGIC_FRAME_TIMESTEP);
         }
         let air_hp_after = game_logic
-            .find_object(air_id)
+            .host_object(air_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -102425,7 +102426,7 @@ mod tests {
         assert!(game_logic.apply_stinger_ap_rockets_upgrade(stinger_id));
         {
             let s = game_logic
-                .find_object(stinger_id)
+                .host_object(stinger_id)
                 .expect("stinger after AP");
             let prim = s.weapon.as_ref().expect("ground");
             assert!(
@@ -102443,7 +102444,7 @@ mod tests {
 
         // HiveStructureBody residual honesty: spawn starts with 3 soldiers.
         {
-            let s = game_logic.find_object(stinger_id).expect("stinger hive");
+            let s = game_logic.host_object(stinger_id).expect("stinger hive");
             assert_eq!(
                 s.hive_slave_count, 3,
                 "SpawnNumber residual must start with 3 soldiers"
@@ -102487,12 +102488,12 @@ mod tests {
             .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("stinger");
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert_eq!(s.hive_slave_count, STINGER_SPAWN_NUMBER as u8);
         }
 
         let struct_hp_before = game_logic
-            .find_object(stinger_id)
+            .host_object(stinger_id)
             .map(|s| s.health.current)
             .unwrap_or(0.0);
 
@@ -102504,7 +102505,7 @@ mod tests {
         );
         assert!(!destroyed && !blocked);
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert!((s.health.current - struct_hp_before).abs() < 0.01);
             assert!((s.hive_slave_hp - 40.0).abs() < 0.01);
             assert_eq!(s.hive_slave_count, 3);
@@ -102518,7 +102519,7 @@ mod tests {
             HostHiveDamageClass::PropagateToSlaves,
         );
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert_eq!(s.hive_slave_count, 2);
             assert!((s.hive_slave_hp - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
             assert!(s.hive_slave_respawn_frame > 0);
@@ -102534,7 +102535,7 @@ mod tests {
             );
         }
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert_eq!(s.hive_slave_count, 0);
             // Structure still full: pure propagate with 0 slaves falls through to structure.
             // After last kill with overkill residual may have hit structure; re-check swallow path.
@@ -102543,7 +102544,7 @@ mod tests {
         // Reset structure HP for swallow honesty.
         {
             use crate::game_logic::host_base_defense::clear_hive_slave_roster;
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             clear_hive_slave_roster(&mut s.hive_slaves);
             s.hive_slave_count = 0;
             s.hive_slave_hp = 0.0;
@@ -102557,7 +102558,7 @@ mod tests {
             HostHiveDamageClass::SwallowIfNoSlaves,
         );
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert!(
                 (s.health.current - hp_before_swallow).abs() < 0.01,
                 "SNIPER residual must be swallowed with 0 slaves"
@@ -102570,7 +102571,7 @@ mod tests {
             use crate::game_logic::host_base_defense::{
                 align_hive_roster_to_count, sync_hive_slave_mirrors,
             };
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             align_hive_roster_to_count(&mut s.hive_slaves, 3);
             let (c, h) = sync_hive_slave_mirrors(&s.hive_slaves);
             s.hive_slave_count = c;
@@ -102580,7 +102581,7 @@ mod tests {
         let _ =
             game_logic.apply_host_hive_damage(stinger_id, 100.0, HostHiveDamageClass::HitStructure);
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert!((s.health.current - 900.0).abs() < 0.01);
             assert_eq!(s.hive_slave_count, 3);
         }
@@ -102588,7 +102589,7 @@ mod tests {
         // SPAWNS_ARE_THE_WEAPONS residual: 0 soldiers cannot fire.
         {
             use crate::game_logic::host_base_defense::clear_hive_slave_roster;
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             clear_hive_slave_roster(&mut s.hive_slaves);
             s.hive_slave_count = 0;
             s.hive_slave_hp = 0.0;
@@ -102600,7 +102601,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .expect("enemy");
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let fires_before = game_logic.stinger_site_residual_ground_fires();
@@ -102609,7 +102610,7 @@ mod tests {
             game_logic.update_combat(&[stinger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
         }
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -102626,7 +102627,7 @@ mod tests {
             use crate::game_logic::host_base_defense::{
                 align_hive_roster_to_count, sync_hive_slave_mirrors,
             };
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             align_hive_roster_to_count(&mut s.hive_slaves, 2);
             let (c, h) = sync_hive_slave_mirrors(&s.hive_slaves);
             s.hive_slave_count = c;
@@ -102636,7 +102637,7 @@ mod tests {
         game_logic.frame = 10;
         game_logic.update_stinger_hive_respawns();
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert_eq!(s.hive_slave_count, 3);
             assert_eq!(s.hive_slave_respawn_frame, 0);
         }
@@ -102671,7 +102672,7 @@ mod tests {
             .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("stinger");
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert_eq!(s.hive_slave_count, STINGER_SPAWN_NUMBER as u8);
             assert_eq!(
                 s.hive_slaves.iter().filter(|sl| sl.alive).count(),
@@ -102696,7 +102697,7 @@ mod tests {
         );
         assert!(!destroyed && !blocked);
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert!((s.hive_slaves[0].hp - 60.0).abs() < 0.01);
             assert!((s.hive_slaves[1].hp - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
             assert!((s.hive_slaves[2].hp - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
@@ -102707,7 +102708,7 @@ mod tests {
 
         // Shooter near slave 2 world position → damage that slot.
         let (sx2, sz2) = {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             s.hive_slaves[2].world_xz(0.0, 0.0)
         };
         let _ = game_logic.apply_host_hive_damage_from(
@@ -102718,7 +102719,7 @@ mod tests {
             None,
         );
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert!((s.hive_slaves[2].hp - 75.0).abs() < 0.01);
             assert!((s.hive_slaves[0].hp - 60.0).abs() < 0.01); // unchanged
         }
@@ -102732,7 +102733,7 @@ mod tests {
             None,
         );
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             assert!(!s.hive_slaves[0].alive);
             assert_eq!(s.hive_slave_count, 2);
             assert!(s.hive_slave_respawn_frame > 0);
@@ -102746,7 +102747,7 @@ mod tests {
             order_hive_slaves_to_go_idle, stinger_spawn_point_facings,
         };
         {
-            let s = game_logic.find_object(stinger_id).unwrap();
+            let s = game_logic.host_object(stinger_id).unwrap();
             let facings = stinger_spawn_point_facings();
             assert!(
                 (s.hive_slaves[0].facing_deg - facings[0]).abs() < 0.01,
@@ -102761,7 +102762,7 @@ mod tests {
             assert!((attach[0].facing_deg - facings[0]).abs() < 0.01);
         }
         {
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             let n = order_hive_slaves_to_attack_target(&mut s.hive_slaves, 1234);
             assert!(n >= 1);
             assert!(s
@@ -102831,7 +102832,7 @@ mod tests {
         game_logic.update();
 
         for id in [tunnel_id, stinger_id] {
-            let o = game_logic.find_object(id).unwrap();
+            let o = game_logic.host_object(id).unwrap();
             assert!(o.status.stealthed && o.innate_stealth);
             assert!(o.stealth_breaks_on_attack);
             assert!(o.stealth_breaks_on_damage);
@@ -102863,21 +102864,21 @@ mod tests {
         let _ = game_logic.apply_host_damage(tunnel_id, 10.0);
         assert!(
             !game_logic
-                .find_object(tunnel_id)
+                .host_object(tunnel_id)
                 .map(|o| o.status.stealthed)
                 .unwrap_or(true),
             "damage residual must break CamoNetting structure stealth"
         );
         assert!(
             game_logic
-                .find_object(tunnel_id)
+                .host_object(tunnel_id)
                 .map(|o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MAX).abs() < 0.01)
                 .unwrap_or(false),
             "damage reveal residual must set FriendlyOpacityMax"
         );
         assert!(
             game_logic
-                .find_object(tunnel_id)
+                .host_object(tunnel_id)
                 .map(|o| o.stealth_delay_pending || o.stealth_allowed_frame > 0)
                 .unwrap_or(false)
                 || game_logic.camo_netting_structure_residual_reveals() > 0,
@@ -102888,7 +102889,7 @@ mod tests {
         game_logic.frame = 1;
         game_logic.update_stealth_and_detection();
         let allowed = game_logic
-            .find_object(tunnel_id)
+            .host_object(tunnel_id)
             .map(|o| o.stealth_allowed_frame)
             .unwrap_or(0);
         assert!(
@@ -102897,7 +102898,7 @@ mod tests {
         );
         assert!(
             !game_logic
-                .find_object(tunnel_id)
+                .host_object(tunnel_id)
                 .map(|o| o.status.stealthed)
                 .unwrap_or(true),
             "must remain uncloaked during StealthDelay"
@@ -102905,7 +102906,7 @@ mod tests {
 
         // ATTACKING residual: mark attacking while stealthed → uncloak.
         {
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             s.set_status_stealthed(true);
             s.stealth_allowed_frame = 0;
             s.stealth_delay_pending = false;
@@ -102916,7 +102917,7 @@ mod tests {
         game_logic.update_stealth_and_detection();
         assert!(
             !game_logic
-                .find_object(stinger_id)
+                .host_object(stinger_id)
                 .map(|o| o.status.stealthed)
                 .unwrap_or(true),
             "attacking residual must break CamoNetting structure stealth"
@@ -102924,7 +102925,7 @@ mod tests {
 
         // USING_ABILITY residual: forbids stealth while OBJECT_STATUS_IS_USING_ABILITY.
         {
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             s.set_status_stealthed(true);
             s.stealth_allowed_frame = 0;
             s.stealth_delay_pending = false;
@@ -102936,14 +102937,14 @@ mod tests {
         game_logic.update_stealth_and_detection();
         assert!(
             !game_logic
-                .find_object(stinger_id)
+                .host_object(stinger_id)
                 .map(|o| o.status.stealthed)
                 .unwrap_or(true),
             "USING_ABILITY residual must break CamoNetting structure stealth"
         );
         // Clear ability so re-cloak path can exercise.
         {
-            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let s = game_logic.host_object_mut(stinger_id).unwrap();
             s.set_status_using_ability(false);
         }
 
@@ -102953,7 +102954,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
             .expect("enemy tank");
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.set_ai_state(AIState::Idle);
             e.target = None;
             e.weapon = Some(Weapon {
@@ -102968,7 +102969,7 @@ mod tests {
         }
         // Force tunnel stealthed then damage-reveal so OrderIdle residual fires.
         {
-            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            let t = game_logic.host_object_mut(tunnel_id).unwrap();
             t.set_status_stealthed(true);
             t.set_status_attacking(false);
             t.set_status_using_ability(false);
@@ -102982,7 +102983,7 @@ mod tests {
         game_logic.update_stealth_and_detection();
         assert!(
             !game_logic
-                .find_object(tunnel_id)
+                .host_object(tunnel_id)
                 .map(|o| o.status.stealthed)
                 .unwrap_or(true),
             "reveal residual must uncloak for OrderIdle path"
@@ -102990,14 +102991,14 @@ mod tests {
         assert!(
             game_logic.camo_netting_order_idle_enemies_count() > order_before
                 || game_logic
-                    .find_object(enemy_id)
+                    .host_object(enemy_id)
                     .map(|e| e.target == Some(tunnel_id))
                     .unwrap_or(false),
             "OrderIdleEnemies residual must wake idle enemy on reveal"
         );
         assert!(
             game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .map(|e| e.target == Some(tunnel_id) && e.ai_state == AIState::Attacking)
                 .unwrap_or(false)
                 || game_logic.honesty_camo_netting_order_idle_enemies_ok(),
@@ -103008,7 +103009,7 @@ mod tests {
         game_logic.frame = 10 + CAMO_NETTING_STEALTH_DELAY_FRAMES;
         let recloak_frame = game_logic.frame;
         {
-            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            let t = game_logic.host_object_mut(tunnel_id).unwrap();
             t.set_status_attacking(false);
             t.set_status_using_ability(false);
             t.set_ai_state(AIState::Idle);
@@ -103021,14 +103022,14 @@ mod tests {
         game_logic.update_stealth_and_detection();
         assert!(
             game_logic
-                .find_object(tunnel_id)
+                .host_object(tunnel_id)
                 .map(|o| o.status.stealthed)
                 .unwrap_or(false),
             "idle after StealthDelay must re-cloak CamoNetting structure"
         );
         assert!(
             game_logic
-                .find_object(tunnel_id)
+                .host_object(tunnel_id)
                 .map(
                     |o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01
                         || o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX
@@ -103038,13 +103039,13 @@ mod tests {
         );
         // Pulse residual while cloaked: one more tick advances phase / opacity.
         let (op_before, phase_before) = game_logic
-            .find_object(tunnel_id)
+            .host_object(tunnel_id)
             .map(|o| (o.camo_friendly_opacity, o.camo_opacity_pulse_phase))
             .unwrap_or((1.0, 0.0));
         game_logic.frame = recloak_frame.saturating_add(1);
         game_logic.update_stealth_and_detection();
         {
-            let o = game_logic.find_object(tunnel_id).unwrap();
+            let o = game_logic.host_object(tunnel_id).unwrap();
             assert!(o.status.stealthed);
             assert!(
                 o.camo_opacity_pulse_phase > phase_before
@@ -103069,7 +103070,7 @@ mod tests {
         // StealthLook / heat-vision residual: detect cloaked structure → second pass.
         use crate::game_logic::host_upgrades::{camo_netting_stealth_look, HostCamoStealthLook};
         {
-            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            let t = game_logic.host_object_mut(tunnel_id).unwrap();
             t.set_status_stealthed(true);
             t.set_status_detected(true);
             t.camo_heat_vision_opacity = 0.0;
@@ -103078,7 +103079,7 @@ mod tests {
         }
         game_logic.update_stealth_and_detection();
         {
-            let t = game_logic.find_object(tunnel_id).unwrap();
+            let t = game_logic.host_object(tunnel_id).unwrap();
             let look = HostCamoStealthLook::from_u8(t.camo_stealth_look);
             assert_eq!(
                 look,
@@ -103107,7 +103108,7 @@ mod tests {
             CAMO_NETTING_SUB_OBJECT_MESH_NAME,
         };
         {
-            let t = game_logic.find_object(tunnel_id).unwrap();
+            let t = game_logic.host_object(tunnel_id).unwrap();
             assert!(t.camo_net_sub_object_shown);
             let sub = camo_netting_sub_object_state(
                 true,
@@ -103164,7 +103165,7 @@ mod tests {
             .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("patriot");
         {
-            let p = game_logic.find_object(patriot_id).expect("patriot");
+            let p = game_logic.host_object(patriot_id).expect("patriot");
             assert!(is_patriot_battery_structure(&p.template_name));
             let prim = p.weapon.as_ref().expect("ground");
             assert!((prim.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
@@ -103179,18 +103180,18 @@ mod tests {
             .create_object("TestAircraft", Team::GLA, Vec3::new(250.0, 0.0, 0.0))
             .expect("aircraft");
         {
-            let a = game_logic.find_object_mut(air_id).unwrap();
+            let a = game_logic.host_object_mut(air_id).unwrap();
             a.status.airborne_target = true;
         }
         {
-            let p = game_logic.find_object_mut(patriot_id).unwrap();
+            let p = game_logic.host_object_mut(patriot_id).unwrap();
             if let Some(w) = p.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
         }
 
         let air_hp_before = game_logic
-            .find_object(air_id)
+            .host_object(air_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         crate::game_logic::host_damage_log::clear();
@@ -103199,7 +103200,7 @@ mod tests {
             game_logic.update_combat(&[patriot_id, air_id], LOGIC_FRAME_TIMESTEP);
         }
         let air_hp_after = game_logic
-            .find_object(air_id)
+            .host_object(air_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let dealt = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
@@ -103264,32 +103265,32 @@ mod tests {
             .expect("enemy");
         // Buff enemy HP so assist clip can land multiple shots.
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.health.current = 500.0;
             e.health.maximum = 500.0;
             e.max_health = 500.0;
         }
         {
-            let p = game_logic.find_object_mut(requester_id).unwrap();
+            let p = game_logic.host_object_mut(requester_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
         }
         {
-            let p = game_logic.find_object_mut(assistant_id).unwrap();
+            let p = game_logic.host_object_mut(assistant_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
         }
         {
-            let p = game_logic.find_object_mut(far_id).unwrap();
+            let p = game_logic.host_object_mut(far_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
         }
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         crate::game_logic::host_damage_log::clear();
@@ -103318,7 +103319,7 @@ mod tests {
         for f in 2..(2 + PATRIOT_ASSISTING_CLIP_SIZE * 10) {
             game_logic.frame = f;
             // Keep weapons cold so only assist residual continues (no re-request spam).
-            if let Some(p) = game_logic.find_object_mut(requester_id) {
+            if let Some(p) = game_logic.host_object_mut(requester_id) {
                 if let Some(w) = p.weapon.as_mut() {
                     w.last_fire_time = f as f32 * LOGIC_FRAME_TIMESTEP;
                 }
@@ -103327,7 +103328,7 @@ mod tests {
         }
 
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let damage_dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
@@ -103358,7 +103359,7 @@ mod tests {
             game_logic.patriot_assist_residual_fires() >= PATRIOT_ASSISTING_CLIP_SIZE
                 || enemy_hp_after <= 0.0
                 || !game_logic
-                    .find_object(enemy_id)
+                    .host_object(enemy_id)
                     .map(|e| e.is_alive())
                     .unwrap_or(false),
             "expected AssistingClipSize={} assist fires or victim dead (got {})",
@@ -103423,13 +103424,13 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.health.current = 500.0;
             e.health.maximum = 500.0;
             e.max_health = 500.0;
         }
         for id in [requester_id, assistant_id] {
-            if let Some(p) = game_logic.find_object_mut(id) {
+            if let Some(p) = game_logic.host_object_mut(id) {
                 if let Some(w) = p.weapon.as_mut() {
                     w.last_fire_time = -10.0;
                 }
@@ -103491,7 +103492,7 @@ mod tests {
             .map(|l| l.scroll_offset)
             .unwrap_or(0.0);
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.set_position(Vec3::new(80.0, 0.0, 25.0));
         }
         game_logic.frame = 6;
@@ -103609,9 +103610,9 @@ mod tests {
             .create_object("USA_Patriot", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .expect("stock");
         {
-            let a = game_logic.find_object(lazr_a).unwrap();
-            let b = game_logic.find_object(lazr_b).unwrap();
-            let s = game_logic.find_object(stock).unwrap();
+            let a = game_logic.host_object(lazr_a).unwrap();
+            let b = game_logic.host_object(lazr_b).unwrap();
+            let s = game_logic.host_object(stock).unwrap();
             assert!(is_laser_patriot_template(&a.template_name));
             assert!(patriots_are_assist_equivalent(
                 &a.template_name,
@@ -103627,13 +103628,13 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.health.current = 400.0;
             e.health.maximum = 400.0;
             e.max_health = 400.0;
         }
         for id in [lazr_a, lazr_b, stock] {
-            if let Some(p) = game_logic.find_object_mut(id) {
+            if let Some(p) = game_logic.host_object_mut(id) {
                 if let Some(w) = p.weapon.as_mut() {
                     w.last_fire_time = -10.0;
                 }
@@ -103677,7 +103678,7 @@ mod tests {
             .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
             .expect("trap");
         {
-            let trap = game_logic.find_object(trap_id).unwrap();
+            let trap = game_logic.host_object(trap_id).unwrap();
             let md = trap.mine_data.as_ref().unwrap();
             assert_eq!(md.kind, HostMineKind::DemoTrap);
             assert_eq!(md.demo_trap_mode, DemoTrapMode::Proximity);
@@ -103688,7 +103689,7 @@ mod tests {
         assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Manual));
         {
             let md = game_logic
-                .find_object(trap_id)
+                .host_object(trap_id)
                 .unwrap()
                 .mine_data
                 .as_ref()
@@ -103701,7 +103702,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("enemy");
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -103709,11 +103710,11 @@ mod tests {
         game_logic.frame = 5;
         game_logic.update_mines_and_demo_traps();
         assert!(
-            game_logic.find_object(trap_id).is_some(),
+            game_logic.host_object(trap_id).is_some(),
             "manual-mode trap must survive proximity of enemy"
         );
         let enemy_hp_manual = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -103727,9 +103728,9 @@ mod tests {
         game_logic.update_mines_and_demo_traps();
         assert!(
             game_logic.mine_residual_proximity_detonations() > 0
-                || game_logic.find_object(trap_id).is_none()
+                || game_logic.host_object(trap_id).is_none()
                 || game_logic
-                    .find_object(trap_id)
+                    .host_object(trap_id)
                     .and_then(|o| o.mine_data.as_ref())
                     .map(|d| d.detonated)
                     .unwrap_or(true),
@@ -103744,7 +103745,7 @@ mod tests {
         assert!(
             game_logic.mine_residual_manual_detonations() > 0
                 || game_logic
-                    .find_object(trap2)
+                    .host_object(trap2)
                     .and_then(|o| o.mine_data.as_ref())
                     .map(|d| d.detonated)
                     .unwrap_or(true),
@@ -103784,7 +103785,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let g = game_logic.find_object_mut(gattling_id).unwrap();
+            let g = game_logic.host_object_mut(gattling_id).unwrap();
             assert!(g.weapon.is_some(), "Gattling must bind residual weapon");
             assert!(
                 g.secondary_weapon.is_some(),
@@ -103798,7 +103799,7 @@ mod tests {
         }
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -103808,7 +103809,7 @@ mod tests {
         }
 
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -103868,7 +103869,7 @@ mod tests {
             )
             .expect("gattling cannon");
         let base_reload = {
-            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let g = game_logic.host_object(gattling_id).expect("gattling");
             assert!(is_gattling_cannon_structure(&g.template_name));
             let prim = g.weapon.as_ref().expect("ground gun");
             assert!((prim.damage - GATTLING_BUILDING_GROUND_DAMAGE).abs() < 0.01);
@@ -103886,7 +103887,7 @@ mod tests {
         // Chain Guns residual → damage × 1.25.
         assert!(game_logic.apply_gattling_chain_guns_upgrade(gattling_id));
         {
-            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let g = game_logic.host_object(gattling_id).expect("gattling");
             let prim = g.weapon.as_ref().expect("chained ground");
             assert!(
                 (prim.damage - GATTLING_BUILDING_GROUND_DAMAGE * 1.25).abs() < 0.01,
@@ -103901,13 +103902,13 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
         for i in 0..8u32 {
             {
-                let g = game_logic.find_object_mut(gattling_id).unwrap();
+                let g = game_logic.host_object_mut(gattling_id).unwrap();
                 // Keep residual auto-fire path Idle/Attacking without manual AttackObject.
                 if let Some(w) = g.weapon.as_mut() {
                     w.last_fire_time = -10.0;
@@ -103931,7 +103932,7 @@ mod tests {
             "gattling building continuous-fire ramp residual honesty must reach MEAN or FAST"
         );
         {
-            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let g = game_logic.host_object(gattling_id).expect("gattling");
             assert!(
                 g.continuous_fire_level >= GattlingFireLevel::Mean.as_u8(),
                 "after multi-shot residual must be MEAN or FAST, level={}",
@@ -103946,7 +103947,7 @@ mod tests {
             );
         }
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -103959,7 +103960,7 @@ mod tests {
             .create_object("TestAircraft", Team::GLA, Vec3::new(100.0, 50.0, 0.0))
             .expect("aircraft");
         let air_hp_before = game_logic
-            .find_object(air)
+            .host_object(air)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         // Remove ground enemy so auto-acquire prefers air.
@@ -103967,7 +103968,7 @@ mod tests {
         game_logic.process_destroy_list();
         for i in 0..6u32 {
             {
-                let g = game_logic.find_object_mut(gattling_id).unwrap();
+                let g = game_logic.host_object_mut(gattling_id).unwrap();
                 if let Some(w) = g.secondary_weapon.as_mut() {
                     w.last_fire_time = -10.0;
                     w.reload_time = 0.05;
@@ -103981,7 +103982,7 @@ mod tests {
             game_logic.update_combat(&[gattling_id, air], LOGIC_FRAME_TIMESTEP);
         }
         let air_hp_after = game_logic
-            .find_object(air)
+            .host_object(air)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -104010,7 +104011,7 @@ mod tests {
             .expect("barracks");
         // Even if someone arms a barracks, residual auto-fire is base-defense only.
         {
-            let b = game_logic.find_object_mut(barracks_id).unwrap();
+            let b = game_logic.host_object_mut(barracks_id).unwrap();
             b.weapon = Some(Weapon {
                 damage: 50.0,
                 range: 200.0,
@@ -104024,7 +104025,7 @@ mod tests {
             .expect("enemy");
 
         let enemy_hp_before = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -104034,7 +104035,7 @@ mod tests {
         }
 
         let enemy_hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert_eq!(
@@ -104090,7 +104091,7 @@ mod tests {
             .expect("missile");
 
         {
-            let p = game_logic.find_object(paladin_id).expect("paladin");
+            let p = game_logic.host_object(paladin_id).expect("paladin");
             assert!(
                 is_point_defense_carrier(&p.template_name),
                 "USA_Paladin must classify as PDL carrier"
@@ -104099,7 +104100,7 @@ mod tests {
         }
         assert!(
             game_logic
-                .find_object(missile_id)
+                .host_object(missile_id)
                 .map(|m| m.is_alive())
                 .unwrap_or(false),
             "missile must start alive"
@@ -104119,15 +104120,15 @@ mod tests {
         );
         // Missile should be destroyed / marked for destruction residual.
         let missile_gone = game_logic
-            .find_object(missile_id)
+            .host_object(missile_id)
             .map(|m| !m.is_alive())
             .unwrap_or(true)
             || game_logic
-                .find_object(missile_id)
+                .host_object(missile_id)
                 .map(|m| m.health.current <= 0.0)
                 .unwrap_or(true);
         // mark_object_for_destruction may leave object until cleanup; health must be zeroed.
-        if let Some(m) = game_logic.find_object(missile_id) {
+        if let Some(m) = game_logic.host_object(missile_id) {
             assert!(
                 !m.is_alive() || m.health.current <= 0.0,
                 "missile must be dead after PDL intercept (hp={})",
@@ -104152,7 +104153,7 @@ mod tests {
         );
         assert!(
             game_logic
-                .find_object(missile2)
+                .host_object(missile2)
                 .map(|m| m.is_alive())
                 .unwrap_or(false),
             "second missile survives during reload residual"
@@ -104186,7 +104187,7 @@ mod tests {
             .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .expect("missile");
         {
-            let t = game_logic.find_object_mut(tank_id).unwrap();
+            let t = game_logic.host_object_mut(tank_id).unwrap();
             t.weapon = Some(Weapon {
                 damage: 50.0,
                 range: 100.0,
@@ -104250,7 +104251,7 @@ mod tests {
             )
             .expect("nuke cannon");
         {
-            let c = game_logic.find_object(cannon_id).expect("cannon");
+            let c = game_logic.host_object(cannon_id).expect("cannon");
             assert!(is_nuke_cannon_template(&c.template_name));
             assert!(
                 c.secondary_weapon.is_none(),
@@ -104294,7 +104295,7 @@ mod tests {
             "neutron shells upgrade must complete residual"
         );
         {
-            let c = game_logic.find_object(cannon_id).expect("cannon");
+            let c = game_logic.host_object(cannon_id).expect("cannon");
             assert!(
                 c.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS),
                 "cannon must receive neutron shells upgrade tag"
@@ -104313,7 +104314,7 @@ mod tests {
 
         // Fire secondary at infantry location (slot lock residual).
         {
-            let c = game_logic.find_object_mut(cannon_id).expect("cannon");
+            let c = game_logic.host_object_mut(cannon_id).expect("cannon");
             c.active_weapon_slot = 1;
             c.attack_target(infantry_id);
             if let Some(w) = c.secondary_weapon.as_mut() {
@@ -104331,7 +104332,7 @@ mod tests {
         }
 
         let vehicle_hp_before = game_logic
-            .find_object(vehicle_id)
+            .host_object(vehicle_id)
             .map(|v| v.health.current)
             .unwrap_or(0.0);
 
@@ -104342,11 +104343,11 @@ mod tests {
             && game_logic.neutron_shell_residual_blasts == 0
         {
             let from = game_logic
-                .find_object(cannon_id)
+                .host_object(cannon_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(infantry_id)
+                .host_object(infantry_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
             assert!(game_logic
@@ -104382,14 +104383,14 @@ mod tests {
         );
 
         // Infantry dead residual.
-        if let Some(inf) = game_logic.find_object(infantry_id) {
+        if let Some(inf) = game_logic.host_object(infantry_id) {
             assert!(
                 !inf.is_alive() || inf.health.current <= 0.0,
                 "infantry must die to neutron residual"
             );
         }
         // Vehicle unmanned, HP preserved residual.
-        let vehicle = game_logic.find_object(vehicle_id).expect("vehicle");
+        let vehicle = game_logic.host_object(vehicle_id).expect("vehicle");
         assert!(
             vehicle.is_unmanned(),
             "vehicle must be unmanned by neutron residual"
@@ -104433,7 +104434,7 @@ mod tests {
             .create_object("TestNukeCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("cannon");
         {
-            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            let c = game_logic.host_object_mut(cannon_id).unwrap();
             c.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
             c.active_weapon_slot = 0; // primary
             if let Some(w) = c.weapon.as_mut() {
@@ -104446,7 +104447,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
             .expect("infantry");
         {
-            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            let c = game_logic.host_object_mut(cannon_id).unwrap();
             c.attack_target(infantry_id);
         }
 
@@ -104512,7 +104513,7 @@ mod tests {
             )
             .expect("stealth fighter");
         {
-            let f = game_logic.find_object(fighter_id).expect("fighter");
+            let f = game_logic.host_object(fighter_id).expect("fighter");
             assert!(is_bunker_buster_carrier(&f.template_name));
             assert!(
                 !f.has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS),
@@ -104532,19 +104533,19 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(152.0, 0.0, 0.0))
             .expect("inf_b");
         {
-            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            let bunker = game_logic.host_object_mut(bunker_id).unwrap();
             assert!(bunker.add_occupant(inf_a));
             assert!(bunker.add_occupant(inf_b));
         }
         for id in [inf_a, inf_b] {
-            let u = game_logic.find_object_mut(id).unwrap();
+            let u = game_logic.host_object_mut(id).unwrap();
             u.set_contained_by(Some(bunker_id));
             u.set_ai_state(AIState::Garrisoned);
             u.set_position(Vec3::new(150.0, 0.0, 0.0));
         }
 
         let bunker_hp_before = game_logic
-            .find_object(bunker_id)
+            .host_object(bunker_id)
             .map(|b| b.health.current)
             .unwrap_or(0.0);
 
@@ -104574,7 +104575,7 @@ mod tests {
             "bunker busters upgrade must complete residual"
         );
         {
-            let f = game_logic.find_object(fighter_id).expect("fighter");
+            let f = game_logic.host_object(fighter_id).expect("fighter");
             assert!(
                 f.has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS),
                 "stealth fighter must receive bunker-buster upgrade tag"
@@ -104583,7 +104584,7 @@ mod tests {
 
         // Fire residual missile at bunker (fighter at origin, bunker at 150).
         {
-            let f = game_logic.find_object_mut(fighter_id).unwrap();
+            let f = game_logic.host_object_mut(fighter_id).unwrap();
             f.attack_target(bunker_id);
             if let Some(w) = f.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -104597,11 +104598,11 @@ mod tests {
         game_logic.set_current_frame(50);
         // Direct residual path: upgrade test must not depend on full combat chooser matrix.
         let bunker_pos = game_logic
-            .find_object(bunker_id)
+            .host_object(bunker_id)
             .map(|b| b.get_position())
             .unwrap_or(Vec3::new(150.0, 0.0, 0.0));
         let fighter_pos = game_logic
-            .find_object(fighter_id)
+            .host_object(fighter_id)
             .map(|f| f.get_position())
             .unwrap_or(Vec3::ZERO);
         let _ = game_logic.spawn_stealth_jet_missile_projectile(
@@ -104649,7 +104650,7 @@ mod tests {
 
         // Occupants dead residual.
         for id in [inf_a, inf_b] {
-            if let Some(u) = game_logic.find_object(id) {
+            if let Some(u) = game_logic.host_object(id) {
                 assert!(
                     !u.is_alive() || u.health.current <= 0.0 || u.status.destroyed,
                     "garrisoned occupant {id:?} must die to bunker buster"
@@ -104657,7 +104658,7 @@ mod tests {
             }
         }
         // Bunker emptied + more damage than base 100.
-        let bunker = game_logic.find_object(bunker_id).expect("bunker");
+        let bunker = game_logic.host_object(bunker_id).expect("bunker");
         assert_eq!(
             bunker.contained_units().len(),
             0,
@@ -104706,16 +104707,16 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(51.0, 0.0, 0.0))
             .expect("inf");
         {
-            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            let bunker = game_logic.host_object_mut(bunker_id).unwrap();
             assert!(bunker.add_occupant(inf_id));
         }
         {
-            let u = game_logic.find_object_mut(inf_id).unwrap();
+            let u = game_logic.host_object_mut(inf_id).unwrap();
             u.set_contained_by(Some(bunker_id));
             u.set_ai_state(AIState::Garrisoned);
         }
         {
-            let f = game_logic.find_object_mut(fighter_id).unwrap();
+            let f = game_logic.host_object_mut(fighter_id).unwrap();
             f.attack_target(bunker_id);
             if let Some(w) = f.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -104737,11 +104738,11 @@ mod tests {
             "without upgrade blasts must stay 0"
         );
         // Infantry may still be alive inside (normal structure HP damage only).
-        let bunker = game_logic.find_object(bunker_id).expect("bunker");
+        let bunker = game_logic.host_object(bunker_id).expect("bunker");
         assert!(
             bunker.contained_units().contains(&inf_id)
                 || game_logic
-                    .find_object(inf_id)
+                    .host_object(inf_id)
                     .map(|u| u.is_alive())
                     .unwrap_or(false),
             "without bunker-buster upgrade garrison should not be force-cleared"
@@ -104786,23 +104787,23 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(42.0, 0.0, 0.0))
             .expect("inf_b");
         {
-            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            let bunker = game_logic.host_object_mut(bunker_id).unwrap();
             assert!(bunker.add_occupant(inf_a));
             assert!(bunker.add_occupant(inf_b));
         }
         for id in [inf_a, inf_b] {
-            let u = game_logic.find_object_mut(id).unwrap();
+            let u = game_logic.host_object_mut(id).unwrap();
             u.set_contained_by(Some(bunker_id));
             u.set_ai_state(AIState::Garrisoned);
         }
 
         let bunker_hp_before = game_logic
-            .find_object(bunker_id)
+            .host_object(bunker_id)
             .map(|b| b.health.current)
             .unwrap_or(0.0);
 
         {
-            let m = game_logic.find_object_mut(micro_id).unwrap();
+            let m = game_logic.host_object_mut(micro_id).unwrap();
             m.attack_target(bunker_id);
             if let Some(w) = m.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -104828,7 +104829,7 @@ mod tests {
 
         // Structure HP preserved (C++ KillGarrisoned does not apply body HP).
         let bunker_hp_after = game_logic
-            .find_object(bunker_id)
+            .host_object(bunker_id)
             .map(|b| b.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -104836,7 +104837,7 @@ mod tests {
             "KILL_GARRISONED residual must not damage bunker HP (before={bunker_hp_before}, after={bunker_hp_after})"
         );
         let remaining = game_logic
-            .find_object(bunker_id)
+            .host_object(bunker_id)
             .map(|b| b.contained_units().len())
             .unwrap_or(0);
         assert_eq!(remaining, 1, "one occupant must remain after single clear");
@@ -104950,7 +104951,7 @@ mod tests {
         let hp_before = logic.host_object(inf).unwrap().health.current;
         logic.update_microwave_emitter_field();
         let hp_after = logic
-            .find_object(inf)
+            .host_object(inf)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -105006,14 +105007,14 @@ mod tests {
             .expect("barracks");
 
         {
-            let m = game_logic.find_object(micro_id).expect("microwave");
+            let m = game_logic.host_object(micro_id).expect("microwave");
             assert!(
                 is_microwave_tank(&m.template_name),
                 "AmericaTankMicrowave must classify as microwave residual"
             );
         }
         {
-            let b = game_logic.find_object_mut(barracks_id).unwrap();
+            let b = game_logic.host_object_mut(barracks_id).unwrap();
             // Ensure structure residual + constructed.
             b.object_type = ObjectType::Building;
             b.construction_percent = 1.0;
@@ -105023,7 +105024,7 @@ mod tests {
         assert!(!game_logic.honesty_microwave_disable_ok());
         assert!(
             !game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .map(|b| b.is_subdued_disabled())
                 .unwrap_or(true),
             "structure starts not subdued"
@@ -105031,7 +105032,7 @@ mod tests {
 
         // Microwave cooks the barracks.
         {
-            let m = game_logic.find_object_mut(micro_id).unwrap();
+            let m = game_logic.host_object_mut(micro_id).unwrap();
             m.attack_target(barracks_id);
         }
 
@@ -105047,7 +105048,7 @@ mod tests {
             "microwave host path honesty"
         );
         {
-            let b = game_logic.find_object(barracks_id).expect("barracks");
+            let b = game_logic.host_object(barracks_id).expect("barracks");
             assert!(
                 b.is_subdued_disabled(),
                 "structure must be DISABLED_SUBDUED while cooked"
@@ -105068,21 +105069,21 @@ mod tests {
             .create_object("TestAllyBarracks", Team::USA, Vec3::new(30.0, 0.0, 0.0))
             .expect("ally barracks");
         {
-            let a = game_logic.find_object_mut(ally_id).unwrap();
+            let a = game_logic.host_object_mut(ally_id).unwrap();
             a.object_type = ObjectType::Building;
             a.construction_percent = 1.0;
             a.set_status_under_construction(false);
             // Force cook attempt on ally (should not disable).
         }
         {
-            let m = game_logic.find_object_mut(micro_id).unwrap();
+            let m = game_logic.host_object_mut(micro_id).unwrap();
             m.attack_target(ally_id);
         }
         game_logic.frame = 2;
         game_logic.update_microwave_disable();
         assert!(
             !game_logic
-                .find_object(ally_id)
+                .host_object(ally_id)
                 .map(|a| a.is_subdued_disabled())
                 .unwrap_or(true),
             "fail-closed: ally structure must not be microwave-disabled"
@@ -105090,7 +105091,7 @@ mod tests {
         // Enemy barracks no longer targeted — subdued must clear.
         assert!(
             !game_logic
-                .find_object(barracks_id)
+                .host_object(barracks_id)
                 .map(|b| b.is_subdued_disabled())
                 .unwrap_or(true),
             "DISABLED_SUBDUED must clear when microwave stops cooking"
@@ -105118,13 +105119,13 @@ mod tests {
             .create_object("TestBarracks", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
             .expect("barracks");
         {
-            let b = game_logic.find_object_mut(barracks_id).unwrap();
+            let b = game_logic.host_object_mut(barracks_id).unwrap();
             b.object_type = ObjectType::Building;
             b.construction_percent = 1.0;
             b.set_status_under_construction(false);
         }
         {
-            let t = game_logic.find_object_mut(tank_id).unwrap();
+            let t = game_logic.host_object_mut(tank_id).unwrap();
             t.attack_target(barracks_id);
         }
 
@@ -105135,7 +105136,7 @@ mod tests {
             "fail-closed: ordinary tank must not microwave-disable"
         );
         assert!(!game_logic
-            .find_object(barracks_id)
+            .host_object(barracks_id)
             .map(|b| b.is_subdued_disabled())
             .unwrap_or(true));
     }
@@ -105182,7 +105183,7 @@ mod tests {
             .expect("missile");
 
         {
-            let r = game_logic.find_object(raptor_id).expect("king raptor");
+            let r = game_logic.host_object(raptor_id).expect("king raptor");
             assert!(
                 is_king_raptor_carrier(&r.template_name),
                 "AirF_AmericaJetRaptor must classify as King Raptor residual"
@@ -105205,7 +105206,7 @@ mod tests {
             game_logic.point_defense_residual_intercepts() > 0,
             "intercept counter must advance"
         );
-        if let Some(m) = game_logic.find_object(missile_id) {
+        if let Some(m) = game_logic.host_object(missile_id) {
             assert!(
                 !m.is_alive() || m.health.current <= 0.0,
                 "missile must be dead after King Raptor laser intercept (hp={})",
@@ -105266,7 +105267,7 @@ mod tests {
             .expect("missile");
 
         {
-            let r = game_logic.find_object(raptor_id).unwrap();
+            let r = game_logic.host_object(raptor_id).unwrap();
             assert!(
                 !is_king_raptor_carrier(&r.template_name),
                 "regular Raptor is not King Raptor"
@@ -105331,7 +105332,7 @@ mod tests {
             )
             .expect("comanche");
         {
-            let c = game_logic.find_object(comanche_id).expect("comanche");
+            let c = game_logic.host_object(comanche_id).expect("comanche");
             assert!(is_comanche_template(&c.template_name));
             assert!(
                 c.weapon.is_some(),
@@ -105388,7 +105389,7 @@ mod tests {
             "comanche rocket pods upgrade must complete residual"
         );
         {
-            let c = game_logic.find_object(comanche_id).expect("comanche");
+            let c = game_logic.host_object(comanche_id).expect("comanche");
             assert!(
                 c.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS),
                 "comanche must receive rocket pods upgrade tag"
@@ -105413,7 +105414,7 @@ mod tests {
 
         // Fire secondary at tank (slot lock residual + area splash).
         {
-            let c = game_logic.find_object_mut(comanche_id).expect("comanche");
+            let c = game_logic.host_object_mut(comanche_id).expect("comanche");
             c.active_weapon_slot = 1;
             c.attack_target(tank_id);
             if let Some(w) = c.secondary_weapon.as_mut() {
@@ -105429,11 +105430,11 @@ mod tests {
         }
 
         let tank_hp_before = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         let inf_hp_before = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
 
@@ -105444,11 +105445,11 @@ mod tests {
         // exercise ScatterTarget projectile + area residual for honesty gate.
         if !game_logic.honesty_comanche_rocket_pod_ok() {
             let impact = game_logic
-                .find_object(tank_id)
+                .host_object(tank_id)
                 .map(|t| t.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
             let from = game_logic
-                .find_object(comanche_id)
+                .host_object(comanche_id)
                 .map(|c| c.get_position())
                 .unwrap_or(Vec3::ZERO);
             let _ = game_logic.spawn_comanche_rocket_pod_projectile(comanche_id, from, impact, 0);
@@ -105460,8 +105461,8 @@ mod tests {
             "rocket pods area attack residual honesty must fire (attacks={} proj={} slot={:?} sec={:?})",
             game_logic.comanche_rocket_pod_residual_area_attacks(),
             game_logic.comanche_rocket_pod_projectiles_spawned,
-            game_logic.find_object(comanche_id).map(|c| c.active_weapon_slot),
-            game_logic.find_object(comanche_id).and_then(|c| c.secondary_weapon.as_ref().map(|w| w.damage)),
+            game_logic.host_object(comanche_id).map(|c| c.active_weapon_slot),
+            game_logic.host_object(comanche_id).and_then(|c| c.secondary_weapon.as_ref().map(|w| w.damage)),
         );
         assert!(
             game_logic.comanche_rocket_pod_residual_units_hit() >= 1,
@@ -105469,11 +105470,11 @@ mod tests {
         );
 
         let tank_hp_after = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         let inf_hp_after = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -105515,7 +105516,7 @@ mod tests {
             .create_object("TestComanche", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("comanche");
         {
-            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            let c = game_logic.host_object_mut(comanche_id).unwrap();
             c.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
             c.active_weapon_slot = 0; // primary cannon
             if let Some(w) = c.weapon.as_mut() {
@@ -105528,7 +105529,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("infantry");
         {
-            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            let c = game_logic.host_object_mut(comanche_id).unwrap();
             c.attack_target(infantry_id);
         }
 
@@ -105578,7 +105579,7 @@ mod tests {
             .expect("tank");
 
         {
-            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            let c = game_logic.host_object_mut(comanche_id).unwrap();
             c.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
             c.active_weapon_slot = 1;
             c.set_force_attack(true);
@@ -105593,7 +105594,7 @@ mod tests {
         }
 
         let tank_hp_before = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
 
@@ -105605,7 +105606,7 @@ mod tests {
             "ground FIRE_WEAPON residual must apply rocket pods area"
         );
         let tank_hp_after = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -105644,7 +105645,7 @@ mod tests {
             .create_object("GLAVehicleRocketBuggy", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("buggy");
         {
-            let b = game_logic.find_object(buggy_id).expect("buggy");
+            let b = game_logic.host_object(buggy_id).expect("buggy");
             assert!(is_rocket_buggy_template(&b.template_name));
             let w = b.weapon.as_ref().expect("buggy primary residual");
             assert!(
@@ -105673,7 +105674,7 @@ mod tests {
             .expect("infantry");
 
         {
-            let b = game_logic.find_object_mut(buggy_id).unwrap();
+            let b = game_logic.host_object_mut(buggy_id).unwrap();
             // Inside max range, outside min range residual.
             b.set_position(Vec3::new(0.0, 0.0, 0.0));
             b.attack_target(tank_id);
@@ -105686,11 +105687,11 @@ mod tests {
         }
 
         let tank_hp_before = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         let inf_hp_before = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
 
@@ -105701,11 +105702,11 @@ mod tests {
             && !game_logic.honesty_rocket_buggy_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(buggy_id)
+                .host_object(buggy_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(tank_id)
+                .host_object(tank_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             assert!(game_logic
@@ -105737,18 +105738,18 @@ mod tests {
             game_logic.rocket_buggy_residual_units_hit() >= 1
                 || tank_hp_before
                     > game_logic
-                        .find_object(tank_id)
+                        .host_object(tank_id)
                         .map(|t| t.health.current)
                         .unwrap_or(0.0),
             "buggy residual must hit at least intended target"
         );
 
         let tank_hp_after = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         let inf_hp_after = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -105802,7 +105803,7 @@ mod tests {
             .create_object("GLAVehicleQuadCannon", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("quad");
         {
-            let q = game_logic.find_object(quad_id).expect("quad");
+            let q = game_logic.host_object(quad_id).expect("quad");
             assert!(is_quad_cannon_template(&q.template_name));
             let prim = q.weapon.as_ref().expect("ground gun");
             assert!((prim.damage - QUAD_GROUND_DAMAGE).abs() < 0.01);
@@ -105829,7 +105830,7 @@ mod tests {
             "multi-barrel residual honesty must record tier apply"
         );
         {
-            let q = game_logic.find_object(quad_id).expect("quad");
+            let q = game_logic.host_object(quad_id).expect("quad");
             let prim = q.weapon.as_ref().expect("upgraded ground");
             // UpgradeTwo ground damage residual 8, delay 1 frame → reload ~1/30.
             assert!((prim.damage - 8.0).abs() < 0.01);
@@ -105843,7 +105844,7 @@ mod tests {
             .create_object("TestAircraft", Team::USA, Vec3::new(200.0, 50.0, 0.0))
             .expect("aircraft");
         {
-            let a = game_logic.find_object_mut(aircraft_id).unwrap();
+            let a = game_logic.host_object_mut(aircraft_id).unwrap();
             a.status.airborne_target = true;
             a.set_position(Vec3::new(200.0, 50.0, 0.0));
         }
@@ -105854,7 +105855,7 @@ mod tests {
 
         // Fire AA at aircraft (secondary residual).
         {
-            let q = game_logic.find_object_mut(quad_id).unwrap();
+            let q = game_logic.host_object_mut(quad_id).unwrap();
             q.attack_target(aircraft_id);
             if let Some(w) = q.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -105867,7 +105868,7 @@ mod tests {
         }
 
         let air_hp_before = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
 
@@ -105879,7 +105880,7 @@ mod tests {
             "quad cannon AA residual honesty must fire secondary vs airborne"
         );
         let air_hp_after = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -105889,7 +105890,7 @@ mod tests {
 
         // Ground fire residual against tank.
         {
-            let q = game_logic.find_object_mut(quad_id).unwrap();
+            let q = game_logic.host_object_mut(quad_id).unwrap();
             q.attack_target(ground_tank);
             if let Some(w) = q.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -105901,7 +105902,7 @@ mod tests {
             }
         }
         let tank_hp_before = game_logic
-            .find_object(ground_tank)
+            .host_object(ground_tank)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(60);
@@ -105911,7 +105912,7 @@ mod tests {
             "quad ground residual honesty must fire primary vs ground"
         );
         let tank_hp_after = game_logic
-            .find_object(ground_tank)
+            .host_object(ground_tank)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -105955,7 +105956,7 @@ mod tests {
             )
             .expect("scud");
         {
-            let s = game_logic.find_object(scud_id).expect("scud");
+            let s = game_logic.host_object(scud_id).expect("scud");
             assert!(is_scud_launcher_template(&s.template_name));
             let prim = s.weapon.as_ref().expect("explosive primary");
             assert!((prim.range - SCUD_ATTACK_RANGE).abs() < 1.0);
@@ -105974,7 +105975,7 @@ mod tests {
 
         // Explosive primary area residual.
         {
-            let s = game_logic.find_object_mut(scud_id).unwrap();
+            let s = game_logic.host_object_mut(scud_id).unwrap();
             s.set_position(Vec3::new(0.0, 0.0, 0.0));
             s.attack_target(tank_id);
             s.active_weapon_slot = 0;
@@ -105991,11 +105992,11 @@ mod tests {
         }
 
         let tank_hp_before = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         let inf_hp_before = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
 
@@ -106017,11 +106018,11 @@ mod tests {
             "scud explosive residual honesty must fire"
         );
         let tank_hp_mid = game_logic
-            .find_object(tank_id)
+            .host_object(tank_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         let inf_hp_mid = game_logic
-            .find_object(infantry_id)
+            .host_object(infantry_id)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106040,7 +106041,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(260.0, 0.0, 5.0))
             .expect("toxin infantry");
         {
-            let s = game_logic.find_object_mut(scud_id).unwrap();
+            let s = game_logic.host_object_mut(scud_id).unwrap();
             s.active_weapon_slot = 1;
             s.attack_target(toxin_inf);
             if let Some(w) = s.secondary_weapon.as_mut() {
@@ -106055,7 +106056,7 @@ mod tests {
         }
 
         let toxin_hp_before = game_logic
-            .find_object(toxin_inf)
+            .host_object(toxin_inf)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
 
@@ -106083,7 +106084,7 @@ mod tests {
         );
 
         let toxin_hp_after_blast = game_logic
-            .find_object(toxin_inf)
+            .host_object(toxin_inf)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106093,7 +106094,7 @@ mod tests {
 
         // Tick poison field residual DoT.
         let poison_hp_before = game_logic
-            .find_object(toxin_inf)
+            .host_object(toxin_inf)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         // Next tick is activate_frame (90) + 15 = 105; first tick already applied at spawn frame.
@@ -106101,7 +106102,7 @@ mod tests {
         game_logic.set_current_frame(120);
         game_logic.update_scud_poison_zones();
         let poison_hp_after = game_logic
-            .find_object(toxin_inf)
+            .host_object(toxin_inf)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         // If unit still alive, poison tick should apply residual dmg.
@@ -106166,7 +106167,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_scud_launcher_missile_projectiles();
             let alive = logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.scud_launcher_missile_projectile)
                 .unwrap_or(false);
             if !alive {
@@ -106177,7 +106178,7 @@ mod tests {
         assert!(hit, "SCUDMissile should impact within fuel lifetime");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106239,7 +106240,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_tomahawk_missile_projectiles();
             let alive = logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.tomahawk_missile_projectile)
                 .unwrap_or(false);
             if !alive {
@@ -106250,7 +106251,7 @@ mod tests {
         assert!(hit, "TomahawkMissile should impact within fuel lifetime");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106297,7 +106298,7 @@ mod tests {
             logic.update_aurora_bomb_projectiles();
         }
         let midpos = logic
-            .find_object(pid)
+            .host_object(pid)
             .map(|o| o.get_position())
             .unwrap_or(start);
         // Guided toward aim residual.
@@ -106356,7 +106357,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_rocket_buggy_missile_projectiles();
             let alive = logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.rocket_buggy_missile_projectile)
                 .unwrap_or(false);
             if !alive {
@@ -106367,7 +106368,7 @@ mod tests {
         assert!(hit, "RocketBuggyMissile should impact within fuel lifetime");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106448,7 +106449,7 @@ mod tests {
         logic.process_destroy_list();
         // Infantry killed by neutron blast residual at impact.
         let alive = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.is_alive())
             .unwrap_or(false);
         assert!(
@@ -106509,7 +106510,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_rpg_trooper_missile_projectiles();
             let alive = logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.rpg_trooper_missile_projectile)
                 .unwrap_or(false);
             if !alive {
@@ -106520,7 +106521,7 @@ mod tests {
         assert!(hit, "RPG missile should impact within fuel lifetime");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106579,7 +106580,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_tank_hunter_missile_projectiles();
             let alive = logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.tank_hunter_missile_projectile)
                 .unwrap_or(false);
             if !alive {
@@ -106590,7 +106591,7 @@ mod tests {
         assert!(hit, "TankHunter missile should impact within fuel lifetime");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106653,7 +106654,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_missile_defender_missile_projectiles();
             let alive = logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.missile_defender_missile_projectile)
                 .unwrap_or(false);
             if !alive {
@@ -106664,7 +106665,7 @@ mod tests {
         assert!(hit, "MD missile should impact within fuel lifetime");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106717,7 +106718,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_scorpion_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.scorpion_shell_projectile)
                 .unwrap_or(false)
             {
@@ -106726,7 +106727,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         // shell residual applies gun splash at aim; intended may be None so check units near aim
@@ -106791,7 +106792,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_nuke_cannon_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.nuke_cannon_shell_projectile)
                 .unwrap_or(false)
             {
@@ -106800,7 +106801,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106857,7 +106858,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_usa_tank_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.usa_tank_shell_projectile)
                 .unwrap_or(false)
             {
@@ -106866,7 +106867,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106925,7 +106926,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_battlemaster_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.battlemaster_shell_projectile)
                 .unwrap_or(false)
             {
@@ -106934,7 +106935,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -106989,7 +106990,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_overlord_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.overlord_shell_projectile)
                 .unwrap_or(false)
             {
@@ -106998,7 +106999,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107121,7 +107122,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_inferno_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.inferno_shell_projectile)
                 .unwrap_or(false)
             {
@@ -107130,7 +107131,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107190,7 +107191,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_marauder_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.marauder_shell_projectile)
                 .unwrap_or(false)
             {
@@ -107199,7 +107200,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107258,7 +107259,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_fire_base_shell_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.fire_base_shell_projectile)
                 .unwrap_or(false)
             {
@@ -107267,7 +107268,7 @@ mod tests {
         }
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107324,7 +107325,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_raptor_missile_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.raptor_missile_projectile)
                 .unwrap_or(false)
             {
@@ -107335,7 +107336,7 @@ mod tests {
         assert!(hit, "raptor missile should impact");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107391,7 +107392,7 @@ mod tests {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_scorpion_missile_projectiles();
             if !logic
-                .find_object(pid)
+                .host_object(pid)
                 .map(|o| o.is_alive() && o.scorpion_missile_projectile)
                 .unwrap_or(false)
             {
@@ -107402,7 +107403,7 @@ mod tests {
         assert!(hit, "scorpion missile should impact");
         logic.process_destroy_list();
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107460,11 +107461,11 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(125.0, 0.0, 0.0))
             .expect("splash");
         let hp_before = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_before = logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -107496,11 +107497,11 @@ mod tests {
         logic.process_destroy_list();
 
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_after = logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107567,7 +107568,7 @@ mod tests {
             .create_object("TestTank", Team::USA, glam::Vec3::new(120.0, 0.0, 0.0))
             .expect("enemy");
         let hp_before = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -107599,7 +107600,7 @@ mod tests {
         logic.process_destroy_list();
 
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107645,7 +107646,7 @@ mod tests {
             .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("technical");
         {
-            let t = game_logic.find_object(tech_id).expect("tech");
+            let t = game_logic.host_object(tech_id).expect("tech");
             assert!(is_technical_template(&t.template_name));
             assert!(t.is_technical_style_container());
             assert_eq!(t.transport_capacity(), TECHNICAL_TRANSPORT_SLOTS);
@@ -107661,7 +107662,7 @@ mod tests {
             "salvage weapon upgrade residual honesty"
         );
         {
-            let t = game_logic.find_object(tech_id).expect("tech");
+            let t = game_logic.host_object(tech_id).expect("tech");
             let prim = t.weapon.as_ref().expect("rpg");
             assert!((prim.damage - TECH_RPG_DAMAGE).abs() < 0.5);
         }
@@ -107671,7 +107672,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
             .expect("passenger");
         {
-            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            let unit = game_logic.host_object_mut(infantry_id).unwrap();
             unit.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 80.0,
@@ -107684,7 +107685,7 @@ mod tests {
         }
         game_logic.update_ai(&[infantry_id, tech_id], 1.0 / 30.0);
         {
-            let t = game_logic.find_object(tech_id).expect("tech");
+            let t = game_logic.host_object(tech_id).expect("tech");
             assert!(
                 t.contained_units().contains(&infantry_id),
                 "technical must load passenger residual"
@@ -107704,7 +107705,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
             .expect("splash");
         {
-            let t = game_logic.find_object_mut(tech_id).unwrap();
+            let t = game_logic.host_object_mut(tech_id).unwrap();
             t.attack_target(enemy);
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -107713,11 +107714,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -107725,11 +107726,11 @@ mod tests {
         game_logic.update_combat(&[tech_id, enemy, splash_inf], LOGIC_FRAME_TIMESTEP);
         if game_logic.technical_rpg_missiles_spawned == 0 {
             let from = game_logic
-                .find_object(tech_id)
+                .host_object(tech_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -107757,7 +107758,7 @@ mod tests {
             "technical residual fire honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107765,7 +107766,7 @@ mod tests {
             "technical RPG residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let splash_hp_after = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107786,7 +107787,7 @@ mod tests {
         assert!(
             game_logic.technical_residual_unloads() >= 1
                 || !game_logic
-                    .find_object(tech_id)
+                    .host_object(tech_id)
                     .map(|t| t.contained_units().contains(&infantry_id))
                     .unwrap_or(true),
             "technical unload residual honesty"
@@ -107847,7 +107848,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, glam::Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
         let hp_before = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -107886,7 +107887,7 @@ mod tests {
         logic.process_destroy_list();
 
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -107932,7 +107933,7 @@ mod tests {
             .create_object("GLAVehicleToxinTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("toxin");
         {
-            let t = game_logic.find_object(toxin_id).expect("toxin");
+            let t = game_logic.host_object(toxin_id).expect("toxin");
             assert!(is_toxin_tractor_template(&t.template_name));
             let prim = t.weapon.as_ref().expect("stream");
             assert!((prim.damage - TOXIN_STREAM_DAMAGE).abs() < 0.01);
@@ -107944,7 +107945,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let t = game_logic.find_object_mut(toxin_id).unwrap();
+            let t = game_logic.host_object_mut(toxin_id).unwrap();
             t.attack_target(enemy);
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -107953,7 +107954,7 @@ mod tests {
             t.record_host_weapon_stats();
         }
         let hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -107961,11 +107962,11 @@ mod tests {
         game_logic.update_combat(&[toxin_id, enemy], LOGIC_FRAME_TIMESTEP);
         if game_logic.toxin_stream_missiles_spawned == 0 {
             let from = game_logic
-                .find_object(toxin_id)
+                .host_object(toxin_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(50.0, 0.0, 0.0));
             assert!(game_logic
@@ -107991,7 +107992,7 @@ mod tests {
             "toxin stream residual honesty"
         );
         let hp_after_stream = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -108004,7 +108005,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("spray victim");
         {
-            let t = game_logic.find_object_mut(toxin_id).unwrap();
+            let t = game_logic.host_object_mut(toxin_id).unwrap();
             t.active_weapon_slot = 1;
             t.attack_target(spray_victim);
             if let Some(w) = t.secondary_weapon.as_mut() {
@@ -108021,7 +108022,7 @@ mod tests {
             t.record_host_weapon_stats();
         }
         let spray_hp_before = game_logic
-            .find_object(spray_victim)
+            .host_object(spray_victim)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -108055,7 +108056,7 @@ mod tests {
             "medium poison field residual must be active"
         );
         let spray_hp_after = game_logic
-            .find_object(spray_victim)
+            .host_object(spray_victim)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -108066,13 +108067,13 @@ mod tests {
 
         // Tick poison field residual DoT.
         let field_hp_before = game_logic
-            .find_object(spray_victim)
+            .host_object(spray_victim)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(60);
         game_logic.update_toxin_tractor_poison_zones();
         let field_hp_after = game_logic
-            .find_object(spray_victim)
+            .host_object(spray_victim)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         if field_hp_before > TOXIN_MED_FIELD_DAMAGE {
@@ -108085,11 +108086,11 @@ mod tests {
 
         // Death residual: destroy toxin tractor → small poison field.
         let death_pos = game_logic
-            .find_object(toxin_id)
+            .host_object(toxin_id)
             .map(|t| t.get_position())
             .unwrap_or(Vec3::ZERO);
         let team = game_logic
-            .find_object(toxin_id)
+            .host_object(toxin_id)
             .map(|t| t.team)
             .unwrap_or(Team::GLA);
         let _ = game_logic.toxin_tractor.spawn_death_field(
@@ -108100,7 +108101,7 @@ mod tests {
             crate::game_logic::host_toxin_tractor::AnthraxResidualTier::None,
         );
         // Also exercise destroy-list path when object dies mid-update.
-        if let Some(t) = game_logic.find_object_mut(toxin_id) {
+        if let Some(t) = game_logic.host_object_mut(toxin_id) {
             let max_hp = t.health.maximum;
             let _ = t.take_damage(max_hp + 1.0);
             t.status.destroyed = true;
@@ -108165,7 +108166,7 @@ mod tests {
             )
             .expect("sentry");
         {
-            let s = game_logic.find_object(sentry_id).expect("sentry");
+            let s = game_logic.host_object(sentry_id).expect("sentry");
             assert!(is_sentry_drone_template(&s.template_name));
             assert!(
                 s.is_detector,
@@ -108191,7 +108192,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("stealthed enemy");
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(true);
             e.set_status_detected(false);
         }
@@ -108199,7 +108200,7 @@ mod tests {
         game_logic.frame = 1;
         game_logic.update_stealth_and_detection();
         {
-            let e = game_logic.find_object(stealth_id).expect("enemy");
+            let e = game_logic.host_object(stealth_id).expect("enemy");
             assert!(
                 e.status.detected,
                 "sentry detector residual must reveal stealthed enemy in range"
@@ -108244,7 +108245,7 @@ mod tests {
             "sentry gun upgrade must complete residual"
         );
         {
-            let s = game_logic.find_object(sentry_id).expect("sentry");
+            let s = game_logic.host_object(sentry_id).expect("sentry");
             assert!(
                 s.has_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN),
                 "sentry must receive gun upgrade tag"
@@ -108269,12 +108270,12 @@ mod tests {
 
         // Detected enemy becomes targetable; place in gun range and idle for auto-fire.
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(false); // or keep detected; either way targetable
             e.set_position(Vec3::new(40.0, 0.0, 0.0));
         }
         {
-            let s = game_logic.find_object_mut(sentry_id).unwrap();
+            let s = game_logic.host_object_mut(sentry_id).unwrap();
             s.set_ai_state(AIState::Idle);
             s.target = None;
             s.target_location = None;
@@ -108285,7 +108286,7 @@ mod tests {
         }
 
         let enemy_hp_before = game_logic
-            .find_object(stealth_id)
+            .host_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         crate::game_logic::host_damage_log::clear();
@@ -108298,7 +108299,7 @@ mod tests {
             "sentry auto-fire residual honesty must fire with gun equipped"
         );
         let enemy_hp_after = game_logic
-            .find_object(stealth_id)
+            .host_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let logged = crate::game_logic::host_damage_log::drain();
@@ -108324,7 +108325,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("tank");
         {
-            let t = game_logic.find_object_mut(tank_id).unwrap();
+            let t = game_logic.host_object_mut(tank_id).unwrap();
             t.is_detector = true;
             t.detection_range = 225.0;
             if let Some(w) = t.weapon.as_mut() {
@@ -108340,7 +108341,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let t = game_logic.find_object(tank_id).unwrap();
+            let t = game_logic.host_object(tank_id).unwrap();
             assert!(!is_sentry_drone_template(&t.template_name));
         }
 
@@ -108385,7 +108386,7 @@ mod tests {
             )
             .expect("pathfinder");
         {
-            let p = game_logic.find_object(pf_id).expect("pf");
+            let p = game_logic.host_object(pf_id).expect("pf");
             assert!(is_pathfinder_template(&p.template_name));
             assert!(p.is_detector, "pathfinder must spawn as detector residual");
             assert!(
@@ -108419,14 +108420,14 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("stealthed enemy");
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(true);
             e.set_status_detected(false);
         }
         game_logic.frame = 1;
         game_logic.update_stealth_and_detection();
         {
-            let e = game_logic.find_object(stealth_id).expect("enemy");
+            let e = game_logic.host_object(stealth_id).expect("enemy");
             assert!(
                 e.status.detected,
                 "pathfinder detector residual must reveal stealthed enemy"
@@ -108439,7 +108440,7 @@ mod tests {
 
         // Fire while stealthed: must remain stealthed (stealth_breaks_on_attack = false).
         {
-            let p = game_logic.find_object_mut(pf_id).unwrap();
+            let p = game_logic.host_object_mut(pf_id).unwrap();
             p.set_ai_state(AIState::Attacking);
             p.target = Some(stealth_id);
             p.set_status_stealthed(true);
@@ -108449,12 +108450,12 @@ mod tests {
             }
         }
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(false); // targetable
             e.set_position(Vec3::new(40.0, 0.0, 0.0));
         }
         let enemy_hp_before = game_logic
-            .find_object(stealth_id)
+            .host_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(30);
@@ -108464,7 +108465,7 @@ mod tests {
             "pathfinder sniper residual honesty must fire"
         );
         let enemy_hp_after = game_logic
-            .find_object(stealth_id)
+            .host_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -108472,7 +108473,7 @@ mod tests {
             "pathfinder sniper must damage enemy"
         );
         {
-            let p = game_logic.find_object(pf_id).expect("pf after fire");
+            let p = game_logic.host_object(pf_id).expect("pf after fire");
             assert!(
                 p.status.stealthed,
                 "pathfinder must remain stealthed while attacking residual"
@@ -108481,27 +108482,27 @@ mod tests {
 
         // Move uncloaks; stop re-cloaks.
         {
-            let p = game_logic.find_object_mut(pf_id).unwrap();
+            let p = game_logic.host_object_mut(pf_id).unwrap();
             p.set_ai_state(AIState::Moving);
             p.set_status_moving(true);
             p.set_status_stealthed(true);
         }
         game_logic.update_stealth_and_detection();
         {
-            let p = game_logic.find_object(pf_id).unwrap();
+            let p = game_logic.host_object(pf_id).unwrap();
             assert!(
                 !p.status.stealthed,
                 "pathfinder must uncloak while moving residual"
             );
         }
         {
-            let p = game_logic.find_object_mut(pf_id).unwrap();
+            let p = game_logic.host_object_mut(pf_id).unwrap();
             p.set_ai_state(AIState::Idle);
             p.set_status_moving(false);
         }
         game_logic.update_stealth_and_detection();
         {
-            let p = game_logic.find_object(pf_id).unwrap();
+            let p = game_logic.host_object(pf_id).unwrap();
             assert!(
                 p.status.stealthed,
                 "pathfinder must re-cloak when stopped residual"
@@ -108545,7 +108546,7 @@ mod tests {
             .residual_attach_slave_drone(master_id, SlaveDroneKind::Scout)
             .expect("scout attach");
         {
-            let s = game_logic.find_object(scout_id).expect("scout");
+            let s = game_logic.host_object(scout_id).expect("scout");
             assert!(is_scout_drone_template(&s.template_name));
             assert!(s.is_detector, "scout must spawn as detector residual");
             assert!(
@@ -108556,7 +108557,7 @@ mod tests {
             assert!(s.weapon.is_none(), "scout sensor drone has no gun residual");
         }
         {
-            let m = game_logic.find_object(master_id).unwrap();
+            let m = game_logic.host_object(master_id).unwrap();
             assert!(
                 m.has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE),
                 "master must receive scout upgrade tag residual"
@@ -108569,7 +108570,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
             .expect("stealthed");
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(true);
             e.set_status_detected(false);
         }
@@ -108577,7 +108578,7 @@ mod tests {
         game_logic.frame = 2;
         game_logic.update_stealth_and_detection();
         {
-            let e = game_logic.find_object(stealth_id).unwrap();
+            let e = game_logic.host_object(stealth_id).unwrap();
             assert!(
                 e.status.detected,
                 "scout detector residual must reveal stealthed enemy"
@@ -108590,7 +108591,7 @@ mod tests {
             .residual_attach_slave_drone(master_id, SlaveDroneKind::Hellfire)
             .expect("hellfire attach");
         {
-            let h = game_logic.find_object(hf_id).expect("hellfire");
+            let h = game_logic.host_object(hf_id).expect("hellfire");
             assert!(is_hellfire_drone_template(&h.template_name));
             assert!(h.weapon.is_some(), "hellfire must equip missile residual");
             let w = h.weapon.as_ref().unwrap();
@@ -108607,19 +108608,19 @@ mod tests {
             let _ = HELLFIRE_MISSILE_WEAPON;
         }
         {
-            let m = game_logic.find_object(master_id).unwrap();
+            let m = game_logic.host_object(master_id).unwrap();
             assert!(m.has_upgrade_tag(UPGRADE_AMERICA_HELLFIRE_DRONE));
         }
         assert!(game_logic.honesty_hellfire_drone_attach_ok());
 
         // Hellfire auto-fire residual damages nearby enemy.
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(false);
             e.set_position(Vec3::new(40.0, 0.0, 0.0));
         }
         {
-            let h = game_logic.find_object_mut(hf_id).unwrap();
+            let h = game_logic.host_object_mut(hf_id).unwrap();
             h.set_ai_state(AIState::Idle);
             h.target = None;
             h.target_location = None;
@@ -108630,7 +108631,7 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(stealth_id)
+            .host_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(40);
@@ -108640,7 +108641,7 @@ mod tests {
             "hellfire auto-fire residual honesty must fire"
         );
         let enemy_hp_after = game_logic
-            .find_object(stealth_id)
+            .host_object(stealth_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -108722,7 +108723,7 @@ mod tests {
             logic.update_combat(&[hf, tank], LOGIC_FRAME_TIMESTEP);
         }
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -108810,7 +108811,7 @@ mod tests {
             .expect("usa tank for disguise");
 
         {
-            let truck = game_logic.find_object(truck_id).expect("truck");
+            let truck = game_logic.host_object(truck_id).expect("truck");
             assert!(
                 is_bomb_truck_template(&truck.template_name),
                 "template residual must match bomb truck (got {})",
@@ -108836,7 +108837,7 @@ mod tests {
         game_logic.process_commands();
 
         {
-            let truck = game_logic.find_object(truck_id).expect("truck after cmd");
+            let truck = game_logic.host_object(truck_id).expect("truck after cmd");
             assert_eq!(
                 truck.ai_state,
                 AIState::SpecialAbility,
@@ -108851,7 +108852,7 @@ mod tests {
         advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id]);
 
         let truck = game_logic
-            .find_object(truck_id)
+            .host_object(truck_id)
             .expect("truck after disguise");
         assert!(
             truck.status.disguised,
@@ -108911,7 +108912,7 @@ mod tests {
             .expect("victim structure");
 
         {
-            let truck = game_logic.find_object_mut(truck_id).expect("truck");
+            let truck = game_logic.host_object_mut(truck_id).expect("truck");
             truck.target = Some(usa_tank_id);
             truck.set_ai_state(AIState::SpecialAbility);
         }
@@ -108925,7 +108926,7 @@ mod tests {
         advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id, victim_id]);
         assert!(
             game_logic
-                .find_object(truck_id)
+                .host_object(truck_id)
                 .map(|t| t.status.disguised)
                 .unwrap_or(false),
             "disguise residual must apply before reveal test"
@@ -108933,7 +108934,7 @@ mod tests {
 
         // Enter attack state on nearby victim → reveal distance residual.
         {
-            let truck = game_logic.find_object_mut(truck_id).expect("truck");
+            let truck = game_logic.host_object_mut(truck_id).expect("truck");
             truck.target = Some(victim_id);
             truck.set_ai_state(AIState::Attacking);
             truck.set_status_attacking(true);
@@ -108948,7 +108949,7 @@ mod tests {
         }
 
         let truck = game_logic
-            .find_object(truck_id)
+            .host_object(truck_id)
             .expect("truck after reveal");
         assert!(
             !truck.status.disguised,
@@ -108990,7 +108991,7 @@ mod tests {
         game_logic.process_commands();
         game_logic.update_ai(&[tank_id, target_id], 1.0 / 30.0);
 
-        let tank = game_logic.find_object(tank_id).expect("tank");
+        let tank = game_logic.host_object(tank_id).expect("tank");
         assert!(!tank.status.disguised);
         assert!(!game_logic.honesty_bomb_truck_disguise_ok());
     }
@@ -109021,20 +109022,20 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 500.0))
             .expect("far");
         {
-            let n = game_logic.find_object_mut(near_id).unwrap();
+            let n = game_logic.host_object_mut(near_id).unwrap();
             n.health.current = 5000.0;
             n.health.maximum = 5000.0;
             n.thing.template.armor = 0.0;
         }
         {
-            let f = game_logic.find_object_mut(far_id).unwrap();
+            let f = game_logic.host_object_mut(far_id).unwrap();
             f.health.current = 5000.0;
             f.health.maximum = 5000.0;
             f.thing.template.armor = 0.0;
         }
 
-        let near_before = game_logic.find_object(near_id).unwrap().health.current;
-        let far_before = game_logic.find_object(far_id).unwrap().health.current;
+        let near_before = game_logic.host_object(near_id).unwrap().health.current;
+        let far_before = game_logic.host_object(far_id).unwrap().health.current;
 
         game_logic.mark_object_for_destruction(truck_id, Some(Team::USA));
         game_logic.process_destroy_list();
@@ -109056,8 +109057,8 @@ mod tests {
             "default death is not Bio residual"
         );
 
-        let near_after = game_logic.find_object(near_id).unwrap().health.current;
-        let far_after = game_logic.find_object(far_id).unwrap().health.current;
+        let near_after = game_logic.host_object(near_id).unwrap().health.current;
+        let far_after = game_logic.host_object(far_id).unwrap().health.current;
         let dealt = near_before - near_after;
         assert!(
             dealt > 0.0,
@@ -109072,7 +109073,7 @@ mod tests {
             (far_after - far_before).abs() < 0.01,
             "far enemy must not take residual blast"
         );
-        assert!(game_logic.find_object(truck_id).is_none());
+        assert!(game_logic.host_object(truck_id).is_none());
     }
 
     /// Residual: HE upgrade uses larger blast; Bio upgrade spawns MediumPoisonField.
@@ -109092,22 +109093,22 @@ mod tests {
             .create_object("TestBombTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("he truck");
         {
-            let t = game_logic.find_object_mut(he_truck).unwrap();
+            let t = game_logic.host_object_mut(he_truck).unwrap();
             t.apply_upgrade_tag(UPGRADE_BOMB_TRUCK_HE);
         }
         let he_victim = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("he victim");
         {
-            let v = game_logic.find_object_mut(he_victim).unwrap();
+            let v = game_logic.host_object_mut(he_victim).unwrap();
             v.health.current = 5000.0;
             v.health.maximum = 5000.0;
             v.thing.template.armor = 0.0;
         }
-        let he_before = game_logic.find_object(he_victim).unwrap().health.current;
+        let he_before = game_logic.host_object(he_victim).unwrap().health.current;
         game_logic.mark_object_for_destruction(he_truck, Some(Team::USA));
         game_logic.process_destroy_list();
-        let he_after = game_logic.find_object(he_victim).unwrap().health.current;
+        let he_after = game_logic.host_object(he_victim).unwrap().health.current;
         let he_dealt = he_before - he_after;
         assert!(
             game_logic.honesty_bomb_truck_he_ok(),
@@ -109124,14 +109125,14 @@ mod tests {
             .create_object("TestBombTruck", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .expect("bio truck");
         {
-            let t = game_logic.find_object_mut(bio_truck).unwrap();
+            let t = game_logic.host_object_mut(bio_truck).unwrap();
             t.apply_upgrade_tag(UPGRADE_BOMB_TRUCK_BIO);
         }
         let bio_victim = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(105.0, 0.0, 0.0))
             .expect("bio victim");
         {
-            let v = game_logic.find_object_mut(bio_victim).unwrap();
+            let v = game_logic.host_object_mut(bio_victim).unwrap();
             v.health.current = 5000.0;
             v.health.maximum = 5000.0;
             v.thing.template.armor = 0.0;
@@ -109147,19 +109148,19 @@ mod tests {
             "Bio detonation must leave MediumPoisonField residual"
         );
 
-        let poison_before = game_logic.find_object(bio_victim).unwrap().health.current;
+        let poison_before = game_logic.host_object(bio_victim).unwrap().health.current;
         // Immediate poison tick on activation frame already applied during update path
         // when process_destroy_list runs alone — drive explicit poison tick residual.
         game_logic.frame = 0;
         // Re-seed next tick: zones may have been created at frame 0; force a due tick.
         game_logic.update_bomb_truck_poison_zones();
-        let poison_after_first = game_logic.find_object(bio_victim).unwrap().health.current;
+        let poison_after_first = game_logic.host_object(bio_victim).unwrap().health.current;
         // If first tick already consumed at spawn frame during process_destroy, advance.
         if (poison_after_first - poison_before).abs() < 0.01 {
             game_logic.frame = BOMB_TRUCK_POISON_TICK_FRAMES;
             game_logic.update_bomb_truck_poison_zones();
         }
-        let poison_after = game_logic.find_object(bio_victim).unwrap().health.current;
+        let poison_after = game_logic.host_object(bio_victim).unwrap().health.current;
         assert!(
             poison_after < poison_before || poison_after < he_before,
             "bio poison residual must damage victim over time (before={poison_before} after={poison_after})"
@@ -109211,7 +109212,7 @@ mod tests {
             .create_object("TestHelix", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("helix");
         {
-            let h = game_logic.find_object_mut(helix_id).unwrap();
+            let h = game_logic.host_object_mut(helix_id).unwrap();
             h.set_special_power_ready(true);
             h.special_power_cooldown_remaining = 0.0;
             // Production Helix requires upgrade; TestHelix residual unlocks without it,
@@ -109223,7 +109224,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.health.current = 5000.0;
             e.health.maximum = 5000.0;
             e.thing.template.armor = 0.0;
@@ -109232,14 +109233,14 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 500.0))
             .expect("far");
         {
-            let f = game_logic.find_object_mut(far_id).unwrap();
+            let f = game_logic.host_object_mut(far_id).unwrap();
             f.health.current = 5000.0;
             f.health.maximum = 5000.0;
             f.thing.template.armor = 0.0;
         }
 
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let far_before = game_logic.find_object(far_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let far_before = game_logic.host_object(far_id).unwrap().health.current;
 
         game_logic.queue_command(GameCommand {
             command_type: CommandType::DoSpecialPower {
@@ -109319,7 +109320,7 @@ mod tests {
         }
         game_logic.process_destroy_list();
 
-        let hp_after_blast = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after_blast = game_logic.host_object(enemy_id).unwrap().health.current;
         let blast_dealt = hp_before - hp_after_blast;
         assert!(
             blast_dealt + 0.01 >= HELIX_NAPALM_PRIMARY_DAMAGE
@@ -109328,7 +109329,7 @@ mod tests {
         );
         // Immediate firestorm tick on activation frame.
         game_logic.update_helix_napalm_firestorms();
-        let hp_after_fire = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after_fire = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             hp_after_fire < hp_before,
             "enemy at impact must take napalm residual damage"
@@ -109343,23 +109344,23 @@ mod tests {
             "combined Helix Napalm host path honesty"
         );
 
-        let far_after = game_logic.find_object(far_id).unwrap().health.current;
+        let far_after = game_logic.host_object(far_id).unwrap().health.current;
         assert!(
             (far_after - far_before).abs() < 0.01,
             "far units must not take residual napalm damage"
         );
 
         // Second firestorm tick only after residual interval.
-        let mid = game_logic.find_object(enemy_id).unwrap().health.current;
+        let mid = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.frame = 1;
         game_logic.update_helix_napalm_firestorms();
         assert!(
-            (game_logic.find_object(enemy_id).unwrap().health.current - mid).abs() < 0.01,
+            (game_logic.host_object(enemy_id).unwrap().health.current - mid).abs() < 0.01,
             "no firestorm damage before tick interval"
         );
         game_logic.frame = HELIX_FIRESTORM_TICK_INTERVAL_FRAMES;
         game_logic.update_helix_napalm_firestorms();
-        let after_second = game_logic.find_object(enemy_id).unwrap().health.current;
+        let after_second = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             after_second < mid
                 || (mid - after_second - HELIX_FIRESTORM_DAMAGE_PER_TICK).abs() < 0.01
@@ -109399,7 +109400,7 @@ mod tests {
             .create_object("ChinaVehicleHelix", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("helix");
         {
-            let h = game_logic.find_object_mut(helix_id).unwrap();
+            let h = game_logic.host_object_mut(helix_id).unwrap();
             h.set_special_power_ready(true);
             h.special_power_cooldown_remaining = 0.0;
             // No Upgrade_HelixNapalmBomb.
@@ -109474,7 +109475,7 @@ mod tests {
             .expect("worker");
 
         {
-            let r = game_logic.find_object(rebel_id).expect("rebel");
+            let r = game_logic.host_object(rebel_id).expect("rebel");
             assert!(!r.status.stealthed, "pre-upgrade rebel not stealthed");
             assert!(!r.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE));
         }
@@ -109506,7 +109507,7 @@ mod tests {
             "Camouflage complete must affect at least one unit"
         );
 
-        let rebel = game_logic.find_object(rebel_id).expect("rebel after");
+        let rebel = game_logic.host_object(rebel_id).expect("rebel after");
         assert!(
             rebel.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE),
             "rebel must receive Camouflage upgrade tag"
@@ -109528,7 +109529,7 @@ mod tests {
             "USA must not auto-target camouflaged rebel"
         );
 
-        let worker = game_logic.find_object(worker_id).expect("worker after");
+        let worker = game_logic.host_object(worker_id).expect("worker after");
         assert!(
             !worker.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE),
             "fail-closed: workers do not receive Camouflage (no StealthUpgrade)"
@@ -109586,13 +109587,13 @@ mod tests {
         game_logic.update();
 
         assert!(game_logic
-            .find_object(rebel_id)
+            .host_object(rebel_id)
             .map(|r| r.status.stealthed)
             .unwrap_or(false));
 
         // Fire residual breaks stealth.
         {
-            let rebel = game_logic.find_object_mut(rebel_id).expect("rebel");
+            let rebel = game_logic.host_object_mut(rebel_id).expect("rebel");
             rebel.set_status_stealthed(true);
             rebel.stealth_breaks_on_attack = true;
             assert!(rebel.fire_at(enemy_id, 0.0) || true);
@@ -109603,7 +109604,7 @@ mod tests {
         }
         assert!(
             !game_logic
-                .find_object(rebel_id)
+                .host_object(rebel_id)
                 .map(|r| r.status.stealthed)
                 .unwrap_or(true),
             "attack residual must break camouflage stealth"
@@ -109611,7 +109612,7 @@ mod tests {
 
         // Idle re-cloak residual.
         {
-            let rebel = game_logic.find_object_mut(rebel_id).expect("rebel");
+            let rebel = game_logic.host_object_mut(rebel_id).expect("rebel");
             rebel.set_ai_state(AIState::Idle);
             rebel.set_status_attacking(false);
             rebel.target = None;
@@ -109619,7 +109620,7 @@ mod tests {
         game_logic.update_stealth_and_detection();
         assert!(
             game_logic
-                .find_object(rebel_id)
+                .host_object(rebel_id)
                 .map(|r| r.status.stealthed)
                 .unwrap_or(false),
             "idle camouflage residual must re-cloak rebel"
@@ -109656,7 +109657,7 @@ mod tests {
             .create_object("GLATankMarauder", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("marauder");
         let base_reload = {
-            let m = game_logic.find_object(marauder_id).expect("marauder");
+            let m = game_logic.host_object(marauder_id).expect("marauder");
             assert!(is_marauder_template(&m.template_name));
             let prim = m.weapon.as_ref().expect("gun");
             assert!((prim.damage - MARAUDER_DAMAGE).abs() < 0.01);
@@ -109671,7 +109672,7 @@ mod tests {
             "marauder salvage fire-rate upgrade residual honesty"
         );
         {
-            let m = game_logic.find_object(marauder_id).expect("marauder");
+            let m = game_logic.host_object(marauder_id).expect("marauder");
             let prim = m.weapon.as_ref().expect("upgraded gun");
             assert!(
                 (prim.damage - MARAUDER_DAMAGE).abs() < 0.01,
@@ -109697,7 +109698,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
             .expect("splash");
         {
-            let m = game_logic.find_object_mut(marauder_id).unwrap();
+            let m = game_logic.host_object_mut(marauder_id).unwrap();
             m.attack_target(enemy);
             if let Some(w) = m.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -109705,11 +109706,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -109719,11 +109720,11 @@ mod tests {
             && !game_logic.honesty_marauder_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(marauder_id)
+                .host_object(marauder_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -109761,7 +109762,7 @@ mod tests {
             "marauder residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -109769,7 +109770,7 @@ mod tests {
             "marauder residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let splash_hp_after = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -109809,7 +109810,7 @@ mod tests {
             .create_object("GLATankScorpion", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("scorpion");
         {
-            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            let s = game_logic.host_object(scorp_id).expect("scorpion");
             assert!(is_scorpion_template(&s.template_name));
             let prim = s.weapon.as_ref().expect("gun");
             assert!((prim.damage - SCORPION_GUN_DAMAGE).abs() < 0.01);
@@ -109819,7 +109820,7 @@ mod tests {
 
         assert!(game_logic.apply_scorpion_salvage_tier(scorp_id, ScorpionSalvageTier::One));
         {
-            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            let s = game_logic.host_object(scorp_id).expect("scorpion");
             let prim = s.weapon.as_ref().expect("plus gun");
             assert!(
                 (prim.damage - SCORPION_GUN_DAMAGE_PLUS).abs() < 0.01,
@@ -109833,7 +109834,7 @@ mod tests {
             "scorpion rocket upgrade residual honesty"
         );
         {
-            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            let s = game_logic.host_object(scorp_id).expect("scorpion");
             assert!(s.has_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET));
             let sec = s.secondary_weapon.as_ref().expect("missile");
             assert!((sec.damage - 100.0).abs() < 0.01);
@@ -109843,7 +109844,7 @@ mod tests {
 
         assert!(game_logic.apply_scorpion_ap_rockets_upgrade(scorp_id));
         {
-            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            let s = game_logic.host_object(scorp_id).expect("scorpion");
             let sec = s.secondary_weapon.as_ref().expect("ap missile");
             assert!((sec.damage - 125.0).abs() < 0.01);
         }
@@ -109855,7 +109856,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
             .expect("splash");
         {
-            let s = game_logic.find_object_mut(scorp_id).unwrap();
+            let s = game_logic.host_object_mut(scorp_id).unwrap();
             s.active_weapon_slot = 0;
             s.attack_target(enemy);
             if let Some(w) = s.weapon.as_mut() {
@@ -109864,11 +109865,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -109878,11 +109879,11 @@ mod tests {
             && !game_logic.honesty_scorpion_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(scorp_id)
+                .host_object(scorp_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -109913,7 +109914,7 @@ mod tests {
             "scorpion residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -109921,7 +109922,7 @@ mod tests {
             "scorpion gun residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let splash_hp_after = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -109933,7 +109934,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(115.0, 0.0, 0.0))
             .expect("far splash");
         {
-            let s = game_logic.find_object_mut(scorp_id).unwrap();
+            let s = game_logic.host_object_mut(scorp_id).unwrap();
             s.active_weapon_slot = 1;
             s.attack_target(enemy);
             if let Some(w) = s.secondary_weapon.as_mut() {
@@ -109943,7 +109944,7 @@ mod tests {
             }
         }
         let far_hp_before = game_logic
-            .find_object(far)
+            .host_object(far)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(80);
@@ -109952,11 +109953,11 @@ mod tests {
             && !game_logic.honesty_scorpion_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(scorp_id)
+                .host_object(scorp_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(far)
+                .host_object(far)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             assert!(game_logic
@@ -109983,7 +109984,7 @@ mod tests {
             "scorpion missile residual fire honesty"
         );
         let far_hp_after = game_logic
-            .find_object(far)
+            .host_object(far)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110026,7 +110027,7 @@ mod tests {
             )
             .expect("tomahawk");
         {
-            let t = game_logic.find_object(tom_id).expect("tomahawk");
+            let t = game_logic.host_object(tom_id).expect("tomahawk");
             assert!(is_tomahawk_template(&t.template_name));
             let prim = t.weapon.as_ref().expect("missile");
             assert!((prim.damage - TOMAHAWK_PRIMARY_DAMAGE).abs() < 0.01);
@@ -110045,7 +110046,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(218.0, 0.0, 0.0))
             .expect("secondary ring");
         {
-            let t = game_logic.find_object_mut(tom_id).unwrap();
+            let t = game_logic.host_object_mut(tom_id).unwrap();
             t.attack_target(enemy);
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -110053,15 +110054,15 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let near_hp_before = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let mid_hp_before = game_logic
-            .find_object(mid_splash)
+            .host_object(mid_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -110075,11 +110076,11 @@ mod tests {
             && !game_logic.honesty_tomahawk_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(tom_id)
+                .host_object(tom_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
             assert!(
@@ -110115,7 +110116,7 @@ mod tests {
             "tomahawk residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110123,7 +110124,7 @@ mod tests {
             "tomahawk primary residual ~150 dmg (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let near_hp_after = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110131,7 +110132,7 @@ mod tests {
             "tomahawk primary radius residual must hit unit at 8 (before={near_hp_before} after={near_hp_after})"
         );
         let mid_hp_after = game_logic
-            .find_object(mid_splash)
+            .host_object(mid_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110173,7 +110174,7 @@ mod tests {
             .create_object("ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("mig");
         {
-            let m = game_logic.find_object(mig_id).expect("mig");
+            let m = game_logic.host_object(mig_id).expect("mig");
             assert!(is_mig_template(&m.template_name));
             assert!(!is_nuke_mig_template(&m.template_name));
             let prim = m.weapon.as_ref().expect("missile");
@@ -110195,7 +110196,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(215.0, 0.0, 0.0))
             .expect("secondary ring");
         {
-            let m = game_logic.find_object_mut(mig_id).unwrap();
+            let m = game_logic.host_object_mut(mig_id).unwrap();
             m.attack_target(enemy);
             if let Some(w) = m.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -110203,15 +110204,15 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let near_hp_before = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let mid_hp_before = game_logic
-            .find_object(mid_splash)
+            .host_object(mid_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -110222,11 +110223,11 @@ mod tests {
         );
         if game_logic.mig_residual_fires() == 0 && !game_logic.honesty_mig_missile_projectile_ok() {
             let from = game_logic
-                .find_object(mig_id)
+                .host_object(mig_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             assert!(game_logic
@@ -110260,7 +110261,7 @@ mod tests {
             "mig should seed FireField residual"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110268,7 +110269,7 @@ mod tests {
             "mig primary residual ~75 dmg (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let near_hp_after = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110276,7 +110277,7 @@ mod tests {
             "mig primary radius residual must hit unit at 4 (before={near_hp_before} after={near_hp_after})"
         );
         let mid_hp_after = game_logic
-            .find_object(mid_splash)
+            .host_object(mid_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110291,7 +110292,7 @@ mod tests {
         );
         assert!(game_logic.honesty_mig_black_napalm_ok());
         {
-            let m = game_logic.find_object_mut(mig_id).unwrap();
+            let m = game_logic.host_object_mut(mig_id).unwrap();
             m.attack_target(enemy);
             if let Some(w) = m.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -110306,11 +110307,11 @@ mod tests {
         );
         {
             let from = game_logic
-                .find_object(mig_id)
+                .host_object(mig_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
@@ -110368,7 +110369,7 @@ mod tests {
             .create_object("Nuke_ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("nuke mig");
         {
-            let m = game_logic.find_object(mig_id).expect("nuke mig");
+            let m = game_logic.host_object(mig_id).expect("nuke mig");
             assert!(is_nuke_mig_template(&m.template_name));
             let prim = m.weapon.as_ref().expect("missile");
             assert!((prim.damage - NUKE_MIG_PRIMARY_DAMAGE).abs() < 0.01);
@@ -110378,7 +110379,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let m = game_logic.find_object_mut(mig_id).unwrap();
+            let m = game_logic.host_object_mut(mig_id).unwrap();
             m.attack_target(enemy);
             if let Some(w) = m.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -110389,11 +110390,11 @@ mod tests {
         game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
         if game_logic.mig_residual_fires() == 0 && !game_logic.honesty_mig_missile_projectile_ok() {
             let from = game_logic
-                .find_object(mig_id)
+                .host_object(mig_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
@@ -110423,12 +110424,12 @@ mod tests {
         assert!(game_logic.apply_mig_tactical_nuke_upgrade(mig_id));
         assert!(game_logic.honesty_mig_tactical_nuke_ok());
         {
-            let m = game_logic.find_object(mig_id).unwrap();
+            let m = game_logic.host_object(mig_id).unwrap();
             let prim = m.weapon.as_ref().expect("nuke missile");
             assert!((prim.damage - NUKE_TACTICAL_PRIMARY_DAMAGE).abs() < 0.01);
         }
         {
-            let m = game_logic.find_object_mut(mig_id).unwrap();
+            let m = game_logic.host_object_mut(mig_id).unwrap();
             m.attack_target(enemy);
             if let Some(w) = m.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -110437,18 +110438,18 @@ mod tests {
         }
         let rad_before = game_logic.mig_residual_radiation_fields();
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(70);
         game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
         if game_logic.mig_residual_fires() == 0 && !game_logic.honesty_mig_missile_projectile_ok() {
             let from = game_logic
-                .find_object(mig_id)
+                .host_object(mig_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
@@ -110471,7 +110472,7 @@ mod tests {
                 || game_logic.honesty_mig_missile_projectile_ok()
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110510,7 +110511,7 @@ mod tests {
             .create_object("AmericaFireBase", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("firebase");
         {
-            let fb = game_logic.find_object(fb_id).expect("firebase");
+            let fb = game_logic.host_object(fb_id).expect("firebase");
             assert!(is_fire_base_template(&fb.template_name));
             let prim = fb.weapon.as_ref().expect("howitzer");
             assert!((prim.damage - FIRE_BASE_DAMAGE).abs() < 0.01);
@@ -110529,7 +110530,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(158.0, 0.0, 0.0))
             .expect("primary ring");
         {
-            let fb = game_logic.find_object(fb_id).expect("fb");
+            let fb = game_logic.host_object(fb_id).expect("fb");
             assert!(
                 crate::game_logic::host_base_defense::is_base_defense_structure(
                     &fb.template_name,
@@ -110541,18 +110542,18 @@ mod tests {
             assert!(fb.can_attack());
         }
         {
-            let fb = game_logic.find_object_mut(fb_id).unwrap();
+            let fb = game_logic.host_object_mut(fb_id).unwrap();
             if let Some(w) = fb.weapon.as_mut() {
                 w.last_fire_time = -20.0;
                 w.reload_time = 0.05;
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let near_hp_before = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -110566,11 +110567,11 @@ mod tests {
             && !game_logic.honesty_fire_base_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(fb_id)
+                .host_object(fb_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(150.0, 0.0, 0.0));
             assert!(game_logic
@@ -110606,7 +110607,7 @@ mod tests {
             "fire base should also count as base-defense residual fire"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110614,7 +110615,7 @@ mod tests {
             "fire base primary residual ~75 dmg (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let near_hp_after = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110654,7 +110655,7 @@ mod tests {
             .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("raptor");
         {
-            let r = game_logic.find_object(raptor_id).expect("raptor");
+            let r = game_logic.host_object(raptor_id).expect("raptor");
             assert!(is_raptor_template(&r.template_name));
             assert!(!is_king_raptor_template(&r.template_name));
             let prim = r.weapon.as_ref().expect("missile");
@@ -110673,7 +110674,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(204.0, 0.0, 0.0))
             .expect("primary ring");
         {
-            let r = game_logic.find_object_mut(raptor_id).unwrap();
+            let r = game_logic.host_object_mut(raptor_id).unwrap();
             r.attack_target(enemy);
             if let Some(w) = r.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -110681,11 +110682,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let near_hp_before = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -110695,11 +110696,11 @@ mod tests {
             && !game_logic.honesty_raptor_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(raptor_id)
+                .host_object(raptor_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             assert!(game_logic
@@ -110730,7 +110731,7 @@ mod tests {
             "raptor residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110738,7 +110739,7 @@ mod tests {
             "raptor primary residual ~100 dmg (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let near_hp_after = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110753,7 +110754,7 @@ mod tests {
         );
         assert!(game_logic.honesty_raptor_laser_missiles_ok());
         {
-            let r = game_logic.find_object(raptor_id).unwrap();
+            let r = game_logic.host_object(raptor_id).unwrap();
             let prim = r.weapon.as_ref().expect("laser missile weapon");
             assert!(
                 (prim.damage - 125.0).abs() < 0.01,
@@ -110781,7 +110782,7 @@ mod tests {
             )
             .expect("king raptor");
         {
-            let k = game_logic.find_object(king_id).expect("king");
+            let k = game_logic.host_object(king_id).expect("king");
             assert!(is_king_raptor_template(&k.template_name));
             let prim = k.weapon.as_ref().expect("king missile");
             assert!((prim.damage - KING_RAPTOR_DAMAGE).abs() < 0.01);
@@ -110826,7 +110827,7 @@ mod tests {
             )
             .expect("stealth fighter");
         {
-            let f = game_logic.find_object(fighter_id).expect("fighter");
+            let f = game_logic.host_object(fighter_id).expect("fighter");
             assert!(is_stealth_fighter_template(&f.template_name));
             let prim = f.weapon.as_ref().expect("missile");
             assert!((prim.damage - STEALTH_FIGHTER_DAMAGE).abs() < 0.01);
@@ -110845,7 +110846,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(154.0, 0.0, 0.0))
             .expect("primary ring");
         {
-            let f = game_logic.find_object_mut(fighter_id).unwrap();
+            let f = game_logic.host_object_mut(fighter_id).unwrap();
             f.attack_target(enemy);
             if let Some(w) = f.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -110853,11 +110854,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let near_hp_before = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -110867,11 +110868,11 @@ mod tests {
             && !game_logic.honesty_stealth_jet_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(fighter_id)
+                .host_object(fighter_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(0.0, 40.0, 0.0));
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
             assert!(game_logic
@@ -110904,7 +110905,7 @@ mod tests {
             "stealth fighter residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110912,7 +110913,7 @@ mod tests {
             "stealth fighter primary residual ~100 dmg (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let near_hp_after = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -110957,7 +110958,7 @@ mod tests {
             )
             .expect("comanche");
         {
-            let c = game_logic.find_object(comanche_id).expect("comanche");
+            let c = game_logic.host_object(comanche_id).expect("comanche");
             assert!(is_comanche_template(&c.template_name));
             let prim = c.weapon.as_ref().expect("20mm");
             assert!((prim.damage - COMANCHE_CANNON_DAMAGE).abs() < 0.01);
@@ -110973,7 +110974,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            let c = game_logic.host_object_mut(comanche_id).unwrap();
             c.attack_target(enemy);
             c.active_weapon_slot = 0;
             if let Some(w) = c.weapon.as_mut() {
@@ -110987,7 +110988,7 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(40);
@@ -110998,7 +110999,7 @@ mod tests {
         );
         assert!(game_logic.honesty_comanche_cannon_ok());
         let enemy_hp_mid = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111012,7 +111013,7 @@ mod tests {
             .expect("at ring");
         {
             let frame_t = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
-            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            let c = game_logic.host_object_mut(comanche_id).unwrap();
             c.attack_target(enemy);
             c.active_weapon_slot = 1;
             if let Some(w) = c.secondary_weapon.as_mut() {
@@ -111026,11 +111027,11 @@ mod tests {
             }
         }
         let enemy_hp_pre_at = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let near_hp_before = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(80);
@@ -111042,7 +111043,7 @@ mod tests {
         assert!(game_logic.honesty_comanche_antitank_ok());
         assert!(game_logic.honesty_comanche_ok());
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111050,7 +111051,7 @@ mod tests {
             "comanche antitank primary residual ~50 dmg (before={enemy_hp_pre_at} after={enemy_hp_after})"
         );
         let near_hp_after = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111094,7 +111095,7 @@ mod tests {
             .create_object("ChinaVehicleHelix", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("helix");
         {
-            let h = game_logic.find_object(helix_id).expect("helix");
+            let h = game_logic.host_object(helix_id).expect("helix");
             assert!(is_helix_template(&h.template_name));
             assert!(h.is_helix_transport);
             let w = h.weapon.as_ref().expect("Helix must bind minigun residual");
@@ -111106,7 +111107,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let e = game_logic.host_object_mut(enemy_id).expect("enemy");
             e.health.current = 100.0;
             e.health.maximum = 100.0;
             e.thing.template.armor = 0.0;
@@ -111116,14 +111117,14 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(55.0, 0.0, 0.0))
             .expect("neighbor");
         {
-            let n = game_logic.find_object_mut(neighbor_id).expect("neighbor");
+            let n = game_logic.host_object_mut(neighbor_id).expect("neighbor");
             n.health.current = 100.0;
             n.health.maximum = 100.0;
             n.thing.template.armor = 0.0;
         }
 
         {
-            let h = game_logic.find_object_mut(helix_id).expect("helix");
+            let h = game_logic.host_object_mut(helix_id).expect("helix");
             h.attack_target(enemy_id);
             if let Some(w) = h.weapon.as_mut() {
                 w.last_fire_time = -100.0;
@@ -111131,8 +111132,8 @@ mod tests {
             }
         }
 
-        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let neighbor_hp_before = game_logic.find_object(neighbor_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+        let neighbor_hp_before = game_logic.host_object(neighbor_id).unwrap().health.current;
 
         game_logic.set_current_frame(10);
         game_logic.update_combat(&[helix_id, enemy_id, neighbor_id], LOGIC_FRAME_TIMESTEP);
@@ -111144,8 +111145,8 @@ mod tests {
         assert!(game_logic.helix_minigun_residual_fires() >= 1);
         assert!(game_logic.helix_minigun_residual_units_hit() >= 1);
 
-        let enemy_hp = game_logic.find_object(enemy_id).unwrap().health.current;
-        let neighbor_hp = game_logic.find_object(neighbor_id).unwrap().health.current;
+        let enemy_hp = game_logic.host_object(enemy_id).unwrap().health.current;
+        let neighbor_hp = game_logic.host_object(neighbor_id).unwrap().health.current;
         assert!(
             enemy_hp < enemy_hp_before,
             "intended target must take Helix minigun residual damage"
@@ -111206,14 +111207,14 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let e = game_logic.host_object_mut(enemy_id).expect("enemy");
             e.health.current = 300.0;
             e.health.maximum = 300.0;
             e.thing.template.armor = 0.0;
         }
 
         {
-            let c = game_logic.find_object_mut(cannon_id).expect("cannon");
+            let c = game_logic.host_object_mut(cannon_id).expect("cannon");
             c.attack_target(enemy_id);
             if let Some(w) = c.weapon.as_mut() {
                 w.last_fire_time = -100.0;
@@ -111228,11 +111229,11 @@ mod tests {
             && !game_logic.honesty_inferno_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(cannon_id)
+                .host_object(cannon_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
             assert!(game_logic
@@ -111282,9 +111283,9 @@ mod tests {
             "upgraded residual must exceed base FireFieldSmall tick"
         );
 
-        let hp_after_shot = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after_shot = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.update_inferno_fire_zones();
-        let hp_after_dot = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after_dot = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(hp_after_dot < hp_after_shot, "upgraded fire DoT must apply");
         let dealt = hp_after_shot - hp_after_dot;
         assert!(
@@ -111329,11 +111330,11 @@ mod tests {
 
         // Damage master below 60% for repair residual.
         {
-            let m = game_logic.find_object_mut(master_id).unwrap();
+            let m = game_logic.host_object_mut(master_id).unwrap();
             m.health.current = m.health.maximum * 0.40;
         }
         let master_hp_before = game_logic
-            .find_object(master_id)
+            .host_object(master_id)
             .map(|m| m.health.current)
             .unwrap_or(0.0);
 
@@ -111342,7 +111343,7 @@ mod tests {
             .expect("battle drone attach");
         assert!(game_logic.honesty_battle_drone_attach_ok());
         {
-            let d = game_logic.find_object(drone_id).expect("drone");
+            let d = game_logic.host_object(drone_id).expect("drone");
             assert!(is_battle_drone_template(&d.template_name));
             let prim = d.weapon.as_ref().expect("battle drone gun");
             assert!((prim.damage - BATTLE_DRONE_GUN_DAMAGE).abs() < 0.01);
@@ -111350,7 +111351,7 @@ mod tests {
             let _ = BATTLE_DRONE_MACHINE_GUN;
         }
         {
-            let m = game_logic.find_object(master_id).unwrap();
+            let m = game_logic.host_object(master_id).unwrap();
             assert!(
                 m.applied_upgrades
                     .iter()
@@ -111365,7 +111366,7 @@ mod tests {
             game_logic.update_battle_drone_repair_residual(1.0 / 30.0);
         }
         let master_hp_after = game_logic
-            .find_object(master_id)
+            .host_object(master_id)
             .map(|m| m.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111386,7 +111387,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let d = game_logic.find_object_mut(drone_id).unwrap();
+            let d = game_logic.host_object_mut(drone_id).unwrap();
             d.attack_target(enemy);
             if let Some(w) = d.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -111394,7 +111395,7 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(80);
@@ -111405,7 +111406,7 @@ mod tests {
         );
         assert!(game_logic.honesty_battle_drone_fire_ok());
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111445,7 +111446,7 @@ mod tests {
             .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("overlord");
         {
-            let o = game_logic.find_object(ov_id).expect("overlord");
+            let o = game_logic.host_object(ov_id).expect("overlord");
             assert!(is_overlord_gun_chassis(&o.template_name));
             let prim = o.weapon.as_ref().expect("gun");
             assert!((prim.damage - OVERLORD_PRIMARY_DAMAGE).abs() < 0.01);
@@ -111460,7 +111461,7 @@ mod tests {
             "overlord uranium residual honesty"
         );
         {
-            let o = game_logic.find_object(ov_id).expect("overlord");
+            let o = game_logic.host_object(ov_id).expect("overlord");
             assert!(o.has_upgrade_tag(UPGRADE_CHINA_URANIUM_SHELLS));
             let prim = o.weapon.as_ref().expect("uranium gun");
             assert!((prim.damage - 100.0).abs() < 0.01);
@@ -111476,7 +111477,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(108.0, 0.0, 0.0))
             .expect("secondary ring");
         {
-            let o = game_logic.find_object_mut(ov_id).unwrap();
+            let o = game_logic.host_object_mut(ov_id).unwrap();
             o.attack_target(enemy);
             if let Some(w) = o.weapon.as_mut() {
                 w.last_fire_time = -20.0;
@@ -111484,15 +111485,15 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let near_hp_before = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let mid_hp_before = game_logic
-            .find_object(mid_splash)
+            .host_object(mid_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -111505,11 +111506,11 @@ mod tests {
             && !game_logic.honesty_overlord_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(ov_id)
+                .host_object(ov_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
             assert!(game_logic
@@ -111540,7 +111541,7 @@ mod tests {
             "overlord residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111548,7 +111549,7 @@ mod tests {
             "overlord uranium primary residual ~100 dmg (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let near_hp_after = game_logic
-            .find_object(near_splash)
+            .host_object(near_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111556,7 +111557,7 @@ mod tests {
             "overlord primary radius residual must hit unit at 4 (before={near_hp_before} after={near_hp_after})"
         );
         let mid_hp_after = game_logic
-            .find_object(mid_splash)
+            .host_object(mid_splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111595,7 +111596,7 @@ mod tests {
             .create_object("GLAInfantryJarmenKell", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("kell");
         {
-            let k = game_logic.find_object(kell_id).expect("kell");
+            let k = game_logic.host_object(kell_id).expect("kell");
             assert!(is_jarmen_kell_template(&k.template_name));
             let prim = k.weapon.as_ref().expect("sniper");
             assert!((prim.damage - JARMEN_KELL_DAMAGE).abs() < 0.01);
@@ -111609,7 +111610,7 @@ mod tests {
             "jarmen kell AP Bullets residual honesty"
         );
         {
-            let k = game_logic.find_object(kell_id).expect("kell");
+            let k = game_logic.host_object(kell_id).expect("kell");
             assert!(k.has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
             let prim = k.weapon.as_ref().expect("ap sniper");
             assert!((prim.damage - 225.0).abs() < 0.01);
@@ -111619,7 +111620,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
             .expect("enemy");
         // Boost HP so ~225 AP sniper damage is measurable without one-shot wipe.
-        if let Some(e) = game_logic.find_object_mut(enemy) {
+        if let Some(e) = game_logic.host_object_mut(enemy) {
             e.health.current = 500.0;
             e.health.maximum = 500.0;
         }
@@ -111627,7 +111628,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
             .expect("nearby non-splash");
         {
-            let k = game_logic.find_object_mut(kell_id).unwrap();
+            let k = game_logic.host_object_mut(kell_id).unwrap();
             k.attack_target(enemy);
             if let Some(w) = k.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -111635,11 +111636,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let nearby_hp_before = game_logic
-            .find_object(nearby)
+            .host_object(nearby)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -111655,7 +111656,7 @@ mod tests {
             "jarmen kell residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let dealt = enemy_hp_before - enemy_hp_after;
@@ -111664,7 +111665,7 @@ mod tests {
             "jarmen kell AP sniper residual ~225 dmg (before={enemy_hp_before} after={enemy_hp_after} dealt={dealt})"
         );
         let nearby_hp_after = game_logic
-            .find_object(nearby)
+            .host_object(nearby)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111712,7 +111713,7 @@ mod tests {
         }
         let bm0 = bm_ids[0];
         {
-            let bm = game_logic.find_object(bm0).expect("bm0");
+            let bm = game_logic.host_object(bm0).expect("bm0");
             assert!(is_battlemaster_template(&bm.template_name));
             let w = bm.weapon.as_ref().expect("BattleMasterTankGun residual");
             assert!(
@@ -111736,7 +111737,7 @@ mod tests {
             "horde grant residual honesty"
         );
         {
-            let bm = game_logic.find_object(bm0).expect("bm0 horde");
+            let bm = game_logic.host_object(bm0).expect("bm0 horde");
             assert!(
                 bm.weapon_bonus_horde,
                 "weapon_bonus_horde residual must be set with 5 allies"
@@ -111758,7 +111759,7 @@ mod tests {
         assert!(game_logic.apply_battlemaster_nationalism_upgrade(bm0));
         assert!(game_logic.honesty_battlemaster_nationalism_ok());
         {
-            let bm = game_logic.find_object(bm0).expect("bm0 nat");
+            let bm = game_logic.host_object(bm0).expect("bm0 nat");
             assert!(bm.has_upgrade_tag(UPGRADE_NATIONALISM));
             assert!(
                 bm.weapon_bonus_nationalism,
@@ -111776,7 +111777,7 @@ mod tests {
         assert!(game_logic.apply_battlemaster_uranium_upgrade(bm0));
         assert!(game_logic.honesty_battlemaster_uranium_ok());
         {
-            let bm = game_logic.find_object(bm0).expect("bm0 uranium");
+            let bm = game_logic.host_object(bm0).expect("bm0 uranium");
             assert!(bm.has_upgrade_tag(UPGRADE_CHINA_URANIUM_SHELLS));
             let w = bm.weapon.as_ref().expect("uranium gun");
             assert!(
@@ -111798,7 +111799,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
             .expect("splash");
         {
-            let bm = game_logic.find_object_mut(bm0).unwrap();
+            let bm = game_logic.host_object_mut(bm0).unwrap();
             bm.attack_target(enemy);
             if let Some(w) = bm.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -111806,11 +111807,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -111820,11 +111821,11 @@ mod tests {
             && !game_logic.honesty_battlemaster_shell_projectile_ok()
         {
             let from = game_logic
-                .find_object(bm0)
+                .host_object(bm0)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -111856,7 +111857,7 @@ mod tests {
             "battlemaster residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111870,7 +111871,7 @@ mod tests {
             "uranium residual should deal substantial damage (~75 before armor), dealt={dealt}"
         );
         let splash_hp_after = game_logic
-            .find_object(splash_inf)
+            .host_object(splash_inf)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -111919,7 +111920,7 @@ mod tests {
         }
         let rg0 = rg_ids[0];
         {
-            let rg = game_logic.find_object(rg0).expect("rg0");
+            let rg = game_logic.host_object(rg0).expect("rg0");
             assert!(is_red_guard_template(&rg.template_name));
             let w = rg.weapon.as_ref().expect("RedguardMachineGun residual");
             assert!(
@@ -111942,7 +111943,7 @@ mod tests {
             "horde grant residual honesty"
         );
         {
-            let rg = game_logic.find_object(rg0).expect("rg0 horde");
+            let rg = game_logic.host_object(rg0).expect("rg0 horde");
             assert!(
                 rg.weapon_bonus_horde,
                 "weapon_bonus_horde residual must be set with 5 allies"
@@ -111964,7 +111965,7 @@ mod tests {
         assert!(game_logic.apply_red_guard_nationalism_upgrade(rg0));
         assert!(game_logic.honesty_red_guard_nationalism_ok());
         {
-            let rg = game_logic.find_object(rg0).expect("rg0 nat");
+            let rg = game_logic.host_object(rg0).expect("rg0 nat");
             assert!(rg.has_upgrade_tag(UPGRADE_NATIONALISM));
             assert!(
                 rg.weapon_bonus_nationalism,
@@ -111983,7 +111984,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let rg = game_logic.find_object_mut(rg0).unwrap();
+            let rg = game_logic.host_object_mut(rg0).unwrap();
             rg.attack_target(enemy);
             if let Some(w) = rg.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -111991,7 +111992,7 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -112004,7 +112005,7 @@ mod tests {
         );
         assert!(game_logic.honesty_red_guard_ok());
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112017,7 +112018,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
             .expect("melee");
         {
-            let rg = game_logic.find_object_mut(rg0).unwrap();
+            let rg = game_logic.host_object_mut(rg0).unwrap();
             rg.set_position(Vec3::new(0.0, 0.0, 0.0));
             rg.attack_target(melee);
             if let Some(w) = rg.weapon.as_mut() {
@@ -112032,7 +112033,7 @@ mod tests {
             "bayonet residual honesty"
         );
         let melee_alive = game_logic
-            .find_object(melee)
+            .host_object(melee)
             .map(|o| o.is_alive())
             .unwrap_or(false);
         assert!(!melee_alive, "bayonet residual one-shots close infantry");
@@ -112081,7 +112082,7 @@ mod tests {
         }
         let th0 = th_ids[0];
         {
-            let th = game_logic.find_object(th0).expect("th0");
+            let th = game_logic.host_object(th0).expect("th0");
             assert!(is_tank_hunter_template(&th.template_name));
             let w = th.weapon.as_ref().expect("RPG residual");
             assert!((w.damage - TANK_HUNTER_DAMAGE).abs() < 0.5);
@@ -112097,7 +112098,7 @@ mod tests {
             "tank hunter horde residual honesty"
         );
         {
-            let th = game_logic.find_object(th0).expect("th0 horde");
+            let th = game_logic.host_object(th0).expect("th0 horde");
             assert!(th.weapon_bonus_horde);
             let w = th.weapon.as_ref().expect("horde rpg");
             assert!(
@@ -112110,7 +112111,7 @@ mod tests {
         assert!(game_logic.apply_tank_hunter_nationalism_upgrade(th0));
         assert!(game_logic.honesty_tank_hunter_nationalism_ok());
         {
-            let th = game_logic.find_object(th0).expect("th0 nat");
+            let th = game_logic.host_object(th0).expect("th0 nat");
             assert!(th.has_upgrade_tag(UPGRADE_NATIONALISM));
             assert!(th.weapon_bonus_nationalism);
             let w = th.weapon.as_ref().expect("nat rpg");
@@ -112129,7 +112130,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
             .expect("splash");
         {
-            let th = game_logic.find_object_mut(th0).unwrap();
+            let th = game_logic.host_object_mut(th0).unwrap();
             th.attack_target(enemy);
             if let Some(w) = th.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -112138,11 +112139,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -112153,11 +112154,11 @@ mod tests {
             && !game_logic.honesty_tank_hunter_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(th0)
+                .host_object(th0)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -112190,7 +112191,7 @@ mod tests {
                 || game_logic.honesty_tank_hunter_missile_projectile_ok()
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112198,7 +112199,7 @@ mod tests {
             "RPG residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let splash_hp_after = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112211,7 +112212,7 @@ mod tests {
             .create_object("TestBuilding", Team::USA, Vec3::new(200.0, 0.0, 0.0))
             .expect("bldg");
         {
-            let th = game_logic.find_object_mut(th0).unwrap();
+            let th = game_logic.host_object_mut(th0).unwrap();
             th.set_position(Vec3::new(200.0, 0.0, 2.0));
             th.set_ai_state(AIState::SpecialAbility);
             th.target = Some(bldg);
@@ -112231,7 +112232,7 @@ mod tests {
             "TNT plant counter residual"
         );
         let charge_count = game_logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| {
                 o.mine_data
@@ -112280,7 +112281,7 @@ mod tests {
             .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("rebel");
         {
-            let rebel = game_logic.find_object(rebel_id).expect("rebel");
+            let rebel = game_logic.host_object(rebel_id).expect("rebel");
             assert!(is_gla_rebel_template(&rebel.template_name));
             let w = rebel.weapon.as_ref().expect("GLARebelMachineGun residual");
             assert!(
@@ -112301,7 +112302,7 @@ mod tests {
         assert!(game_logic.apply_rebel_ap_bullets_upgrade(rebel_id));
         assert!(game_logic.honesty_rebel_ap_ok());
         {
-            let rebel = game_logic.find_object(rebel_id).expect("rebel ap");
+            let rebel = game_logic.host_object(rebel_id).expect("rebel ap");
             assert!(rebel.has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
             let w = rebel.weapon.as_ref().expect("ap gun");
             assert!(
@@ -112318,7 +112319,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let rebel = game_logic.find_object_mut(rebel_id).unwrap();
+            let rebel = game_logic.host_object_mut(rebel_id).unwrap();
             rebel.attack_target(enemy);
             if let Some(w) = rebel.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -112326,7 +112327,7 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -112339,7 +112340,7 @@ mod tests {
         );
         assert!(game_logic.honesty_rebel_ok());
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112387,7 +112388,7 @@ mod tests {
             .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ranger");
         {
-            let ranger = game_logic.find_object(ranger_id).expect("ranger");
+            let ranger = game_logic.host_object(ranger_id).expect("ranger");
             assert!(is_ranger_template(&ranger.template_name));
             let w = ranger.weapon.as_ref().expect("rifle residual");
             assert!(
@@ -112421,7 +112422,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
             .expect("vehicle");
         {
-            let ranger = game_logic.find_object_mut(ranger_id).unwrap();
+            let ranger = game_logic.host_object_mut(ranger_id).unwrap();
             ranger.attack_target(vehicle);
             if let Some(w) = ranger.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -112436,7 +112437,7 @@ mod tests {
             ranger.apply_upgrade_tag(UPGRADE_AMERICA_FLASHBANG);
         }
         let vehicle_hp_before = game_logic
-            .find_object(vehicle)
+            .host_object(vehicle)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -112449,7 +112450,7 @@ mod tests {
         );
         assert!(game_logic.honesty_ranger_ok());
         let vehicle_hp_after = game_logic
-            .find_object(vehicle)
+            .host_object(vehicle)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112470,7 +112471,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(55.0, 0.0, 0.0))
             .expect("splash infantry");
         {
-            let ranger = game_logic.find_object_mut(ranger_id).unwrap();
+            let ranger = game_logic.host_object_mut(ranger_id).unwrap();
             ranger.attack_target(enemy);
             // Prefer secondary vs infantry (PreferredAgainst residual).
             if let Some(w) = ranger.weapon.as_mut() {
@@ -112484,11 +112485,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -112498,11 +112499,11 @@ mod tests {
             && !game_logic.honesty_flashbang_grenade_projectile_ok()
         {
             let from = game_logic
-                .find_object(ranger_id)
+                .host_object(ranger_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -112534,7 +112535,7 @@ mod tests {
                 || game_logic.honesty_flashbang_grenade_projectile_ok()
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112547,7 +112548,7 @@ mod tests {
             "flashbang intended residual damage ~35, got {fb_dmg}"
         );
         let splash_hp_after = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112595,7 +112596,7 @@ mod tests {
             .create_object("ChinaInfantryHacker", Team::USA, Vec3::new(200.0, 0.0, 0.0))
             .expect("hacker");
         {
-            let h = game_logic.find_object(hacker_id).expect("hacker");
+            let h = game_logic.host_object(hacker_id).expect("hacker");
             assert!(is_hacker_disable_unit(&h.template_name));
         }
         let target_id = game_logic
@@ -112603,7 +112604,7 @@ mod tests {
             .expect("building");
 
         let initial_health = game_logic
-            .find_object(target_id)
+            .host_object(target_id)
             .expect("building")
             .health
             .current;
@@ -112619,7 +112620,7 @@ mod tests {
         game_logic.process_commands();
 
         {
-            let hacker = game_logic.find_object(hacker_id).expect("hacker");
+            let hacker = game_logic.host_object(hacker_id).expect("hacker");
             assert_eq!(
                 hacker.ai_state,
                 AIState::SpecialAbility,
@@ -112629,7 +112630,7 @@ mod tests {
         }
         assert!(
             !game_logic
-                .find_object(target_id)
+                .host_object(target_id)
                 .expect("building")
                 .is_hacked_disabled(),
             "disable building must not apply immediately on command issue"
@@ -112640,7 +112641,7 @@ mod tests {
         game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
         assert!(
             !game_logic
-                .find_object(target_id)
+                .host_object(target_id)
                 .expect("building")
                 .is_hacked_disabled(),
             "disable building stays pending out of range"
@@ -112648,14 +112649,14 @@ mod tests {
 
         // Walk into residual StartAbilityRange.
         {
-            let hacker = game_logic.find_object_mut(hacker_id).expect("hacker");
+            let hacker = game_logic.host_object_mut(hacker_id).expect("hacker");
             hacker.set_position(Vec3::new(10.0, 0.0, 0.0));
             hacker.set_ai_state(AIState::SpecialAbility);
             hacker.target = Some(target_id);
         }
         game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
 
-        let building_after = game_logic.find_object(target_id).expect("building");
+        let building_after = game_logic.host_object(target_id).expect("building");
         assert_eq!(
             building_after.health.current, initial_health,
             "disable building residual must not damage HP"
@@ -112692,7 +112693,7 @@ mod tests {
         assert!(until > game_logic.frame);
         game_logic.frame = until;
         game_logic.update_ai(&[target_id], 1.0 / 60.0);
-        let recovered = game_logic.find_object(target_id).expect("building");
+        let recovered = game_logic.host_object(target_id).expect("building");
         assert!(
             !recovered.is_hacked_disabled(),
             "DISABLED_HACKED must clear after EffectDuration 2000ms"
@@ -112738,7 +112739,7 @@ mod tests {
             )
             .expect("rpg");
         {
-            let rpg = game_logic.find_object(rpg_id).expect("rpg");
+            let rpg = game_logic.host_object(rpg_id).expect("rpg");
             assert!(is_rpg_trooper_template(&rpg.template_name));
             let w = rpg.weapon.as_ref().expect("RPG residual");
             assert!((w.damage - RPG_TROOPER_DAMAGE).abs() < 0.5);
@@ -112752,7 +112753,7 @@ mod tests {
         assert!(game_logic.apply_rpg_trooper_ap_rockets_upgrade(rpg_id));
         assert!(game_logic.honesty_rpg_trooper_ap_ok());
         {
-            let rpg = game_logic.find_object(rpg_id).expect("rpg ap");
+            let rpg = game_logic.host_object(rpg_id).expect("rpg ap");
             assert!(rpg.has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
             let w = rpg.weapon.as_ref().expect("ap rocket");
             assert!(
@@ -112770,7 +112771,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
             .expect("splash");
         {
-            let rpg = game_logic.find_object_mut(rpg_id).unwrap();
+            let rpg = game_logic.host_object_mut(rpg_id).unwrap();
             rpg.attack_target(enemy);
             if let Some(w) = rpg.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -112779,11 +112780,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -112794,11 +112795,11 @@ mod tests {
             && !game_logic.honesty_rpg_trooper_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(rpg_id)
+                .host_object(rpg_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -112831,7 +112832,7 @@ mod tests {
                 || game_logic.honesty_rpg_trooper_missile_projectile_ok()
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112839,7 +112840,7 @@ mod tests {
             "RPG residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let splash_hp_after = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112885,7 +112886,7 @@ mod tests {
             .create_object("GLAInfantryTerrorist", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("terrorist");
         {
-            let t = game_logic.find_object(terror_id).expect("terrorist");
+            let t = game_logic.host_object(terror_id).expect("terrorist");
             assert!(is_terrorist_template(&t.template_name));
             let w = t.weapon.as_ref().expect("suicide residual");
             assert!(
@@ -112910,7 +112911,7 @@ mod tests {
             )
             .expect("far infantry");
         {
-            let t = game_logic.find_object_mut(terror_id).unwrap();
+            let t = game_logic.host_object_mut(terror_id).unwrap();
             t.attack_target(near);
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -112919,11 +112920,11 @@ mod tests {
             }
         }
         let near_hp_before = game_logic
-            .find_object(near)
+            .host_object(near)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let far_hp_before = game_logic
-            .find_object(far)
+            .host_object(far)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -112939,7 +112940,7 @@ mod tests {
             "terrorist residual honesty with observable damage"
         );
         let near_hp_after = game_logic
-            .find_object(near)
+            .host_object(near)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112947,7 +112948,7 @@ mod tests {
             "primary ring residual must damage near target (before={near_hp_before} after={near_hp_after})"
         );
         let far_hp_after = game_logic
-            .find_object(far)
+            .host_object(far)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -112956,7 +112957,7 @@ mod tests {
         );
         // Terrorist self-destroyed residual.
         let terror_alive = game_logic
-            .find_object(terror_id)
+            .host_object(terror_id)
             .map(|t| t.is_alive())
             .unwrap_or(false);
         assert!(!terror_alive, "terrorist self-kill residual");
@@ -112999,7 +113000,7 @@ mod tests {
             )
             .expect("missile defender");
         {
-            let md = game_logic.find_object(md_id).expect("md");
+            let md = game_logic.host_object(md_id).expect("md");
             assert!(is_missile_defender_template(&md.template_name));
             let w = md.weapon.as_ref().expect("primary missile residual");
             assert!((w.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
@@ -113021,7 +113022,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(82.0, 0.0, 0.0))
             .expect("splash");
         {
-            let md = game_logic.find_object_mut(md_id).unwrap();
+            let md = game_logic.host_object_mut(md_id).unwrap();
             md.active_weapon_slot = 0;
             md.attack_target(enemy);
             if let Some(w) = md.weapon.as_mut() {
@@ -113030,11 +113031,11 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let splash_hp_before = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -113044,11 +113045,11 @@ mod tests {
             && !game_logic.honesty_missile_defender_missile_projectile_ok()
         {
             let from = game_logic
-                .find_object(md_id)
+                .host_object(md_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -113080,7 +113081,7 @@ mod tests {
                 || game_logic.honesty_missile_defender_missile_projectile_ok()
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -113088,7 +113089,7 @@ mod tests {
             "missile residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
         );
         let splash_hp_after = game_logic
-            .find_object(splash)
+            .host_object(splash)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -113109,7 +113110,7 @@ mod tests {
             "laser special honesty counter"
         );
         {
-            let md = game_logic.find_object(md_id).expect("md laser");
+            let md = game_logic.host_object(md_id).expect("md laser");
             assert_eq!(md.active_weapon_slot, 1, "laser locks secondary slot");
             assert_eq!(md.target, Some(far_enemy));
             if let Some(sw) = md.secondary_weapon.as_ref() {
@@ -113120,31 +113121,31 @@ mod tests {
             }
         }
         {
-            let md = game_logic.find_object_mut(md_id).unwrap();
+            let md = game_logic.host_object_mut(md_id).unwrap();
             if let Some(w) = md.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.1;
             }
         }
         let far_hp_before = game_logic
-            .find_object(far_enemy)
+            .host_object(far_enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(80);
         game_logic.update_combat(&[md_id, far_enemy], LOGIC_FRAME_TIMESTEP);
         if game_logic.missile_defender_residual_laser_fires() == 0
             && game_logic
-                .find_object(far_enemy)
+                .host_object(far_enemy)
                 .map(|e| e.health.current)
                 .unwrap_or(0.0)
                 >= far_hp_before
         {
             let from = game_logic
-                .find_object(md_id)
+                .host_object(md_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(far_enemy)
+                .host_object(far_enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(250.0, 0.0, 0.0));
             assert!(game_logic
@@ -113169,7 +113170,7 @@ mod tests {
         assert!(
             game_logic.missile_defender_residual_laser_fires() > 0
                 || game_logic
-                    .find_object(far_enemy)
+                    .host_object(far_enemy)
                     .map(|e| e.health.current)
                     .unwrap_or(0.0)
                     < far_hp_before
@@ -113178,7 +113179,7 @@ mod tests {
         );
         assert!(game_logic.honesty_missile_defender_laser_ok());
         let far_hp_after = game_logic
-            .find_object(far_enemy)
+            .host_object(far_enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -113204,7 +113205,7 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-        let crawler = game_logic.find_object(crawler_id).expect("crawler");
+        let crawler = game_logic.host_object(crawler_id).expect("crawler");
         assert!(is_troop_crawler_template(&crawler.template_name));
         assert!(crawler.is_troop_crawler_style_container());
         assert!(crawler.can_contain());
@@ -113259,7 +113260,7 @@ mod tests {
             )
             .expect("stealthed enemy");
         {
-            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            let e = game_logic.host_object_mut(stealth_id).unwrap();
             e.set_status_stealthed(true);
             e.set_status_detected(false);
         }
@@ -113267,7 +113268,7 @@ mod tests {
         game_logic.frame = 1;
         game_logic.update_stealth_and_detection();
         {
-            let e = game_logic.find_object(stealth_id).expect("enemy");
+            let e = game_logic.host_object(stealth_id).expect("enemy");
             assert!(
                 e.status.detected,
                 "troop crawler detector residual must reveal stealthed enemy in range"
@@ -113291,14 +113292,14 @@ mod tests {
             )
             .expect("far stealthed");
         {
-            let e = game_logic.find_object_mut(far_id).unwrap();
+            let e = game_logic.host_object_mut(far_id).unwrap();
             e.set_status_stealthed(true);
             e.set_status_detected(false);
         }
         game_logic.frame = 2;
         game_logic.update_stealth_and_detection();
         {
-            let e = game_logic.find_object(far_id).expect("far");
+            let e = game_logic.host_object(far_id).expect("far");
             assert!(
                 !e.status.detected,
                 "fail-closed: enemy outside VisionRange 175 residual must not be detected"
@@ -113320,7 +113321,7 @@ mod tests {
         // Evacuate InitialPayload residual Redguards to free slots.
         {
             let occupants = game_logic
-                .find_object(crawler_id)
+                .host_object(crawler_id)
                 .map(|o| o.contained_units())
                 .unwrap_or_default();
             if !occupants.is_empty() {
@@ -113336,7 +113337,7 @@ mod tests {
             }
         }
         {
-            let crawler = game_logic.find_object(crawler_id).expect("crawler");
+            let crawler = game_logic.host_object(crawler_id).expect("crawler");
             assert_eq!(
                 crawler.transport_count(),
                 0,
@@ -113353,7 +113354,7 @@ mod tests {
 
         for unit_id in [unit_a, unit_b] {
             {
-                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
                 unit.weapon = Some(Weapon {
                     damage: 15.0,
                     range: 80.0,
@@ -113367,7 +113368,7 @@ mod tests {
             game_logic.update_ai(&[unit_id, crawler_id], 1.0 / 30.0);
         }
 
-        let crawler = game_logic.find_object(crawler_id).expect("crawler loaded");
+        let crawler = game_logic.host_object(crawler_id).expect("crawler loaded");
         assert!(
             crawler.contained_units().contains(&unit_a)
                 && crawler.contained_units().contains(&unit_b),
@@ -113389,13 +113390,13 @@ mod tests {
         game_logic.process_commands();
 
         for unit_id in [unit_a, unit_b] {
-            let unit = game_logic.find_object(unit_id).expect("free unit");
+            let unit = game_logic.host_object(unit_id).expect("free unit");
             assert_eq!(unit.ai_state, AIState::Idle);
             assert!(unit.contained_by.is_none());
             assert!(unit.can_move());
         }
         {
-            let crawler = game_logic.find_object(crawler_id).expect("empty");
+            let crawler = game_logic.host_object(crawler_id).expect("empty");
             assert_eq!(crawler.transport_count(), 0);
         }
         assert!(
@@ -114051,7 +114052,7 @@ mod tests {
 
         let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
         let payload_count = game_logic
-            .find_object(crawler_id)
+            .host_object(crawler_id)
             .map(|c| c.transport_count())
             .unwrap_or(0);
         assert!(
@@ -114068,7 +114069,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let c = game_logic.find_object_mut(crawler_id).unwrap();
+            let c = game_logic.host_object_mut(crawler_id).unwrap();
             c.attack_target(enemy);
             if let Some(w) = c.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -114089,7 +114090,7 @@ mod tests {
         );
 
         let remaining = game_logic
-            .find_object(crawler_id)
+            .host_object(crawler_id)
             .map(|c| c.transport_count())
             .unwrap_or(0);
         assert_eq!(
@@ -114121,14 +114122,14 @@ mod tests {
         let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
         // Clear payload and load two controlled infantry.
         let old_occ = game_logic
-            .find_object(crawler_id)
+            .host_object(crawler_id)
             .map(|c| c.occupants.clone())
             .unwrap_or_default();
         for oid in old_occ {
-            if let Some(c) = game_logic.find_object_mut(crawler_id) {
+            if let Some(c) = game_logic.host_object_mut(crawler_id) {
                 c.remove_occupant(oid);
             }
-            if let Some(u) = game_logic.find_object_mut(oid) {
+            if let Some(u) = game_logic.host_object_mut(oid) {
                 u.set_contained_by(None);
             }
             game_logic.destroy_object(oid);
@@ -114140,26 +114141,26 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
             .expect("wounded");
         {
-            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            let h = game_logic.host_object_mut(healthy_id).unwrap();
             h.health.maximum = 100.0;
             h.health.current = 100.0;
         }
         {
-            let w = game_logic.find_object_mut(wounded_id).unwrap();
+            let w = game_logic.host_object_mut(wounded_id).unwrap();
             w.health.maximum = 100.0;
             w.health.current = 40.0; // < 0.5 ratio
         }
         {
-            let c = game_logic.find_object_mut(crawler_id).unwrap();
+            let c = game_logic.host_object_mut(crawler_id).unwrap();
             assert!(c.add_occupant(healthy_id));
             assert!(c.add_occupant(wounded_id));
         }
         {
-            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            let h = game_logic.host_object_mut(healthy_id).unwrap();
             h.set_contained_by(Some(crawler_id));
         }
         {
-            let w = game_logic.find_object_mut(wounded_id).unwrap();
+            let w = game_logic.host_object_mut(wounded_id).unwrap();
             w.set_contained_by(Some(crawler_id));
         }
 
@@ -114171,14 +114172,14 @@ mod tests {
         assert_eq!(ordered, 1, "only healthy member should eject");
         assert!(
             game_logic
-                .find_object(healthy_id)
+                .host_object(healthy_id)
                 .map(|u| u.contained_by.is_none())
                 .unwrap_or(false),
             "healthy outside"
         );
         assert_eq!(
             game_logic
-                .find_object(wounded_id)
+                .host_object(wounded_id)
                 .and_then(|u| u.contained_by),
             Some(crawler_id),
             "wounded stays aboard"
@@ -114186,13 +114187,13 @@ mod tests {
 
         // Wound the outside healthy fighter → retrieve.
         {
-            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            let h = game_logic.host_object_mut(healthy_id).unwrap();
             h.health.current = 30.0;
         }
         game_logic.tick_assault_transport_updates();
         assert_eq!(
             game_logic
-                .find_object(healthy_id)
+                .host_object(healthy_id)
                 .and_then(|u| u.contained_by),
             Some(crawler_id),
             "wounded outside member retrieved"
@@ -114201,13 +114202,13 @@ mod tests {
 
         // Full heal aboard → re-exit.
         {
-            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            let h = game_logic.host_object_mut(healthy_id).unwrap();
             h.health.current = 100.0;
         }
         game_logic.tick_assault_transport_updates();
         assert!(
             game_logic
-                .find_object(healthy_id)
+                .host_object(healthy_id)
                 .map(|u| u.contained_by.is_none())
                 .unwrap_or(false),
             "full health re-exits to fight"
@@ -114226,7 +114227,7 @@ mod tests {
         // Free InitialPayload residual slots.
         {
             let occupants = game_logic
-                .find_object(crawler_id)
+                .host_object(crawler_id)
                 .map(|o| o.contained_units())
                 .unwrap_or_default();
             if !occupants.is_empty() {
@@ -114248,13 +114249,13 @@ mod tests {
             .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
             .expect("tank");
         {
-            let unit = game_logic.find_object_mut(tank_id).unwrap();
+            let unit = game_logic.host_object_mut(tank_id).unwrap();
             unit.target = Some(crawler_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[tank_id, crawler_id], 1.0 / 30.0);
 
-        let crawler = game_logic.find_object(crawler_id).expect("crawler");
+        let crawler = game_logic.host_object(crawler_id).expect("crawler");
         assert!(
             !crawler.contained_units().contains(&tank_id),
             "vehicles must not enter Troop Crawler residual"
@@ -114311,7 +114312,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, glam::Vec3::new(60.0, 0.0, 0.0))
             .expect("enemy");
         let hp_before = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -114354,7 +114355,7 @@ mod tests {
         logic.process_destroy_list();
 
         let hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -114399,7 +114400,7 @@ mod tests {
             .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("dragon");
         {
-            let d = game_logic.find_object(dragon_id).expect("dragon");
+            let d = game_logic.host_object(dragon_id).expect("dragon");
             assert!(is_dragon_tank_template(&d.template_name));
             let prim = d.weapon.as_ref().expect("flame");
             assert!(
@@ -114417,7 +114418,7 @@ mod tests {
             "black napalm residual honesty"
         );
         {
-            let d = game_logic.find_object(dragon_id).expect("dragon");
+            let d = game_logic.host_object(dragon_id).expect("dragon");
             let prim = d.weapon.as_ref().expect("upgraded flame");
             assert!(
                 (prim.damage - DRAGON_UPGRADED_PRIMARY_DAMAGE).abs() < 0.01,
@@ -114437,7 +114438,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(48.0, 0.0, 0.0))
             .expect("splash_outer");
         {
-            let d = game_logic.find_object_mut(dragon_id).unwrap();
+            let d = game_logic.host_object_mut(dragon_id).unwrap();
             d.attack_target(enemy);
             if let Some(w) = d.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -114445,15 +114446,15 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let close_hp_before = game_logic
-            .find_object(splash_close)
+            .host_object(splash_close)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let outer_hp_before = game_logic
-            .find_object(splash_outer)
+            .host_object(splash_outer)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -114466,11 +114467,11 @@ mod tests {
             && game_logic.dragon_tank_residual_fires() == 0
         {
             let from = game_logic
-                .find_object(dragon_id)
+                .host_object(dragon_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(40.0, 0.0, 0.0));
             assert!(game_logic
@@ -114502,15 +114503,15 @@ mod tests {
             "dragon residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let close_hp_after = game_logic
-            .find_object(splash_close)
+            .host_object(splash_close)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let outer_hp_after = game_logic
-            .find_object(splash_outer)
+            .host_object(splash_outer)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -114575,7 +114576,7 @@ mod tests {
             .create_object("ChinaTankGattling", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("gattling");
         let base_reload = {
-            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let g = game_logic.host_object(gattling_id).expect("gattling");
             assert!(is_gattling_tank_template(&g.template_name));
             let prim = g.weapon.as_ref().expect("ground gun");
             assert!((prim.damage - GATTLING_GROUND_DAMAGE).abs() < 0.01);
@@ -114592,7 +114593,7 @@ mod tests {
         // Chain Guns residual → damage × 1.25.
         assert!(game_logic.apply_gattling_chain_guns_upgrade(gattling_id));
         {
-            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let g = game_logic.host_object(gattling_id).expect("gattling");
             let prim = g.weapon.as_ref().expect("chained ground");
             assert!(
                 (prim.damage - GATTLING_GROUND_DAMAGE * 1.25).abs() < 0.01,
@@ -114606,13 +114607,13 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
         for i in 0..8u32 {
             {
-                let g = game_logic.find_object_mut(gattling_id).unwrap();
+                let g = game_logic.host_object_mut(gattling_id).unwrap();
                 g.attack_target(enemy);
                 if let Some(w) = g.weapon.as_mut() {
                     w.last_fire_time = -10.0;
@@ -114637,7 +114638,7 @@ mod tests {
             "gattling continuous-fire ramp residual honesty must reach MEAN or FAST"
         );
         {
-            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let g = game_logic.host_object(gattling_id).expect("gattling");
             assert!(
                 g.continuous_fire_level >= GattlingFireLevel::Mean.as_u8(),
                 "after multi-shot residual must be MEAN or FAST, level={}",
@@ -114652,7 +114653,7 @@ mod tests {
             );
         }
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -114665,11 +114666,11 @@ mod tests {
             .create_object("TestAircraft", Team::GLA, Vec3::new(200.0, 50.0, 0.0))
             .expect("aircraft");
         {
-            let a = game_logic.find_object_mut(aircraft_id).unwrap();
+            let a = game_logic.host_object_mut(aircraft_id).unwrap();
             a.status.airborne_target = true;
         }
         {
-            let g = game_logic.find_object_mut(gattling_id).unwrap();
+            let g = game_logic.host_object_mut(gattling_id).unwrap();
             g.attack_target(aircraft_id);
             if let Some(w) = g.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -114681,7 +114682,7 @@ mod tests {
             }
         }
         let air_hp_before = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(200);
@@ -114691,7 +114692,7 @@ mod tests {
             "gattling AA residual honesty must fire secondary vs airborne"
         );
         let air_hp_after = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -114749,7 +114750,7 @@ mod tests {
             .create_object("GLAVehicleCombatBike", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("bike");
         {
-            let b = game_logic.find_object(bike_id).expect("bike");
+            let b = game_logic.host_object(bike_id).expect("bike");
             assert!(is_combat_cycle_template(&b.template_name));
             assert!(b.is_combat_cycle_style_container());
             assert_eq!(b.transport_capacity(), COMBAT_CYCLE_TRANSPORT_SLOTS);
@@ -114767,7 +114768,7 @@ mod tests {
             "combat cycle rider switch residual honesty"
         );
         {
-            let b = game_logic.find_object(bike_id).expect("bike");
+            let b = game_logic.host_object(bike_id).expect("bike");
             let prim = b.weapon.as_ref().expect("rpg");
             assert!((prim.damage - RPG_DAMAGE).abs() < 0.5);
             assert!(prim.can_target_air, "RPG residual targets air");
@@ -114777,7 +114778,7 @@ mod tests {
         // Switch residual: Jarmen Kell sniper.
         assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::JarmenKell));
         {
-            let b = game_logic.find_object(bike_id).expect("bike");
+            let b = game_logic.host_object(bike_id).expect("bike");
             let prim = b.weapon.as_ref().expect("sniper");
             assert!((prim.damage - KELL_DAMAGE).abs() < 1.0);
             assert!((prim.range - 225.0).abs() < 1.0);
@@ -114786,7 +114787,7 @@ mod tests {
         // Worker residual: no combat weapon (PRIMARY NONE).
         assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Worker));
         {
-            let b = game_logic.find_object(bike_id).expect("bike");
+            let b = game_logic.host_object(bike_id).expect("bike");
             assert!(
                 b.weapon.is_none(),
                 "worker rider residual must clear combat weapon"
@@ -114799,7 +114800,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let b = game_logic.find_object_mut(bike_id).unwrap();
+            let b = game_logic.host_object_mut(bike_id).unwrap();
             b.attack_target(enemy);
             if let Some(w) = b.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -114808,7 +114809,7 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -114824,7 +114825,7 @@ mod tests {
             "combat cycle residual host path honesty"
         );
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -114843,20 +114844,20 @@ mod tests {
         // Empty spawn rider slot first by clearing occupants and applying None.
         // Capacity is 1; spawn residual may not have live occupant. Force empty then enter.
         {
-            let b = game_logic.find_object_mut(bike_id).unwrap();
+            let b = game_logic.host_object_mut(bike_id).unwrap();
             // Clear residual spawn rider so refresh uses live occupant.
             b.combat_cycle_rider = 0;
             b.occupants.clear();
             b.weapon = None;
         }
         {
-            let unit = game_logic.find_object_mut(rpg_rider).unwrap();
+            let unit = game_logic.host_object_mut(rpg_rider).unwrap();
             unit.target = Some(bike_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[rpg_rider, bike_id], 1.0 / 30.0);
         {
-            let b = game_logic.find_object(bike_id).expect("bike");
+            let b = game_logic.host_object(bike_id).expect("bike");
             assert!(
                 b.contained_units().contains(&rpg_rider),
                 "combat cycle must load single rider residual"
@@ -114927,7 +114928,7 @@ mod tests {
             .expect("ally");
 
         {
-            let a = game_logic.find_object(avenger_id).expect("avenger");
+            let a = game_logic.host_object(avenger_id).expect("avenger");
             assert!(is_avenger_template(&a.template_name));
             assert!(a.weapon.is_some(), "designator primary residual");
             assert!(a.secondary_weapon.is_some(), "air laser secondary residual");
@@ -114936,7 +114937,7 @@ mod tests {
 
         // Avenger paints enemy.
         {
-            let a = game_logic.find_object_mut(avenger_id).unwrap();
+            let a = game_logic.host_object_mut(avenger_id).unwrap();
             a.target = Some(enemy_id);
             a.set_ai_state(AIState::Attacking);
             if let Some(w) = a.weapon.as_mut() {
@@ -114957,7 +114958,7 @@ mod tests {
             "paint counter must advance"
         );
         {
-            let e = game_logic.find_object(enemy_id).expect("enemy");
+            let e = game_logic.host_object(enemy_id).expect("enemy");
             assert!(e.is_faerie_fire(), "enemy must have FAERIE_FIRE residual");
             // Designator deals no HP damage residual.
             assert!(
@@ -114971,11 +114972,11 @@ mod tests {
         // Retail paint duration is 6 frames; keep paint alive for the ROF check.
         {
             let until = game_logic.frame.saturating_add(60);
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.apply_faerie_fire(until);
         }
         {
-            let ally = game_logic.find_object_mut(ally_id).unwrap();
+            let ally = game_logic.host_object_mut(ally_id).unwrap();
             ally.target = Some(enemy_id);
             ally.set_ai_state(AIState::Attacking);
             if let Some(w) = ally.weapon.as_mut() {
@@ -114991,8 +114992,8 @@ mod tests {
         game_logic.frame = 21;
         let current_time = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
         {
-            let ally = game_logic.find_object(ally_id).unwrap();
-            let enemy = game_logic.find_object(enemy_id).unwrap();
+            let ally = game_logic.host_object(ally_id).unwrap();
+            let enemy = game_logic.host_object(enemy_id).unwrap();
             assert!(
                 enemy.is_faerie_fire(),
                 "paint must still be active for ROF residual"
@@ -115055,9 +115056,9 @@ mod tests {
             .create_object("TestJet", Team::China, Vec3::new(100.0, 50.0, 0.0))
             .expect("jet");
 
-        let hp_before = game_logic.find_object(jet_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(jet_id).unwrap().health.current;
         {
-            let a = game_logic.find_object_mut(avenger_id).unwrap();
+            let a = game_logic.host_object_mut(avenger_id).unwrap();
             a.target = Some(jet_id);
             a.set_ai_state(AIState::Attacking);
             if let Some(w) = a.secondary_weapon.as_mut() {
@@ -115074,7 +115075,7 @@ mod tests {
             game_logic.honesty_avenger_air_laser_ok(),
             "air laser residual honesty"
         );
-        let hp_after = game_logic.find_object(jet_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(jet_id).unwrap().health.current;
         assert!(
             hp_after < hp_before,
             "air laser must damage aircraft residual (before={hp_before} after={hp_after})"
@@ -115139,7 +115140,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let c = game_logic.find_object(crusader_id).expect("crusader");
+            let c = game_logic.host_object(crusader_id).expect("crusader");
             assert!(is_laser_general_tank_template(&c.template_name));
             let w = c.weapon.as_ref().expect("Lazr_CrusaderTankGun residual");
             assert!(
@@ -115150,7 +115151,7 @@ mod tests {
             assert!((w.reload_time - 2.0).abs() < 0.05);
         }
         {
-            let p = game_logic.find_object(paladin_id).expect("paladin");
+            let p = game_logic.host_object(paladin_id).expect("paladin");
             let w = p.weapon.as_ref().expect("Lazr_PaladinTankGun residual");
             assert!(
                 (w.damage - LAZR_PALADIN_TANK_GUN_DAMAGE).abs() < 0.5,
@@ -115160,9 +115161,9 @@ mod tests {
             assert!((w.reload_time - 1.0).abs() < 0.05);
         }
 
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         {
-            let c = game_logic.find_object_mut(crusader_id).unwrap();
+            let c = game_logic.host_object_mut(crusader_id).unwrap();
             c.target = Some(enemy_id);
             c.set_ai_state(AIState::Attacking);
             if let Some(w) = c.weapon.as_mut() {
@@ -115172,7 +115173,7 @@ mod tests {
         }
         game_logic.frame = 10;
         game_logic.update_combat(&[crusader_id, enemy_id], LOGIC_FRAME_TIMESTEP);
-        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             hp_after < hp_before,
             "Lazr Crusader laser gun must damage residual (before={hp_before} after={hp_after})"
@@ -115233,13 +115234,13 @@ mod tests {
             )
             .expect("lazr patriot");
         // Mark constructed residual (structures start under construction).
-        if let Some(p) = game_logic.find_object_mut(pat_id) {
+        if let Some(p) = game_logic.host_object_mut(pat_id) {
             p.set_status_under_construction(false);
             p.construction_percent = 100.0;
         }
 
         {
-            let p = game_logic.find_object(pat_id).expect("patriot");
+            let p = game_logic.host_object(pat_id).expect("patriot");
             assert!(is_laser_patriot_template(&p.template_name));
             let g = p.weapon.as_ref().expect("Lazr ground residual");
             assert!(
@@ -115262,14 +115263,14 @@ mod tests {
         let air_id = game_logic
             .create_object("TestJet", Team::GLA, Vec3::new(0.0, 200.0, 0.0))
             .expect("air");
-        if let Some(a) = game_logic.find_object_mut(air_id) {
+        if let Some(a) = game_logic.host_object_mut(air_id) {
             a.status.airborne_target = true;
         }
 
         // Ground residual auto-fire.
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         {
-            let p = game_logic.find_object_mut(pat_id).unwrap();
+            let p = game_logic.host_object_mut(pat_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
@@ -115280,7 +115281,7 @@ mod tests {
         crate::game_logic::host_damage_log::clear();
         game_logic.frame = 30;
         game_logic.try_base_defense_residual_fire(pat_id);
-        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         let dealt_g = test_observed_damage_to(enemy_id, hp_before, hp_after);
         assert!(
             dealt_g > 0.0 || hp_after < hp_before,
@@ -115294,13 +115295,13 @@ mod tests {
 
         // AA residual: force secondary by placing only air target in range.
         let _ = game_logic; // keep air for dual-slot path on next shot
-        let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
+        let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;
         // Move ground enemy out of range so dual-slot prefers AA.
-        if let Some(e) = game_logic.find_object_mut(enemy_id) {
+        if let Some(e) = game_logic.host_object_mut(enemy_id) {
             e.set_position(Vec3::new(5000.0, 0.0, 0.0));
         }
         {
-            let p = game_logic.find_object_mut(pat_id).unwrap();
+            let p = game_logic.host_object_mut(pat_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
@@ -115311,7 +115312,7 @@ mod tests {
         crate::game_logic::host_damage_log::clear();
         game_logic.frame = 90;
         game_logic.try_base_defense_residual_fire(pat_id);
-        let air_hp_after = game_logic.find_object(air_id).unwrap().health.current;
+        let air_hp_after = game_logic.host_object(air_id).unwrap().health.current;
         let dealt = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
         assert!(
             dealt > 0.0 || air_hp_after < air_hp_before,
@@ -115354,12 +115355,12 @@ mod tests {
         let tunnel_id = game_logic
             .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("tunnel");
-        if let Some(t) = game_logic.find_object_mut(tunnel_id) {
+        if let Some(t) = game_logic.host_object_mut(tunnel_id) {
             t.set_status_under_construction(false);
             t.construction_percent = 100.0;
         }
         {
-            let t = game_logic.find_object(tunnel_id).expect("tunnel");
+            let t = game_logic.host_object(tunnel_id).expect("tunnel");
             assert!(is_tunnel_network_template(&t.template_name));
             assert!(
                 crate::game_logic::host_base_defense::is_base_defense_structure(
@@ -115379,16 +115380,16 @@ mod tests {
         let enemy_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
             .expect("enemy");
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         {
-            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            let t = game_logic.host_object_mut(tunnel_id).unwrap();
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
         }
         game_logic.frame = 20;
         game_logic.try_base_defense_residual_fire(tunnel_id);
-        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         let logged = crate::game_logic::host_damage_log::drain();
         let log_hit = logged
             .iter()
@@ -115453,7 +115454,7 @@ mod tests {
             .expect("enemy");
 
         {
-            let c = game_logic.find_object(crusader_id).expect("crusader");
+            let c = game_logic.host_object(crusader_id).expect("crusader");
             assert!(is_crusader_template(&c.template_name));
             let w = c.weapon.as_ref().expect("CrusaderTankGun residual");
             assert!(
@@ -115465,9 +115466,9 @@ mod tests {
         }
 
         // Combat residual: tank gun damages enemy.
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         {
-            let c = game_logic.find_object_mut(crusader_id).unwrap();
+            let c = game_logic.host_object_mut(crusader_id).unwrap();
             c.target = Some(enemy_id);
             c.set_ai_state(AIState::Attacking);
             if let Some(w) = c.weapon.as_mut() {
@@ -115479,11 +115480,11 @@ mod tests {
         game_logic.update_combat(&[crusader_id, enemy_id], LOGIC_FRAME_TIMESTEP);
         if !game_logic.honesty_usa_tank_shell_projectile_ok() {
             let from = game_logic
-                .find_object(crusader_id)
+                .host_object(crusader_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy_id)
+                .host_object(enemy_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(game_logic
@@ -115508,7 +115509,7 @@ mod tests {
             }
         }
         game_logic.process_destroy_list();
-        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         assert!(
             hp_after < hp_before,
             "Crusader tank gun must damage residual"
@@ -115517,7 +115518,7 @@ mod tests {
         // Composite Armor residual: +100 max+current HP (MaxHealthUpgrade path).
         {
             use crate::game_logic::host_usa_tanks::apply_composite_armor_health;
-            if let Some(c) = game_logic.find_object_mut(crusader_id) {
+            if let Some(c) = game_logic.host_object_mut(crusader_id) {
                 let mut max_h = c.max_health;
                 let mut cur = c.health.current;
                 let mut maximum = c.health.maximum;
@@ -115544,7 +115545,7 @@ mod tests {
         }
 
         {
-            let c = game_logic.find_object(crusader_id).expect("crusader");
+            let c = game_logic.host_object(crusader_id).expect("crusader");
             assert!(
                 c.has_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR),
                 "composite armor tag residual"
@@ -115623,7 +115624,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, glam::Vec3::new(120.0, 0.0, 0.0))
             .expect("enemy");
         let enemy_hp_before = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -115655,7 +115656,7 @@ mod tests {
         logic.process_destroy_list();
 
         let enemy_hp_after = logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -115720,7 +115721,7 @@ mod tests {
             .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("humvee");
         {
-            let h = game_logic.find_object(humvee_id).expect("humvee");
+            let h = game_logic.host_object(humvee_id).expect("humvee");
             assert!(is_humvee_template(&h.template_name));
             assert!(h.is_humvee_style_container());
             assert_eq!(h.transport_capacity(), HUMVEE_TRANSPORT_SLOTS);
@@ -115732,13 +115733,13 @@ mod tests {
             .create_object("USA_Ranger", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("r1");
         {
-            let unit = game_logic.find_object_mut(r1).unwrap();
+            let unit = game_logic.host_object_mut(r1).unwrap();
             unit.target = Some(humvee_id);
             unit.set_ai_state(AIState::Entering);
         }
         game_logic.update_ai(&[r1, humvee_id], 1.0 / 30.0);
         {
-            let h = game_logic.find_object(humvee_id).expect("humvee");
+            let h = game_logic.host_object(humvee_id).expect("humvee");
             assert!(
                 h.contained_units().contains(&r1),
                 "humvee residual transport must load infantry"
@@ -115753,7 +115754,7 @@ mod tests {
             };
             ensure_host_weapon_store();
             let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
-            if let Some(h) = game_logic.find_object_mut(humvee_id) {
+            if let Some(h) = game_logic.host_object_mut(humvee_id) {
                 if let Some(mut w) = secondary {
                     w.can_target_air = true;
                     w.range = w
@@ -115768,9 +115769,9 @@ mod tests {
         let jet_id = game_logic
             .create_object("TestJet", Team::GLA, Vec3::new(100.0, 40.0, 0.0))
             .expect("jet");
-        let hp_before = game_logic.find_object(jet_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(jet_id).unwrap().health.current;
         {
-            let h = game_logic.find_object_mut(humvee_id).unwrap();
+            let h = game_logic.host_object_mut(humvee_id).unwrap();
             assert!(
                 h.has_upgrade_tag(UPGRADE_AMERICA_TOW),
                 "TOW upgrade tag residual"
@@ -115789,11 +115790,11 @@ mod tests {
         game_logic.update_combat(&[humvee_id, jet_id], LOGIC_FRAME_TIMESTEP);
         if game_logic.humvee_tow_missiles_spawned == 0 {
             let from = game_logic
-                .find_object(humvee_id)
+                .host_object(humvee_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(jet_id)
+                .host_object(jet_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 40.0, 0.0));
             assert!(game_logic
@@ -115814,7 +115815,7 @@ mod tests {
             }
         }
         game_logic.process_destroy_list();
-        let hp_after = game_logic.find_object(jet_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(jet_id).unwrap().health.current;
         assert!(
             hp_after < hp_before,
             "humvee air TOW residual must damage aircraft"
@@ -115880,7 +115881,7 @@ mod tests {
         }
         let mg0 = mg_ids[0];
         let base_reload = {
-            let mg = game_logic.find_object(mg0).expect("mg0");
+            let mg = game_logic.host_object(mg0).expect("mg0");
             assert!(is_minigunner_template(&mg.template_name));
             let prim = mg.weapon.as_ref().expect("ground gun");
             assert!((prim.damage - MINIGUNNER_GROUND_DAMAGE).abs() < 0.5);
@@ -115901,7 +115902,7 @@ mod tests {
             "minigunner horde grant residual honesty"
         );
         {
-            let mg = game_logic.find_object(mg0).expect("mg0 horde");
+            let mg = game_logic.host_object(mg0).expect("mg0 horde");
             assert!(mg.weapon_bonus_horde);
             let w = mg.weapon.as_ref().expect("horde gun");
             assert!(
@@ -115915,7 +115916,7 @@ mod tests {
         assert!(game_logic.apply_minigunner_nationalism_upgrade(mg0));
         assert!(game_logic.honesty_minigunner_nationalism_ok());
         {
-            let mg = game_logic.find_object(mg0).expect("mg0 nat");
+            let mg = game_logic.host_object(mg0).expect("mg0 nat");
             assert!(mg.has_upgrade_tag(UPGRADE_NATIONALISM));
             assert!(mg.weapon_bonus_nationalism);
             let w = mg.weapon.as_ref().expect("nat gun");
@@ -115929,7 +115930,7 @@ mod tests {
         // Chain Guns residual → damage × 1.25.
         assert!(game_logic.apply_minigunner_chain_guns_upgrade(mg0));
         {
-            let mg = game_logic.find_object(mg0).expect("mg0 chain");
+            let mg = game_logic.host_object(mg0).expect("mg0 chain");
             let prim = mg.weapon.as_ref().expect("chained ground");
             assert!(
                 (prim.damage - MINIGUNNER_GROUND_DAMAGE * 1.25).abs() < 0.01,
@@ -115943,13 +115944,13 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
         for i in 0..10u32 {
             {
-                let mg = game_logic.find_object_mut(mg0).unwrap();
+                let mg = game_logic.host_object_mut(mg0).unwrap();
                 mg.attack_target(enemy);
                 if let Some(w) = mg.weapon.as_mut() {
                     w.last_fire_time = -10.0;
@@ -115973,7 +115974,7 @@ mod tests {
             "minigunner continuous-fire ramp residual honesty must reach MEAN or FAST"
         );
         {
-            let mg = game_logic.find_object(mg0).expect("mg0 ramped");
+            let mg = game_logic.host_object(mg0).expect("mg0 ramped");
             assert!(
                 mg.continuous_fire_level >= GattlingFireLevel::Mean.as_u8(),
                 "after multi-shot residual must be MEAN or FAST, level={}",
@@ -115987,7 +115988,7 @@ mod tests {
             );
         }
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -116000,11 +116001,11 @@ mod tests {
             .create_object("TestAircraft", Team::GLA, Vec3::new(200.0, 50.0, 0.0))
             .expect("aircraft");
         {
-            let a = game_logic.find_object_mut(aircraft_id).unwrap();
+            let a = game_logic.host_object_mut(aircraft_id).unwrap();
             a.status.airborne_target = true;
         }
         {
-            let mg = game_logic.find_object_mut(mg0).unwrap();
+            let mg = game_logic.host_object_mut(mg0).unwrap();
             mg.attack_target(aircraft_id);
             if let Some(w) = mg.secondary_weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -116016,7 +116017,7 @@ mod tests {
             }
         }
         let air_hp_before = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(400);
@@ -116026,7 +116027,7 @@ mod tests {
             "minigunner AA residual honesty must fire secondary vs airborne"
         );
         let air_hp_after = game_logic
-            .find_object(aircraft_id)
+            .host_object(aircraft_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -116074,7 +116075,7 @@ mod tests {
             )
             .expect("burton");
         {
-            let b = game_logic.find_object(burton_id).expect("burton");
+            let b = game_logic.host_object(burton_id).expect("burton");
             assert!(is_colonel_burton_template(&b.template_name));
             let w = b.weapon.as_ref().expect("sniper residual");
             assert!(
@@ -116096,7 +116097,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
             .expect("enemy");
         {
-            let b = game_logic.find_object_mut(burton_id).unwrap();
+            let b = game_logic.host_object_mut(burton_id).unwrap();
             b.attack_target(enemy);
             if let Some(w) = b.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -116104,7 +116105,7 @@ mod tests {
             }
         }
         let enemy_hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
@@ -116117,7 +116118,7 @@ mod tests {
         );
         assert!(game_logic.honesty_burton_ok());
         let enemy_hp_after = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -116130,7 +116131,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
             .expect("melee");
         {
-            let b = game_logic.find_object_mut(burton_id).unwrap();
+            let b = game_logic.host_object_mut(burton_id).unwrap();
             b.set_position(Vec3::new(0.0, 0.0, 0.0));
             b.attack_target(melee);
             if let Some(w) = b.weapon.as_mut() {
@@ -116145,7 +116146,7 @@ mod tests {
             "burton knife residual honesty"
         );
         let melee_alive = game_logic
-            .find_object(melee)
+            .host_object(melee)
             .map(|o| o.is_alive())
             .unwrap_or(false);
         assert!(
@@ -116158,11 +116159,11 @@ mod tests {
             .create_object("TestTank", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
             .expect("tank");
         let tank_hp_before = game_logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         {
-            let b = game_logic.find_object_mut(burton_id).unwrap();
+            let b = game_logic.host_object_mut(burton_id).unwrap();
             b.attack_target(tank);
             if let Some(w) = b.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -116172,7 +116173,7 @@ mod tests {
         game_logic.set_current_frame(120);
         game_logic.update_combat(&[burton_id, tank], LOGIC_FRAME_TIMESTEP);
         let tank_hp_after = game_logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|t| t.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -116181,7 +116182,7 @@ mod tests {
         );
         assert!(
             game_logic
-                .find_object(tank)
+                .host_object(tank)
                 .map(|t| t.is_alive())
                 .unwrap_or(false),
             "knife residual must not one-shot vehicles"
@@ -116230,7 +116231,7 @@ mod tests {
             .create_object("TestVictim", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("victim");
         {
-            let v = game_logic.find_object_mut(victim_id).unwrap();
+            let v = game_logic.host_object_mut(victim_id).unwrap();
             v.health.current = 5000.0;
             v.health.maximum = 5000.0;
             v.max_health = 5000.0;
@@ -116248,7 +116249,7 @@ mod tests {
             affected,
         );
 
-        let tank = game_logic.find_object(tank_id).expect("tank after upgrade");
+        let tank = game_logic.host_object(tank_id).expect("tank after upgrade");
         assert!(
             tank.has_upgrade_tag(UPGRADE_CHINA_NUCLEAR_TANKS),
             "Nuclear Tanks tag must apply"
@@ -116267,7 +116268,7 @@ mod tests {
             "upgrade honesty"
         );
 
-        let victim_hp_before = game_logic.find_object(victim_id).unwrap().health.current;
+        let victim_hp_before = game_logic.host_object(victim_id).unwrap().health.current;
         game_logic.mark_object_for_destruction(tank_id, Some(Team::USA));
         game_logic.process_destroy_list();
 
@@ -116280,7 +116281,7 @@ mod tests {
             "radiation zone must spawn on nuclear death"
         );
 
-        let victim_hp_after = game_logic.find_object(victim_id).unwrap().health.current;
+        let victim_hp_after = game_logic.host_object(victim_id).unwrap().health.current;
         let dealt = victim_hp_before - victim_hp_after;
         assert!(
             dealt > 0.0,
@@ -116345,7 +116346,7 @@ mod tests {
             .create_object("TestVictimNear", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("victim");
         {
-            let v = game_logic.find_object_mut(victim_id).unwrap();
+            let v = game_logic.host_object_mut(victim_id).unwrap();
             v.health.current = 5000.0;
             v.health.maximum = 5000.0;
             v.max_health = 5000.0;
@@ -116365,7 +116366,7 @@ mod tests {
 
         assert!(
             game_logic
-                .find_object(rebel_id)
+                .host_object(rebel_id)
                 .map(|r| r.has_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP))
                 .unwrap_or(false),
             "rebel must receive BoobyTrap upgrade tag"
@@ -116387,7 +116388,7 @@ mod tests {
             modifier_keys: ModifierKeys::default(),
         });
         game_logic.process_commands();
-        if let Some(rebel) = game_logic.find_object_mut(rebel_id) {
+        if let Some(rebel) = game_logic.host_object_mut(rebel_id) {
             rebel.set_position(Vec3::new(1.0, 0.0, 0.0));
             rebel.set_ai_state(AIState::SpecialAbility);
             rebel.target = Some(building_id);
@@ -116401,7 +116402,7 @@ mod tests {
             .is_booby_trapped(building_id)
         {
             let geom = game_logic
-                .find_object(building_id)
+                .host_object(building_id)
                 .map(|b| b.selection_radius.max(8.0))
                 .unwrap_or(8.0);
             game_logic.booby_trap.install(
@@ -116412,7 +116413,7 @@ mod tests {
                 geom,
                 None,
             );
-            if let Some(b) = game_logic.find_object_mut(building_id) {
+            if let Some(b) = game_logic.host_object_mut(building_id) {
                 b.set_status_booby_trapped(true);
             }
         }
@@ -116425,7 +116426,7 @@ mod tests {
         assert!(game_logic.honesty_booby_trap_plant_ok(), "plant honesty");
 
         // Enemy capture-trigger residual: USA unit triggers detonation (not ally of planter).
-        let victim_hp_before = game_logic.find_object(victim_id).unwrap().health.current;
+        let victim_hp_before = game_logic.host_object(victim_id).unwrap().health.current;
         let hits = game_logic.detonate_booby_trap_at(
             building_id,
             Vec3::new(0.0, 0.0, 0.0),
@@ -116440,7 +116441,7 @@ mod tests {
             "detonation must hit units (hits={hits})"
         );
         let victim_hp_after = game_logic
-            .find_object(victim_id)
+            .host_object(victim_id)
             .map(|v| v.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -116507,13 +116508,13 @@ mod tests {
                 Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("supw patriot");
-        if let Some(p) = game_logic.find_object_mut(pat_id) {
+        if let Some(p) = game_logic.host_object_mut(pat_id) {
             p.set_status_under_construction(false);
             p.construction_percent = 100.0;
         }
 
         {
-            let p = game_logic.find_object(pat_id).expect("patriot");
+            let p = game_logic.host_object(pat_id).expect("patriot");
             assert!(is_supw_patriot_template(&p.template_name));
             let g = p.weapon.as_ref().expect("SupW ground residual");
             assert!(
@@ -116541,13 +116542,13 @@ mod tests {
         let air_id = game_logic
             .create_object("TestJet", Team::GLA, Vec3::new(0.0, 250.0, 0.0))
             .expect("air");
-        if let Some(a) = game_logic.find_object_mut(air_id) {
+        if let Some(a) = game_logic.host_object_mut(air_id) {
             a.status.airborne_target = true;
         }
 
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         {
-            let p = game_logic.find_object_mut(pat_id).unwrap();
+            let p = game_logic.host_object_mut(pat_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
@@ -116558,13 +116559,13 @@ mod tests {
         crate::game_logic::host_damage_log::clear();
         game_logic.frame = 30;
         game_logic.try_base_defense_residual_fire(pat_id);
-        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
         let dealt = test_observed_damage_to(enemy_id, hp_before, hp_after);
         assert!(
             dealt > 0.0 || hp_after < hp_before,
             "SupW Patriot ground residual must damage (dealt={dealt}, before={hp_before} after={hp_after})"
         );
-        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        let enemy = game_logic.host_object(enemy_id).expect("enemy");
         assert!(
             enemy.is_emp_disabled() || enemy.status.disabled_emp,
             "SupW EMP residual must DISABLED_EMP the hit vehicle"
@@ -116580,13 +116581,13 @@ mod tests {
         );
 
         // AA residual path: move ground enemy away.
-        if let Some(e) = game_logic.find_object_mut(enemy_id) {
+        if let Some(e) = game_logic.host_object_mut(enemy_id) {
             e.set_position(Vec3::new(5000.0, 0.0, 0.0));
         }
         crate::game_logic::host_damage_log::clear();
-        let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
+        let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;
         {
-            let p = game_logic.find_object_mut(pat_id).unwrap();
+            let p = game_logic.host_object_mut(pat_id).unwrap();
             if let Some(w) = p.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
@@ -116596,13 +116597,13 @@ mod tests {
         }
         game_logic.frame = 90;
         game_logic.try_base_defense_residual_fire(pat_id);
-        let air_hp_after = game_logic.find_object(air_id).unwrap().health.current;
+        let air_hp_after = game_logic.host_object(air_id).unwrap().health.current;
         let dealt_aa = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
         assert!(
             dealt_aa > 0.0 || air_hp_after < air_hp_before,
             "SupW Patriot AA residual must damage aircraft (dealt={dealt_aa}, before={air_hp_before} after={air_hp_after})"
         );
-        let jet = game_logic.find_object(air_id).expect("jet");
+        let jet = game_logic.host_object(air_id).expect("jet");
         assert!(
             jet.is_emp_disabled() || jet.status.disabled_emp,
             "SupW EMP residual must DISABLED_EMP aircraft"
@@ -116725,7 +116726,7 @@ mod tests {
 
         // Chem baseline stream residual (Anthrax Beta 12.5).
         {
-            let t = game_logic.find_object_mut(truck_id).unwrap();
+            let t = game_logic.host_object_mut(truck_id).unwrap();
             t.attack_target(enemy);
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = -10.0;
@@ -116734,18 +116735,18 @@ mod tests {
             t.record_host_weapon_stats();
         }
         let hp_before = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(20);
         game_logic.update_combat(&[truck_id, enemy], LOGIC_FRAME_TIMESTEP);
         if game_logic.toxin_stream_missiles_spawned == 0 {
             let from = game_logic
-                .find_object(truck_id)
+                .host_object(truck_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::ZERO);
             let aim = game_logic
-                .find_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(40.0, 0.0, 0.0));
             assert!(game_logic
@@ -116770,7 +116771,7 @@ mod tests {
             "chem baseline stream honesty"
         );
         let hp_after_beta = game_logic
-            .find_object(enemy)
+            .host_object(enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let beta_dmg = hp_before - hp_after_beta;
@@ -116807,7 +116808,7 @@ mod tests {
                 .honesty_host_path_ok(HostUpgradeKind::AnthraxGamma),
             "AnthraxGamma must tag toxin units"
         );
-        let truck = game_logic.find_object(truck_id).expect("truck");
+        let truck = game_logic.host_object(truck_id).expect("truck");
         assert!(
             truck.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
                 || truck.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
@@ -116820,7 +116821,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(45.0, 0.0, 0.0))
             .expect("gamma enemy");
         {
-            let t = game_logic.find_object_mut(truck_id).unwrap();
+            let t = game_logic.host_object_mut(truck_id).unwrap();
             t.active_weapon_slot = 0;
             t.attack_target(gamma_enemy);
             if let Some(w) = t.weapon.as_mut() {
@@ -116830,16 +116831,16 @@ mod tests {
             t.record_host_weapon_stats();
         }
         let hp_mid = game_logic
-            .find_object(gamma_enemy)
+            .host_object(gamma_enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(40);
         let from = game_logic
-            .find_object(truck_id)
+            .host_object(truck_id)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::ZERO);
         let aim = game_logic
-            .find_object(gamma_enemy)
+            .host_object(gamma_enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(45.0, 0.0, 0.0));
         assert!(
@@ -116861,7 +116862,7 @@ mod tests {
         }
         game_logic.process_destroy_list();
         let hp_after_gamma = game_logic
-            .find_object(gamma_enemy)
+            .host_object(gamma_enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let gamma_dmg = hp_mid - hp_after_gamma;
@@ -116880,7 +116881,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(8.0, 0.0, 0.0))
             .expect("spray victim");
         {
-            let t = game_logic.find_object_mut(truck_id).unwrap();
+            let t = game_logic.host_object_mut(truck_id).unwrap();
             t.active_weapon_slot = 1;
             t.attack_target(spray_victim);
             if let Some(w) = t.secondary_weapon.as_mut() {
@@ -116987,7 +116988,7 @@ mod tests {
             .expect("rebel");
 
         for id in [cc_id, tunnel_id] {
-            let o = game_logic.find_object_mut(id).unwrap();
+            let o = game_logic.host_object_mut(id).unwrap();
             o.set_status_stealthed(false);
             o.innate_stealth = false;
         }
@@ -117020,7 +117021,7 @@ mod tests {
             "CamoNetting host path honesty"
         );
 
-        let cc = game_logic.find_object(cc_id).expect("cc");
+        let cc = game_logic.host_object(cc_id).expect("cc");
         assert!(
             cc.status.stealthed && cc.innate_stealth,
             "Slth Command Center must be stealthed after CamoNetting"
@@ -117030,13 +117031,13 @@ mod tests {
             "structure must receive CamoNetting tag"
         );
 
-        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel");
+        let tunnel = game_logic.host_object(tunnel_id).expect("tunnel");
         assert!(
             tunnel.status.stealthed && tunnel.innate_stealth,
             "Tunnel Network must be stealthed after CamoNetting"
         );
 
-        let rebel = game_logic.find_object(rebel_id).expect("rebel");
+        let rebel = game_logic.host_object(rebel_id).expect("rebel");
         assert!(
             !rebel.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING),
             "fail-closed: Rebel does not receive CamoNetting (use Camouflage residual)"
@@ -117084,7 +117085,7 @@ mod tests {
             .create_object("TestAirfield", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("airfield");
         {
-            let af = game_logic.find_object_mut(airfield_id).unwrap();
+            let af = game_logic.host_object_mut(airfield_id).unwrap();
             af.set_status_under_construction(false);
         }
 
@@ -117181,7 +117182,7 @@ mod tests {
             )
             .expect("chem terrorist");
         {
-            let t = game_logic.find_object_mut(chem_id).unwrap();
+            let t = game_logic.host_object_mut(chem_id).unwrap();
             t.apply_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma");
             // Chem Gamma primary damage flag residual.
             if let Some(w) = t.weapon.as_mut() {
@@ -117196,11 +117197,11 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(8.0, 0.0, 0.0))
             .expect("near");
         {
-            let t = game_logic.find_object_mut(chem_id).unwrap();
+            let t = game_logic.host_object_mut(chem_id).unwrap();
             t.attack_target(near);
         }
         let hp_before = game_logic
-            .find_object(near)
+            .host_object(near)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let zones_before = game_logic.toxin_tractor_registry().zones_spawned;
@@ -117211,7 +117212,7 @@ mod tests {
             "chem terrorist detonation residual"
         );
         let hp_after = game_logic
-            .find_object(near)
+            .host_object(near)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let gamma_dmg = hp_before - hp_after;
@@ -117236,7 +117237,7 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(108.0, 0.0, 0.0))
             .expect("near2");
         {
-            let t = game_logic.find_object_mut(demo_id).unwrap();
+            let t = game_logic.host_object_mut(demo_id).unwrap();
             t.attack_target(near2);
             if let Some(w) = t.weapon.as_mut() {
                 assert!(
@@ -117252,13 +117253,13 @@ mod tests {
         }
         let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
         let hp2_before = game_logic
-            .find_object(near2)
+            .host_object(near2)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(80);
         game_logic.update_combat(&[demo_id, near2], LOGIC_FRAME_TIMESTEP);
         let hp2_after = game_logic
-            .find_object(near2)
+            .host_object(near2)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let demo_dmg = hp2_before - hp2_after;
@@ -117292,7 +117293,7 @@ mod tests {
             )
             .expect("chem trap");
         {
-            let trap = game_logic.find_object(trap_id).unwrap();
+            let trap = game_logic.host_object(trap_id).unwrap();
             let md = trap.mine_data.as_ref().unwrap();
             assert_eq!(md.demo_trap_profile, DemoTrapProfile::ChemGamma);
             assert!((md.detonation_damage - 250.0).abs() < 0.01);
@@ -117301,10 +117302,10 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("enemy");
         let zones_before = game_logic.toxin_tractor_registry().zones_spawned;
-        let hp_before = game_logic.find_object(enemy).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy).unwrap().health.current;
         game_logic.update_mines_and_demo_traps();
         assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
-        let enemy_after = game_logic.find_object(enemy);
+        let enemy_after = game_logic.host_object(enemy);
         let damaged = enemy_after
             .map(|e| e.health.current < hp_before || e.status.destroyed)
             .unwrap_or(true);
@@ -117325,7 +117326,7 @@ mod tests {
             )
             .expect("demo trap");
         {
-            let trap = game_logic.find_object(demo_trap).unwrap();
+            let trap = game_logic.host_object(demo_trap).unwrap();
             let md = trap.mine_data.as_ref().unwrap();
             assert_eq!(md.demo_trap_profile, DemoTrapProfile::Demo);
             assert!((md.detonation_damage - 700.0).abs() < 0.01);
@@ -117338,14 +117339,14 @@ mod tests {
         let far2 = game_logic
             .create_object("TestInfantry", Team::USA, Vec3::new(210.0, 0.0, 0.0))
             .expect("near enemy");
-        let far_hp = game_logic.find_object(far2).unwrap().health.current;
+        let far_hp = game_logic.host_object(far2).unwrap().health.current;
         let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
         game_logic.update_mines_and_demo_traps();
         assert!(
             game_logic.mine_residual_proximity_detonations() >= 2,
             "Demo HE trap must proximity detonate"
         );
-        let far_after = game_logic.find_object(far2);
+        let far_after = game_logic.host_object(far2);
         let far_damaged = far_after
             .map(|e| e.health.current < far_hp || e.status.destroyed)
             .unwrap_or(true);
@@ -117399,7 +117400,7 @@ mod tests {
             )
             .expect("rookie redguard");
         {
-            let u = game_logic.find_object(rookie_id).unwrap();
+            let u = game_logic.host_object(rookie_id).unwrap();
             assert!(
                 matches!(u.experience.level, VeterancyLevel::Rookie),
                 "without training science must remain Rookie"
@@ -117417,7 +117418,7 @@ mod tests {
             )
             .expect("veteran redguard");
         {
-            let u = game_logic.find_object(vet_id).unwrap();
+            let u = game_logic.host_object(vet_id).unwrap();
             assert!(
                 matches!(u.experience.level, VeterancyLevel::Veteran),
                 "SCIENCE_RedGuardTraining must grant VETERAN, got {:?}",
@@ -117442,7 +117443,7 @@ mod tests {
             )
             .expect("elite battlemaster");
         {
-            let u = game_logic.find_object(elite_id).unwrap();
+            let u = game_logic.host_object(elite_id).unwrap();
             assert!(
                 matches!(u.experience.level, VeterancyLevel::Elite),
                 "SCIENCE_BattlemasterTraining must grant ELITE, got {:?}",
@@ -117537,7 +117538,7 @@ mod tests {
             "SuicideBomb upgrade must complete"
         );
         {
-            let rebel = game_logic.find_object(rebel_id).unwrap();
+            let rebel = game_logic.host_object(rebel_id).unwrap();
             assert!(
                 rebel.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB),
                 "Demo Rebel must receive SuicideBomb tag"
@@ -117550,17 +117551,17 @@ mod tests {
 
         // Kill Demo Rebel → Demo_DestroyedWeapon residual damages nearby enemy.
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.health.current = 5000.0;
             e.health.maximum = 5000.0;
             e.thing.template.armor = 0.0;
         }
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.mark_object_for_destruction(rebel_id, Some(Team::USA));
         game_logic.process_destroy_list();
 
         let hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let dmg = hp_before - hp_after;
@@ -117587,14 +117588,14 @@ mod tests {
             .expect("demo rebel2");
         assert!(
             game_logic
-                .find_object(rebel2)
+                .host_object(rebel2)
                 .unwrap()
                 .has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB),
             "new Demo spawns must inherit SuicideBomb residual"
         );
         assert!(
             game_logic
-                .find_object(rebel2)
+                .host_object(rebel2)
                 .unwrap()
                 .command_set_override
                 .as_deref()
@@ -117680,7 +117681,7 @@ mod tests {
             "SuicideBomb upgrade must complete"
         );
         {
-            let rebel = game_logic.find_object(rebel_id).unwrap();
+            let rebel = game_logic.host_object(rebel_id).unwrap();
             assert!(
                 rebel.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB),
                 "rebel must be tagged"
@@ -117702,12 +117703,12 @@ mod tests {
 
         // Issue TertiarySuicide via command residual.
         {
-            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            let e = game_logic.host_object_mut(enemy_id).unwrap();
             e.health.current = 5000.0;
             e.health.maximum = 5000.0;
             e.thing.template.armor = 0.0;
         }
-        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
         game_logic.queue_command(GameCommand {
             command_type: CommandType::DemoTertiarySuicide,
             player_id: 2,
@@ -117720,13 +117721,13 @@ mod tests {
         game_logic.process_destroy_list();
 
         let rebel_alive = game_logic
-            .find_object(rebel_id)
+            .host_object(rebel_id)
             .map(|o| o.is_alive())
             .unwrap_or(false);
         assert!(!rebel_alive, "TertiarySuicide must consume the unit");
 
         let hp_after = game_logic
-            .find_object(enemy_id)
+            .host_object(enemy_id)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let dmg = hp_before - hp_after;
@@ -119369,12 +119370,12 @@ mod tests {
         logic.frame = now;
         logic.update_rebuild_holes();
         let rid = logic
-            .get_object(hole)
+            .host_object(hole)
             .and_then(|h| h.rebuild_reconstructing_id)
             .expect("recon");
         assert_eq!(
             logic
-                .get_object(bid)
+                .host_object(bid)
                 .and_then(|b| b.mine_data.as_ref())
                 .and_then(|m| m.attached_to),
             Some(rid)
@@ -119472,7 +119473,7 @@ mod tests {
         assert!(logic.host_object(hole).unwrap().is_rebuild_hole);
         assert_eq!(
             logic
-                .get_object(hole)
+                .host_object(hole)
                 .unwrap()
                 .rebuild_template_name
                 .as_deref(),
@@ -119495,7 +119496,7 @@ mod tests {
         assert!(logic.rebuild_hole_reconstructs > 0);
         assert!(logic.rebuild_hole_workers > 0);
         let h = logic
-            .get_object(hole)
+            .host_object(hole)
             .expect("hole still present while reconstructing");
         assert!(h.status.masked);
         let rid = h.rebuild_reconstructing_id.expect("recon id");
@@ -120121,7 +120122,7 @@ mod tests {
         ));
         assert_eq!(
             logic
-                .get_object(id)
+                .host_object(id)
                 .unwrap()
                 .construction_complete_clear_frame,
             0
@@ -121634,7 +121635,7 @@ mod tests {
             logic.countermeasures.total_reports()
         );
         let hp1 = logic
-            .get_object(air)
+            .host_object(air)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         // With 30% diversion, expected damage ~ 0.7 * 60 * 5 = 210 > 160 so may die;
@@ -121676,7 +121677,7 @@ mod tests {
                 < 0.01
         );
         assert!(logic
-            .get_objects()
+            .host_objects()
             .values()
             .any(|o| o.template_name == SPY_DRONE_TEMPLATE));
     }
@@ -121718,7 +121719,7 @@ mod tests {
         assert!(logic.honesty_spy_drone_spawn_ok());
         assert!(logic.host_objects().len() > before);
         let drone = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.template_name == SPY_DRONE_TEMPLATE)
             .expect("drone spawned");
@@ -122186,7 +122187,7 @@ mod tests {
         assert!(logic.honesty_missile_defender_laser_beam_ok());
         assert!(logic.missile_defender_laser_beams_spawned >= 1);
         let beam = logic
-            .get_objects()
+            .host_objects()
             .values()
             .find(|o| o.missile_defender_laser_beam)
             .expect("LaserBeam special object");
@@ -122199,7 +122200,7 @@ mod tests {
             .saturating_add(LASER_GUIDED_BEAM_LIFETIME_FRAMES + 2);
         logic.update_missile_defender_laser_beam_objects();
         assert!(logic
-            .find_object(bid)
+            .host_object(bid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true));
         let _ = LASER_GUIDED_ATTACH_BONE;
@@ -122296,7 +122297,7 @@ mod tests {
         );
         assert!(n >= 1);
         assert!(logic
-            .get_object(id)
+            .host_object(id)
             .unwrap()
             .has_upgrade_tag(UPGRADE_HELIX_NUKE_BOMB));
         assert!(logic
@@ -122503,7 +122504,7 @@ mod tests {
             SUPERWEAPON_CRATE_DROP_COUNT
         );
         let crates = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.template_name.contains("200Dollar") && o.is_alive())
             .count();
@@ -122882,7 +122883,7 @@ mod tests {
         let n = logic.apply_nationalism_to_team(Team::China, "Upgrade_Fanaticism");
         assert!(n >= 1, "fanaticism nationalism residual n={n}");
         assert!(logic
-            .get_object(id)
+            .host_object(id)
             .unwrap()
             .has_upgrade_tag("Upgrade_Fanaticism"));
     }
@@ -123325,7 +123326,7 @@ mod tests {
         let n = logic.apply_slave_drone_upgrade_to_team(Team::USA, UPGRADE_AMERICA_SCOUT_DRONE);
         assert_eq!(n, 1);
         assert!(logic
-            .get_object(mid)
+            .host_object(mid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE));
         // Scout drone object should exist.
@@ -123351,7 +123352,7 @@ mod tests {
         let n2 = logic.apply_slave_drone_upgrade_to_team(Team::USA, UPGRADE_AMERICA_BATTLE_DRONE);
         assert!(n2 >= 1);
         assert!(logic
-            .get_object(mid2)
+            .host_object(mid2)
             .unwrap()
             .has_upgrade_tag(UPGRADE_AMERICA_BATTLE_DRONE));
     }
@@ -123495,7 +123496,7 @@ mod tests {
         let n_r = logic.apply_radar_research_to_team(Team::USA, "Upgrade_AmericaRadar");
         assert!(n_r >= 1);
         assert!(logic
-            .get_object(cid)
+            .host_object(cid)
             .unwrap()
             .has_upgrade_tag("Upgrade_AmericaRadar"));
         assert!(logic
@@ -123601,7 +123602,7 @@ mod tests {
             .unlocked_sciences
             .contains(UPGRADE_AMERICA_ADVANCED_TRAINING));
         assert!(logic
-            .get_object(rid)
+            .host_object(rid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING));
         // Honesty: XP scalar residual path.
@@ -123611,7 +123612,7 @@ mod tests {
             logic.apply_tactical_nuke_mig_to_team(Team::China, "Upgrade_ChinaTacticalNukeMig");
         assert_eq!(n_nuke, 1);
         assert!(logic
-            .get_object(mid)
+            .host_object(mid)
             .unwrap()
             .has_upgrade_tag("Upgrade_ChinaTacticalNukeMig"));
     }
@@ -123637,7 +123638,7 @@ mod tests {
         let n = logic.apply_chain_guns_to_team(Team::China, UPGRADE_CHINA_CHAIN_GUNS);
         assert_eq!(n, 1);
         assert!(logic
-            .get_object(id)
+            .host_object(id)
             .unwrap()
             .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS));
     }
@@ -123679,11 +123680,11 @@ mod tests {
         let n_a = logic.apply_anthrax_beta_to_team(Team::GLA, UPGRADE_GLA_ANTHRAX_BETA);
         assert!(n_a >= 2);
         assert!(logic
-            .get_object(tid)
+            .host_object(tid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
         assert!(logic
-            .get_object(sid)
+            .host_object(sid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA));
 
@@ -123698,7 +123699,7 @@ mod tests {
         let n_t = logic.apply_toxin_shells_to_team(Team::GLA, UPGRADE_GLA_TOXIN_SHELLS);
         assert!(n_t >= 1);
         assert!(logic
-            .get_object(sid2)
+            .host_object(sid2)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS));
     }
@@ -123758,22 +123759,22 @@ mod tests {
         let n_b = logic.apply_ap_bullets_to_team(Team::GLA, UPGRADE_GLA_AP_BULLETS);
         assert!(n_b >= 2, "rebel+kell");
         assert!(logic
-            .get_object(rid)
+            .host_object(rid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
         assert!(logic
-            .get_object(kid)
+            .host_object(kid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
 
         let n_r = logic.apply_ap_rockets_to_team(Team::GLA, UPGRADE_GLA_AP_ROCKETS);
         assert!(n_r >= 2, "scorp+rpg");
         assert!(logic
-            .get_object(sid)
+            .host_object(sid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
         assert!(logic
-            .get_object(pid)
+            .host_object(pid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
     }
@@ -123816,7 +123817,7 @@ mod tests {
         let n_b = logic.apply_black_napalm_to_team(Team::China, "Upgrade_ChinaBlackNapalm");
         assert!(n_b >= 1);
         assert!(logic
-            .get_object(mid)
+            .host_object(mid)
             .unwrap()
             .has_upgrade_tag("Upgrade_ChinaBlackNapalm"));
     }
@@ -123866,7 +123867,7 @@ mod tests {
             &logic.host_object(rid).unwrap().template_name
         ));
         assert!(logic
-            .get_object(rid)
+            .host_object(rid)
             .unwrap()
             .has_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES));
     }
@@ -123892,7 +123893,7 @@ mod tests {
         let n = logic.apply_nationalism_to_team(Team::China, UPGRADE_NATIONALISM);
         assert!(n >= 1);
         assert!(logic
-            .get_object(id)
+            .host_object(id)
             .unwrap()
             .has_upgrade_tag(UPGRADE_NATIONALISM));
         assert!(logic
@@ -124139,7 +124140,7 @@ mod tests {
         assert!(
             logic.host_object(cid).is_none()
                 || logic
-                    .get_object(cid)
+                    .host_object(cid)
                     .map(|o| !o.is_alive() || o.status.destroyed)
                     .unwrap_or(true)
         );
@@ -126288,7 +126289,7 @@ mod tests {
         game_logic.process_commands();
         game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
         {
-            let t = game_logic.find_object(truck_id).unwrap();
+            let t = game_logic.host_object(truck_id).unwrap();
             assert!(t.is_disguise_transitioning());
             assert!(!t.status.disguised, "pre-halfpoint not yet DISGUISED");
             assert!(t.status.stealthed);
@@ -126299,14 +126300,14 @@ mod tests {
             game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
         }
         assert!(
-            !game_logic.find_object(truck_id).unwrap().status.disguised,
+            !game_logic.host_object(truck_id).unwrap().status.disguised,
             "still pre-halfpoint"
         );
         // Cross halfpoint
         for _ in 0..4 {
             game_logic.update_ai(&[truck_id, tank_id], 1.0 / 30.0);
         }
-        let t = game_logic.find_object(truck_id).unwrap();
+        let t = game_logic.host_object(truck_id).unwrap();
         assert!(t.status.disguised, "halfpoint commits DISGUISED");
         assert_eq!(t.disguise_as_template.as_deref(), Some("TestTank"));
         assert!(
@@ -126352,7 +126353,7 @@ mod tests {
         game_logic.update_ai(&[truck_a, usa_tank], 1.0 / 30.0);
         advance_disguise_halfpoint(&mut game_logic, &[truck_a, usa_tank]);
         {
-            let a = game_logic.find_object(truck_a).expect("a");
+            let a = game_logic.host_object(truck_a).expect("a");
             assert!(a.is_disguised());
             assert_eq!(a.disguise_as_template.as_deref(), Some("TestTank"));
             assert_eq!(a.disguise_as_team, Some(Team::USA));
@@ -126371,7 +126372,7 @@ mod tests {
         game_logic.update_ai(&[truck_b, truck_a], 1.0 / 30.0);
         advance_disguise_halfpoint(&mut game_logic, &[truck_b, truck_a]);
 
-        let b = game_logic.find_object(truck_b).expect("b after copy");
+        let b = game_logic.host_object(truck_b).expect("b after copy");
         assert!(b.is_disguised(), "B must disguise");
         assert_eq!(
             b.disguise_as_template.as_deref(),
@@ -133018,7 +133019,7 @@ mod tests {
         assert!((PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01);
         // Either miss was recorded, or a hit still damaged (deterministic seed dependent).
         let hp_after = logic
-            .find_object(inf)
+            .host_object(inf)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -133107,7 +133108,7 @@ mod tests {
             logic.update_combat(&[stinger, tank], LOGIC_FRAME_TIMESTEP);
         }
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -133196,7 +133197,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
         let (hits, _) = logic.apply_fire_base_residual_at(impact, Some(fb), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -133277,7 +133278,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(55.0, 0.0, 0.0));
         let (hits, _) = logic.apply_technical_residual_at(impact, Some(tech), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133352,7 +133353,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_rpg_trooper_residual_at(impact, Some(rpg), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133428,7 +133429,7 @@ mod tests {
         let (hits, _) =
             logic.apply_missile_defender_residual_at(impact, Some(md), Some(tank), false);
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133503,7 +133504,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_tank_hunter_residual_at(impact, Some(th), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133576,7 +133577,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_scorpion_residual_at(impact, Some(sc), Some(tank), 0);
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133649,7 +133650,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_marauder_residual_at(impact, Some(ma), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133724,7 +133725,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
         let (hits, _) = logic.apply_tomahawk_residual_at(impact, Some(th), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133799,7 +133800,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_battlemaster_residual_at(impact, Some(bm), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -133874,7 +133875,7 @@ mod tests {
         let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_nuke_cannon_primary_at(impact, Some(nc), Team::China);
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -133955,7 +133956,7 @@ mod tests {
         let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_humvee_tow_residual_at(impact, Some(hv), Some(tank), false);
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -134026,7 +134027,7 @@ mod tests {
         let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_scud_area_at(impact, Some(sc), Team::GLA, false);
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -134104,7 +134105,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_overlord_gun_residual_at(impact, Some(ol), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -134174,7 +134175,7 @@ mod tests {
         let hp_before = logic.host_object(tank).unwrap().health.current;
         let (hits, _) = logic.apply_inferno_shell_residual_at(impact, Some(ic), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -134252,7 +134253,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
         let (hits, _) = logic.apply_raptor_residual_at(impact, Some(rp), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -134327,7 +134328,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_usa_tank_gun_residual_at(impact, Some(cr), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -134398,7 +134399,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
         let (hits, _) = logic.apply_stealth_fighter_residual_at(impact, Some(jet), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -134526,7 +134527,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
         let (hits, _) = logic.apply_ranger_residual_at(impact, Some(ranger), Some(tank), true);
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "splash still hits");
@@ -134596,7 +134597,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
         let (hits, _) = logic.apply_rocket_buggy_residual_at(impact, Some(bg), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(
@@ -134661,7 +134662,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
         let (hits, _) = logic.apply_mig_residual_at(impact, Some(mig), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -134730,7 +134731,7 @@ mod tests {
             .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
         let (hits, _) = logic.apply_comanche_antitank_residual_at(impact, Some(helo), Some(tank));
         let hp_after = logic
-            .find_object(tank)
+            .host_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
@@ -134766,13 +134767,13 @@ mod skirmish_starting_unit_residual_tests {
             glam::Vec3::new(500.0, 0.0, 500.0),
         );
         let before = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.team == Team::USA && o.is_mobile())
             .count();
         logic.spawn_skirmish_starting_units();
         let after = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.team == Team::USA && o.is_mobile())
             .count();
@@ -134781,7 +134782,7 @@ mod skirmish_starting_unit_residual_tests {
             "USA should gain a starting dozer/worker residual (before={before} after={after})"
         );
         let china_mobile = logic
-            .get_objects()
+            .host_objects()
             .values()
             .filter(|o| o.team == Team::China && o.is_mobile())
             .count();
