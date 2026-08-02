@@ -110,10 +110,10 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 }
 
 /// Source residual: meta_event empty dual-world short-circuits.
+/// Source residual: meta_event empty dual-world short-circuits / TheGameLogic peels.
 pub fn honesty_meta_event_dual_world_empty_gate_source() -> bool {
     let g = include_str!("../../../GameEngine/GameClient/src/message_stream/meta_event.rs");
-    if !(g.contains("Wave 345")
-        && g.contains("fn dual_world_registry_unavailable")
+    if !(g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;
@@ -121,19 +121,20 @@ pub fn honesty_meta_event_dual_world_empty_gate_source() -> bool {
     let helper_ok = g.contains(
         "fn dual_world_registry_unavailable() -> bool {\n    gamelogic::object::registry::OBJECT_REGISTRY.is_empty()\n}",
     );
-    let Some(extent) = fn_body(g, "fn apply_extent_adjust_to_local_selection(") else {
-        return false;
-    };
-    let Some(kill) = fn_body(g, "fn kill_local_player_selection(") else {
-        return false;
-    };
-    let Some(vet) = fn_body(g, "fn adjust_local_selection_veterancy(") else {
-        return false;
-    };
+    // Wave 976: kill/vet/extent peel onto TheGameLogic IDs (no empty dual-world no-op).
+    let kill_ok = g.contains("fn kill_local_player_selection")
+        && g.contains("TheGameLogic::find_object_by_id")
+        && g.contains("Wave 976");
+    let vet_ok = g.contains("fn adjust_local_selection_veterancy")
+        && g.contains("on_veterancy_level_changed")
+        && g.contains("Wave 976");
+    let extent_ok = g.contains("fn apply_extent_adjust_to_local_selection")
+        && g.contains("set_geometry_info")
+        && g.contains("Wave 976");
     helper_ok
-        && extent.contains("return;")
-        && kill.contains("return;")
-        && vet.contains("return;")
+        && kill_ok
+        && vet_ok
+        && extent_ok
         && g.contains("fn next_plane_camera_lock_object_id")
         && g.contains("fn refresh_drawable_time_of_day")
         && g.contains("fn refresh_drawable_model_conditions")

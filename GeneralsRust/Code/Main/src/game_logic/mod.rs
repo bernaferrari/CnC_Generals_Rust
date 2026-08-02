@@ -272,6 +272,7 @@ pub mod host_live_host_match_selection_residuals_wave850;
 pub mod host_live_host_match_shell_team_residuals_wave845;
 pub mod host_live_host_match_sim_timing_residuals_wave844;
 pub mod host_live_host_match_special_power_ready_residuals_wave854;
+pub mod host_live_host_meta_drawable_template_residual_wave976;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_mouse_presentation_only_residual_wave906;
 pub mod host_live_host_mouseover_hint_catalog_residual_wave968;
@@ -3357,6 +3358,13 @@ pub use host_live_host_selection_target_catalog_residual_wave975::{
     honesty_host_selection_target_catalog_nav_commands_residual_wave975,
     honesty_host_selection_target_catalog_residual_pack_wave975,
     simulate_live_host_selection_target_catalog_honesty,
+};
+
+pub use host_live_host_meta_drawable_template_residual_wave976::{
+    honesty_host_meta_drawable_template_method_names_residual_wave976,
+    honesty_host_meta_drawable_template_nav_commands_residual_wave976,
+    honesty_host_meta_drawable_template_residual_pack_wave976,
+    simulate_live_host_meta_drawable_template_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
