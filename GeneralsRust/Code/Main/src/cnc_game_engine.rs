@@ -20251,6 +20251,8 @@ impl CnCGameEngine {
                                     ObjectShroudStatus::Shrouded
                                 }
                             },
+                            // Wave 982: producer/slaver residual for IgnoredInGui mouseover.
+                            slaver_object_id: o.producer_id.map(|id| id.0),
                         },
                     )
                     .collect()

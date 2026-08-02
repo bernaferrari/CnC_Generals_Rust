@@ -9317,6 +9317,7 @@ impl Object {
             KindOf::FSAdvancedTech,
             KindOf::Harvestable,
             KindOf::Powered,
+            KindOf::IgnoredInGui,
         ];
         let set = &self.get_template().kind_of;
         let mut bits = 0u32;

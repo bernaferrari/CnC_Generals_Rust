@@ -196,6 +196,7 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::WeaponSalvager => 36,
         KindOf::ArmorSalvager => 37,
         KindOf::WaveGuide => 38,
+        KindOf::IgnoredInGui => 39,
     }
 }
 
@@ -240,6 +241,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         36 => Ok(KindOf::WeaponSalvager),
         37 => Ok(KindOf::ArmorSalvager),
         38 => Ok(KindOf::WaveGuide),
+        39 => Ok(KindOf::IgnoredInGui),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

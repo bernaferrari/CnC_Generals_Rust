@@ -24,6 +24,8 @@ pub struct TranslatorCatalogEntry {
     pub airborne_target: bool,
     /// Wave 981: FOW residual for host translators / command hints.
     pub shroud_status: u8,
+    /// Wave 982: slaver residual for IgnoredInGui host mouseover.
+    pub slaver_object_id: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]

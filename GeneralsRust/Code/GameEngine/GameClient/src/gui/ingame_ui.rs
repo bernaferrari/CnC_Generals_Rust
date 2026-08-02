@@ -878,6 +878,8 @@ pub struct PresentationUnitCatalogEntry {
     /// Wave 981: FOW residual for host command-hint shroud projection.
     /// Maps presentation ObjectVisibility → ObjectShroudStatus discriminant.
     pub shroud_status: ObjectShroudStatus,
+    /// Wave 982: producer/slaver residual for IgnoredInGui mouseover remap.
+    pub slaver_object_id: Option<u32>,
 }
 
 pub struct InGameUI {
@@ -5262,10 +5264,30 @@ impl InGameUI {
                 .find(|u| u.object_id == draw_id)
                 .cloned()
             {
-                self.moused_over_drawable_id = draw_id;
-                if !entry.template_name.is_empty() {
+                // Wave 982: IgnoredInGui → slaver mouseover residual (C++ parity).
+                let ignored = entry
+                    .kind_names
+                    .iter()
+                    .any(|k| k == "IgnoredInGui" || k.eq_ignore_ascii_case("ignoredingui"));
+                self.moused_over_drawable_id = if ignored {
+                    entry.slaver_object_id.unwrap_or(draw_id)
+                } else {
+                    draw_id
+                };
+                // Tooltip still from the hovered entry (drone) unless remapped to slaver catalog.
+                let tip_name = if ignored {
+                    self.presentation_unit_catalog
+                        .iter()
+                        .find(|u| Some(u.object_id) == entry.slaver_object_id)
+                        .map(|u| u.template_name.clone())
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or_else(|| entry.template_name.clone())
+                } else {
+                    entry.template_name.clone()
+                };
+                if !tip_name.is_empty() {
                     with_mouse(|m| {
-                        m.set_cursor_tooltip(entry.template_name.clone(), Some(-1), None, None);
+                        m.set_cursor_tooltip(tip_name, Some(-1), None, None);
                     });
                 }
             } else {

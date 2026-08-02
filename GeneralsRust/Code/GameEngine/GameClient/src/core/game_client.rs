@@ -3682,6 +3682,7 @@ impl GameClient {
                     position: u.position,
                     airborne_target: u.airborne_target,
                     shroud_status: u.shroud_status as u8,
+                    slaver_object_id: u.slaver_object_id,
                 },
             )
             .collect();
@@ -3726,6 +3727,7 @@ impl GameClient {
                             position: u.position,
                             airborne_target: u.airborne_target,
                             shroud_status: u.shroud_status as u8,
+                            slaver_object_id: u.slaver_object_id,
                         },
                     )
                     .collect();

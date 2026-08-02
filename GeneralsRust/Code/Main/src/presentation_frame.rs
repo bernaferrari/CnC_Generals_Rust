@@ -245,6 +245,9 @@ pub struct RenderableObject {
     pub using_ability: bool,
     /// Host ObjectStatus::airborne_target residual.
     pub airborne_target: bool,
+    /// Wave 982: producer/slaver residual for IgnoredInGui mouseover remap.
+    #[serde(default)]
+    pub producer_id: Option<ObjectId>,
     /// Wave 505: C++ OBJECT_STATUS_PARACHUTING residual.
     pub parachuting: bool,
     /// Wave 509: C++ parachute open residual (false + parachuting => FREEFALL).
@@ -3611,6 +3614,7 @@ impl PresentationFrame {
                 guard_target: obj.guard_target,
                 using_ability: obj.status.using_ability,
                 airborne_target: obj.status.airborne_target,
+                producer_id: obj.producer_id,
                 parachuting: obj.is_parachuting(),
                 parachute_open: obj.is_parachute_open(),
                 captured: obj.has_captured_model_condition() || obj.is_private_captured(),
@@ -3971,6 +3975,8 @@ impl PresentationFrame {
                         KindOf::FSAdvancedTech,
                         KindOf::Harvestable,
                         KindOf::Powered,
+                        // Wave 982: IgnoredInGui for host mouseover slaver remap.
+                        KindOf::IgnoredInGui,
                     ];
                     let set = &obj.get_template().kind_of;
                     let mut v: Vec<KindOf> =
@@ -7314,6 +7320,7 @@ impl PresentationFrame {
             },
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
+            producer_id: None, // Wave 982: GW entity producer residual not yet mirrored.
             parachuting: ent.parachuting,
             parachute_open: ent.parachute_open,
             captured: false,
