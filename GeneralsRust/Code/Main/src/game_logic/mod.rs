@@ -361,6 +361,7 @@ pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_sole_authority_surface_residual_wave936;
 pub mod host_live_host_sole_tick_object_id_boundary_residual_wave940;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
+pub mod host_live_host_special_power_catalog_residual_wave971;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
 pub mod host_live_host_special_power_scan_unify_residual_wave857;
 pub mod host_live_host_spectre_prior_clear_no_damage_auth_hp_stomp_residual_wave750;
@@ -3317,6 +3318,13 @@ pub use host_live_host_drawable_overlay_residual_wave970::{
     honesty_host_drawable_overlay_residual_nav_commands_residual_wave970,
     honesty_host_drawable_overlay_residual_residual_pack_wave970,
     simulate_live_host_drawable_overlay_residual_honesty,
+};
+
+pub use host_live_host_special_power_catalog_residual_wave971::{
+    honesty_host_special_power_catalog_method_names_residual_wave971,
+    honesty_host_special_power_catalog_nav_commands_residual_wave971,
+    honesty_host_special_power_catalog_residual_pack_wave971,
+    simulate_live_host_special_power_catalog_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
