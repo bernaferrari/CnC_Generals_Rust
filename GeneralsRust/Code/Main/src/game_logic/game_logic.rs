@@ -3125,6 +3125,17 @@ pub enum ProductionAuthorityResult {
     Spawned(Option<ObjectId>),
 }
 
+/// Wave 938: post-writeback sole-tick complete authority (construction/sell/SP).
+#[derive(Debug, Clone, Copy)]
+pub enum PostWritebackCompleteOp {
+    /// Wave 715: construction complete after GW construction writeback.
+    ConstructionCompletionsAfterReadyWriteback,
+    /// Wave 716: sell finish after GW construction/sell writeback.
+    SellCompletionsAfterReadyWriteback,
+    /// Wave 717: special-power ready EVA after GW SP writeback.
+    SpecialPowerReadyAfterWriteback,
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27762,6 +27773,22 @@ impl GameLogic {
             ProductionAuthorityOp::ApplyDoorReadyCompletions => {
                 self.host_apply_production_door_ready_completions();
                 ProductionAuthorityResult::Unit
+            }
+        }
+    }
+
+    /// Wave 938: single post-writeback complete authority boundary.
+    #[inline]
+    pub fn apply_post_writeback_complete_op(&mut self, op: PostWritebackCompleteOp) {
+        match op {
+            PostWritebackCompleteOp::ConstructionCompletionsAfterReadyWriteback => {
+                self.host_apply_construction_completions_after_ready_writeback();
+            }
+            PostWritebackCompleteOp::SellCompletionsAfterReadyWriteback => {
+                self.host_apply_sell_completions_after_ready_writeback();
+            }
+            PostWritebackCompleteOp::SpecialPowerReadyAfterWriteback => {
+                self.host_apply_special_power_ready_after_writeback();
             }
         }
     }

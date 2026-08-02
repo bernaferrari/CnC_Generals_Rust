@@ -10,6 +10,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_SPECIAL_POWER_SAME_FRAME_READY_EVA_METHOD_NAMES_WAVE717: &[&str] = &[
     "host_apply_special_power_ready_after_writeback",
+    "apply_post_writeback_complete_op",
+    "SpecialPowerReadyAfterWriteback",
     "gameworld_special_power_sole_tick_enabled",
     "writeback_special_power_to_host",
     "host_special_power_ready_log",
@@ -109,12 +111,16 @@ pub fn honesty_host_special_power_same_frame_ready_eva_source_markers_residual_w
             None => false,
         }
     };
-    let sh_ok = sh.contains("host_apply_special_power_ready_after_writeback")
+    let sh_ok = (sh.contains("host_apply_special_power_ready_after_writeback")
+        || sh.contains("SpecialPowerReadyAfterWriteback")
+        || sh.contains("apply_post_writeback_complete_op"))
         && sh.contains("Wave 717")
         && sh.contains("writeback_special_power_to_host");
     let order_ok = match (
         sh.find("writeback_special_power_to_host(logic)"),
-        sh.find("host_apply_special_power_ready_after_writeback"),
+        sh.find("host_apply_special_power_ready_after_writeback")
+            .or_else(|| sh.find("SpecialPowerReadyAfterWriteback"))
+            .or_else(|| sh.find("apply_post_writeback_complete_op")),
     ) {
         (Some(w), Some(a)) => a > w && a - w < 400,
         _ => false,
@@ -140,7 +146,9 @@ pub fn honesty_host_special_power_same_frame_ready_eva_nav_commands_residual_wav
 }
 pub fn simulate_host_special_power_same_frame_ready_eva_collect_source() -> bool {
     let ok = gl_source().contains("host_apply_special_power_ready_after_writeback")
-        && shadow_source().contains("host_apply_special_power_ready_after_writeback");
+        && (shadow_source().contains("host_apply_special_power_ready_after_writeback")
+            || shadow_source().contains("SpecialPowerReadyAfterWriteback")
+            || shadow_source().contains("apply_post_writeback_complete_op"));
     residual_action_store(ResidualHostSpecialPowerSameFrameReadyEvaAction::CollectSource);
     ok
 }

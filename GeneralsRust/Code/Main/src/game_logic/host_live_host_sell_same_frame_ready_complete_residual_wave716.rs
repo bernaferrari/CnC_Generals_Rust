@@ -10,6 +10,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_SELL_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE716: &[&str] = &[
     "host_apply_sell_completions_after_ready_writeback",
+    "apply_post_writeback_complete_op",
+    "SellCompletionsAfterReadyWriteback",
     "gameworld_construction_sole_tick_enabled",
     "host_sell_ready_log",
     "writeback_construction_to_host",
@@ -97,13 +99,18 @@ pub fn honesty_host_sell_same_frame_ready_complete_source_markers_residual_wave7
             None => false,
         }
     };
-    let sh_ok =
-        sh.contains("host_apply_sell_completions_after_ready_writeback") && sh.contains("Wave 716");
+    let sh_ok = (sh.contains("host_apply_sell_completions_after_ready_writeback")
+        || sh.contains("SellCompletionsAfterReadyWriteback")
+        || sh.contains("apply_post_writeback_complete_op"))
+        && sh.contains("Wave 716");
     let order_ok = match (
-        sh.find("host_apply_construction_completions_after_ready_writeback"),
-        sh.find("host_apply_sell_completions_after_ready_writeback"),
+        sh.find("ConstructionCompletionsAfterReadyWriteback")
+            .or_else(|| sh.find("host_apply_construction_completions_after_ready_writeback")),
+        sh.find("SellCompletionsAfterReadyWriteback")
+            .or_else(|| sh.find("host_apply_sell_completions_after_ready_writeback"))
+            .or_else(|| sh.find("apply_post_writeback_complete_op")),
     ) {
-        (Some(c), Some(s)) => s > c && s - c < 400,
+        (Some(c), Some(s)) => s > c && s - c < 800,
         _ => false,
     };
     let ok = gl_ok && no_mid_drain && sh_ok && order_ok && !gl.contains("playable_claim = true");
@@ -127,7 +134,9 @@ pub fn honesty_host_sell_same_frame_ready_complete_nav_commands_residual_wave716
 }
 pub fn simulate_host_sell_same_frame_ready_complete_collect_source() -> bool {
     let ok = gl_source().contains("host_apply_sell_completions_after_ready_writeback")
-        && shadow_source().contains("host_apply_sell_completions_after_ready_writeback");
+        && (shadow_source().contains("host_apply_sell_completions_after_ready_writeback")
+            || shadow_source().contains("SellCompletionsAfterReadyWriteback")
+            || shadow_source().contains("apply_post_writeback_complete_op"));
     residual_action_store(ResidualHostSellSameFrameReadyCompleteAction::CollectSource);
     ok
 }

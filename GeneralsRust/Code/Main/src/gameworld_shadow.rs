@@ -17368,8 +17368,10 @@ pub fn shadow_session_after_host_tick(
     );
     if gameworld_special_power_sole_tick_enabled() {
         let _sp_wb = shadow.writeback_special_power_to_host(logic);
-        // Wave 717: same-frame host SP-ready EVA after GW writeback.
-        logic.host_apply_special_power_ready_after_writeback();
+        // Wave 717/938: same-frame host SP-ready via post-writeback authority.
+        logic.apply_post_writeback_complete_op(
+            crate::game_logic::PostWritebackCompleteOp::SpecialPowerReadyAfterWriteback,
+        );
     }
 
     // Wave 706: skip GW re-apply when post-logic eager path already ran.
@@ -18898,10 +18900,14 @@ pub fn shadow_session_after_host_tick(
     // Wave 647: drain hijacker ready log after GW writeback.
     let _hj_ready = logic.host_apply_hijacker_ready_completions();
     let _construction_wb = shadow.writeback_construction_to_host(logic);
-    // Wave 715: same-frame host construction complete from ready-log after GW writeback.
-    logic.host_apply_construction_completions_after_ready_writeback();
-    // Wave 716: same-frame host sell finish from ready-log after GW writeback.
-    logic.host_apply_sell_completions_after_ready_writeback();
+    // Wave 715/938: same-frame host construction complete via post-writeback authority.
+    logic.apply_post_writeback_complete_op(
+        crate::game_logic::PostWritebackCompleteOp::ConstructionCompletionsAfterReadyWriteback,
+    );
+    // Wave 716/938: same-frame host sell finish via post-writeback authority.
+    logic.apply_post_writeback_complete_op(
+        crate::game_logic::PostWritebackCompleteOp::SellCompletionsAfterReadyWriteback,
+    );
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     // Wave 629: drain owner-ready log after GW owner writeback.
     let _owner_ready = logic.host_apply_owner_ready_completions();
