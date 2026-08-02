@@ -3293,6 +3293,9 @@ pub enum HostResidualMutationOp {
         target: glam::Vec3,
         kind: SpawnedPayloadKind,
     },
+    /// Host-only raw HP damage for combat events with no shadow entity mapping.
+    /// `amount` is already post-armor — do not re-run armor/log.
+    ApplyRawHpDamage { id: ObjectId, amount: f32 },
 }
 
 /// Wave 942: which projectile/identity flag to clear on lethal expire.
@@ -28429,7 +28432,51 @@ impl GameLogic {
                     }
                 }
             }
+            HostResidualMutationOp::ApplyRawHpDamage { id, amount } => {
+                // Wave 943: host-only damage fallback (no shadow entity).
+                if let Some(obj) = self.get_objects_mut().get_mut(&id) {
+                    if obj.status.destroyed {
+                        // already dead
+                    } else {
+                        obj.health.damage(amount);
+                        if !obj.health.is_alive() {
+                            obj.status.destroyed = true;
+                            obj.set_ai_state(crate::game_logic::AIState::Idle);
+                            obj.target = None;
+                        }
+                        obj.refresh_model_condition_bits();
+                    }
+                }
+            }
         }
+    }
+
+    /// Wave 943: apply post-armor damage for host objects with no shadow mapping.
+    /// Returns number of host objects mutated.
+    pub fn apply_host_unmapped_damage_fallback(
+        &mut self,
+        events: &[crate::game_logic::host_damage_log::HostDamageEvent],
+        mut shadow_mapped: impl FnMut(ObjectId) -> bool,
+    ) -> usize {
+        let mut fallback = 0usize;
+        for ev in events {
+            if shadow_mapped(ev.target) {
+                continue;
+            }
+            let eligible = self
+                .get_objects()
+                .get(&ev.target)
+                .is_some_and(|o| !o.status.destroyed);
+            if !eligible {
+                continue;
+            }
+            self.apply_host_residual_mutation_op(HostResidualMutationOp::ApplyRawHpDamage {
+                id: ev.target,
+                amount: ev.amount,
+            });
+            fallback += 1;
+        }
+        fallback
     }
 
     /// Issue attack command to selected objects
