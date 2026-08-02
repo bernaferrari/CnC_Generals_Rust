@@ -3043,6 +3043,32 @@ pub enum CommandPipelineOp {
     ProcessIfNeeded,
 }
 
+/// Wave 933: session-control authority payload (select/pause/start/reset/camera/world).
+#[derive(Debug, Clone)]
+pub enum SessionControlOp {
+    SelectObjects {
+        player_id: u32,
+        ids: Vec<ObjectId>,
+    },
+    SetPaused {
+        paused: bool,
+    },
+    SetCameraFollow {
+        id: Option<ObjectId>,
+    },
+    StartNewGameWithFaction {
+        mode: GameMode,
+        player_id: u32,
+        faction_team: Team,
+        setup_skirmish_ai: bool,
+    },
+    Reset,
+    OverrideWorldSize {
+        width: f32,
+        height: f32,
+    },
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -27583,6 +27609,36 @@ impl GameLogic {
                 self.queue_and_process_command(command)
             }
             CommandPipelineOp::ProcessIfNeeded => self.process_commands_if_needed(),
+        }
+    }
+
+    /// Wave 933: single session-control authority boundary.
+    #[inline]
+    pub fn apply_session_control_op(&mut self, op: SessionControlOp) {
+        match op {
+            SessionControlOp::SelectObjects { player_id, ids } => {
+                self.select_objects(player_id, ids);
+            }
+            SessionControlOp::SetPaused { paused } => {
+                self.set_paused(paused);
+            }
+            SessionControlOp::SetCameraFollow { id } => {
+                self.set_camera_follow_object(id);
+            }
+            SessionControlOp::StartNewGameWithFaction {
+                mode,
+                player_id,
+                faction_team,
+                setup_skirmish_ai,
+            } => {
+                self.start_new_game_with_faction(mode, player_id, faction_team, setup_skirmish_ai);
+            }
+            SessionControlOp::Reset => {
+                self.reset();
+            }
+            SessionControlOp::OverrideWorldSize { width, height } => {
+                self.override_world_size(width, height);
+            }
         }
     }
 

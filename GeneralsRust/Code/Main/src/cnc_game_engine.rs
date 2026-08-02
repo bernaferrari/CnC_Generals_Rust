@@ -17267,12 +17267,17 @@ impl CnCGameEngine {
     /// `selected_objects` in lockstep.
     #[inline]
     fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
-        // Wave 579/866/913: paired host select residual + stamp host_match_selected_ids.
+        // Wave 579/866/913/933: selection residual via session-control authority.
         // Skip authority select_objects when residual already matches.
         let already =
             self.selected_objects == ids && self.host_match_selected_ids.as_ref() == Some(&ids);
         if !already {
-            self.game_logic.select_objects(player_id, ids.clone());
+            self.game_logic.apply_session_control_op(
+                crate::game_logic::SessionControlOp::SelectObjects {
+                    player_id,
+                    ids: ids.clone(),
+                },
+            );
         }
         self.selected_objects = ids.clone();
         self.host_match_selected_ids = Some(ids);
@@ -17316,14 +17321,16 @@ impl CnCGameEngine {
         faction_team: crate::game_logic::Team,
         setup_skirmish_ai: bool,
     ) {
-        // Wave 577/871/921: single authority start_new_game_with_faction boundary.
+        // Wave 577/871/921/933: start_new_game via session-control authority.
         // Clear prior match residuals; stamp mode/team immediately for peels.
         self.host_clear_match_residuals();
-        self.game_logic.start_new_game_with_faction(
-            mode,
-            self.current_player_id,
-            faction_team,
-            setup_skirmish_ai,
+        self.game_logic.apply_session_control_op(
+            crate::game_logic::SessionControlOp::StartNewGameWithFaction {
+                mode,
+                player_id: self.current_player_id,
+                faction_team,
+                setup_skirmish_ai,
+            },
         );
         self.host_match_game_mode = Some(mode);
         self.host_match_local_team = Some(faction_team);
@@ -17383,11 +17390,13 @@ impl CnCGameEngine {
     }
 
     fn host_set_paused(&mut self, paused: bool) {
-        // Wave 575/601/867/892/913: paired host pause residual + time-frozen stamp.
+        // Wave 575/601/867/892/913/933: pause residual via session-control authority.
         // Skip authority set_paused when host residual already matches.
         if self.game_paused != paused {
             self.game_paused = paused;
-            self.game_logic.set_paused(paused);
+            self.game_logic.apply_session_control_op(
+                crate::game_logic::SessionControlOp::SetPaused { paused },
+            );
         }
         // Compose freeze residual without dual-read when presentation freeze owns
         // script time (InGame). Boot path still probes live is_time_frozen once.
@@ -20173,15 +20182,16 @@ impl CnCGameEngine {
     /// Wave 585: host world-size override residual (minimap/heightmap repair path).
     #[inline]
     fn host_override_world_size(&mut self, width: f32, height: f32) {
-        // Wave 585/865/891/915: host override residual + stamp bounds from args
-        // (same math as GameLogic::override_world_size — no world_bounds dual-read).
+        // Wave 585/865/891/915/933: world size via session-control authority.
         // Skip authority write when residual bounds already match requested size.
         let half_w = width * 0.5;
         let half_h = height * 0.5;
         let min = glam::Vec3::new(-half_w, 0.0, -half_h);
         let max = glam::Vec3::new(half_w, 0.0, half_h);
         if self.host_match_world_bounds != Some((min, max)) {
-            self.game_logic.override_world_size(width, height);
+            self.game_logic.apply_session_control_op(
+                crate::game_logic::SessionControlOp::OverrideWorldSize { width, height },
+            );
             self.host_match_world_bounds = Some((min, max));
         }
     }
@@ -20461,8 +20471,9 @@ impl CnCGameEngine {
     /// Wave 584: host match reset residual (GameLogic::reset boundary).
     #[inline]
     fn host_reset_game_logic(&mut self) {
-        // Wave 584/871: host reset residual + clear match residuals.
-        self.game_logic.reset();
+        // Wave 584/871/933: host reset residual via session-control authority.
+        self.game_logic
+            .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
         self.host_clear_match_residuals();
         self.selected_objects.clear();
         self.last_presentation_frame = None;
@@ -20734,7 +20745,7 @@ impl CnCGameEngine {
     /// Wave 583: host camera-follow write residual.
     #[inline]
     fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
-        // Wave 583/847/891/903/904/913: stamp follow pose from presentation freeze only
+        // Wave 583/847/891/903/904/913/933: camera follow via session-control authority.
         // (no get_object dual-read). Skip authority write when residual already matches.
         let stamped_pos = id.and_then(|oid| {
             self.last_presentation_frame.as_ref().and_then(|pres| {
@@ -20745,7 +20756,9 @@ impl CnCGameEngine {
             })
         });
         if self.host_match_camera_follow_id != Some(id) {
-            self.game_logic.set_camera_follow_object(id);
+            self.game_logic.apply_session_control_op(
+                crate::game_logic::SessionControlOp::SetCameraFollow { id },
+            );
         }
         self.host_match_camera_follow_id = Some(id);
         self.host_match_camera_follow_active = Some(id.is_some());
