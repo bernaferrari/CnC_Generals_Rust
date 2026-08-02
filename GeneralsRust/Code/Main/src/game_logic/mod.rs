@@ -365,6 +365,7 @@ pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_ui_framework_clippy_residual_wave881;
 pub mod host_live_host_ui_observe_failclosed_residual_wave905;
 pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
+pub mod host_live_host_unmapped_damage_fallback_residual_wave943;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_victory_fps_failclosed_residual_wave907;
 pub mod host_live_host_victory_fps_legal_failclosed_residual_wave910;
@@ -3093,6 +3094,13 @@ pub use host_live_host_residual_mutation_ext_boundary_residual_wave942::{
     honesty_host_residual_mutation_ext_boundary_nav_commands_residual_wave942,
     honesty_host_residual_mutation_ext_boundary_residual_pack_wave942,
     simulate_live_host_residual_mutation_ext_boundary_honesty,
+};
+
+pub use host_live_host_unmapped_damage_fallback_residual_wave943::{
+    honesty_host_unmapped_damage_fallback_method_names_residual_wave943,
+    honesty_host_unmapped_damage_fallback_nav_commands_residual_wave943,
+    honesty_host_unmapped_damage_fallback_residual_pack_wave943,
+    simulate_live_host_unmapped_damage_fallback_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

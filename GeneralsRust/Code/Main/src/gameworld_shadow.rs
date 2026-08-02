@@ -19016,27 +19016,11 @@ pub fn shadow_session_after_host_tick(
                 applied = events.len();
             }
             // Host objects with no shadow entity mapping would otherwise lose combat HP.
-            // `ev.amount` is already post-armor — apply raw HP, do not re-run armor/log.
+            // `ev.amount` is already post-armor — apply raw HP via mutation authority (Wave 943).
             if queued < events.len() || early_damage_applied {
-                let mut fallback = 0usize;
-                for ev in &events {
-                    if shadow.entity_for_host(ev.target).is_some() {
-                        continue;
-                    }
-                    if let Some(obj) = logic.get_objects_mut().get_mut(&ev.target) {
-                        if obj.status.destroyed {
-                            continue;
-                        }
-                        obj.health.damage(ev.amount);
-                        if !obj.health.is_alive() {
-                            obj.status.destroyed = true;
-                            obj.set_ai_state(crate::game_logic::AIState::Idle);
-                            obj.target = None;
-                        }
-                        obj.refresh_model_condition_bits();
-                        fallback += 1;
-                    }
-                }
+                let fallback = logic.apply_host_unmapped_damage_fallback(&events, |id| {
+                    shadow.entity_for_host(id).is_some()
+                });
                 if fallback > 0 {
                     log::trace!(
                         "damage authority host fallback applied={fallback} unmapped of {}",
