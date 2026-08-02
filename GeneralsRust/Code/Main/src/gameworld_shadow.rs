@@ -6054,7 +6054,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -6184,7 +6184,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -6312,7 +6312,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -6351,7 +6351,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 756: under coupled tick, host log pending = mid-frame authority.
@@ -6405,7 +6405,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 759: under coupled tick, host log pending = mid-frame authority.
@@ -6538,7 +6538,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -6575,7 +6575,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -6618,7 +6618,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -6825,7 +6825,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -7818,7 +7818,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -13561,7 +13561,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 756: under coupled tick, host log pending = mid-frame authority.
@@ -13637,7 +13637,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -13675,7 +13675,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -13744,7 +13744,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -13786,7 +13786,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -13826,7 +13826,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -13864,7 +13864,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -13964,7 +13964,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -14043,7 +14043,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -14109,7 +14109,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14157,7 +14157,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -14230,7 +14230,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14266,7 +14266,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14318,7 +14318,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14364,7 +14364,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -14404,7 +14404,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14455,7 +14455,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14493,7 +14493,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14544,7 +14544,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 759: under coupled tick, host log pending = mid-frame authority.
@@ -14624,7 +14624,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -14745,7 +14745,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 755: under coupled tick, host continuous-fire log is mid-frame
@@ -14786,7 +14786,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 757: under coupled tick, host log pending = mid-frame authority.
@@ -14847,7 +14847,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -14982,7 +14982,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -15137,7 +15137,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 755: under coupled tick, host log pending = mid-frame authority.
@@ -15255,7 +15255,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 759: under coupled tick, host log pending = mid-frame authority.
@@ -20470,7 +20470,7 @@ mod tests {
             .create_object("WarFact", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            let obj = /* Wave 946 */ logic.host_object_mut(id).expect("o");
             let mut bd = BuildingData::new(BuildingType::WarFactory);
             bd.production_queue.push(ProductionItem {
                 template_name: "USACrusaderTank".into(),
@@ -20765,7 +20765,7 @@ mod tests {
             .create_object("BuildPad", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
+            let obj = /* Wave 946 */ logic.host_object_mut(id).expect("o");
             obj.construction_percent = 0.2;
             obj.status.under_construction = true;
         }

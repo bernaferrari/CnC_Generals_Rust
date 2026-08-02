@@ -28842,6 +28842,26 @@ impl GameLogic {
         }
     }
 
+    /// Wave 946: scoped host-object mutation authority.
+    /// Shadow writebacks mutate host objects only through this boundary
+    /// (no direct `get_objects_mut` dual-writes from the shadow crate).
+    pub fn with_host_object_mut<R>(
+        &mut self,
+        id: ObjectId,
+        f: impl FnOnce(&mut crate::game_logic::object::Object) -> R,
+    ) -> Option<R> {
+        let obj = self.get_objects_mut().get_mut(&id)?;
+        Some(f(obj))
+    }
+    /// Wave 946: host object mut access for shadow writeback phase only.
+    /// Prefer [`Self::with_host_object_mut`] when the mutation is a closed block.
+    pub fn host_object_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<&mut crate::game_logic::object::Object> {
+        self.get_objects_mut().get_mut(&id)
+    }
+
     /// Issue attack command to selected objects
     pub fn command_attack(&mut self, player_id: u32, target_id: ObjectId) {
         if let Some(player) = self.players.get(&player_id) {
