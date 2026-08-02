@@ -545,7 +545,7 @@ impl BuildingBehavior {
         dt: f32,
     ) {
         // Prefer authoritative simulation state from GameLogic when available.
-        let completion = if let Some(building) = game_logic.find_object_mut(object_id) {
+        let completion = if let Some(building) = game_logic.host_object_mut(object_id) {
             if !building.is_constructed() || !building.is_alive() {
                 None
             } else if let Some(building_data) = building.building_data.as_mut() {
@@ -574,11 +574,11 @@ impl BuildingBehavior {
                     // Residual BuildingBehavior path — host update_production already
                     // path_approach_with_state; keep pathfind parity here too.
                     if !game_logic.assign_unit_path(new_id, rally, &[]) {
-                        if let Some(unit) = game_logic.find_object_mut(new_id) {
+                        if let Some(unit) = game_logic.host_object_mut(new_id) {
                             unit.set_destination(rally);
                             unit.ai_state = AIState::Moving;
                         }
-                    } else if let Some(unit) = game_logic.find_object_mut(new_id) {
+                    } else if let Some(unit) = game_logic.host_object_mut(new_id) {
                         unit.ai_state = AIState::Moving;
                     }
                 }
