@@ -6216,11 +6216,11 @@ mod group_move_tests {
             .create_object("GM_B", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .expect("b");
         {
-            let oa = logic.get_object_mut(a).unwrap();
+            let oa = logic./* Wave 950 */ host_object_mut(a).unwrap();
             oa.selection_radius = 10.0;
         }
         {
-            let ob = logic.get_object_mut(b).unwrap();
+            let ob = logic.host_object_mut(b).unwrap();
             ob.selection_radius = 10.0;
         }
 
@@ -6271,7 +6271,7 @@ mod group_move_tests {
             .create_object("SC_B", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
         for id in [a, b] {
-            logic.get_object_mut(id).unwrap().selection_radius = 10.0;
+            logic.host_object_mut(id).unwrap().selection_radius = 10.0;
         }
         let before_a = logic.get_object(a).unwrap().get_position();
         let before_b = logic.get_object(b).unwrap().get_position();
@@ -6442,7 +6442,7 @@ mod group_move_tests {
             })
             .collect();
         for &id in &ids {
-            logic.get_object_mut(id).unwrap().selection_radius = 10.0;
+            logic.host_object_mut(id).unwrap().selection_radius = 10.0;
         }
         let click = Vec3::new(300.0, 0.0, 0.0);
         let exec = CommandExecutor::new(&mut logic, 0);
@@ -6578,7 +6578,7 @@ mod group_move_tests {
             .create_object("GD_S", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
         {
-            let u = logic.get_object_mut(v).unwrap();
+            let u = logic.host_object_mut(v).unwrap();
             u.vision_range = 120.0;
             u.selection_radius = 10.0;
         }
@@ -6620,7 +6620,7 @@ mod group_move_tests {
         tpl.set_health(100.0);
         logic.templates.insert("PT_A".to_string(), tpl);
         let a = logic.create_object("PT_A", Team::USA, Vec3::ZERO).unwrap();
-        logic.get_object_mut(a).unwrap().auto_acquire_when_idle = false;
+        logic.host_object_mut(a).unwrap().auto_acquire_when_idle = false;
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_patrol(&[a]), CommandResult::Success);
         let u = logic.get_object(a).unwrap();
@@ -6818,7 +6818,7 @@ mod group_move_tests {
             .create_object("AP_V", Team::USA, Vec3::new(5.0, 0.0, 7.0))
             .unwrap();
         {
-            let u = logic.get_object_mut(id).unwrap();
+            let u = logic.host_object_mut(id).unwrap();
             u.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 100.0,
@@ -6906,7 +6906,7 @@ mod group_move_tests {
             .create_object("GS_V", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
         {
-            let h = logic.get_object_mut(healthy).unwrap();
+            let h = logic.host_object_mut(healthy).unwrap();
             h.movement.max_speed = 40.0;
             h.movement.max_speed_damaged = 20.0;
             h.health.current = 100.0;
@@ -6914,7 +6914,7 @@ mod group_move_tests {
             h.refresh_model_condition_bits();
         }
         {
-            let d = logic.get_object_mut(damaged).unwrap();
+            let d = logic.host_object_mut(damaged).unwrap();
             d.movement.max_speed = 40.0;
             d.movement.max_speed_damaged = 5.0;
             d.health.current = 10.0; // REALLYDAMAGED
@@ -6922,7 +6922,7 @@ mod group_move_tests {
             d.refresh_model_condition_bits();
         }
         {
-            let s = logic.get_object_mut(slow_healthy).unwrap();
+            let s = logic.host_object_mut(slow_healthy).unwrap();
             s.movement.max_speed = 20.0;
             s.movement.max_speed_damaged = 10.0;
             s.health.current = 100.0;
@@ -6955,7 +6955,7 @@ mod group_move_tests {
         logic.templates.insert("ES_V".to_string(), tpl);
         let id = logic.create_object("ES_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let o = logic.get_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.movement.max_speed = 30.0;
             o.movement.max_speed_damaged = 12.0;
             o.health.current = 100.0;
@@ -6991,7 +6991,7 @@ mod group_move_tests {
             .create_object("GID_V", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
         // Kill b
-        logic.get_object_mut(b).unwrap().health.current = 0.0;
+        logic.host_object_mut(b).unwrap().health.current = 0.0;
         let exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.group_all_ids(&[a, b]), vec![a]);
         assert_eq!(exec.group_count(&[a, b]), 1);
@@ -7019,13 +7019,13 @@ mod group_move_tests {
             .create_object("SP_SRC", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
         {
-            let c = logic.get_object_mut(caster).unwrap();
+            let c = logic.host_object_mut(caster).unwrap();
             c.special_power_cooldowns
                 .insert(SpecialPowerType::SpySatellite, 0.0);
             c.special_power_ready = true;
         }
         {
-            let o = logic.get_object_mut(other).unwrap();
+            let o = logic.host_object_mut(other).unwrap();
             o.special_power_cooldowns.clear();
             o.special_power_ready = true;
         }
@@ -7077,7 +7077,7 @@ mod group_move_tests {
             .create_object("SRC_A", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .unwrap();
         {
-            let a = logic.get_object_mut(attacker).unwrap();
+            let a = logic.host_object_mut(attacker).unwrap();
             a.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 100.0,
@@ -7088,7 +7088,7 @@ mod group_move_tests {
         }
         // Ensure mover has no weapon / no SP map entry.
         {
-            let m = logic.get_object_mut(mover).unwrap();
+            let m = logic.host_object_mut(mover).unwrap();
             m.weapon = None;
             m.special_power_cooldowns.clear();
         }
@@ -7133,7 +7133,7 @@ mod group_move_tests {
         logic.templates.insert("AM_V".to_string(), tpl);
         let id = logic.create_object("AM_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let o = logic.get_object_mut(id).unwrap();
+            let o = logic.host_object_mut(id).unwrap();
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 150.0,
@@ -7350,7 +7350,7 @@ mod group_move_tests {
             assert!(!exec.group_is_ai_dead(&[a, b]));
         }
         logic
-            .get_object_mut(a)
+            .host_object_mut(a)
             .unwrap()
             .set_ai_state(AIState::Moving);
         {
@@ -7360,18 +7360,18 @@ mod group_move_tests {
             assert!(!exec.group_is_busy(&[a, b]));
         }
         logic
-            .get_object_mut(b)
+            .host_object_mut(b)
             .unwrap()
             .set_ai_state(AIState::Moving);
         {
             let exec = CommandExecutor::new(&mut logic, 0);
             assert!(exec.group_is_busy(&[a, b]));
         }
-        logic.get_object_mut(a).unwrap().health.current = 0.0;
-        logic.get_object_mut(b).unwrap().health.current = 0.0;
+        logic.host_object_mut(a).unwrap().health.current = 0.0;
+        logic.host_object_mut(b).unwrap().health.current = 0.0;
         // mark dead properly if needed
         for id in [a, b] {
-            if let Some(o) = logic.get_object_mut(id) {
+            if let Some(o) = logic.host_object_mut(id) {
                 o.status.destroyed = true;
             }
         }
@@ -7397,7 +7397,7 @@ mod group_move_tests {
         logic.templates.insert("AF_V".to_string(), tpl);
         let id = logic.create_object("AF_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let u = logic.get_object_mut(id).unwrap();
+            let u = logic.host_object_mut(id).unwrap();
             u.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 150.0,
@@ -7437,7 +7437,7 @@ mod group_move_tests {
         logic.templates.insert("AM_V".to_string(), tpl);
         let id = logic.create_object("AM_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let u = logic.get_object_mut(id).unwrap();
+            let u = logic.host_object_mut(id).unwrap();
             u.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 150.0,
@@ -7567,7 +7567,7 @@ mod group_move_tests {
         logic.templates.insert("DC_V".to_string(), tpl);
         let id = logic.create_object("DC_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let u = logic.get_object_mut(id).unwrap();
+            let u = logic.host_object_mut(id).unwrap();
             u.set_ai_state(AIState::Moving);
             u.set_target(Some(id));
         }
@@ -7661,7 +7661,7 @@ mod group_move_tests {
             .unwrap();
         {
             use crate::game_logic::Weapon;
-            let uo = logic.get_object_mut(u).unwrap();
+            let uo = logic.host_object_mut(u).unwrap();
             uo.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 200.0,
@@ -7704,7 +7704,7 @@ mod group_move_tests {
         logic.templates.insert("WL_V".to_string(), tpl);
         let id = logic.create_object("WL_V", Team::USA, Vec3::ZERO).unwrap();
         {
-            let u = logic.get_object_mut(id).unwrap();
+            let u = logic.host_object_mut(id).unwrap();
             u.weapon = Some(Weapon {
                 damage: 10.0,
                 range: 100.0,
@@ -7891,12 +7891,12 @@ mod group_move_tests {
             .create_object("EV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
             .unwrap();
         {
-            let t = logic.get_object_mut(transport).unwrap();
+            let t = logic.host_object_mut(transport).unwrap();
             // Force containable capacity
             let _ = t.add_occupant(pax);
         }
         {
-            let p = logic.get_object_mut(pax).unwrap();
+            let p = logic.host_object_mut(pax).unwrap();
             p.set_contained_by(Some(transport));
             p.set_ai_state(crate::game_logic::AIState::Docked);
         }
@@ -7941,11 +7941,11 @@ mod group_move_tests {
             .create_object("EV2_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
             .unwrap();
         {
-            let t = logic.get_object_mut(transport).unwrap();
+            let t = logic.host_object_mut(transport).unwrap();
             assert!(t.add_occupant(pax));
         }
         {
-            let p = logic.get_object_mut(pax).unwrap();
+            let p = logic.host_object_mut(pax).unwrap();
             p.set_contained_by(Some(transport));
             p.set_ai_state(crate::game_logic::AIState::Docked);
         }
@@ -7957,7 +7957,7 @@ mod group_move_tests {
             );
         }
         // Simulate arrival: complete path + movement tick.
-        if let Some(t) = logic.get_object_mut(transport) {
+        if let Some(t) = logic.host_object_mut(transport) {
             // Snap to end of path and finish
             if let Some(last) = t.movement.path.last().copied() {
                 t.set_position(last);
@@ -8120,7 +8120,7 @@ mod group_move_tests {
         logic.templates.insert("ST_A".to_string(), tpl);
         let a = logic.create_object("ST_A", Team::USA, Vec3::ZERO).unwrap();
         {
-            let u = logic.get_object_mut(a).unwrap();
+            let u = logic.host_object_mut(a).unwrap();
             u.innate_stealth = true;
             u.stealth_delay_frames = 45;
             u.auto_acquire_when_idle = true;
@@ -8161,7 +8161,7 @@ mod group_move_tests {
             .create_object("WP_B", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .unwrap();
         for id in [a, b] {
-            logic.get_object_mut(id).unwrap().selection_radius = 10.0;
+            logic.host_object_mut(id).unwrap().selection_radius = 10.0;
         }
         let click = Vec3::new(100.0, 0.0, 50.0);
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -8197,7 +8197,7 @@ mod group_move_tests {
         logic.templates.insert("MV_ST".to_string(), tpl);
         let a = logic.create_object("MV_ST", Team::USA, Vec3::ZERO).unwrap();
         {
-            let u = logic.get_object_mut(a).unwrap();
+            let u = logic.host_object_mut(a).unwrap();
             u.innate_stealth = true;
             u.stealth_delay_frames = 30;
             u.auto_acquire_when_idle = true;

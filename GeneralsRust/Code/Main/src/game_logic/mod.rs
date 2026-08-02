@@ -226,6 +226,7 @@ pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
 pub mod host_live_host_gamelogic_borrow_boundary_residual_wave935;
+pub mod host_live_host_get_object_mut_seal_residual_wave950;
 pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
 pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
 pub mod host_live_host_gw_flight_over_assign_residual_wave877;
@@ -3149,6 +3150,13 @@ pub use host_live_host_presentation_selection_peel_residual_wave949::{
     honesty_host_presentation_selection_peel_nav_commands_residual_wave949,
     honesty_host_presentation_selection_peel_residual_pack_wave949,
     simulate_live_host_presentation_selection_peel_honesty,
+};
+
+pub use host_live_host_get_object_mut_seal_residual_wave950::{
+    honesty_host_get_object_mut_seal_method_names_residual_wave950,
+    honesty_host_get_object_mut_seal_nav_commands_residual_wave950,
+    honesty_host_get_object_mut_seal_residual_pack_wave950,
+    simulate_live_host_get_object_mut_seal_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

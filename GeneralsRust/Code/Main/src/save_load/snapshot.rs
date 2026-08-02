@@ -7062,7 +7062,7 @@ mod tests {
             .create_object("CamoDrawableSnap", Team::GLA, glam::Vec3::ZERO)
             .expect("create");
         {
-            let obj = source.get_object_mut(id).expect("obj");
+            let obj = source./* Wave 950 */ host_object_mut(id).expect("obj");
             // HostCamoStealthLook::VisibleDetected = 3
             obj.camo_stealth_look = 3;
             obj.status.stealthed = true;

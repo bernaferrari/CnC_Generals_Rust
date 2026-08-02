@@ -9777,7 +9777,7 @@ mod tests {
             .expect("id");
         {
             use crate::game_logic::Weapon;
-            let obj = logic./* Wave 948 */ host_object_mut(id).expect("obj");
+            let obj = logic./* Wave 948 */ /* Wave 950 */ host_object_mut(id).expect("obj");
             obj.selected = true;
             obj.status.stealthed = true;
             obj.status.detected = false;
@@ -10447,7 +10447,7 @@ mod tests {
         let dz = logic
             .create_object("AmericaDozer", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
-        if let Some(o) = logic.get_object_mut(sc) {
+        if let Some(o) = logic.host_object_mut(sc) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             o.building_data = Some(BuildingData::new(BuildingType::SupplyCenter));
@@ -10491,12 +10491,12 @@ mod tests {
         let cc = logic
             .create_object("CC", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
             .unwrap();
-        if let Some(o) = logic.get_object_mut(wf) {
+        if let Some(o) = logic.host_object_mut(wf) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
         }
-        if let Some(o) = logic.get_object_mut(cc) {
+        if let Some(o) = logic.host_object_mut(cc) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             o.building_data = Some(BuildingData::new(BuildingType::CommandCenter));
@@ -10545,7 +10545,7 @@ mod tests {
         let w = logic
             .create_object("Wall", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
-        if let Some(o) = logic.get_object_mut(b) {
+        if let Some(o) = logic.host_object_mut(b) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             if o.building_data.is_none() {
@@ -10554,7 +10554,7 @@ mod tests {
                 ));
             }
         }
-        if let Some(o) = logic.get_object_mut(w) {
+        if let Some(o) = logic.host_object_mut(w) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             o.building_data = None;
@@ -10613,7 +10613,7 @@ mod tests {
         let bid = logic
             .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.building_data = Some(crate::game_logic::BuildingData::new(
                 crate::game_logic::BuildingType::Barracks,
             ));
@@ -10736,7 +10736,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("puc");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             // Structure module residual remaining (not SharedNSync player timer).
@@ -10862,7 +10862,7 @@ mod tests {
         let e = logic
             .create_object("RedGuard", Team::China, glam::Vec3::new(40.0, 0.0, 0.0))
             .unwrap();
-        if let Some(o) = logic.get_object_mut(p) {
+        if let Some(o) = logic.host_object_mut(p) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
         }
@@ -10948,7 +10948,7 @@ mod tests {
         assert!((pos.x - 42.0).abs() < 0.01);
         assert!((pos.z + 7.0).abs() < 0.01);
         // Move live after snapshot — presentation still returns frozen pose.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(900.0, 0.0, 900.0));
         }
         let pos2 = frame.first_alive_position_for_template("HeroJet").unwrap();
@@ -10987,7 +10987,7 @@ mod tests {
         assert!(filtered.contains(&a) && filtered.contains(&b));
         assert!(!filtered.contains(&enemy));
         // Mark destroyed in a rebuilt frame.
-        if let Some(o) = logic.get_object_mut(b) {
+        if let Some(o) = logic.host_object_mut(b) {
             o.status.destroyed = true;
         }
         let frame2 = PresentationFrame::build_from_logic(&logic, 0);
@@ -11457,7 +11457,7 @@ mod tests {
         let bid = logic
             .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.building_data = Some(crate::game_logic::BuildingData::new(
                 crate::game_logic::buildings::BuildingType::Barracks,
             ));
@@ -11474,7 +11474,7 @@ mod tests {
         });
         logic.process_commands();
         // Partial research progress residual (half of residual 1-frame ≈ tiny).
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             if let Some(bd) = o.building_data.as_mut() {
                 if let Some(item) = bd.production_queue.first_mut() {
                     item.progress = item.total_time * 0.5;
@@ -12088,7 +12088,7 @@ mod tests {
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("pp");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
         }
@@ -12120,7 +12120,7 @@ mod tests {
         let id = logic
             .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("b");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.status.under_construction = true;
             o.status.reconstructing = true;
             o.is_rebuild_hole = false;
@@ -12147,7 +12147,7 @@ mod tests {
         let id = logic
             .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("b");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.start_production_door_cycle(0);
         }
         let frame = PresentationFrame::build_from_logic(&logic, 0);
@@ -12276,7 +12276,7 @@ mod tests {
         let client_view = PresentationFrame::build_from_logic(&logic, 0);
         assert_eq!(client_view.alive_object_count(), 1);
         // Authority continues without client re-borrowing world during "render".
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.status.destroyed = true;
             o.health.current = 0.0;
         }
@@ -12306,7 +12306,7 @@ mod tests {
         let id = logic
             .create_object("HudUnit", Team::USA, glam::Vec3::new(9.0, 0.0, -4.0))
             .expect("unit");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
@@ -12376,7 +12376,7 @@ mod tests {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
@@ -12395,7 +12395,7 @@ mod tests {
             .expect("selection health on HUD after dual-tick apply");
         assert!((info.health_current - 88.0).abs() < 0.01);
         // World mutates after apply; HUD must keep snapshot health.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.health.current = 1.0;
         }
         assert!((info.health_current - 88.0).abs() < 0.01);
@@ -12419,7 +12419,7 @@ mod tests {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
@@ -12441,7 +12441,7 @@ mod tests {
         assert!(cmd.is_visible());
         assert!((cmd.selection_panel().health_current - 64.0).abs() < 0.01);
         // Live mutation must not rewrite consumer snapshots.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.health.current = 1.0;
         }
         assert!((hud.selection_panel().health_current - 64.0).abs() < 0.01);
@@ -12461,7 +12461,7 @@ mod tests {
         let id = logic
             .create_object("RadiusUnit", Team::USA, glam::Vec3::ZERO)
             .expect("unit");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selection_radius = 12.5;
         }
         let snap = PresentationFrame::build_from_logic(&logic, 0);
@@ -12595,7 +12595,7 @@ mod tests {
         let id = logic
             .create_object("MeshUnit", Team::USA, glam::Vec3::new(3.0, 0.0, -8.0))
             .expect("unit");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
             o.selection_radius = 11.0;
@@ -12630,7 +12630,7 @@ mod tests {
         assert_eq!(inputs[0].fow_visibility, ro.fow_visibility);
 
         // Mutate authority after snapshot — inputs must stay frozen.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
             o.selected = false;
         }
@@ -12964,7 +12964,7 @@ mod tests {
         let other_id = logic
             .create_object("SkipUnit", Team::China, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("other");
-        if let Some(o) = logic.get_object_mut(dead_id) {
+        if let Some(o) = logic.host_object_mut(dead_id) {
             o.status.destroyed = true;
             o.health.current = 0.0;
         }
@@ -13820,14 +13820,14 @@ mod tests {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
 
         let snap = PresentationFrame::build_from_logic(&logic, 0);
         // Live world mutates after snapshot (would poison a re-read).
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
             o.health.current = 3.0;
         }
@@ -13884,7 +13884,7 @@ mod tests {
         let moving = logic
             .create_object("PathUnit", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("moving");
-        if let Some(o) = logic.get_object_mut(moving) {
+        if let Some(o) = logic.host_object_mut(moving) {
             o.movement.path = vec![
                 glam::Vec3::new(10.0, 0.0, 0.0),
                 glam::Vec3::new(50.0, 0.0, 0.0),
@@ -13925,7 +13925,7 @@ mod tests {
         let bid = logic
             .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.building_data = Some(crate::game_logic::BuildingData::new(
                 crate::game_logic::buildings::BuildingType::Barracks,
             ));
@@ -13990,7 +13990,7 @@ mod tests {
         let id = logic
             .create_object("SellBarracks", Team::USA, glam::Vec3::ZERO)
             .expect("b");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.building_data = Some(BuildingData::new(BuildingType::Barracks));
             o.selected = true;
         }
@@ -14006,7 +14006,7 @@ mod tests {
             cmds.iter().map(|c| &c.command_name).collect::<Vec<_>>()
         );
         // Under construction: CancelConstruction, not Sell.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.status.under_construction = true;
         }
         let frame2 = PresentationFrame::build_from_logic(&logic, 0);
@@ -14047,7 +14047,7 @@ mod tests {
         let barracks = logic
             .create_object("CmdBarracks", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
             .expect("b");
-        if let Some(o) = logic.get_object_mut(ranger) {
+        if let Some(o) = logic.host_object_mut(ranger) {
             o.selected = true;
             // Minimal weapon residual so has_weapon freezes true.
             o.weapon = Some(crate::game_logic::Weapon {
@@ -14080,13 +14080,13 @@ mod tests {
             names
         );
 
-        if let Some(o) = logic.get_object_mut(barracks) {
+        if let Some(o) = logic.host_object_mut(barracks) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             o.selected = true;
             o.building_data = Some(BuildingData::new(BuildingType::Barracks));
         }
-        if let Some(o) = logic.get_object_mut(ranger) {
+        if let Some(o) = logic.host_object_mut(ranger) {
             o.selected = false;
         }
         if let Some(p) = logic.get_player_mut(0) {
@@ -14215,7 +14215,7 @@ mod tests {
         let constructing = logic
             .create_object("VConstruct", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
             .expect("c");
-        if let Some(o) = logic.get_object_mut(barracks) {
+        if let Some(o) = logic.host_object_mut(barracks) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             let mut bd = BuildingData::new(BuildingType::Barracks);
@@ -14233,7 +14233,7 @@ mod tests {
             });
             o.building_data = Some(bd);
         }
-        if let Some(o) = logic.get_object_mut(constructing) {
+        if let Some(o) = logic.host_object_mut(constructing) {
             o.status.under_construction = true;
             o.construction_percent = 0.4;
             o.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
@@ -14300,7 +14300,7 @@ mod tests {
             p.queued_upgrades
                 .insert("Upgrade_AmericaAdvancedTraining".into());
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.special_power_ready = true;
             o.special_power_cooldown_remaining = 0.0;
@@ -14353,7 +14353,7 @@ mod tests {
             p.unlocked_sciences.insert("SCIENCE_RedGuards".into());
             p.unlocked_sciences.insert("SCIENCE_PaladinTank".into());
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
         }
         let frame = PresentationFrame::build_from_logic(&logic, 0);
@@ -14394,7 +14394,7 @@ mod tests {
         let id = logic
             .create_object("UpgUnit", Team::USA, glam::Vec3::new(3.0, 0.0, 4.0))
             .expect("unit");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.applied_upgrades.insert("UpgradeAdvancedTraining".into());
             o.applied_upgrades.insert("UpgradeCaptureBuilding".into());
@@ -14449,7 +14449,7 @@ mod tests {
         let ranger = logic
             .create_object("GarrisonRanger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
             .expect("ranger");
-        if let Some(o) = logic.get_object_mut(bunker) {
+        if let Some(o) = logic.host_object_mut(bunker) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             o.selected = true;
@@ -14511,7 +14511,7 @@ mod tests {
         let id = logic
             .create_object("VetBarracks", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
             .expect("building");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
             o.selected = true;
@@ -14577,7 +14577,7 @@ mod tests {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
         }
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
@@ -14622,7 +14622,7 @@ mod tests {
         {
             let mut bar = game_client::gui::control_bar::ControlBar::new();
             // Poison live world after snapshot so a re-read would be wrong.
-            if let Some(o) = logic.get_object_mut(id) {
+            if let Some(o) = logic.host_object_mut(id) {
                 o.health.current = 1.0;
             }
             snap.apply_to_control_bar(&mut bar);
@@ -14662,7 +14662,7 @@ mod tests {
             .expect("victim");
 
         {
-            let a = logic.get_object_mut(attacker).expect("attacker");
+            let a = logic.host_object_mut(attacker).expect("attacker");
             // Wave 562: weapon must be bound before attack_target — can_attack()
             // requires weapon.is_some(); ordering weapon-after-order was a no-op.
             a.weapon = Some(Weapon {
@@ -14678,7 +14678,7 @@ mod tests {
             a.attack_target(victim);
         }
         {
-            let v = logic.get_object_mut(victim).expect("victim");
+            let v = logic.host_object_mut(victim).expect("victim");
             v.health.current = 5.0;
             v.health.maximum = 5.0;
         }

@@ -1657,12 +1657,12 @@ mod cpp_parity_tests {
             .create_object("USA_WarFactory", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
             .expect("war factory");
         // Ensure constructed + empty queues.
-        if let Some(o) = logic.get_object_mut(barracks_id) {
+        if let Some(o) = logic./* Wave 950 */ host_object_mut(barracks_id) {
             if let Some(b) = o.building_data.as_mut() {
                 b.production_queue.clear();
             }
         }
-        if let Some(o) = logic.get_object_mut(wf_id) {
+        if let Some(o) = logic.host_object_mut(wf_id) {
             if let Some(b) = o.building_data.as_mut() {
                 b.production_queue.clear();
             }
@@ -1672,7 +1672,7 @@ mod cpp_parity_tests {
         assert!(ai.should_build_new_team(&logic));
 
         // Busy both factories → not ready (requireIdleFactory residual).
-        if let Some(o) = logic.get_object_mut(barracks_id) {
+        if let Some(o) = logic.host_object_mut(barracks_id) {
             if let Some(b) = o.building_data.as_mut() {
                 b.production_queue.push(crate::game_logic::ProductionItem {
                     template_name: "USA_Ranger".into(),
@@ -1688,7 +1688,7 @@ mod cpp_parity_tests {
                 });
             }
         }
-        if let Some(o) = logic.get_object_mut(wf_id) {
+        if let Some(o) = logic.host_object_mut(wf_id) {
             if let Some(b) = o.building_data.as_mut() {
                 b.production_queue.push(crate::game_logic::ProductionItem {
                     template_name: "USA_Humvee".into(),
@@ -1708,7 +1708,7 @@ mod cpp_parity_tests {
         assert!(!ai.should_build_new_team(&logic));
 
         // Idle one factory → ready again.
-        if let Some(o) = logic.get_object_mut(barracks_id) {
+        if let Some(o) = logic.host_object_mut(barracks_id) {
             if let Some(b) = o.building_data.as_mut() {
                 b.production_queue.clear();
             }

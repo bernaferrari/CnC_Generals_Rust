@@ -4738,7 +4738,7 @@ mod tests {
         let id = logic
             .create_object("PresMeshUnit", Team::USA, Vec3::new(15.0, 0.0, -3.0))
             .expect("unit");
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
             o.selection_radius = 14.0;
@@ -4746,7 +4746,7 @@ mod tests {
 
         let snap = PresentationFrame::build_from_logic(&logic, 0);
         // Poison live world — unit collect must ignore it.
-        if let Some(o) = logic.get_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.set_position(Vec3::new(777.0, 0.0, 777.0));
             o.selected = false;
             o.status.selected = false;

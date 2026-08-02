@@ -3623,10 +3623,10 @@ mod tests {
                 glam::Vec3::new(40.0, 0.0, 0.0),
             )
             .expect("wf");
-        if let Some(o) = logic.get_object_mut(tank) {
+        if let Some(o) = logic./* Wave 950 */ host_object_mut(tank) {
             o.health.current = 100.0; // damaged residual
         }
-        if let Some(o) = logic.get_object_mut(wf) {
+        if let Some(o) = logic.host_object_mut(wf) {
             o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
         }
 
@@ -3774,7 +3774,7 @@ mod tests {
         let bid = logic
             .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             let mut bd = BuildingData::new(BuildingType::Barracks);
             for i in 0..DEFAULT_PRODUCTION_QUEUE_LIMIT {
                 bd.production_queue.push(ProductionItem {
@@ -3845,7 +3845,7 @@ mod tests {
         let bid = logic
             .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
             .expect("barracks");
-        if let Some(o) = logic.get_object_mut(bid) {
+        if let Some(o) = logic.host_object_mut(bid) {
             o.building_data = Some(BuildingData::new(BuildingType::Barracks));
         }
 

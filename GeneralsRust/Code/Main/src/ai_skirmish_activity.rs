@@ -209,7 +209,7 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
         ("GLA_ArmsDealer", Vec3::new(150.0, 0.0, 120.0)),
     ] {
         if let Some(id) = logic.create_object(name, Team::GLA, pos) {
-            if let Some(obj) = logic.get_object_mut(id) {
+            if let Some(obj) = logic./* Wave 950 */ host_object_mut(id) {
                 obj.status.under_construction = false;
                 obj.construction_percent = 1.0;
             }
@@ -503,7 +503,7 @@ mod tests {
             ("GLA_ArmsDealer", Vec3::new(150.0, 0.0, 120.0)),
         ] {
             if let Some(id) = logic.create_object(name, Team::GLA, pos) {
-                if let Some(obj) = logic.get_object_mut(id) {
+                if let Some(obj) = logic.host_object_mut(id) {
                     obj.status.under_construction = false;
                     obj.construction_percent = 1.0;
                 }

@@ -258,7 +258,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 .insert("SCIENCE_A10ThunderboltMissileStrike1".into());
         }
         // Re-arm special power readiness after prior command may have changed state.
-        if let Some(u) = logic.get_object_mut(iid) {
+        if let Some(u) = logic./* Wave 950 */ host_object_mut(iid) {
             u.special_power_ready = true;
             u.special_power_cooldown_remaining = 0.0;
         }
@@ -354,7 +354,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     );
     let mut stealth_ok = false;
     if let Some(sid) = logic.create_object("BreadthStealth", Team::USA, Vec3::new(0.0, 0.0, 20.0)) {
-        if let Some(u) = logic.get_object_mut(sid) {
+        if let Some(u) = logic.host_object_mut(sid) {
             u.status.stealthed = true;
             u.status.detected = false;
         }
@@ -374,7 +374,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         if let Some(did) =
             logic.create_object("BreadthDetector", Team::China, Vec3::new(5.0, 0.0, 20.0))
         {
-            if let Some(d) = logic.get_object_mut(did) {
+            if let Some(d) = logic.host_object_mut(did) {
                 d.is_detector = true;
                 d.detection_range = 50.0;
             }
@@ -392,7 +392,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
 
         // Fire breaks stealth residual.
         let mut fire_break_ok = false;
-        if let Some(u) = logic.get_object_mut(sid) {
+        if let Some(u) = logic.host_object_mut(sid) {
             u.status.stealthed = true;
             u.status.detected = false;
             u.stealth_breaks_on_attack = true;

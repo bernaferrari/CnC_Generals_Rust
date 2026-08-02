@@ -6054,7 +6054,7 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(obj) = /* Wave 946/947 */ logic.host_object_mut(ObjectId(hid)) else {
+            let Some(obj) = /* Wave 946/947 */ logic./* Wave 950 */ host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
@@ -17013,7 +17013,7 @@ pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
     let damage_events = crate::game_logic::host_damage_log::drain();
     let mut destroy_ids = Vec::new();
     for e in damage_events {
-        let Some(obj) = logic.get_object_mut(e.target) else {
+        let Some(obj) = logic.host_object_mut(e.target) else {
             continue;
         };
         if e.destroyed || e.amount + 1e-3 >= obj.health.current {
@@ -17033,7 +17033,7 @@ pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
 
     // --- Heal / absolute HP ---
     for e in crate::game_logic::host_heal_log::drain() {
-        if let Some(obj) = logic.get_object_mut(e.target) {
+        if let Some(obj) = logic.host_object_mut(e.target) {
             let max_hp = obj.health.maximum.max(0.0);
             obj.health.current = e.health.clamp(0.0, max_hp);
         }
@@ -20603,7 +20603,7 @@ mod tests {
         let oid = logic
             .create_object("SoleTickBuild", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
             .expect("id");
-        if let Some(o) = logic.get_object_mut(oid) {
+        if let Some(o) = logic.host_object_mut(oid) {
             o.construction_percent = 0.0;
             o.set_status_under_construction(true);
         }
@@ -20653,7 +20653,7 @@ mod tests {
         let oid = logic
             .create_object("SoleTickSp", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("id");
-        if let Some(o) = logic.get_object_mut(oid) {
+        if let Some(o) = logic.host_object_mut(oid) {
             o.special_power_cooldown = 10.0;
             o.special_power_cooldown_remaining = 4.0;
             o.special_power_ready = false;
@@ -22012,7 +22012,7 @@ mod tests {
 
         // Dirty host queue — authority writeback must restore shadow snapshot.
         {
-            let o = logic.get_object_mut(oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.building_data.as_mut().unwrap().production_queue.clear();
         }
         assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
@@ -22034,7 +22034,7 @@ mod tests {
         std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
         assert!(!gameworld_production_authority_enabled());
         {
-            let o = logic.get_object_mut(oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.building_data.as_mut().unwrap().production_queue.clear();
         }
         assert_eq!(shadow.writeback_production_to_host(&mut logic), 0);
@@ -31716,7 +31716,7 @@ mod tests {
             .create_object("SellPad", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("pad");
         {
-            let o = logic.get_object_mut(oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
@@ -31767,7 +31767,7 @@ mod tests {
             "shadow entity percent {ent_pct} vs host {host_pct}"
         );
         {
-            let o = logic.get_object_mut(oid).expect("o");
+            let o = logic.host_object_mut(oid).expect("o");
             o.construction_percent = 0.5; // dirty host so writeback must restore
         }
         assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
