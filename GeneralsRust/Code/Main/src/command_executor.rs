@@ -1,4 +1,5 @@
 //! Wave 955: CommandExecutor host_object seal.
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::command_system::{
     CommandResult, CommandType, DropTarget, GameCommand, GuardTarget, PowerTarget,
     SpecialPowerType, WeaponSlot, WeaponTarget,
@@ -6279,19 +6280,19 @@ mod group_move_tests {
         for id in [a, b] {
             logic.host_object_mut(id).unwrap().selection_radius = 10.0;
         }
-        let before_a = logic.get_object(a).unwrap().get_position();
-        let before_b = logic.get_object(b).unwrap().get_position();
+        let before_a = logic.host_object(a).unwrap().get_position();
+        let before_b = logic.host_object(b).unwrap().get_position();
         let center = (before_a + before_b) * 0.5;
 
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_scatter(&[a, b]), CommandResult::Success);
 
         for id in [a, b] {
-            let u = logic.get_object(id).unwrap();
+            let u = logic.host_object(id).unwrap();
             assert_eq!(u.ai_state, AIState::Moving, "scatter sets Moving");
         }
         for (id, before) in [(a, before_a), (b, before_b)] {
-            let u = logic.get_object(id).unwrap();
+            let u = logic.host_object(id).unwrap();
             let goal = u
                 .movement
                 .target_position
@@ -6322,7 +6323,7 @@ mod group_move_tests {
         let a = logic.create_object("CH_A", Team::USA, Vec3::ZERO).unwrap();
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_cheer(&[a]), CommandResult::Success);
-        let u = logic.get_object(a).unwrap();
+        let u = logic.host_object(a).unwrap();
         assert!(
             (u.cheer_timer - 3.0).abs() < 0.01,
             "C++ cheer is 3s (90 frames@30), got {}",
@@ -6356,8 +6357,8 @@ mod group_move_tests {
             exec.execute_create_formation(&[a, b]),
             CommandResult::Success
         );
-        let ua = logic.get_object(a).unwrap();
-        let ub = logic.get_object(b).unwrap();
+        let ua = logic.host_object(a).unwrap();
+        let ub = logic.host_object(b).unwrap();
         assert_ne!(ua.formation_id, 0);
         assert_eq!(ua.formation_id, ub.formation_id);
         // Center at x=20 → offsets -20 and +20
@@ -6379,8 +6380,8 @@ mod group_move_tests {
             exec.execute_create_formation(&[a, b]),
             CommandResult::Success
         );
-        assert_eq!(logic.get_object(a).unwrap().formation_id, 0);
-        assert_eq!(logic.get_object(b).unwrap().formation_id, 0);
+        assert_eq!(logic.host_object(a).unwrap().formation_id, 0);
+        assert_eq!(logic.host_object(b).unwrap().formation_id, 0);
     }
 
     #[test]
@@ -6507,7 +6508,7 @@ mod group_move_tests {
             );
         }
         assert_eq!(
-            logic.get_object(a).unwrap().guard_mode,
+            logic.host_object(a).unwrap().guard_mode,
             GuardMode::WithoutPursuit
         );
         {
@@ -6522,7 +6523,7 @@ mod group_move_tests {
             );
         }
         assert_eq!(
-            logic.get_object(b).unwrap().guard_mode,
+            logic.host_object(b).unwrap().guard_mode,
             GuardMode::FlyingUnitsOnly
         );
     }
@@ -6598,7 +6599,7 @@ mod group_move_tests {
             ),
             CommandResult::Success
         );
-        let u = logic.get_object(v).unwrap();
+        let u = logic.host_object(v).unwrap();
         assert!(
             (u.guard_radius - 120.0).abs() < 0.1,
             "guard radius should track vision, got {}",
@@ -6609,7 +6610,10 @@ mod group_move_tests {
             AIState::GuardingArea | AIState::Moving
         ));
         // Structure must not enter guard.
-        assert_ne!(logic.get_object(s).unwrap().ai_state, AIState::GuardingArea);
+        assert_ne!(
+            logic.host_object(s).unwrap().ai_state,
+            AIState::GuardingArea
+        );
     }
 
     #[test]
@@ -6629,7 +6633,7 @@ mod group_move_tests {
         logic.host_object_mut(a).unwrap().auto_acquire_when_idle = false;
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_patrol(&[a]), CommandResult::Success);
-        let u = logic.get_object(a).unwrap();
+        let u = logic.host_object(a).unwrap();
         assert_eq!(u.ai_state, AIState::Patrolling);
         assert!(u.auto_acquire_when_idle);
     }
@@ -6668,7 +6672,7 @@ mod group_move_tests {
         // Structure entered sell residual; vehicle rejected.
         assert!(
             logic.is_object_being_sold(s)
-                || logic.get_object(s).map(|o| o.status.sold).unwrap_or(false)
+                || logic.host_object(s).map(|o| o.status.sold).unwrap_or(false)
         );
     }
 
@@ -6702,7 +6706,7 @@ mod group_move_tests {
         }
         // Both should target same destination (path last or target_position).
         for id in [a, b] {
-            let u = logic.get_object(id).unwrap();
+            let u = logic.host_object(id).unwrap();
             let goal = u
                 .movement
                 .path
@@ -6739,7 +6743,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let o = logic.get_object(id).unwrap();
+        let o = logic.host_object(id).unwrap();
         assert_eq!(o.special_power_override_destination, Some(loc));
     }
 
@@ -6768,7 +6772,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let o = logic.get_object(id).unwrap();
+        let o = logic.host_object(id).unwrap();
         assert!(o.weapon_set_carbomb);
         assert!(o.weapon_set_player_upgrade);
     }
@@ -6799,7 +6803,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let o = logic.get_object(id).unwrap();
+        let o = logic.host_object(id).unwrap();
         assert!(
             !o.movement.path.is_empty() || o.movement.target_position.is_some(),
             "should have path or target"
@@ -6838,7 +6842,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert_eq!(u.ai_state, AIState::AttackingGround);
         assert_eq!(u.max_shots_to_fire, 3);
         assert!(u.force_attack);
@@ -6870,7 +6874,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!(u.is_exact_path, "exact follow must stamp is_exact_path");
         assert!(
             u.movement.path.len() >= 2,
@@ -7054,7 +7058,7 @@ mod group_move_tests {
         }
         // Caster still owns the module entry after cast routing.
         assert!(logic
-            .get_object(caster)
+            .host_object(caster)
             .unwrap()
             .special_power_cooldowns
             .contains_key(&SpecialPowerType::SpySatellite));
@@ -7153,7 +7157,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert_eq!(u.ai_state, AIState::AttackMoving);
         assert!(u.is_attack_path);
         assert_eq!(u.max_shots_to_fire, 5);
@@ -7198,22 +7202,22 @@ mod group_move_tests {
             );
         }
         let ga = logic
-            .get_object(a)
+            .host_object(a)
             .unwrap()
             .movement
             .path
             .last()
             .copied()
-            .or(logic.get_object(a).unwrap().movement.target_position)
+            .or(logic.host_object(a).unwrap().movement.target_position)
             .unwrap();
         let gb = logic
-            .get_object(b)
+            .host_object(b)
             .unwrap()
             .movement
             .path
             .last()
             .copied()
-            .or(logic.get_object(b).unwrap().movement.target_position)
+            .or(logic.host_object(b).unwrap().movement.target_position)
             .unwrap();
         assert!(
             (ga.x - gb.x).abs() > 20.0,
@@ -7243,7 +7247,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!(!u.movement.path.is_empty() || u.movement.target_position.is_some());
     }
 
@@ -7329,7 +7333,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!((u.guard_radius - 150.0).abs() < 0.1, "r={}", u.guard_radius);
     }
 
@@ -7418,7 +7422,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!(u.is_attack_path, "attack-follow should mark attack path");
         assert!(
             matches!(u.ai_state, AIState::AttackMoving | AIState::Moving),
@@ -7457,7 +7461,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!(u.is_attack_path);
         assert_eq!(u.ai_state, AIState::AttackMoving);
     }
@@ -7498,22 +7502,22 @@ mod group_move_tests {
             );
         }
         let ga = logic
-            .get_object(a)
+            .host_object(a)
             .unwrap()
             .movement
             .path
             .last()
             .copied()
-            .or(logic.get_object(a).unwrap().movement.target_position)
+            .or(logic.host_object(a).unwrap().movement.target_position)
             .unwrap();
         let gb = logic
-            .get_object(b)
+            .host_object(b)
             .unwrap()
             .movement
             .path
             .last()
             .copied()
-            .or(logic.get_object(b).unwrap().movement.target_position)
+            .or(logic.host_object(b).unwrap().movement.target_position)
             .unwrap();
         // Offsets should keep ~40 world units separation on X (formation).
         let sep = (ga.x - gb.x).abs();
@@ -7523,10 +7527,10 @@ mod group_move_tests {
         );
         // Formation id preserved.
         assert_eq!(
-            logic.get_object(a).unwrap().formation_id,
-            logic.get_object(b).unwrap().formation_id
+            logic.host_object(a).unwrap().formation_id,
+            logic.host_object(b).unwrap().formation_id
         );
-        assert_ne!(logic.get_object(a).unwrap().formation_id, 0);
+        assert_ne!(logic.host_object(a).unwrap().formation_id, 0);
     }
 
     #[test]
@@ -7551,7 +7555,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!(
             !u.movement.path.is_empty() || u.movement.target_position.is_some(),
             "should path along waypoints"
@@ -7584,7 +7588,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!(
             matches!(u.ai_state, AIState::Idle) || u.target.is_none() || !u.status.moving,
             "stop should clear action state={:?} target={:?}",
@@ -7615,7 +7619,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert!(
             !u.movement.path.is_empty() || u.movement.target_position.is_some(),
             "attack-move should path"
@@ -7640,7 +7644,7 @@ mod group_move_tests {
             let mut exec = CommandExecutor::new(&mut logic, 0);
             assert_eq!(exec.execute_surrender(&[id], true), CommandResult::Success);
         }
-        let o = logic.get_object(id).unwrap();
+        let o = logic.host_object(id).unwrap();
         assert!(o.is_surrendered);
         assert!(o.target.is_none());
     }
@@ -7682,7 +7686,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let unit = logic.get_object(u).unwrap();
+        let unit = logic.host_object(u).unwrap();
         assert!(
             unit.target == Some(e)
                 || matches!(
@@ -7729,7 +7733,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
         assert_eq!(u.weapon_lock_slot, 1);
         assert_eq!(u.active_weapon_slot, 1);
@@ -7741,7 +7745,7 @@ mod group_move_tests {
             );
         }
         assert_eq!(
-            logic.get_object(id).unwrap().weapon_lock_type,
+            logic.host_object(id).unwrap().weapon_lock_type,
             WeaponLockType::NotLocked
         );
     }
@@ -7767,7 +7771,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let u = logic.get_object(id).unwrap();
+        let u = logic.host_object(id).unwrap();
         assert_eq!(u.emoticon_name, "Emoticon_Alert");
         assert_eq!(u.emoticon_frames_left, 60);
     }
@@ -7793,7 +7797,12 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        assert!(logic.get_object(d).unwrap().weapon_set_mine_clearing_detail);
+        assert!(
+            logic
+                .host_object(d)
+                .unwrap()
+                .weapon_set_mine_clearing_detail
+        );
         {
             let mut exec = CommandExecutor::new(&mut logic, 0);
             assert_eq!(
@@ -7801,7 +7810,12 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        assert!(!logic.get_object(d).unwrap().weapon_set_mine_clearing_detail);
+        assert!(
+            !logic
+                .host_object(d)
+                .unwrap()
+                .weapon_set_mine_clearing_detail
+        );
     }
 
     #[test]
@@ -7825,7 +7839,7 @@ mod group_move_tests {
             let mut exec = CommandExecutor::new(&mut logic, 0);
             assert_eq!(exec.execute_go_prone(&[i]), CommandResult::Success);
         }
-        let u = logic.get_object(i).unwrap();
+        let u = logic.host_object(i).unwrap();
         assert!(u.prone_timer > 0.0);
         if let Some(bit) = model_condition_bit_name_index("PRONE") {
             assert_ne!(u.model_condition_bits & (1u128 << bit), 0);
@@ -7859,7 +7873,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let unit = logic.get_object(u).unwrap();
+        let unit = logic.host_object(u).unwrap();
         assert!(
             unit.target == Some(e)
                 || matches!(
@@ -7907,7 +7921,7 @@ mod group_move_tests {
             p.set_ai_state(crate::game_logic::AIState::Docked);
         }
         assert!(!logic
-            .get_object(transport)
+            .host_object(transport)
             .unwrap()
             .contained_units()
             .is_empty());
@@ -7919,7 +7933,7 @@ mod group_move_tests {
                 CommandResult::Success
             );
         }
-        let t = logic.get_object(transport).unwrap();
+        let t = logic.host_object(transport).unwrap();
         assert!(
             t.pending_evacuate_on_stop,
             "should pending evacuate after move command"
@@ -7979,12 +7993,12 @@ mod group_move_tests {
         assert!(logic.evacuate_container_now(transport, false));
         assert!(
             logic
-                .get_object(transport)
+                .host_object(transport)
                 .map(|t| t.contained_units().is_empty())
                 .unwrap_or(false),
             "passengers should unload"
         );
-        let p = logic.get_object(pax).unwrap();
+        let p = logic.host_object(pax).unwrap();
         assert!(p.contained_by.is_none());
         assert_ne!(p.ai_state, crate::game_logic::AIState::Docked);
     }
@@ -8147,7 +8161,7 @@ mod group_move_tests {
         }
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_stop(&[a]), CommandResult::Success);
-        let u = logic.get_object(a).unwrap();
+        let u = logic.host_object(a).unwrap();
         assert_eq!(u.ai_state, AIState::Idle);
         // now=100 + delay 45 + skew 0
         assert_eq!(
@@ -8186,8 +8200,8 @@ mod group_move_tests {
             CommandResult::Success
         );
         // Paths should not be identical stacked goals for multi-select.
-        let pa = logic.get_object(a).unwrap().movement.path.clone();
-        let pb = logic.get_object(b).unwrap().movement.path.clone();
+        let pa = logic.host_object(a).unwrap().movement.path.clone();
+        let pb = logic.host_object(b).unwrap().movement.path.clone();
         assert!(!pa.is_empty() && !pb.is_empty());
         let ga = *pa.last().unwrap();
         let gb = *pb.last().unwrap();
@@ -8226,7 +8240,7 @@ mod group_move_tests {
             exec.execute_move(&[a], Vec3::new(50.0, 0.0, 0.0)),
             CommandResult::Success
         );
-        let u = logic.get_object(a).unwrap();
+        let u = logic.host_object(a).unwrap();
         assert_eq!(u.next_mood_check_time, 80); // 50+30+0
     }
 }

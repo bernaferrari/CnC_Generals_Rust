@@ -8,6 +8,7 @@
 //!
 //! Fail-closed: not live InGameUI attack cursor / terrain-clamped ribbon.
 
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::presentation_frame::{PresentationFrame, RenderableObject};
 use glam::Vec3;
 use std::collections::HashMap;
@@ -139,7 +140,7 @@ mod tests {
             logic.templates.insert(name.into(), t);
             let _ = logic.create_object(name, Team::USA, pos).expect("spawn");
         }
-        let ids: Vec<_> = logic.get_objects().keys().copied().collect();
+        let ids: Vec<_> = logic.host_objects().keys().copied().collect();
         assert!(ids.len() >= 2);
         let (a, b) = (ids[0], ids[1]);
         if let Some(obj) = logic.host_object_mut(a) {

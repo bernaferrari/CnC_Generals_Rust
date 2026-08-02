@@ -9,6 +9,7 @@
 //! - Unit highlighting and mouseover effects
 //! - Integration with the existing input system and game logic
 
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{GameLogic, KindOf, ObjectId, Team};
 use crate::input_system::RtsInputSystem;
@@ -1274,7 +1275,7 @@ mod tests {
         );
         assert_eq!(picked, Some(id));
         // Live object is far away — presentation still hits origin residual.
-        let live_pos = logic.get_object(id).unwrap().get_position();
+        let live_pos = logic.host_object(id).unwrap().get_position();
         assert!(live_pos.x > 1000.0);
     }
 

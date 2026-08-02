@@ -13,6 +13,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+//! Wave 958: host_object dual-read seal (tests + residual).
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use log::info;
@@ -1778,7 +1779,7 @@ mod tests {
         assert!(logic.is_initialized());
         assert_eq!(logic.game_logic.game_mode(), GameMode::None);
         assert!(logic.game_logic.get_players().is_empty());
-        assert!(logic.game_logic.get_objects().is_empty());
+        assert!(logic.game_logic.host_objects().is_empty());
 
         logic.game_logic.start_new_game(GameMode::Skirmish);
         assert_eq!(logic.game_logic.game_mode(), GameMode::Skirmish);

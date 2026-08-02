@@ -2,6 +2,7 @@
 
 //!
 //! Wave 956: host_object/host_objects authority dual-read seal.
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{
     AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition,
@@ -259,7 +260,7 @@ mod tests {
         let enemy = logic
             .create_object("E", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
-        assert!(logic.get_object(ranger).unwrap().weapon.is_some());
+        assert!(logic.host_object(ranger).unwrap().weapon.is_some());
         logic.queue_command(cmd(
             1,
             CommandType::AttackObject { target_id: enemy },
@@ -269,7 +270,7 @@ mod tests {
         for _ in 0..400 {
             logic.update();
             if !logic
-                .get_object(enemy)
+                .host_object(enemy)
                 .map(|o| o.is_alive())
                 .unwrap_or(false)
             {
@@ -277,7 +278,7 @@ mod tests {
             }
         }
         let enemy_dead = logic
-            .get_object(enemy)
+            .host_object(enemy)
             .map(|o| !o.is_alive())
             .unwrap_or(true); // removed from world after destroy list
         assert!(enemy_dead, "enemy should die via update_combat weapon path");

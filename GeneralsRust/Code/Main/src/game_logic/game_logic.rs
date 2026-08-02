@@ -26986,14 +26986,16 @@ impl GameLogic {
         false
     }
 
-    /// Find object by ID
+    /// Wave 958: legacy alias — prefer [`Self::host_object`].
+    #[inline]
     pub fn find_object(&self, id: ObjectId) -> Option<&Object> {
-        self.objects.get(&id)
+        self.host_object(id)
     }
 
-    /// Find mutable object by ID
+    /// Wave 958: legacy alias — prefer [`Self::host_object_mut`].
+    #[inline]
     pub fn find_object_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
-        self.objects.get_mut(&id)
+        self.host_object_mut(id)
     }
 
     /// Find the nearest supply center (refinery/supply dropzone) for a team.
@@ -27098,9 +27100,10 @@ impl GameLogic {
         .map(|(id, _, _)| id)
     }
 
-    /// Get all objects
+    /// Wave 958: legacy alias — prefer [`Self::host_objects`].
+    #[inline]
     pub fn get_objects(&self) -> &HashMap<ObjectId, Object> {
-        &self.objects
+        self.host_objects()
     }
 
     /// Partition-backed candidate ids near a world position (empty if partition cold).
@@ -27114,9 +27117,10 @@ impl GameLogic {
             .collect()
     }
 
-    /// Get mutable objects
+    /// Wave 958: legacy alias — prefer [`Self::host_objects_mut`].
+    #[inline]
     pub fn get_objects_mut(&mut self) -> &mut HashMap<ObjectId, Object> {
-        &mut self.objects
+        self.host_objects_mut()
     }
 
     /// Get all players (for snapshot/save system)
@@ -28853,36 +28857,37 @@ impl GameLogic {
         let obj = self.get_objects_mut().get_mut(&id)?;
         Some(f(obj))
     }
-    /// Wave 946–951: host object access (shadow/writeback/channel/presentation/commands).
-    /// Prefer [`Self::with_host_object_mut`] when the mutation is a closed block.
-    /// Wave 951: host object immutable access for outside-crate dual-read peels.
+
+    /// Wave 955/958: host-authority object borrow (preferred over get_object dual-read).
     #[inline]
     pub fn host_object(&self, id: ObjectId) -> Option<&crate::game_logic::object::Object> {
-        self.get_object(id)
+        self.objects.get(&id)
     }
 
-    /// Wave 955: host-authority object map borrow (command apply / AI / shadow).
+    /// Wave 955/958: host-authority object map borrow (command apply / AI / shadow).
     /// Presentation dual-read paths must use `PresentationFrame`, not this.
     #[inline]
     pub fn host_objects(
         &self,
     ) -> &std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
-        self.get_objects()
+        &self.objects
     }
 
-    /// Wave 955: host-authority mutable object map borrow.
+    /// Wave 955/958: host-authority mutable object map borrow.
     #[inline]
     pub fn host_objects_mut(
         &mut self,
     ) -> &mut std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
-        self.get_objects_mut()
+        &mut self.objects
     }
 
+    /// Wave 950/958: host-authority mutable object borrow.
+    #[inline]
     pub fn host_object_mut(
         &mut self,
         id: ObjectId,
     ) -> Option<&mut crate::game_logic::object::Object> {
-        self.get_objects_mut().get_mut(&id)
+        self.objects.get_mut(&id)
     }
 
     /// Issue attack command to selected objects
@@ -66246,14 +66251,16 @@ impl GameLogic {
 
     // Command system compatibility methods
 
-    /// Get object by ID
+    /// Wave 958: legacy alias — prefer [`Self::host_object`] at authority boundaries.
+    #[inline]
     pub fn get_object(&self, id: ObjectId) -> Option<&Object> {
-        self.objects.get(&id)
+        self.host_object(id)
     }
 
-    /// Get mutable object by ID
+    /// Wave 958: legacy alias — prefer [`Self::host_object_mut`] at authority boundaries.
+    #[inline]
     pub fn get_object_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
-        self.objects.get_mut(&id)
+        self.host_object_mut(id)
     }
 
     /// Wave 227: alive probe without exposing `&Object` to engine dual-read paths.

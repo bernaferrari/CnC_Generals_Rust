@@ -268,6 +268,7 @@ pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_mouse_presentation_only_residual_wave906;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
+pub mod host_live_host_object_api_alias_seal_residual_wave958;
 pub mod host_live_host_object_lifecycle_boundary_residual_wave931;
 pub mod host_live_host_object_scan_unify_residual_wave853;
 pub mod host_live_host_observe_failclosed_residual_wave898;
@@ -3213,6 +3214,13 @@ pub use host_live_host_harness_host_object_seal_residual_wave957::{
     honesty_host_harness_host_object_seal_nav_commands_residual_wave957,
     honesty_host_harness_host_object_seal_residual_pack_wave957,
     simulate_live_host_harness_host_object_seal_honesty,
+};
+
+pub use host_live_host_object_api_alias_seal_residual_wave958::{
+    honesty_host_object_api_alias_seal_method_names_residual_wave958,
+    honesty_host_object_api_alias_seal_nav_commands_residual_wave958,
+    honesty_host_object_api_alias_seal_residual_pack_wave958,
+    simulate_live_host_object_api_alias_seal_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

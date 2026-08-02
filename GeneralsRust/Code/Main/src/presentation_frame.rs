@@ -8,6 +8,7 @@
 
 //!
 //! Wave 956: host_object/host_objects when building presentation from host.
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility, PresentationFowGrid};
 use crate::game_logic::host_base_defense::{
     build_patriot_laser_line3d_segments, PatriotAssistLaserKind, ResidualPatriotAssistLaser,
@@ -10663,7 +10664,7 @@ mod tests {
         );
         assert!(
             logic
-                .get_object(bid)
+                .host_object(bid)
                 .is_some_and(|o| o.building_data.is_some()),
             "barracks lost building_data"
         );
@@ -10678,7 +10679,7 @@ mod tests {
             Some(bid.0),
             "frame2 producer; local_sel={:?} objs={}",
             logic.get_player(0).map(|p| p.selected_objects.clone()),
-            logic.get_objects().len()
+            logic.host_objects().len()
         );
         let burton2 = frame2
             .can_make_cameos
@@ -14688,25 +14689,25 @@ mod tests {
         // Wave 562: weapon before attack_target; instant-hit; vehicle SlowDeath
         // defers remove (~1s / 30 frames). Advance until destroy list purges.
         {
-            let a = logic.get_object(attacker).expect("attacker pre");
+            let a = logic.host_object(attacker).expect("attacker pre");
             assert!(a.weapon.is_some(), "weapon bound before attack_target");
             assert!(a.can_attack(), "can_attack requires weapon");
             assert_eq!(a.target, Some(victim), "attack_target must set target");
         }
         for _ in 0..48 {
             logic.update();
-            if logic.find_object(victim).is_none() {
+            if logic.host_object(victim).is_none() {
                 break;
             }
         }
         // SlowDeath residual may leave 0.01 HP until destroy frame; force purge once done.
-        if let Some(v) = logic.find_object(victim) {
+        if let Some(v) = logic.host_object(victim) {
             if v.health.current <= 0.01 {
                 logic.process_destroy_list();
             }
         }
         for _ in 0..8 {
-            if logic.find_object(victim).is_none() {
+            if logic.host_object(victim).is_none() {
                 break;
             }
             logic.update();
@@ -14714,9 +14715,9 @@ mod tests {
         }
 
         assert!(
-            logic.find_object(victim).is_none()
+            logic.host_object(victim).is_none()
                 || logic
-                    .find_object(victim)
+                    .host_object(victim)
                     .is_some_and(|v| v.status.destroyed || v.health.current <= 0.01),
             "victim should be lethal after combat (destroyed or SlowDeath residual)"
         );

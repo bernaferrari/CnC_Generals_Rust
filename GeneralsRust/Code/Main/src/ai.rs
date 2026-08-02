@@ -1,4 +1,5 @@
 //! Wave 956: host_object/host_objects authority dual-read seal.
+//! Wave 958: host_object dual-read seal (tests + residual).
 use crate::game_logic::host_rng_residual::HostRandomState;
 use crate::game_logic::*;
 use glam::Vec3;
@@ -1168,7 +1169,7 @@ impl AIPlayer {
                     game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
                 } else {
                     // Fallback residual when A* fails (blocked goal).
-                    if let Some(unit) = game_logic.find_object_mut(unit_id) {
+                    if let Some(unit) = game_logic.host_object_mut(unit_id) {
                         unit.move_to(enemy_base);
                     }
                     game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
@@ -1891,7 +1892,7 @@ mod cpp_parity_tests {
         ai.enemy_player_id = gla_id;
         ai.is_active = true;
         let usa_unit = logic
-            .get_objects()
+            .host_objects()
             .iter()
             .find(|(_, o)| o.team == Team::USA && o.is_alive())
             .map(|(id, _)| *id)
@@ -1905,7 +1906,7 @@ mod cpp_parity_tests {
         ai.launch_attack(&mut logic, 1000.0);
         let decisions = host_ai_decision_log::drain();
         let unit = logic
-            .get_objects()
+            .host_objects()
             .get(&usa_unit)
             .expect("usa unit after launch");
         assert!(
@@ -1942,7 +1943,10 @@ mod cpp_parity_tests {
         }
         ai.launch_attack(&mut logic, 2000.0);
         let logged = host_attack_log::drain();
-        let unit = logic.get_objects().get(&usa_unit).expect("usa unit legacy");
+        let unit = logic
+            .host_objects()
+            .get(&usa_unit)
+            .expect("usa unit legacy");
         assert!(
             unit.target.is_some() && !logged.is_empty(),
             "legacy launch_attack must set_target and host_attack_log"
