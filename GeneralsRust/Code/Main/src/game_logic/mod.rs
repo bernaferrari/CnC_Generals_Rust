@@ -242,6 +242,7 @@ pub mod host_live_host_lifetime_expire_dual_peel_residual_wave768;
 pub mod host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745;
 pub mod host_live_host_load_path_stamp_peels_residual_wave918;
 pub mod host_live_host_load_queue_process_boundaries_residual_wave922;
+pub mod host_live_host_main_host_object_mut_seal_residual_wave948;
 pub mod host_live_host_map_name_failclosed_residual_wave860;
 pub mod host_live_host_map_primary_enemy_residual_wave830;
 pub mod host_live_host_map_shell_failclosed_residual_wave896;
@@ -3133,6 +3134,13 @@ pub use host_live_host_shadow_host_object_mut_seal_residual_wave947::{
     honesty_host_shadow_host_object_mut_seal_nav_commands_residual_wave947,
     honesty_host_shadow_host_object_mut_seal_residual_pack_wave947,
     simulate_live_host_shadow_host_object_mut_seal_honesty,
+};
+
+pub use host_live_host_main_host_object_mut_seal_residual_wave948::{
+    honesty_host_main_host_object_mut_seal_method_names_residual_wave948,
+    honesty_host_main_host_object_mut_seal_nav_commands_residual_wave948,
+    honesty_host_main_host_object_mut_seal_residual_pack_wave948,
+    simulate_live_host_main_host_object_mut_seal_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

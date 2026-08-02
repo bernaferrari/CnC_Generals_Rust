@@ -9777,7 +9777,7 @@ mod tests {
             .expect("id");
         {
             use crate::game_logic::Weapon;
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic./* Wave 948 */ host_object_mut(id).expect("obj");
             obj.selected = true;
             obj.status.stealthed = true;
             obj.status.detected = false;
@@ -9804,7 +9804,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         // Poison host after sync — overlay must use shadow residual.
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.position = glam::Vec3::new(999.0, 0.0, 999.0);
             obj.selected = false;
             obj.command_set_override = None;
@@ -9982,7 +9982,7 @@ mod tests {
             .expect("id");
         {
             use crate::game_logic::{BuildingData, BuildingType};
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.selected = true;
             obj.object_type = crate::game_logic::ObjectType::Building;
             obj.building_data = Some(BuildingData::new(BuildingType::Barracks));
@@ -10019,7 +10019,7 @@ mod tests {
             .create_object("PresDS", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.is_detector = true;
             obj.detection_range = 250.0;
             obj.detection_rate_frames = 15;
@@ -10071,7 +10071,7 @@ mod tests {
             .create_object("PresTK", Team::GLA, glam::Vec3::new(8.0, 0.0, 6.0))
             .expect("src");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.is_humvee_transport = true;
             obj.is_listening_outpost_transport = true;
             obj.is_troop_crawler_transport = true;
@@ -10115,7 +10115,7 @@ mod tests {
             .create_object("PresHC", Team::GLA, glam::Vec3::new(5.0, 0.0, 5.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.continuous_fire_level = 2;
             obj.faerie_fire_until_frame = 77;
             obj.hive_slave_count = 3;
@@ -10162,7 +10162,7 @@ mod tests {
             .create_object("PresBP", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.weapon_bonus_battle_plan_bombardment = true;
             obj.weapon_bonus_battle_plan_hold_the_line = true;
             obj.weapon_bonus_battle_plan_search_and_destroy = true;
@@ -10214,7 +10214,7 @@ mod tests {
             .create_object("CbCS", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.selected = true;
             obj.command_set_override = Some("CommandSetAmericaDozer".into());
         }
@@ -10241,7 +10241,7 @@ mod tests {
             .create_object("PresCD", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.command_set_override = Some("Command_AmericaDozer".into());
             obj.is_detector = true;
             obj.active_weapon_slot = 1;
@@ -10284,7 +10284,7 @@ mod tests {
             .create_object("PresTB", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
             .expect("id");
         {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
+            let obj = logic.host_object_mut(id).expect("obj");
             obj.turret_angle_deg = 33.0;
             obj.turret_pitch_deg = 12.0;
             obj.turret_idle_scanning = true;
@@ -11172,7 +11172,7 @@ mod tests {
         let id = logic
             .create_object("Overlord", Team::China, glam::Vec3::new(1.0, 0.0, 2.0))
             .expect("id");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.applied_upgrades.insert("Upgrade_ChinaChainGuns".into());
             obj.applied_upgrades.insert("Upgrade_Nationalism".into());
             obj.secondary_weapon = Some(Weapon {
@@ -11216,7 +11216,7 @@ mod tests {
         let id = logic
             .create_object("ParticleUplink", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.special_power_ready = false;
             obj.special_power_cooldown = 180.0;
             obj.special_power_cooldown_remaining = 45.0;
@@ -11229,7 +11229,7 @@ mod tests {
         let frac = PresentationFrame::special_power_cooldown_fraction(o);
         assert!((frac - 0.25).abs() < 0.01);
         assert!(frame.special_power_ready_objects().is_empty());
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.special_power_ready = true;
             obj.special_power_cooldown_remaining = 0.0;
         }
@@ -11310,7 +11310,7 @@ mod tests {
         let bid = logic
             .create_object("Bunker", Team::USA, glam::Vec3::new(8.0, 0.0, 0.0))
             .expect("b");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&uid) {
+        if let Some(obj) = logic.host_object_mut(uid) {
             obj.weapon = Some(Weapon {
                 damage: 12.0,
                 range: 150.0,
@@ -11361,7 +11361,7 @@ mod tests {
         assert_eq!(frame.attacking_units().len(), 1);
         assert_eq!(frame.contained_units().len(), 1);
         // pure stealth unit without disguise
-        if let Some(obj) = logic.get_objects_mut().get_mut(&uid) {
+        if let Some(obj) = logic.host_object_mut(uid) {
             obj.status.disguised = false;
             obj.disguise_as_template = None;
             obj.disguise_as_team = None;
@@ -11390,11 +11390,11 @@ mod tests {
         let bid = logic
             .create_object("BuildMe", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
             .expect("b");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&uid) {
+        if let Some(obj) = logic.host_object_mut(uid) {
             obj.experience.level = VeterancyLevel::Elite;
             obj.experience.current = 420.0;
         }
-        if let Some(obj) = logic.get_objects_mut().get_mut(&bid) {
+        if let Some(obj) = logic.host_object_mut(bid) {
             obj.status.under_construction = true;
             obj.construction_percent = 0.55;
         }
@@ -11421,7 +11421,7 @@ mod tests {
         let id = logic
             .create_object("GarrBldg", Team::USA, glam::Vec3::ZERO)
             .expect("b");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             let mut bd = BuildingData::new(BuildingType::Bunker);
             bd.garrisoned_units = vec![ObjectId(10), ObjectId(11)];
             bd.max_garrison = 5;
@@ -11517,7 +11517,7 @@ mod tests {
         let id = logic
             .create_object("ProdBldg", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("b");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             let mut bd = BuildingData::new(BuildingType::Barracks);
             bd.production_queue.push(ProductionItem {
                 template_name: "Ranger".into(),
@@ -11587,7 +11587,7 @@ mod tests {
                 glam::Vec3::new(1.0, 0.0, 1.0),
             )
             .expect("u");
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.movement.target_position = Some(glam::Vec3::new(9.0, 0.0, 4.0));
             obj.target = Some(crate::game_logic::ObjectId(99));
             obj.movement.path = vec![

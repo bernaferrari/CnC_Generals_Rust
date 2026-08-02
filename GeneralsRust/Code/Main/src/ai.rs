@@ -1891,7 +1891,7 @@ mod cpp_parity_tests {
             .find(|(_, o)| o.team == Team::USA && o.is_alive())
             .map(|(id, _)| *id)
             .expect("usa unit");
-        if let Some(o) = logic.get_objects_mut().get_mut(&usa_unit) {
+        if let Some(o) = logic.host_object_mut(usa_unit) {
             o.weapon = Some(Weapon {
                 damage: 10.0,
                 ..Weapon::default()
@@ -1929,7 +1929,7 @@ mod cpp_parity_tests {
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
         host_attack_log::clear();
         host_ai_decision_log::clear();
-        if let Some(o) = logic.get_objects_mut().get_mut(&usa_unit) {
+        if let Some(o) = logic.host_object_mut(usa_unit) {
             o.target = None;
             o.ai_state = AIState::Idle;
             o.movement.path.clear();

@@ -771,7 +771,7 @@ mod tests {
             .create_object("IipUnit", Team::USA, glam::Vec3::new(12.0, 0.0, 18.0))
             .expect("id");
         let frame = PresentationFrame::build_from_logic(&logic, 0);
-        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+        if let Some(obj) = logic.host_object_mut(id) {
             obj.position = glam::Vec3::new(8888.0, 0.0, 8888.0);
         }
         let input = Arc::new(Mutex::new(RtsInputSystem::new()));

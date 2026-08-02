@@ -28853,7 +28853,7 @@ impl GameLogic {
         let obj = self.get_objects_mut().get_mut(&id)?;
         Some(f(obj))
     }
-    /// Wave 946/947: host object mut access for shadow writeback + channel tests.
+    /// Wave 946/947/948: host object mut access for shadow, channel, presentation, input tests.
     /// Prefer [`Self::with_host_object_mut`] when the mutation is a closed block.
     pub fn host_object_mut(
         &mut self,
