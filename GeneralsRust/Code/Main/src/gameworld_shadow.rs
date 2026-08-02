@@ -18856,11 +18856,17 @@ pub fn shadow_session_after_host_tick(
         let _cst_ready = logic.host_apply_combat_status_ready_completions();
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
-    // Wave 714: same-frame host complete/spawn from ready-log after GW writeback.
-    logic.host_apply_production_completions_after_ready_writeback(1.0 / 30.0);
+    // Wave 714/937: same-frame host complete/spawn via production authority boundary after GW writeback.
+    let _ = logic.apply_production_authority_op(
+        crate::game_logic::ProductionAuthorityOp::ApplyCompletionsAfterReadyWriteback {
+            dt: 1.0 / 30.0,
+        },
+    );
     let _ = shadow.writeback_production_door_to_host(logic);
-    // Wave 627: drain production-door ready log after GW writeback.
-    let _door_ready = logic.host_apply_production_door_ready_completions();
+    // Wave 627/937: drain production-door ready log via production authority boundary after GW writeback.
+    let _door_ready = logic.apply_production_authority_op(
+        crate::game_logic::ProductionAuthorityOp::ApplyDoorReadyCompletions,
+    );
     let _ = shadow.writeback_body_damage_to_host(logic);
     // Wave 623: drain body-damage ready log after GW body-state writeback.
     let _body_ready = logic.host_apply_body_damage_ready_completions();
