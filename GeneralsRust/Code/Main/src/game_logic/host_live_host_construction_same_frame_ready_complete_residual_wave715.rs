@@ -10,6 +10,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE715: &[&str] = &[
     "host_apply_construction_completions_after_ready_writeback",
+    "apply_post_writeback_complete_op",
+    "ConstructionCompletionsAfterReadyWriteback",
     "gameworld_construction_sole_tick_enabled",
     "writeback_construction_to_host",
     "host_construction_ready_log",
@@ -106,11 +108,15 @@ pub fn honesty_host_construction_same_frame_ready_complete_source_markers_residu
             None => false,
         }
     };
-    let sh_ok = sh.contains("host_apply_construction_completions_after_ready_writeback")
+    let sh_ok = (sh.contains("host_apply_construction_completions_after_ready_writeback")
+        || sh.contains("ConstructionCompletionsAfterReadyWriteback")
+        || sh.contains("apply_post_writeback_complete_op"))
         && sh.contains("Wave 715");
     let order_ok = match (
         sh.find("let _construction_wb = shadow.writeback_construction_to_host"),
-        sh.find("host_apply_construction_completions_after_ready_writeback"),
+        sh.find("host_apply_construction_completions_after_ready_writeback")
+            .or_else(|| sh.find("ConstructionCompletionsAfterReadyWriteback"))
+            .or_else(|| sh.find("apply_post_writeback_complete_op")),
     ) {
         (Some(w), Some(c)) => c > w && c - w < 400,
         _ => false,
@@ -136,7 +142,9 @@ pub fn honesty_host_construction_same_frame_ready_complete_nav_commands_residual
 }
 pub fn simulate_host_construction_same_frame_ready_complete_collect_source() -> bool {
     let ok = gl_source().contains("host_apply_construction_completions_after_ready_writeback")
-        && shadow_source().contains("host_apply_construction_completions_after_ready_writeback");
+        && (shadow_source().contains("host_apply_construction_completions_after_ready_writeback")
+            || shadow_source().contains("ConstructionCompletionsAfterReadyWriteback")
+            || shadow_source().contains("apply_post_writeback_complete_op"));
     residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::CollectSource);
     ok
 }
