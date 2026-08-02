@@ -3101,6 +3101,30 @@ pub enum HostSupportResult {
     Unit,
 }
 
+/// Wave 937: production complete/spawn authority payload.
+#[derive(Debug, Clone)]
+pub enum ProductionAuthorityOp {
+    /// Sole-tick path: collect ready producers after GW writeback, then apply.
+    ApplyCompletionsAfterReadyWriteback { dt: f32 },
+    /// Spawn one completed unit (ObjectId host bind residual).
+    SpawnUnit {
+        template: String,
+        team: Team,
+        spawn_pos: glam::Vec3,
+    },
+    /// Drain production spawn-ready log into host door/notify residuals.
+    ApplySpawnReadyCompletions,
+    /// Drain production door-ready log into host door model residuals.
+    ApplyDoorReadyCompletions,
+}
+
+/// Wave 937: result for [`ProductionAuthorityOp`].
+#[derive(Debug, Clone, Copy)]
+pub enum ProductionAuthorityResult {
+    Unit,
+    Spawned(Option<ObjectId>),
+}
+
 impl GameLogic {
     fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -8143,7 +8167,16 @@ impl GameLogic {
         // Wave 595: host unit production completion residual.
         for (team, template, spawn_pos, rally, producer_id) in unit_completions {
             // Wave 615: production unit spawn via host helper (still host ID authority).
-            if let Some(new_id) = self.host_spawn_production_unit(&template, team, spawn_pos) {
+            let new_id =
+                match self.apply_production_authority_op(ProductionAuthorityOp::SpawnUnit {
+                    template: template.clone(),
+                    team,
+                    spawn_pos,
+                }) {
+                    ProductionAuthorityResult::Spawned(id) => id,
+                    _ => None,
+                };
+            if let Some(new_id) = new_id {
                 crate::game_logic::host_production_log::record_complete(
                     producer_id,
                     template.clone(),
@@ -8158,7 +8191,9 @@ impl GameLogic {
                     [spawn_pos.x, spawn_pos.y, spawn_pos.z],
                     rally.map(|r| [r.x, r.y, r.z]),
                 );
-                let _ = self.host_apply_production_spawn_ready_completions();
+                let _ = self.apply_production_authority_op(
+                    ProductionAuthorityOp::ApplySpawnReadyCompletions,
+                );
             }
         }
     }
@@ -27698,6 +27733,35 @@ impl GameLogic {
             HostSupportOp::InsertThingTemplate { name, template } => {
                 self.templates.insert(name, template);
                 HostSupportResult::Unit
+            }
+        }
+    }
+
+    /// Wave 937: single production complete/spawn authority boundary.
+    #[inline]
+    pub fn apply_production_authority_op(
+        &mut self,
+        op: ProductionAuthorityOp,
+    ) -> ProductionAuthorityResult {
+        match op {
+            ProductionAuthorityOp::ApplyCompletionsAfterReadyWriteback { dt } => {
+                self.host_apply_production_completions_after_ready_writeback(dt);
+                ProductionAuthorityResult::Unit
+            }
+            ProductionAuthorityOp::SpawnUnit {
+                template,
+                team,
+                spawn_pos,
+            } => ProductionAuthorityResult::Spawned(
+                self.host_spawn_production_unit(&template, team, spawn_pos),
+            ),
+            ProductionAuthorityOp::ApplySpawnReadyCompletions => {
+                self.host_apply_production_spawn_ready_completions();
+                ProductionAuthorityResult::Unit
+            }
+            ProductionAuthorityOp::ApplyDoorReadyCompletions => {
+                self.host_apply_production_door_ready_completions();
+                ProductionAuthorityResult::Unit
             }
         }
     }

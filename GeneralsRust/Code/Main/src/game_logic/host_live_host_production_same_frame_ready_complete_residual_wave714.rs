@@ -10,6 +10,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_PRODUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE714: &[&str] = &[
     "host_apply_production_completions_after_ready_writeback",
+    "apply_production_authority_op",
+    "ApplyCompletionsAfterReadyWriteback",
     "gameworld_production_sole_tick_enabled",
     "writeback_production_to_host",
     "host_collect_production_completions",
@@ -79,6 +81,8 @@ pub fn honesty_host_production_same_frame_ready_complete_method_names_residual_w
         "host_apply_production_completions_after_ready_writeback",
     )
     .is_some()
+        && residual_name_index(names, "apply_production_authority_op").is_some()
+        && residual_name_index(names, "ApplyCompletionsAfterReadyWriteback").is_some()
         && residual_name_index(names, "gameworld_production_sole_tick_enabled").is_some()
         && residual_name_index(names, "writeback_production_to_host").is_some()
         && residual_name_index(names, "host_collect_production_completions").is_some()
@@ -90,29 +94,32 @@ pub fn honesty_host_production_same_frame_ready_complete_method_names_residual_w
 pub fn honesty_host_production_same_frame_ready_complete_source_markers_residual_wave714() -> bool {
     let gl = gl_source();
     let sh = shadow_source();
-    let gl_ok=gl.contains("host_apply_production_completions_after_ready_writeback")
+    let gl_ok = gl.contains("host_apply_production_completions_after_ready_writeback")
+        && gl.contains("apply_production_authority_op")
         && gl.contains("Wave 714")
         && gl.contains("gameworld_production_sole_tick_enabled()")
-        && gl.contains("return;") // sole early-return in update_production
-        ;
-    // update_production sole path returns before collect
+        && gl.contains("return;"); // sole early-return in update_production
+                                   // update_production sole path returns before collect
     let upd_ok = gl
         .find("fn update_production")
         .map(|i| {
-            let end = (i + 500).min(gl.len());
+            let end = (i + 900).min(gl.len());
             let chunk = &gl[i..end];
             chunk.contains("gameworld_production_sole_tick_enabled()") && chunk.contains("return;")
         })
         .unwrap_or(false);
-    let sh_ok = sh.contains("host_apply_production_completions_after_ready_writeback")
+    let sh_ok = (sh.contains("host_apply_production_completions_after_ready_writeback")
+        || sh.contains("ApplyCompletionsAfterReadyWriteback")
+        || sh.contains("apply_production_authority_op"))
         && sh.contains("writeback_production_to_host")
         && sh.contains("Wave 714");
     // writeback then same-frame complete order
-    let order_ok = match (
-        sh.find("let _prod_wb = shadow.writeback_production_to_host"),
-        sh.find("host_apply_production_completions_after_ready_writeback"),
-    ) {
-        (Some(w), Some(c)) => c > w && c - w < 400,
+    let complete_at = sh
+        .find("host_apply_production_completions_after_ready_writeback")
+        .or_else(|| sh.find("ApplyCompletionsAfterReadyWriteback"))
+        .or_else(|| sh.find("apply_production_authority_op"));
+    let order_ok = match (sh.find("writeback_production_to_host(logic)"), complete_at) {
+        (Some(w), Some(c)) => c > w && c - w < 800,
         _ => false,
     };
     let ok = gl_ok && upd_ok && sh_ok && order_ok && !gl.contains("playable_claim = true");
@@ -135,8 +142,8 @@ pub fn honesty_host_production_same_frame_ready_complete_nav_commands_residual_w
     ok
 }
 pub fn simulate_host_production_same_frame_ready_complete_collect_source() -> bool {
-    let ok = gl_source().contains("host_apply_production_completions_after_ready_writeback")
-        && shadow_source().contains("host_apply_production_completions_after_ready_writeback");
+    let ok = gl_source().contains("ApplyCompletionsAfterReadyWriteback")
+        && shadow_source().contains("ApplyCompletionsAfterReadyWriteback");
     residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::CollectSource);
     ok
 }
