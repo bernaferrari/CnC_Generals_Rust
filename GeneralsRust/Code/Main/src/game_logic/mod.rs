@@ -374,6 +374,7 @@ pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_sole_authority_surface_residual_wave936;
 pub mod host_live_host_sole_tick_object_id_boundary_residual_wave940;
+pub mod host_live_host_sp_prisoner_allow_surrender_off_residual_wave989;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_catalog_residual_wave971;
 pub mod host_live_host_special_power_same_frame_ready_eva_residual_wave717;
@@ -3463,6 +3464,13 @@ pub use host_live_host_model_cond_weather_residual_wave988::{
     honesty_host_model_cond_weather_residual_nav_commands_residual_wave988,
     honesty_host_model_cond_weather_residual_residual_pack_wave988,
     simulate_live_host_model_cond_weather_residual_honesty,
+};
+
+pub use host_live_host_sp_prisoner_allow_surrender_off_residual_wave989::{
+    honesty_host_sp_prisoner_allow_surrender_off_residual_method_names_residual_wave989,
+    honesty_host_sp_prisoner_allow_surrender_off_residual_nav_commands_residual_wave989,
+    honesty_host_sp_prisoner_allow_surrender_off_residual_residual_pack_wave989,
+    simulate_live_host_sp_prisoner_allow_surrender_off_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
