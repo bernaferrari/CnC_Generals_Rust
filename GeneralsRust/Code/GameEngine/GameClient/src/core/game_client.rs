@@ -3785,6 +3785,20 @@ impl GameClient {
         ui.push_military_subtitle(text, ms);
     }
 
+    /// Wave 1060: presentation floating cash/text residual → InGameUI subsystem residual.
+    pub fn apply_presentation_floating_texts(
+        &mut self,
+        entries: &[(String, [f32; 3], (u8, u8, u8), u32, u32)],
+    ) {
+        let Some(ref ui) = self.subsystem_manager.in_game_ui else {
+            return;
+        };
+        let Ok(mut ui) = ui.lock() else {
+            return;
+        };
+        ui.replace_floating_texts_from_presentation(entries);
+    }
+
     /// Apply presentation cinematic text residual as InGameUI HUD message.
     ///
     /// Mirrors C++ display_cinematic_text → TheInGameUI::message path.

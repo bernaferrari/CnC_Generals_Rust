@@ -1078,6 +1078,8 @@ pub struct InGameUISubsystem {
     command_log: VecDeque<CommandLogEntry>,
     hud_messages: VecDeque<String>,
     military_subtitles: VecDeque<(String, i32)>,
+    /// Wave 1060: presentation floating cash/text residual.
+    presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
     tooltips_disabled_until: u32,
     radar_pings: VecDeque<RadarPingEvent>,
     pending_place_template: Option<String>,
@@ -1240,6 +1242,18 @@ impl InGameUISubsystem {
             .push_back((label.to_string(), duration_ms));
         let duration_frames = ((duration_ms.max(0) as u32).saturating_mul(30)) / 1000;
         self.disable_tooltips_until(TheGameLogic::get_frame().saturating_add(duration_frames));
+    }
+
+    /// Wave 1060: stamp presentation floating text residual.
+    pub fn replace_floating_texts_from_presentation(
+        &mut self,
+        entries: &[(String, [f32; 3], (u8, u8, u8), u32, u32)],
+    ) {
+        self.presentation_floating_texts = entries.to_vec();
+    }
+
+    pub fn presentation_floating_texts(&self) -> &[(String, [f32; 3], (u8, u8, u8), u32, u32)] {
+        &self.presentation_floating_texts
     }
 
     /// Wave 964: stamp presentation selection residual.
@@ -1556,6 +1570,7 @@ impl InGameUISubsystem {
         self.command_log.clear();
         self.hud_messages.clear();
         self.military_subtitles.clear();
+        self.presentation_floating_texts.clear();
         self.tooltips_disabled_until = 0;
         self.radar_pings.clear();
         self.pending_place_template = None;
