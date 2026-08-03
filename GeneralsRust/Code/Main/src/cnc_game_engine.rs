@@ -20213,6 +20213,22 @@ impl CnCGameEngine {
                 pres.military_caption.as_deref(),
                 pres.military_caption_remaining_ms,
             );
+            // Wave 1060: floating cash/text residual → InGameUI.
+            let floating: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)> = pres
+                .floating_texts
+                .iter()
+                .map(|ft| {
+                    (
+                        ft.text.clone(),
+                        [ft.position.x, ft.position.y, ft.position.z],
+                        (ft.color_rgba.0, ft.color_rgba.1, ft.color_rgba.2),
+                        ft.spawn_frame,
+                        ft.timeout_frame.saturating_sub(ft.spawn_frame).max(1),
+                    )
+                })
+                .collect();
+            self.game_client
+                .apply_presentation_floating_texts(&floating);
             // Cinematic text residual → InGameUI HUD message.
             self.game_client
                 .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
