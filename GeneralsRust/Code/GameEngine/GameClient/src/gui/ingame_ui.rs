@@ -1549,10 +1549,16 @@ impl InGameUI {
         // Full overridable-destination module walk requires dual-world; ready residual is
         // the host-safe approximation for pending SP destination override UI.
         if dual_world_registry_unavailable() {
-            return self
-                .presentation_unit_catalog
-                .iter()
-                .any(|u| u.object_id == source_object_id && u.special_power_ready);
+            // Wave 1088: SP override-destination source residual fail-closed on
+            // destroyed/sold/disabled/under-construction (matches is_valid_special_power_target).
+            return self.presentation_unit_catalog.iter().any(|u| {
+                u.object_id == source_object_id
+                    && u.special_power_ready
+                    && !u.destroyed
+                    && !u.sold
+                    && !u.disabled
+                    && !u.under_construction
+            });
         }
 
         if source_object_id == 0 {
@@ -4550,6 +4556,11 @@ impl InGameUI {
             else {
                 return Self::INVALID_DRAWABLE_ID;
             };
+            // Wave 1088: mouseover lookup residual fail-closed on destroyed/sold/masked
+            // before IgnoredInGui→slaver remap (matches create_mouseover_hint peels).
+            if entry.destroyed || entry.sold || entry.masked {
+                return Self::INVALID_DRAWABLE_ID;
+            }
             let ignored = entry
                 .kind_names
                 .iter()
@@ -4815,6 +4826,11 @@ impl InGameUI {
                 .presentation_unit_catalog
                 .iter()
                 .find(|u| u.object_id == object_id)?;
+            // Wave 1088: command-hint source residual fail-closed on unusable
+            // sources (dead/sold/masked/disabled must not drive MoveTo structure cursor).
+            if entry.destroyed || entry.sold || entry.masked || entry.disabled {
+                return None;
+            }
             let local = !self.presentation_local_team_name.is_empty()
                 && entry.team_name == self.presentation_local_team_name;
             let is_structure = entry
