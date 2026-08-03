@@ -858,6 +858,13 @@ pub struct PresentationSelectedUnitResidual {
     pub health_pct: f32,
     /// Debug/Display names of KindOf flags from presentation freeze.
     pub kind_names: Vec<String>,
+    /// Wave 1040: legality residual for dual selection HUD (C++ status bits).
+    pub destroyed: bool,
+    pub sold: bool,
+    pub unselectable: bool,
+    pub masked: bool,
+    pub effectively_stealthed: bool,
+    pub team_name: String,
 }
 
 /// Wave 966: presentation unit catalog residual for host select-similar / matching.
@@ -2624,6 +2631,16 @@ impl InGameUI {
         renderer: &mut UIRenderer,
     ) -> std::result::Result<(), String> {
         for u in &self.presentation_selected {
+            // Wave 1040: skip illegal selection HUD residuals.
+            if u.destroyed || u.sold || u.unselectable || u.masked || u.health_pct <= 0.0 {
+                continue;
+            }
+            if u.effectively_stealthed {
+                let local = crate::presentation_translator_residual::translator_local_team_name();
+                if local.is_empty() || u.team_name != local {
+                    continue;
+                }
+            }
             let world = Coord3D::new(u.position[0], u.position[1], u.position[2]);
             let Some(screen) = self.world_to_screen(&world) else {
                 continue;

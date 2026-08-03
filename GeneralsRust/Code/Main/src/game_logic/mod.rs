@@ -386,6 +386,7 @@ pub mod host_live_host_script_camera_residuals_wave858;
 pub mod host_live_host_seed_start_presence_opt_in_residual_wave732;
 pub mod host_live_host_seed_starting_building_opt_in_residual_wave734;
 pub mod host_live_host_select_matching_catalog_residual_wave967;
+pub mod host_live_host_selection_hud_legality_residual_wave1040;
 pub mod host_live_host_selection_stamp_residual_wave866;
 pub mod host_live_host_selection_stamp_train_failclosed_residual_wave902;
 pub mod host_live_host_selection_target_catalog_residual_wave975;
@@ -3871,6 +3872,13 @@ pub use host_live_host_context_pick_mouseover_legality_residual_wave1039::{
     honesty_host_context_pick_mouseover_legality_residual_nav_commands_residual_wave1039,
     honesty_host_context_pick_mouseover_legality_residual_residual_pack_wave1039,
     simulate_live_host_context_pick_mouseover_legality_residual_honesty,
+};
+
+pub use host_live_host_selection_hud_legality_residual_wave1040::{
+    honesty_host_selection_hud_legality_residual_method_names_residual_wave1040,
+    honesty_host_selection_hud_legality_residual_nav_commands_residual_wave1040,
+    honesty_host_selection_hud_legality_residual_residual_pack_wave1040,
+    simulate_live_host_selection_hud_legality_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
