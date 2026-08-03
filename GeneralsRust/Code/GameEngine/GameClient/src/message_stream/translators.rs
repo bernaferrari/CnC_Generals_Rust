@@ -117,7 +117,13 @@ where
         }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&sel) && !sel.destroyed && !sel.sold && !sel.disabled {
+                // Wave 1067: under-construction local source residual fail-closed.
+                if translator_entry_is_local(&sel)
+                    && !sel.destroyed
+                    && !sel.sold
+                    && !sel.disabled
+                    && !sel.under_construction
+                {
                     return true;
                 }
             }
@@ -1660,7 +1666,13 @@ fn selection_attack_result(
         let mut any_local = false;
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&sel) && !sel.destroyed && !sel.sold && !sel.disabled {
+                // Wave 1067: under-construction local source residual fail-closed.
+                if translator_entry_is_local(&sel)
+                    && !sel.destroyed
+                    && !sel.sold
+                    && !sel.disabled
+                    && !sel.under_construction
+                {
                     any_local = true;
                     break;
                 }
