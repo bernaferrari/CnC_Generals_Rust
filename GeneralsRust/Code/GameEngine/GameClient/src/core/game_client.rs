@@ -1764,7 +1764,16 @@ impl GameClient {
             drawable.set_template_name(Some(name));
         } else if drawable.get_template_name().is_none() {
             if let Some(object_id) = drawable.get_object_id() {
-                if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
+                // Wave 1019: dual-world peels template name from translator catalog.
+                if dual_world_registry_unavailable() {
+                    if let Some(entry) =
+                        crate::presentation_translator_residual::translator_catalog_entry(object_id)
+                    {
+                        if !entry.template_name.is_empty() {
+                            drawable.set_template_name(Some(entry.template_name.clone()));
+                        }
+                    }
+                } else if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
                     if let Ok(object_guard) = object_arc.read() {
                         let fallback_name = object_guard.get_template().get_name().to_string();
                         if !fallback_name.is_empty() {
