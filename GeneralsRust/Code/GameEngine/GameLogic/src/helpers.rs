@@ -2343,6 +2343,11 @@ impl TheGameClient {
         map.get(&id).cloned()
     }
 
+    /// Wave 1006: dual-world residual — count of host drawable state entries.
+    pub fn drawable_count(&self) -> usize {
+        DRAWABLE_STATE.lock().ok().map(|m| m.len()).unwrap_or(0)
+    }
+
     pub fn get_drawable_beam_width(&self, id: u32) -> Option<Real> {
         let map = DRAWABLE_STATE.lock().ok()?;
         map.get(&id).and_then(|state| state.beam_width)
