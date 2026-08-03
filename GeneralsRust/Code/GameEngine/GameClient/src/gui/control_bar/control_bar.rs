@@ -1894,10 +1894,32 @@ impl ControlBar {
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Presentation residual first (host path has no dual-world registry).
-        if self.presentation_command_set_names.len() >= 2 {
+        let mut presentation_names = self.presentation_command_set_names.clone();
+        // Wave 1017: dual-world multi-select seeds command-set names from translator catalog.
+        if Self::dual_world_registry_unavailable()
+            && presentation_names.len() < 2
+            && context.selected_objects.len() >= 2
+        {
+            for obj_id in &context.selected_objects {
+                if let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(*obj_id)
+                {
+                    if entry.command_set_name.is_empty() {
+                        continue;
+                    }
+                    if !presentation_names
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case(&entry.command_set_name))
+                    {
+                        presentation_names.push(entry.command_set_name.clone());
+                    }
+                }
+            }
+        }
+        if presentation_names.len() >= 2 {
             super::control_bar_multi_select::populate_multi_select_commands_from_sets(
                 context,
-                &self.presentation_command_set_names,
+                &presentation_names,
             )?;
         }
         if context.available_commands.is_empty() {
@@ -2589,11 +2611,17 @@ impl ControlBar {
                     self.portrait_state.production_template = entry.production_template.clone();
                     self.portrait_state.production_paused = entry.production_paused;
                 }
-                // Wave 1015: command-set residual refresh for dual-world ControlBar.
+                // Wave 1015/1017: command-set residual refresh for dual-world ControlBar.
+                // Accumulate distinct names so multi-select intersection can peel.
                 if !entry.command_set_name.is_empty() {
                     self.presentation_primary_command_set = entry.command_set_name.clone();
-                    if self.presentation_command_set_names.is_empty() {
-                        self.presentation_command_set_names = vec![entry.command_set_name.clone()];
+                    if !self
+                        .presentation_command_set_names
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case(&entry.command_set_name))
+                    {
+                        self.presentation_command_set_names
+                            .push(entry.command_set_name.clone());
                     }
                 }
             }
