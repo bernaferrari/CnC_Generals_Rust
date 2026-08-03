@@ -20293,6 +20293,12 @@ impl CnCGameEngine {
                                 .first()
                                 .map(|p| p.template_name.clone()),
                             production_paused: o.production_paused,
+                            // Wave 1015: command-set residual for dual-world ControlBar.
+                            command_set_name: if !o.command_set_name.is_empty() {
+                                o.command_set_name.clone()
+                            } else {
+                                o.command_set_override.clone()
+                            },
                         },
                     )
                     .collect()

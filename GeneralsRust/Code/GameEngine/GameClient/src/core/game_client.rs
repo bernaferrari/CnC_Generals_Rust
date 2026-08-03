@@ -3735,6 +3735,7 @@ impl GameClient {
                     production_progress: u.production_progress,
                     production_template: u.production_template.clone(),
                     production_paused: u.production_paused,
+                    command_set_name: u.command_set_name.clone(),
                 },
             )
             .collect();
@@ -3786,6 +3787,7 @@ impl GameClient {
                             production_progress: u.production_progress,
                             production_template: u.production_template.clone(),
                             production_paused: u.production_paused,
+                            command_set_name: u.command_set_name.clone(),
                         },
                     )
                     .collect();

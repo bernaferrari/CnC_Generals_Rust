@@ -830,10 +830,13 @@ impl ControlBar {
             {
                 return true;
             }
-            // Wave 1009: translator catalog factory KindOf residual (empty queue).
+            // Wave 1009/1015: translator catalog factory KindOf / command-set residual.
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
+                if !entry.command_set_name.is_empty() {
+                    return true;
+                }
                 const FACTORY_KINDS: &[&str] = &[
                     "FSBarracks",
                     "FSWarFactory",
@@ -2585,6 +2588,13 @@ impl ControlBar {
                     self.portrait_state.production_progress = entry.production_progress;
                     self.portrait_state.production_template = entry.production_template.clone();
                     self.portrait_state.production_paused = entry.production_paused;
+                }
+                // Wave 1015: command-set residual refresh for dual-world ControlBar.
+                if !entry.command_set_name.is_empty() {
+                    self.presentation_primary_command_set = entry.command_set_name.clone();
+                    if self.presentation_command_set_names.is_empty() {
+                        self.presentation_command_set_names = vec![entry.command_set_name.clone()];
+                    }
                 }
             }
             return;

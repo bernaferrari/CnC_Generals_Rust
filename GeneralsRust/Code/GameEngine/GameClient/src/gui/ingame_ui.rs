@@ -892,6 +892,8 @@ pub struct PresentationUnitCatalogEntry {
     pub production_template: Option<String>,
     /// Wave 1013: production paused residual.
     pub production_paused: bool,
+    /// Wave 1015: effective command-set name residual for dual-world ControlBar.
+    pub command_set_name: String,
 }
 
 pub struct InGameUI {
