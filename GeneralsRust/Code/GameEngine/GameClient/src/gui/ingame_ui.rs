@@ -873,6 +873,10 @@ pub struct PresentationUnitCatalogEntry {
     pub orientation: f32,
     /// Wave 1026: disabled residual for dual-world command availability.
     pub disabled: bool,
+    /// Wave 1028: under-construction residual for dual-world ControlBar state.
+    pub under_construction: bool,
+    /// Wave 1028: construction percent residual [0,1].
+    pub construction_percent: f32,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.
