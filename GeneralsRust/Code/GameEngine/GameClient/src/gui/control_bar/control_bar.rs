@@ -649,7 +649,14 @@ impl ControlBar {
                 if let Some(entry) =
                     crate::presentation_translator_residual::translator_catalog_entry(obj_id)
                 {
-                    if entry.max_garrison > 0 {
+                    // Wave 1081: skip inventory seed for unusable dual catalog entries.
+                    if !entry.destroyed
+                        && !entry.sold
+                        && !entry.disabled
+                        && !entry.unselectable
+                        && !entry.masked
+                        && entry.max_garrison > 0
+                    {
                         self.presentation_max_garrison = entry.max_garrison as usize;
                         self.presentation_garrisoned_count = entry.occupant_count as usize;
                     }
