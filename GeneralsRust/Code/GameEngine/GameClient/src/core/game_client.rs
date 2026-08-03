@@ -2673,6 +2673,8 @@ impl GameClient {
         // via PresentationFrame apply_*; only local drawable modules tick here.
         if OBJECT_REGISTRY.is_empty() {
             self.update_drawables_local(visual_delta)?;
+            // Wave 1021: catalog shroud residual on presentation shell render path.
+            self.update_drawable_visibility(self.local_player_id)?;
             self.submit_projectile_streams_to_bridge()?;
             return Ok(());
         }
@@ -3980,10 +3982,11 @@ impl GameClient {
             drawable.update(delta_time);
         }
 
-        // Host/presentation path: shroud comes from PresentationFrame apply_*;
-        // skip dual-world OBJECT_REGISTRY shroud bind when registry is empty.
+        // Host/presentation path: Wave 1020/1021 peels catalog shroud onto drawable_map
+        // when dual-world registry is empty (PresentationFrame apply_* still primary).
         if OBJECT_REGISTRY.is_empty() {
-            let _ = (frame, local_player_index);
+            self.update_drawable_visibility(local_player_index)?;
+            let _ = frame;
             return Ok(());
         }
 
