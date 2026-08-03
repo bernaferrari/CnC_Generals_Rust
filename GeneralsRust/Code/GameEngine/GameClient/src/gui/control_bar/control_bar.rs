@@ -2946,7 +2946,9 @@ impl ControlBar {
                 }
                 self.portrait_state.is_visible = true;
                 self.portrait_state.selected_count = self.portrait_state.selected_count.max(1);
-                self.portrait_state.special_power_ready = entry.special_power_ready;
+                // Wave 1083: UC dual portrait fails closed for special-power ready residual.
+                self.portrait_state.special_power_ready =
+                    entry.special_power_ready && !entry.under_construction;
                 // Wave 1011/1014: health residual refresh.
                 if entry.health_maximum > 0.0 {
                     self.portrait_state.health_current = entry.health_current;
@@ -2957,7 +2959,13 @@ impl ControlBar {
                     self.portrait_state.veterancy_overlay = entry.veterancy_overlay.clone();
                 }
                 // Wave 1013/1014: production head residual refresh.
-                if entry.production_template.is_some() || entry.production_progress.is_some() {
+                // Wave 1083: under-construction dual portrait clears production residual.
+                if entry.under_construction {
+                    self.portrait_state.production_progress = None;
+                    self.portrait_state.production_template = None;
+                    self.portrait_state.production_paused = false;
+                } else if entry.production_template.is_some() || entry.production_progress.is_some()
+                {
                     self.portrait_state.production_progress = entry.production_progress;
                     self.portrait_state.production_template = entry.production_template.clone();
                     self.portrait_state.production_paused = entry.production_paused;
