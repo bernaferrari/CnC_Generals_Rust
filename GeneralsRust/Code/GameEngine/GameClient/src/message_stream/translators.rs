@@ -708,7 +708,9 @@ fn collect_selectable_objects_from_presentation(
                 continue;
             }
             // Wave 1039: C++ status/stealth/FOW residual for dual context pick.
-            if entry.destroyed || entry.sold || entry.unselectable || entry.masked {
+            // Wave 1075: disabled residual fail-closed for dual context pick.
+            if entry.destroyed || entry.sold || entry.unselectable || entry.masked || entry.disabled
+            {
                 continue;
             }
             if entry.effectively_stealthed && !translator_entry_is_local(entry) {
@@ -1604,14 +1606,20 @@ fn selection_source_object_id(
                 }
             }
         }
+        // Wave 1075: no unusable local fallback residual (destroyed/sold/disabled/UC).
         for &id in selection {
             if let Some(e) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&e) {
+                if translator_entry_is_local(&e)
+                    && !e.destroyed
+                    && !e.sold
+                    && !e.disabled
+                    && !e.under_construction
+                {
                     return id;
                 }
             }
         }
-        return selection.iter().next().copied().unwrap_or(0);
+        return 0;
     }
     for &id in selection {
         let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
