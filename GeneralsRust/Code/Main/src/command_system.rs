@@ -1922,7 +1922,8 @@ impl CommandSystem {
             return Some(CommandType::CaptureBuilding { target_id });
         }
         // Attack enemy
-        if hint.is_enemy_of_local && !hint.is_neutral && any_attacker() {
+        // Wave 1098: sold residual fail-closed (presentation_target_hint also peels).
+        if hint.is_enemy_of_local && !hint.is_neutral && !hint.sold && any_attacker() {
             return Some(CommandType::AttackObject { target_id });
         }
         // Resume construction on unfinished ally structure

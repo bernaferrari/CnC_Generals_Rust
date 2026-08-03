@@ -26240,7 +26240,14 @@ impl CnCGameEngine {
                         .objects
                         .iter()
                         .find(|o| o.id == id)
-                        .map(|o| o.team == player_team && !o.destroyed)
+                        .map(|o| {
+                            // Wave 1098: cursor Select residual uses full presentation
+                            // selectable legality (sold/unselectable/masked/disabled).
+                            o.team == player_team
+                                && crate::unit_control::UnitControlSystem::presentation_is_selectable(
+                                    o,
+                                )
+                        })
                         .unwrap_or(false)
                 } else {
                     // Wave 905: fail-closed without presentation freeze (no find_object dual-read).
@@ -26652,7 +26659,8 @@ impl CnCGameEngine {
             || provides_aircraft_repair;
         Some(crate::command_system::PresentationTargetHint {
             id,
-            is_alive: !o.destroyed && o.health_current > 0.0,
+            // Wave 1098: is_alive residual excludes sold/masked.
+            is_alive: !o.destroyed && o.health_current > 0.0 && !o.sold && !o.masked,
             is_structure,
             is_resource,
             under_construction: o.under_construction,
