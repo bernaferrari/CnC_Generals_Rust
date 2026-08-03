@@ -26529,7 +26529,14 @@ impl CnCGameEngine {
             let Some(o) = frame.objects.iter().find(|x| x.id == id) else {
                 continue;
             };
-            if o.destroyed || o.health_current <= 0.0 {
+            // Wave 1097: selected-hint residual fail-closed on unusable sources.
+            if o.destroyed
+                || o.health_current <= 0.0
+                || o.sold
+                || o.masked
+                || o.disabled
+                || o.unselectable
+            {
                 continue;
             }
             let n = o.template_name.to_ascii_lowercase();
@@ -26598,7 +26605,15 @@ impl CnCGameEngine {
         id: crate::game_logic::ObjectId,
     ) -> Option<crate::command_system::PresentationTargetHint> {
         let frame = self.last_presentation_frame.as_ref()?;
-        let o = frame.objects.iter().find(|x| x.id == id && !x.destroyed)?;
+        // Wave 1097: target-hint residual fail-closed on sold/masked and non-local
+        // FOW unless Clear (matches pick peels 1093–1096).
+        let o = frame.objects.iter().find(|x| {
+            x.id == id
+                && !x.destroyed
+                && !x.sold
+                && !x.masked
+                && (x.team == frame.local_team() || x.fow_visibility.visibility_alpha >= 0.95)
+        })?;
         let local = frame.local_team();
         let is_neutral = o.team == crate::game_logic::Team::Neutral;
         let is_enemy = o.team != local && !is_neutral;
