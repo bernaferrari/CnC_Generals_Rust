@@ -28,6 +28,10 @@ pub struct TranslatorCatalogEntry {
     pub under_construction: bool,
     /// Wave 1028: construction percent residual [0,1].
     pub construction_percent: f32,
+    /// Wave 1030: garrison capacity residual.
+    pub max_garrison: u16,
+    /// Wave 1030: occupant count residual.
+    pub occupant_count: u16,
     /// Wave 979: airborne residual for host plane-camera lock cycle.
     pub airborne_target: bool,
     /// Wave 981: FOW residual for host translators / command hints.
