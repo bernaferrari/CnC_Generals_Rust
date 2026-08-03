@@ -1097,6 +1097,10 @@ fn is_prisoner_target(target_id: ObjectID) -> bool {
         if !dual_target_status_ok(&e) {
             return false;
         }
+        // Wave 1082: disabled prisoner residual fail-closed.
+        if e.disabled {
+            return false;
+        }
         // Wave 1074: FOW/stealth non-local prisoner residual fail-closed.
         if e.shroud_status >= 2 && !translator_entry_is_local(&e) {
             return false;
