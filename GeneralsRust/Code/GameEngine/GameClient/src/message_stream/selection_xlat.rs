@@ -382,13 +382,16 @@ impl SelectionTranslator {
                         is_structure,
                         is_garrisonable_building,
                         is_crate,
+                        // Wave 1062: AlwaysSelectable dead units remain selectable (C++).
                         is_selectable: entry.selectable
                             && !entry.unselectable
                             && !entry.sold
-                            && !entry.destroyed
                             && !entry.masked
-                            && !(entry.effectively_stealthed && !translator_entry_is_local(entry)),
-                        // Wave 1035: destroyed residual maps to is_dead for can_select.
+                            && !(entry.effectively_stealthed && !translator_entry_is_local(entry))
+                            && (!entry.destroyed
+                                || translator_entry_has_kind(entry, "AlwaysSelectable")),
+                        // Wave 1035/1062: destroyed residual maps to is_dead for can_select
+                        // (AlwaysSelectable still passes can_select via kind_of_flags).
                         is_dead: entry.destroyed,
                         is_hidden: entry.shroud_status >= 2,
                         is_local_controlled: translator_entry_is_local(entry),
