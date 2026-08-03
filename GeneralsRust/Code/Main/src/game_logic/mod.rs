@@ -348,6 +348,7 @@ pub mod host_live_host_patriot_laser_dual_peel_residual_wave823;
 pub mod host_live_host_pause_boot_player_residual_wave892;
 pub mod host_live_host_paused_tick_guard_refresh_peels_residual_wave919;
 pub mod host_live_host_pending_patriot_dual_peel_residual_wave824;
+pub mod host_live_host_pickup_crate_enter_disabled_residual_wave1072;
 pub mod host_live_host_placement_legal_build_cache_residual_wave924;
 pub mod host_live_host_player_alive_dual_peel_residual_wave816;
 pub mod host_live_host_player_radar_dual_peel_residual_wave818;
@@ -4127,6 +4128,13 @@ pub use host_live_host_airborne_sp_disabled_residual_wave1071::{
     honesty_host_airborne_sp_disabled_residual_nav_commands_residual_wave1071,
     honesty_host_airborne_sp_disabled_residual_residual_pack_wave1071,
     simulate_live_host_airborne_sp_disabled_residual_honesty,
+};
+
+pub use host_live_host_pickup_crate_enter_disabled_residual_wave1072::{
+    honesty_host_pickup_crate_enter_disabled_residual_method_names_residual_wave1072,
+    honesty_host_pickup_crate_enter_disabled_residual_nav_commands_residual_wave1072,
+    honesty_host_pickup_crate_enter_disabled_residual_residual_pack_wave1072,
+    simulate_live_host_pickup_crate_enter_disabled_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
