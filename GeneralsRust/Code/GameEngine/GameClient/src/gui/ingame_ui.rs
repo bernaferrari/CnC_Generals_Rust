@@ -1875,10 +1875,40 @@ impl InGameUI {
             if !reference.selectable || reference.template_name.is_empty() {
                 return Ok(());
             }
+            // Wave 1089: select-similar seed residual fail-closed on unusable seed
+            // (destroyed/sold/masked/disabled must not drive mass-select).
+            if reference.destroyed
+                || reference.sold
+                || reference.masked
+                || reference.disabled
+                || reference.unselectable
+            {
+                return Ok(());
+            }
             let mut matching: Vec<ObjectID> = self
                 .presentation_unit_catalog
                 .iter()
                 .filter(|u| {
+                    // Wave 1089: candidate residual fail-closed on unusable / non-local
+                    // stealth/FOW (matches collect_selectable_objects_from_presentation).
+                    if u.destroyed || u.sold || u.unselectable || u.masked || u.disabled {
+                        return false;
+                    }
+                    let local_team =
+                        crate::presentation_translator_residual::translator_local_team_name();
+                    let local = !local_team.is_empty() && u.team_name == local_team;
+                    if u.effectively_stealthed && !local {
+                        return false;
+                    }
+                    let fogged = matches!(
+                        u.shroud_status,
+                        ObjectShroudStatus::PartialClear
+                            | ObjectShroudStatus::Fogged
+                            | ObjectShroudStatus::Shrouded
+                    );
+                    if fogged && !local {
+                        return false;
+                    }
                     // Wave 1041: match on apparent template/team for disguised units
                     // (C++ non-allied viewers see disguise identity).
                     let uref_t = if reference.disguised {
@@ -3654,6 +3684,11 @@ impl InGameUI {
             if !entry.selectable {
                 continue;
             }
+            // Wave 1089: select-matching seed residual fail-closed on unusable.
+            if entry.destroyed || entry.sold || entry.masked || entry.disabled || entry.unselectable
+            {
+                continue;
+            }
             if local_team.is_none() {
                 local_team = Some(entry.team_name.clone());
             }
@@ -3674,6 +3709,26 @@ impl InGameUI {
             .iter()
             .filter(|u| {
                 if !u.selectable {
+                    return false;
+                }
+                // Wave 1089: select-matching candidate residual fail-closed on
+                // unusable / non-local stealth/FOW.
+                if u.destroyed || u.sold || u.unselectable || u.masked || u.disabled {
+                    return false;
+                }
+                let local_name =
+                    crate::presentation_translator_residual::translator_local_team_name();
+                let local = !local_name.is_empty() && u.team_name == local_name;
+                if u.effectively_stealthed && !local {
+                    return false;
+                }
+                let fogged = matches!(
+                    u.shroud_status,
+                    ObjectShroudStatus::PartialClear
+                        | ObjectShroudStatus::Fogged
+                        | ObjectShroudStatus::Shrouded
+                );
+                if fogged && !local {
                     return false;
                 }
                 if let Some(team) = team_filter.as_ref() {
