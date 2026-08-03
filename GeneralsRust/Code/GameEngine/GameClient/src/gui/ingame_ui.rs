@@ -4323,10 +4323,19 @@ impl InGameUI {
     }
 
     fn ignored_gui_slaver_id_for_object(object: &Object) -> Option<ObjectID> {
-        // Wave 273/1000: empty dual-world cannot resolve Object modules; callers
-        // with only an id use ignored_gui_slaver_id_from_presentation.
+        // Wave 273/1000/1007: empty dual-world cannot resolve Object modules;
+        // peel slaver via presentation translator catalog (global residual).
         if dual_world_registry_unavailable() {
-            return None;
+            let entry =
+                crate::presentation_translator_residual::translator_catalog_entry(object.get_id())?;
+            let ignored = entry
+                .kind_names
+                .iter()
+                .any(|k| k == "IgnoredInGui" || k.eq_ignore_ascii_case("ignoredingui"));
+            if !ignored {
+                return None;
+            }
+            return entry.slaver_object_id;
         }
 
         if !object.is_kind_of(KindOf::IgnoredInGui) {
