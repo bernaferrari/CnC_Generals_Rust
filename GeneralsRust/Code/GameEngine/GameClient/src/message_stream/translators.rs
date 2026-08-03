@@ -111,6 +111,10 @@ where
         if target.effectively_stealthed && !translator_entry_is_local(&target) {
             return false;
         }
+        // Wave 1064: FOW fogged/black non-local targets fail-closed.
+        if target.shroud_status >= 2 && !translator_entry_is_local(&target) {
+            return false;
+        }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
                 if translator_entry_is_local(&sel) && !sel.destroyed && !sel.sold && !sel.disabled {
@@ -165,6 +169,10 @@ fn selection_can_enter_target(
             return false;
         };
         if !dual_target_status_ok(&target) {
+            return false;
+        }
+        // Wave 1064: FOW fogged/black non-local targets fail-closed.
+        if target.shroud_status >= 2 && !translator_entry_is_local(&target) {
             return false;
         }
         // Enter residual: apparent ally container only (C++ relationship gate).
@@ -1630,6 +1638,10 @@ fn selection_attack_result(
             return CanAttackResult::NotPossible;
         }
         if target.effectively_stealthed && !translator_entry_is_local(&target) {
+            return CanAttackResult::NotPossible;
+        }
+        // Wave 1064: FOW fogged/black non-local targets fail-closed for attack residual.
+        if target.shroud_status >= 2 && !translator_entry_is_local(&target) {
             return CanAttackResult::NotPossible;
         }
         // Enemy/neutral residual → Possible; ally → NotPossible.
