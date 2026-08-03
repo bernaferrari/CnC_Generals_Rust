@@ -2624,9 +2624,10 @@ impl GameClient {
     /// Updates drawable transforms from their owning GameLogic objects. This mirrors the
     /// C++ render-sync step that keeps drawables aligned with object positions/orientations.
     pub fn sync_with_game_logic(&mut self) -> GameClientResult<()> {
-        // Wave 1023: host empty dual-world peels translator catalog pose onto drawable_map.
+        // Wave 1023/1050: host empty dual-world peels translator catalog pose onto drawable_map.
         // PresentationFrame apply_presentation_pose remains primary; this covers callers
         // that still hit sync_with_game_logic without a fresh pose batch.
+        // Wave 1050: also peel visibility status (destroyed/stealth/FOW) with pose.
         if dual_world_registry_unavailable() {
             let pairs: Vec<(ObjectID, DrawableId)> = self
                 .drawable_object_map
@@ -2650,6 +2651,16 @@ impl GameClient {
                 let transform =
                     Matrix4::translation(position).mul(&Matrix4::rotation_y(entry.orientation));
                 drawable.set_instance_transform(transform);
+                // Wave 1050: status/FOW visibility residual (parity with update_drawable_visibility).
+                let fully_obscured = entry.shroud_status >= 2;
+                let local =
+                    crate::presentation_translator_residual::translator_entry_is_local(&entry);
+                let status_hidden = entry.destroyed || (entry.effectively_stealthed && !local);
+                if entry.effectively_stealthed && !local {
+                    drawable.set_stealth_look(crate::drawable::drawable::StealthLook::Invisible);
+                }
+                drawable.set_visible(!fully_obscured && !status_hidden);
+                drawable.set_fully_obscured_by_shroud(fully_obscured);
             }
             return Ok(());
         }
