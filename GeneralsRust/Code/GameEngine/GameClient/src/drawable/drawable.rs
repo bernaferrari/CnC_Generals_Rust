@@ -1692,6 +1692,8 @@ pub struct BasicDrawable {
     presentation_indicator_color: Option<(u8, u8, u8)>,
     /// Wave 965: presentation stealth residual.
     presentation_effectively_stealthed: bool,
+    /// Wave 1055: host control-group residual (0..9, -1 = none).
+    presentation_hotkey_group: i8,
     /// Wave 965: presentation health fraction 0..1.
     presentation_health_pct: f32,
     /// Wave 965: presentation selected residual.
@@ -1809,6 +1811,7 @@ impl BasicDrawable {
             presentation_kind_names: Vec::new(),
             presentation_indicator_color: None,
             presentation_effectively_stealthed: false,
+            presentation_hotkey_group: -1,
             presentation_health_pct: 0.0,
             presentation_selected: false,
             presentation_orientation: 0.0,
@@ -1904,6 +1907,8 @@ impl BasicDrawable {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
         self.presentation_effectively_stealthed = effectively_stealthed;
+        // Wave 1055 default unless stamped via catalog apply.
+        // (hotkey_group applied separately by apply_presentation_unit_catalog)
         self.presentation_health_pct = health_pct.clamp(0.0, 1.0);
         self.presentation_selected = selected;
         self.presentation_orientation = orientation;
@@ -2258,6 +2263,11 @@ impl BasicDrawable {
 
     pub fn set_hidden_by_stealth(&mut self, hidden: bool) {
         self.hidden_by_stealth = hidden;
+    }
+
+    /// Wave 1055: stamp host control-group residual for dual group numerals.
+    pub fn set_presentation_hotkey_group(&mut self, group: i8) {
+        self.presentation_hotkey_group = group;
     }
 
     fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
@@ -3427,6 +3437,12 @@ impl BasicDrawable {
 
     /// Wave 980: host group/UI text residual without OBJECT_REGISTRY.
     fn draw_ui_text_from_presentation(&self) -> Result<(), Box<dyn Error>> {
+        // Wave 1055: hide group numerals for unselected effectively-stealthed residual.
+        if self.presentation_effectively_stealthed && !self.selected_or_moused_over_for_icon_pips()
+        {
+            return Ok(());
+        }
+
         let Some(screen_pos) = with_tactical_view_ref(|view| {
             view.world_to_screen(&Point3::new(
                 self.position.x,
@@ -3446,6 +3462,24 @@ impl BasicDrawable {
         if draw_group_info.use_player_color {
             if let Some((r, g, b)) = self.presentation_indicator_color {
                 text_color = (0xFFu32 << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+            }
+        }
+
+        // Wave 1055: host control-group residual → group numeral dual draw.
+        let group_number = self.presentation_hotkey_group as i32;
+        if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
+            let mut manager = get_display_string_manager();
+            if let Some(group_text) = manager.get_group_numeral_string(group_number) {
+                let _ = (
+                    screen_pos,
+                    text_color,
+                    draw_group_info,
+                    group_text,
+                    self.overlay_data.caption.as_ref(),
+                );
+                // Full DisplayString draw remains factory/display-manager owned;
+                // residual keeps numeral handle resolution parity for host shell.
+                return Ok(());
             }
         }
 

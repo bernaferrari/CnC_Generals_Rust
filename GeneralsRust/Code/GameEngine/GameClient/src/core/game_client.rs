@@ -3849,6 +3849,8 @@ impl GameClient {
                     production_template: u.production_template.clone(),
                     production_paused: u.production_paused,
                     command_set_name: u.command_set_name.clone(),
+                    // Wave 1055: hotkey group residual.
+                    hotkey_group: u.hotkey_group,
                 },
             )
             .collect();
@@ -3864,6 +3866,20 @@ impl GameClient {
             local_team,
             translator_catalog,
         );
+
+        // Wave 1055: stamp control-group residual onto drawable presentation shell.
+        for u in &units {
+            if let Some(did) = self.drawable_object_map.get(&u.object_id).copied() {
+                if let Some(drawable) = self.drawable_map.get_mut(&did) {
+                    if let Some(basic) = drawable
+                        .as_any_mut()
+                        .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+                    {
+                        basic.set_presentation_hotkey_group(u.hotkey_group);
+                    }
+                }
+            }
+        }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
             if let Ok(mut guard) = ui.lock() {
@@ -3917,6 +3933,8 @@ impl GameClient {
                             production_template: u.production_template.clone(),
                             production_paused: u.production_paused,
                             command_set_name: u.command_set_name.clone(),
+                            // Wave 1055: hotkey group residual.
+                            hotkey_group: u.hotkey_group,
                         },
                     )
                     .collect();

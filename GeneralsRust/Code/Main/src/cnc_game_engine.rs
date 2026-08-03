@@ -20236,6 +20236,18 @@ impl CnCGameEngine {
                 .apply_presentation_selection_residual(sel_units);
 
             // Wave 966: full unit catalog residual for host select-similar.
+            // Wave 1055: reverse map object_id → control group (lowest group wins).
+            let mut object_hotkey_group: std::collections::HashMap<u32, i8> =
+                std::collections::HashMap::new();
+            for (group, ids) in &self.control_groups {
+                let g = i8::try_from(*group).unwrap_or(-1);
+                if g < 0 {
+                    continue;
+                }
+                for id in ids {
+                    object_hotkey_group.entry(id.0).or_insert(g);
+                }
+            }
             let catalog: Vec<game_client::gui::ingame_ui::PresentationUnitCatalogEntry> = {
                 use crate::unit_control::UnitControlSystem;
                 pres.objects
@@ -20331,6 +20343,8 @@ impl CnCGameEngine {
                             } else {
                                 o.command_set_override.clone()
                             },
+                            // Wave 1055: host control-group residual for dual group numerals.
+                            hotkey_group: object_hotkey_group.get(&o.id.0).copied().unwrap_or(-1),
                         },
                     )
                     .collect()

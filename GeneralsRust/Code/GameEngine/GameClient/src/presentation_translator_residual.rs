@@ -70,6 +70,8 @@ pub struct TranslatorCatalogEntry {
     pub production_paused: bool,
     /// Wave 1015: effective command-set name residual.
     pub command_set_name: String,
+    /// Wave 1055: host control-group residual (0..9, -1 = none).
+    pub hotkey_group: i8,
 }
 
 #[derive(Debug, Clone, Default)]
