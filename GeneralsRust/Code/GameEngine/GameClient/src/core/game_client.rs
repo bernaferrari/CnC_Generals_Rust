@@ -2549,8 +2549,10 @@ impl GameClient {
     pub fn update_drawable_visibility(&mut self, local_player_index: i32) -> GameClientResult<()> {
         use gamelogic::common::types::ObjectShroudStatus;
 
-        // Wave 1020: host empty dual-world peels presentation catalog shroud onto drawable_map.
-        // Catalog shroud_status residual: 0/1 clear-ish, >=2 fogged/shrouded (fully obscured).
+        // Wave 1020/1044: host empty dual-world peels presentation catalog shroud/
+        // status onto drawable_map. Catalog shroud_status residual: 0/1 clear-ish,
+        // >=2 fogged/shrouded (fully obscured). Also hide destroyed and non-local
+        // effectively-stealthed residuals (C++ drawable effectively hidden).
         if dual_world_registry_unavailable() {
             let _ = local_player_index;
             let pairs: Vec<(ObjectID, DrawableId)> = self
@@ -2565,8 +2567,17 @@ impl GameClient {
                     continue;
                 };
                 let fully_obscured = entry.shroud_status >= 2;
+                let local =
+                    crate::presentation_translator_residual::translator_entry_is_local(&entry);
+                // Wave 1044: destroyed residual always hidden; stealthed non-local hidden.
+                let status_hidden = entry.destroyed || (entry.effectively_stealthed && !local);
                 if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
-                    drawable.set_visible(!fully_obscured);
+                    // Trait path: stealth look residual for non-local effectively stealthed.
+                    if entry.effectively_stealthed && !local {
+                        drawable
+                            .set_stealth_look(crate::drawable::drawable::StealthLook::Invisible);
+                    }
+                    drawable.set_visible(!fully_obscured && !status_hidden);
                     drawable.set_fully_obscured_by_shroud(fully_obscured);
                 }
             }
