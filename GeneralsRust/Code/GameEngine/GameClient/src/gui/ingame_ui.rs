@@ -869,6 +869,8 @@ pub struct PresentationUnitCatalogEntry {
     pub team_name: String,
     pub selectable: bool,
     pub position: [f32; 3],
+    /// Wave 1024: yaw residual for dual-world drawable pose peel.
+    pub orientation: f32,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.

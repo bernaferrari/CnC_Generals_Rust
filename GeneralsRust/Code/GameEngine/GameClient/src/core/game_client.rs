@@ -2631,12 +2631,14 @@ impl GameClient {
                 let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
                     continue;
                 };
-                // Catalog pose residual: position only (orientation owned by pose batch).
-                drawable.set_position(Vector3::new(
-                    entry.position[0],
-                    entry.position[1],
-                    entry.position[2],
-                ));
+                // Wave 1023/1024: catalog pose residual (position + yaw).
+                let position =
+                    Vector3::new(entry.position[0], entry.position[1], entry.position[2]);
+                drawable.set_position(position);
+                // C++ Matrix3D translation * Rotate_Y residual.
+                let transform =
+                    Matrix4::translation(position).mul(&Matrix4::rotation_y(entry.orientation));
+                drawable.set_instance_transform(transform);
             }
             return Ok(());
         }
@@ -3791,6 +3793,7 @@ impl GameClient {
                     kind_names: u.kind_names.clone(),
                     special_power_ready: u.special_power_ready,
                     position: u.position,
+                    orientation: u.orientation,
                     airborne_target: u.airborne_target,
                     shroud_status: u.shroud_status as u8,
                     slaver_object_id: u.slaver_object_id,
@@ -3843,6 +3846,7 @@ impl GameClient {
                             kind_names: u.kind_names.clone(),
                             special_power_ready: u.special_power_ready,
                             position: u.position,
+                            orientation: u.orientation,
                             airborne_target: u.airborne_target,
                             shroud_status: u.shroud_status as u8,
                             slaver_object_id: u.slaver_object_id,
