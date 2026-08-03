@@ -1636,6 +1636,19 @@ impl InGameUI {
                     return false;
                 }
             }
+            // Wave 1065: FOW fogged/black non-local SP targets fail-closed.
+            {
+                let local = crate::presentation_translator_residual::translator_local_team_name();
+                let fogged = matches!(
+                    target.shroud_status,
+                    ObjectShroudStatus::PartialClear
+                        | ObjectShroudStatus::Fogged
+                        | ObjectShroudStatus::Shrouded
+                );
+                if fogged && (local.is_empty() || target.team_name != local) {
+                    return false;
+                }
+            }
             // Relationship residual from team names (fail-open when Neutral options present).
             // Wave 1045: disguised targets present apparent team to non-allied casters
             // (C++ InGameUI disguise residual; allies of real owner still see true team).
@@ -5480,6 +5493,22 @@ impl InGameUI {
                     let local =
                         crate::presentation_translator_residual::translator_local_team_name();
                     if local.is_empty() || entry.team_name != local {
+                        self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+                        self.set_mouse_cursor(MouseCursor::Arrow);
+                        return;
+                    }
+                }
+                // Wave 1065: FOW fogged/black non-local hover residual fail-closed.
+                {
+                    let local =
+                        crate::presentation_translator_residual::translator_local_team_name();
+                    let fogged = matches!(
+                        entry.shroud_status,
+                        ObjectShroudStatus::PartialClear
+                            | ObjectShroudStatus::Fogged
+                            | ObjectShroudStatus::Shrouded
+                    );
+                    if fogged && (local.is_empty() || entry.team_name != local) {
                         self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
                         self.set_mouse_cursor(MouseCursor::Arrow);
                         return;

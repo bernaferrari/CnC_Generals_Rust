@@ -268,6 +268,7 @@ pub mod host_live_host_formation_offset_presentation_residual_wave998;
 pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
 pub mod host_live_host_fow_fogged_attack_context_residual_wave1064;
 pub mod host_live_host_fow_fogged_selection_residual_wave1063;
+pub mod host_live_host_fow_fogged_sp_mouseover_residual_wave1065;
 pub mod host_live_host_fow_tod_residual_wave981;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
@@ -4071,6 +4072,13 @@ pub use host_live_host_fow_fogged_attack_context_residual_wave1064::{
     honesty_host_fow_fogged_attack_context_residual_nav_commands_residual_wave1064,
     honesty_host_fow_fogged_attack_context_residual_residual_pack_wave1064,
     simulate_live_host_fow_fogged_attack_context_residual_honesty,
+};
+
+pub use host_live_host_fow_fogged_sp_mouseover_residual_wave1065::{
+    honesty_host_fow_fogged_sp_mouseover_residual_method_names_residual_wave1065,
+    honesty_host_fow_fogged_sp_mouseover_residual_nav_commands_residual_wave1065,
+    honesty_host_fow_fogged_sp_mouseover_residual_residual_pack_wave1065,
+    simulate_live_host_fow_fogged_sp_mouseover_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
