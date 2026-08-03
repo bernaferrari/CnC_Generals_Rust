@@ -20283,6 +20283,16 @@ impl CnCGameEngine {
                                     PV::Rookie => None,
                                 }
                             },
+                            // Wave 1013: production queue head residual.
+                            production_progress: o
+                                .production_queue
+                                .first()
+                                .map(|p| p.progress_ratio),
+                            production_template: o
+                                .production_queue
+                                .first()
+                                .map(|p| p.template_name.clone()),
+                            production_paused: o.production_paused,
                         },
                     )
                     .collect()

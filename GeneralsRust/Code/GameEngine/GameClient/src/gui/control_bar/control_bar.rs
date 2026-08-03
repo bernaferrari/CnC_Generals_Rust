@@ -2564,6 +2564,12 @@ impl ControlBar {
                     if entry.veterancy_overlay.is_some() {
                         self.portrait_state.veterancy_overlay = entry.veterancy_overlay.clone();
                     }
+                    // Wave 1013: production head residual for empty portrait peel.
+                    if self.portrait_state.production_template.is_none() {
+                        self.portrait_state.production_progress = entry.production_progress;
+                        self.portrait_state.production_template = entry.production_template.clone();
+                        self.portrait_state.production_paused = entry.production_paused;
+                    }
                 }
             }
             return;
