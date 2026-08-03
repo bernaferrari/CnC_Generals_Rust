@@ -1903,6 +1903,8 @@ impl BasicDrawable {
         show_healing: bool,
         healing_icon_type: u8,
         garrisoned_ids: Vec<u32>,
+        emoticon_name: String,
+        emoticon_frames_left: i32,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
@@ -1926,6 +1928,12 @@ impl BasicDrawable {
         self.presentation_show_healing = show_healing;
         self.presentation_healing_icon_type = healing_icon_type;
         self.presentation_garrisoned_ids = garrisoned_ids;
+        // Wave 1057: emoticon residual for dual icon UI.
+        if !emoticon_name.is_empty() && emoticon_frames_left > 0 {
+            let _ = self.set_emoticon(&emoticon_name, emoticon_frames_left as u32);
+        } else {
+            self.clear_emoticon();
+        }
         self.hidden_by_stealth = effectively_stealthed;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));

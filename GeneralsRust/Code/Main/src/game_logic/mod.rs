@@ -242,6 +242,7 @@ pub mod host_live_host_eager_weapon_set_power_helper_residual_wave691;
 pub mod host_live_host_eager_wstats_sel_model_helper_residual_wave697;
 pub mod host_live_host_eject_invuln_dual_peel_residual_wave762;
 pub mod host_live_host_eject_pilot_die_death_start_residual_wave754;
+pub mod host_live_host_emoticon_presentation_residual_wave1057;
 pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
 pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
 pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
@@ -4007,6 +4008,13 @@ pub use host_live_host_control_group_numeral_draw_residual_wave1056::{
     honesty_host_control_group_numeral_draw_residual_nav_commands_residual_wave1056,
     honesty_host_control_group_numeral_draw_residual_residual_pack_wave1056,
     simulate_live_host_control_group_numeral_draw_residual_honesty,
+};
+
+pub use host_live_host_emoticon_presentation_residual_wave1057::{
+    honesty_host_emoticon_presentation_residual_method_names_residual_wave1057,
+    honesty_host_emoticon_presentation_residual_nav_commands_residual_wave1057,
+    honesty_host_emoticon_presentation_residual_residual_pack_wave1057,
+    simulate_live_host_emoticon_presentation_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
