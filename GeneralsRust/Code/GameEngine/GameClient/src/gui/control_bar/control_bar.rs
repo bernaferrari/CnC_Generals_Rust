@@ -2144,6 +2144,15 @@ impl ControlBar {
                 if let Some(entry) =
                     crate::presentation_translator_residual::translator_catalog_entry(*obj_id)
                 {
+                    // Wave 1076: unusable multi-select residual fail-closed.
+                    if entry.destroyed
+                        || entry.sold
+                        || entry.disabled
+                        || entry.unselectable
+                        || entry.masked
+                    {
+                        continue;
+                    }
                     if entry.command_set_name.is_empty() {
                         continue;
                     }

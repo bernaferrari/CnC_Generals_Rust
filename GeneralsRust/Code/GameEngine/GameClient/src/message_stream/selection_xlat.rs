@@ -397,7 +397,8 @@ impl SelectionTranslator {
                         // Wave 1035/1062: destroyed residual maps to is_dead for can_select
                         // (AlwaysSelectable still passes can_select via kind_of_flags).
                         is_dead: entry.destroyed,
-                        is_hidden: entry.shroud_status >= 2,
+                        // Wave 1076: FOW is_hidden residual is non-local only (local units stay pickable).
+                        is_hidden: entry.shroud_status >= 2 && !translator_entry_is_local(entry),
                         is_local_controlled: translator_entry_is_local(entry),
                         kind_of_flags,
                         // Wave 1034/1035: status residual from catalog.
