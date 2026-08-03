@@ -359,8 +359,12 @@ impl SelectionTranslator {
                     if entry.effectively_stealthed && !translator_entry_is_local(entry) {
                         continue;
                     }
-                    // FOW residual: shroud_status 0 = clear (Clear), non-zero may be fogged/black.
-                    // Fail-open selectables that are fully hidden (3) are skipped.
+                    // FOW residual: shroud_status 0/1 clear-ish; >=2 fogged/black.
+                    // Wave 1063: non-local fogged/black fail-closed (SelectionInfo parity).
+                    // Local player may still select own units under FOW residual.
+                    if entry.shroud_status >= 2 && !translator_entry_is_local(entry) {
+                        continue;
+                    }
                     if entry.shroud_status >= 3 {
                         continue;
                     }

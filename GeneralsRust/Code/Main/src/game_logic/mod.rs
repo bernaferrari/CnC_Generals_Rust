@@ -266,6 +266,7 @@ pub mod host_live_host_force_reload_dual_peel_residual_wave763;
 pub mod host_live_host_formation_letter_residual_wave1058;
 pub mod host_live_host_formation_offset_presentation_residual_wave998;
 pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
+pub mod host_live_host_fow_fogged_selection_residual_wave1063;
 pub mod host_live_host_fow_tod_residual_wave981;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
@@ -4055,6 +4056,13 @@ pub use host_live_host_always_selectable_is_selectable_residual_wave1062::{
     honesty_host_always_selectable_is_selectable_residual_nav_commands_residual_wave1062,
     honesty_host_always_selectable_is_selectable_residual_residual_pack_wave1062,
     simulate_live_host_always_selectable_is_selectable_residual_honesty,
+};
+
+pub use host_live_host_fow_fogged_selection_residual_wave1063::{
+    honesty_host_fow_fogged_selection_residual_method_names_residual_wave1063,
+    honesty_host_fow_fogged_selection_residual_nav_commands_residual_wave1063,
+    honesty_host_fow_fogged_selection_residual_residual_pack_wave1063,
+    simulate_live_host_fow_fogged_selection_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
