@@ -39,7 +39,9 @@ use crate::gui::window_video_manager::with_window_video_manager;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
-use crate::presentation_translator_residual::{translator_entry_has_kind, with_translator_catalog};
+use crate::presentation_translator_residual::{
+    translator_entry_has_kind, translator_entry_is_local, with_translator_catalog,
+};
 use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
@@ -1093,15 +1095,26 @@ fn next_plane_camera_lock_object_id() -> Option<u32> {
         }
     }
     // Wave 979: host empty dual-world → presentation catalog airborne residual.
+    // Wave 1071: fail-closed on destroyed/sold/masked/FOW/non-local stealth residuals.
     if candidates.is_empty() {
         with_translator_catalog(|catalog| {
             for entry in catalog {
                 if translator_entry_has_kind(entry, "Projectile") {
                     continue;
                 }
-                if entry.airborne_target || translator_entry_has_kind(entry, "Aircraft") {
-                    candidates.push(entry.object_id);
+                if !(entry.airborne_target || translator_entry_has_kind(entry, "Aircraft")) {
+                    continue;
                 }
+                if entry.destroyed || entry.sold || entry.masked || entry.unselectable {
+                    continue;
+                }
+                if entry.shroud_status >= 2 && !translator_entry_is_local(entry) {
+                    continue;
+                }
+                if entry.effectively_stealthed && !translator_entry_is_local(entry) {
+                    continue;
+                }
+                candidates.push(entry.object_id);
             }
         });
     }

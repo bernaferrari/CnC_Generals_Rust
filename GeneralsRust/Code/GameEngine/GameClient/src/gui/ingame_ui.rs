@@ -1628,7 +1628,13 @@ impl InGameUI {
                 return false;
             };
             // Wave 1038: C++ target legality residual — skip dead/sold/unselectable/masked/stealthed.
-            if target.destroyed || target.sold || target.unselectable || target.masked {
+            // Wave 1071: disabled target residual fail-closed for SP object targeting.
+            if target.destroyed
+                || target.sold
+                || target.unselectable
+                || target.masked
+                || target.disabled
+            {
                 return false;
             }
             // Enemy/neutral effectively stealthed targets fail closed (SelectionInfo parity).
