@@ -2835,6 +2835,13 @@ impl ControlBar {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
+                // Wave 1053: destroyed/sold/unselectable clear portrait residual.
+                if entry.destroyed || entry.sold || entry.unselectable {
+                    self.portrait_state = PortraitDisplayState::default();
+                    self.build_queue_data.clear();
+                    self.displayed_queue_count = 0;
+                    return;
+                }
                 // Wave 1041: C++ ControlBar disguise portrait swap for non-allied viewers.
                 let apparent =
                     crate::presentation_translator_residual::translator_entry_apparent_template(
