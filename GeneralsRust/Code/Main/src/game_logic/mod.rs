@@ -374,6 +374,7 @@ pub mod host_live_host_select_matching_catalog_residual_wave967;
 pub mod host_live_host_selection_stamp_residual_wave866;
 pub mod host_live_host_selection_stamp_train_failclosed_residual_wave902;
 pub mod host_live_host_selection_target_catalog_residual_wave975;
+pub mod host_live_host_selection_xlat_catalog_residual_wave1016;
 pub mod host_live_host_sell_auto_target_opt_in_residual_wave728;
 pub mod host_live_host_sell_auto_target_residual_wave856;
 pub mod host_live_host_sell_same_frame_ready_complete_residual_wave716;
@@ -3679,6 +3680,13 @@ pub use host_live_host_catalog_command_set_presentation_residual_wave1015::{
     honesty_host_catalog_command_set_presentation_residual_nav_commands_residual_wave1015,
     honesty_host_catalog_command_set_presentation_residual_residual_pack_wave1015,
     simulate_live_host_catalog_command_set_presentation_residual_honesty,
+};
+
+pub use host_live_host_selection_xlat_catalog_residual_wave1016::{
+    honesty_host_selection_xlat_catalog_residual_method_names_residual_wave1016,
+    honesty_host_selection_xlat_catalog_residual_nav_commands_residual_wave1016,
+    honesty_host_selection_xlat_catalog_residual_residual_pack_wave1016,
+    simulate_live_host_selection_xlat_catalog_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

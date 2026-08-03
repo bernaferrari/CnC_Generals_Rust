@@ -20,6 +20,9 @@ use crate::gui::game_window::{GameWindow, WindowStatus};
 use crate::gui::window_manager::with_window_manager_ref;
 use crate::helpers::TheInGameUI;
 use crate::input::{KeyCode, KeyModifiers};
+use crate::presentation_translator_residual::{
+    translator_entry_has_kind, translator_entry_is_local, with_translator_catalog,
+};
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::common::types::{KindOf, ObjectShroudStatus, ObjectStatusMaskType};
 use gamelogic::object::registry::OBJECT_REGISTRY;
@@ -313,9 +316,45 @@ impl SelectionTranslator {
         }
 
         // Host/presentation path: prefer drawable_registry above; empty factory
-        // registry means no dual-world selectable residual.
+        // registry peels translator catalog residual (Wave 1016).
         if OBJECT_REGISTRY.is_empty() {
-            return Vec::new();
+            let mut drawables = Vec::new();
+            with_translator_catalog(|catalog| {
+                for entry in catalog {
+                    if !entry.selectable {
+                        continue;
+                    }
+                    // FOW residual: shroud_status 0 = clear (Clear), non-zero may be fogged/black.
+                    // Fail-open selectables that are fully hidden (3) are skipped.
+                    if entry.shroud_status >= 3 {
+                        continue;
+                    }
+                    let is_structure = translator_entry_has_kind(entry, "Structure");
+                    let is_crate = translator_entry_has_kind(entry, "Crate");
+                    let is_garrisonable_building = is_structure
+                        && (translator_entry_has_kind(entry, "GarrisonableStructure")
+                            || translator_entry_has_kind(entry, "Structure"));
+                    drawables.push(SelectableDrawable {
+                        id: entry.object_id,
+                        object_id: entry.object_id,
+                        position: Coord3D::new(
+                            entry.position[0],
+                            entry.position[1],
+                            entry.position[2],
+                        ),
+                        is_structure,
+                        is_garrisonable_building,
+                        is_crate,
+                        is_selectable: entry.selectable,
+                        is_dead: false,
+                        is_hidden: entry.shroud_status >= 2,
+                        is_local_controlled: translator_entry_is_local(entry),
+                        kind_of_flags: 0,
+                        status_bits: 0,
+                    });
+                }
+            });
+            return drawables;
         }
 
         let local_player_index = player_list()
