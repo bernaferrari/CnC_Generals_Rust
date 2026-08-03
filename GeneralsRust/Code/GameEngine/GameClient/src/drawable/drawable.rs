@@ -2969,9 +2969,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
-        // Wave 972: host empty dual-world → presentation ammo residual.
+        // Wave 972/1052: host empty dual-world → presentation ammo residual.
         if dual_world_registry_unavailable() {
-            if !self.selected_or_moused_over_for_icon_pips() {
+            if !self.selected_or_moused_over_for_icon_pips()
+                || self.presentation_effectively_stealthed
+            {
                 self.overlay_data.show_ammo = false;
                 return;
             }
@@ -3018,9 +3020,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_contained(&mut self, _health_region: &IRegion2D) {
-        // Wave 972: host empty dual-world → presentation contain residual.
+        // Wave 972/1052: host empty dual-world → presentation contain residual.
         if dual_world_registry_unavailable() {
-            if !self.selected_or_moused_over_for_icon_pips() {
+            if !self.selected_or_moused_over_for_icon_pips()
+                || self.presentation_effectively_stealthed
+            {
                 self.overlay_data.show_contained = false;
                 return;
             }
