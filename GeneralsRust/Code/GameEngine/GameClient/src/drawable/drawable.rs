@@ -1694,6 +1694,8 @@ pub struct BasicDrawable {
     presentation_effectively_stealthed: bool,
     /// Wave 1055: host control-group residual (0..9, -1 = none).
     presentation_hotkey_group: i8,
+    /// Wave 1058: formation id residual (0 = none).
+    presentation_formation_id: u32,
     /// Wave 965: presentation health fraction 0..1.
     presentation_health_pct: f32,
     /// Wave 965: presentation selected residual.
@@ -1812,6 +1814,7 @@ impl BasicDrawable {
             presentation_indicator_color: None,
             presentation_effectively_stealthed: false,
             presentation_hotkey_group: -1,
+            presentation_formation_id: 0,
             presentation_health_pct: 0.0,
             presentation_selected: false,
             presentation_orientation: 0.0,
@@ -1905,6 +1908,7 @@ impl BasicDrawable {
         garrisoned_ids: Vec<u32>,
         emoticon_name: String,
         emoticon_frames_left: i32,
+        formation_id: u32,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
@@ -1934,6 +1938,7 @@ impl BasicDrawable {
         } else {
             self.clear_emoticon();
         }
+        self.presentation_formation_id = formation_id;
         self.hidden_by_stealth = effectively_stealthed;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
@@ -3496,6 +3501,25 @@ impl BasicDrawable {
                 Self::draw_caption_string(
                     &group_text,
                     base_x,
+                    base_y,
+                    text_color,
+                    draw_group_info.color_for_text_drop_shadow,
+                    &draw_group_info.font_name,
+                    draw_group_info.font_size,
+                    draw_group_info.font_is_bold,
+                    draw_group_info.drop_shadow_offset_x,
+                    draw_group_info.drop_shadow_offset_y,
+                );
+            }
+        }
+
+        // Wave 1058: formation letter residual (C++ formation id dual draw).
+        if self.presentation_formation_id != 0 {
+            let mut manager = get_display_string_manager();
+            if let Some(formation_text) = manager.get_formation_letter_string() {
+                Self::draw_caption_string(
+                    &formation_text,
+                    base_x + 10,
                     base_y,
                     text_color,
                     draw_group_info.color_for_text_drop_shadow,
