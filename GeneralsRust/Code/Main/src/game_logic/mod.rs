@@ -249,6 +249,7 @@ pub mod host_live_host_emoticon_presentation_residual_wave1057;
 pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
 pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
 pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
+pub mod host_live_host_enter_garrison_capacity_residual_wave1068;
 pub mod host_live_host_entity_producer_id_presentation_residual_wave992;
 pub mod host_live_host_entity_production_paused_presentation_residual_wave991;
 pub mod host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747;
@@ -4095,6 +4096,13 @@ pub use host_live_host_sold_vis_under_construction_source_residual_wave1067::{
     honesty_host_sold_vis_under_construction_source_residual_nav_commands_residual_wave1067,
     honesty_host_sold_vis_under_construction_source_residual_residual_pack_wave1067,
     simulate_live_host_sold_vis_under_construction_source_residual_honesty,
+};
+
+pub use host_live_host_enter_garrison_capacity_residual_wave1068::{
+    honesty_host_enter_garrison_capacity_residual_method_names_residual_wave1068,
+    honesty_host_enter_garrison_capacity_residual_nav_commands_residual_wave1068,
+    honesty_host_enter_garrison_capacity_residual_residual_pack_wave1068,
+    simulate_live_host_enter_garrison_capacity_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
