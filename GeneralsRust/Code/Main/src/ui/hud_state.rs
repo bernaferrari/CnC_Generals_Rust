@@ -437,6 +437,8 @@ pub struct ControlBarSelectionPanelState {
     pub production_queue: Vec<(String, f32, bool)>,
     /// Max garrison slots residual (0 = not a container).
     pub max_garrison: usize,
+    /// Wave 1031: OCL timer residual seconds for ControlBar OclTimer.
+    pub ocl_timer_seconds: u32,
     /// Contained unit count residual.
     pub garrisoned_count: usize,
     /// Under-construction residual for CancelConstruction command.
@@ -482,6 +484,7 @@ impl ControlBarSelectionPanelState {
                 .map(|(t, p)| vec![(t.clone(), p, primary.production_is_upgrade)])
                 .unwrap_or_default(),
             max_garrison: 0,
+            ocl_timer_seconds: 0,
             garrisoned_count: 0,
             under_construction: false,
             construction_percent: 0.0,
