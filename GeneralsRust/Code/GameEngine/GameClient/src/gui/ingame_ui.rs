@@ -3546,6 +3546,10 @@ impl InGameUI {
         if dual_world_registry_unavailable() {
             let name = format!("{kind_of:?}");
             return self.presentation_selected.iter().any(|u| {
+                // Wave 1090: selected-kind residual ignores unusable entries.
+                if u.destroyed || u.sold || u.masked || u.unselectable {
+                    return false;
+                }
                 u.kind_names
                     .iter()
                     .any(|k| k == &name || k.eq_ignore_ascii_case(&name))
@@ -3574,11 +3578,17 @@ impl InGameUI {
     pub fn is_all_selected_kind_of(&self, kind_of: KindOf) -> bool {
         // Wave 964: host empty dual-world → presentation kind residual.
         if dual_world_registry_unavailable() {
-            if self.presentation_selected.is_empty() {
+            let name = format!("{kind_of:?}");
+            // Wave 1090: evaluate only usable selected entries (empty usable → true).
+            let usable: Vec<_> = self
+                .presentation_selected
+                .iter()
+                .filter(|u| !(u.destroyed || u.sold || u.masked || u.unselectable))
+                .collect();
+            if usable.is_empty() {
                 return true;
             }
-            let name = format!("{kind_of:?}");
-            return self.presentation_selected.iter().all(|u| {
+            return usable.iter().all(|u| {
                 u.kind_names
                     .iter()
                     .any(|k| k == &name || k.eq_ignore_ascii_case(&name))
@@ -5302,11 +5312,16 @@ impl InGameUI {
         }
         // Wave 981: host empty dual-world → presentation catalog FOW residual.
         if dual_world_registry_unavailable() {
-            return self
+            let entry = self
                 .presentation_unit_catalog
                 .iter()
-                .find(|e| e.object_id == id)
-                .map(|e| e.shroud_status);
+                .find(|e| e.object_id == id)?;
+            // Wave 1090: command-hint shroud residual fail-closed on unusable
+            // hover targets (matches hover_target_command_context peels).
+            if entry.destroyed || entry.sold || entry.masked || entry.unselectable {
+                return None;
+            }
+            return Some(entry.shroud_status);
         }
         OBJECT_REGISTRY.get_object(id).and_then(|obj| {
             obj.read()
