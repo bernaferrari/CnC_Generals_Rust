@@ -252,6 +252,7 @@ pub mod host_live_host_eject_invuln_dual_peel_residual_wave762;
 pub mod host_live_host_eject_pilot_die_death_start_residual_wave754;
 pub mod host_live_host_emoticon_presentation_residual_wave1057;
 pub mod host_live_host_emp_pulse_flight_dual_peel_residual_wave791;
+pub mod host_live_host_enemy_fow_count_click_selectable_residual_wave1104;
 pub mod host_live_host_enemy_near_dual_peel_residual_wave781;
 pub mod host_live_host_ensure_barracks_opt_in_residual_wave723;
 pub mod host_live_host_enter_garrison_capacity_residual_wave1068;
@@ -4376,6 +4377,13 @@ pub use host_live_host_presentation_cmd_feed_usable_residual_wave1102::{
     honesty_host_presentation_cmd_feed_usable_nav_commands_residual_wave1102,
     honesty_host_presentation_cmd_feed_usable_residual_pack_wave1102,
     simulate_live_host_presentation_cmd_feed_usable_residual_honesty,
+};
+
+pub use host_live_host_enemy_fow_count_click_selectable_residual_wave1104::{
+    honesty_host_enemy_fow_count_click_selectable_method_names_residual_wave1104,
+    honesty_host_enemy_fow_count_click_selectable_nav_commands_residual_wave1104,
+    honesty_host_enemy_fow_count_click_selectable_residual_pack_wave1104,
+    simulate_live_host_enemy_fow_count_click_selectable_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

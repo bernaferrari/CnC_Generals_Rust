@@ -25568,6 +25568,20 @@ impl CnCGameEngine {
                     self.toggle_select_object(object_id);
                 } else {
                     // Select this object
+                    // Wave 1104: belt-and-suspenders local selectable check (pick peels FOW first).
+                    let selectable = self.last_presentation_frame.as_ref().is_some_and(|frame| {
+                        let local = frame.local_team();
+                        frame.objects.iter().any(|o| {
+                            o.id == object_id
+                                && o.team == local
+                                && crate::unit_control::UnitControlSystem::presentation_is_selectable(
+                                    o,
+                                )
+                        })
+                    });
+                    if !selectable {
+                        return;
+                    }
                     // Wave 583: selection residual via host_set_selection.
                     self.host_set_selection(self.current_player_id, vec![object_id]);
                     self.play_sound_effect(SoundType::Select);
