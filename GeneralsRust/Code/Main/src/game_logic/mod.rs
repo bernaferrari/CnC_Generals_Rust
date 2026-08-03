@@ -302,6 +302,7 @@ pub mod host_live_host_ignored_gui_object_presentation_residual_wave1007;
 pub mod host_live_host_ignored_gui_slaver_presentation_residual_wave1000;
 pub mod host_live_host_inferno_shell_spy_ping_dual_peel_residual_wave803;
 pub mod host_live_host_ingame_ui_presentation_selection_residual_wave964;
+pub mod host_live_host_input_find_object_fow_status_residual_wave1096;
 pub mod host_live_host_input_integration_presentation_peel_residual_wave954;
 pub mod host_live_host_internal_host_object_idiom_residual_wave959;
 pub mod host_live_host_inventory_seed_usable_residual_wave1081;
@@ -4319,6 +4320,13 @@ pub use host_live_host_control_group_select_legality_residual_wave1095::{
     honesty_host_control_group_select_legality_nav_commands_residual_wave1095,
     honesty_host_control_group_select_legality_residual_pack_wave1095,
     simulate_live_host_control_group_select_legality_residual_honesty,
+};
+
+pub use host_live_host_input_find_object_fow_status_residual_wave1096::{
+    honesty_host_input_find_object_fow_status_method_names_residual_wave1096,
+    honesty_host_input_find_object_fow_status_nav_commands_residual_wave1096,
+    honesty_host_input_find_object_fow_status_residual_pack_wave1096,
+    simulate_live_host_input_find_object_fow_status_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

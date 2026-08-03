@@ -537,11 +537,17 @@ impl SimpleInputProcessor {
         const SELECTION_RADIUS: f32 = 5.0; // Units within this radius can be selected
 
         // Presentation-only: no live GameLogic dual-read residual.
+        // Wave 1096: sold/masked + non-local FOW Clear-only (matches UnitControl pick).
         let frame = self.presentation_frame.as_ref()?;
+        let local_team = frame.local_team();
         let mut closest_object = None;
         let mut closest_distance = SELECTION_RADIUS;
         for o in &frame.objects {
-            if o.destroyed {
+            if o.destroyed || o.sold || o.masked {
+                continue;
+            }
+            let is_local = o.team == local_team;
+            if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
                 continue;
             }
             let distance = (Vec2::new(o.position.x, o.position.z)
