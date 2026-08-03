@@ -1909,6 +1909,7 @@ impl BasicDrawable {
         emoticon_name: String,
         emoticon_frames_left: i32,
         formation_id: u32,
+        caption: String,
     ) {
         self.presentation_kind_names = kind_names;
         self.presentation_indicator_color = indicator_color;
@@ -1939,6 +1940,12 @@ impl BasicDrawable {
             self.clear_emoticon();
         }
         self.presentation_formation_id = formation_id;
+        // Wave 1059: caption residual for dual draw_ui_text.
+        if caption.is_empty() {
+            self.clear_caption_text();
+        } else {
+            self.set_caption_text(&caption);
+        }
         self.hidden_by_stealth = effectively_stealthed;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
@@ -3532,10 +3539,40 @@ impl BasicDrawable {
             }
         }
 
-        // Caption residual: optional presentation caption string.
-        if let Some(ref caption) = self.overlay_data.caption {
+        // Wave 1059: dual caption draw from presentation caption residual.
+        if let Some(caption) = self.caption_text.as_ref().filter(|c| !c.is_empty()) {
+            let mut manager = get_display_string_manager();
+            let handle = manager.new_display_string();
+            handle.borrow_mut().set_text(caption.clone());
+            Self::draw_caption_string(
+                &handle,
+                base_x,
+                base_y + 14,
+                text_color,
+                draw_group_info.color_for_text_drop_shadow,
+                &draw_group_info.font_name,
+                draw_group_info.font_size,
+                draw_group_info.font_is_bold,
+                draw_group_info.drop_shadow_offset_x,
+                draw_group_info.drop_shadow_offset_y,
+            );
+        } else if let Some(ref caption) = self.overlay_data.caption {
             if !caption.is_empty() {
-                let _ = caption;
+                let mut manager = get_display_string_manager();
+                let handle = manager.new_display_string();
+                handle.borrow_mut().set_text(caption.clone());
+                Self::draw_caption_string(
+                    &handle,
+                    base_x,
+                    base_y + 14,
+                    text_color,
+                    draw_group_info.color_for_text_drop_shadow,
+                    &draw_group_info.font_name,
+                    draw_group_info.font_size,
+                    draw_group_info.font_is_bold,
+                    draw_group_info.drop_shadow_offset_x,
+                    draw_group_info.drop_shadow_offset_y,
+                );
             }
         }
         Ok(())

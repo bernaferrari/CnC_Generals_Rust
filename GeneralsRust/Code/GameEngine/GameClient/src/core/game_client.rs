@@ -181,6 +181,8 @@ pub struct PresentationDrawableSync {
     pub emoticon_frames_left: i32,
     /// Wave 1058: formation id residual (0 = none) for dual group/formation letters.
     pub formation_id: u32,
+    /// Wave 1059: unit caption residual (beacon/script caption) for dual draw_ui_text.
+    pub caption: String,
 }
 
 // Wave 269: host-only path has no dual-world factory objects.
@@ -3599,6 +3601,7 @@ impl GameClient {
                 emoticon_name: String::new(),
                 emoticon_frames_left: 0,
                 formation_id: 0,
+                caption: String::new(),
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -3739,6 +3742,7 @@ impl GameClient {
             e.emoticon_name.clone(),
             e.emoticon_frames_left,
             e.formation_id,
+            e.caption.clone(),
         );
     }
 
