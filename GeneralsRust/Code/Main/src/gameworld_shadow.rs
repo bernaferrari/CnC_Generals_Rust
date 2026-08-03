@@ -3679,6 +3679,12 @@ impl GameWorldShadow {
                     e.is_surrendered = obj.is_surrendered;
                     e.emoticon_name = obj.emoticon_name.clone();
                     e.emoticon_frames_left = obj.emoticon_frames_left;
+                    e.damage_fx_name = obj
+                        .pending_transition_damage_fx
+                        .last()
+                        .and_then(|e| e.fx_name.clone());
+                    e.bone_fx_name = obj.bone_fx_damage.as_ref().and_then(|b| b.last_fx.clone());
+                    e.death_fx_name = obj.pending_death_fx.clone();
                     e.formation_id = obj.formation_id;
                     e.formation_offset = [obj.formation_offset.x, obj.formation_offset.y];
                     e.disguise_transitioning_to = obj.status.disguise_transitioning_to;
@@ -4841,6 +4847,12 @@ impl GameWorldShadow {
                 e.is_surrendered = obj.is_surrendered;
                 e.emoticon_name = obj.emoticon_name.clone();
                 e.emoticon_frames_left = obj.emoticon_frames_left;
+                e.damage_fx_name = obj
+                    .pending_transition_damage_fx
+                    .last()
+                    .and_then(|e| e.fx_name.clone());
+                e.bone_fx_name = obj.bone_fx_damage.as_ref().and_then(|b| b.last_fx.clone());
+                e.death_fx_name = obj.pending_death_fx.clone();
                 e.formation_id = obj.formation_id;
                 e.formation_offset = [obj.formation_offset.x, obj.formation_offset.y];
                 e.disguise_transitioning_to = obj.status.disguise_transitioning_to;

@@ -1060,6 +1060,12 @@ pub struct Entity {
     pub emoticon_name: String,
     /// Wave 999: host Object::emoticon_frames_left residual.
     pub emoticon_frames_left: i32,
+    /// Wave 1001: host pending transition damage FX residual name.
+    pub damage_fx_name: Option<String>,
+    /// Wave 1001: host BoneFXDamage last FX residual name.
+    pub bone_fx_name: Option<String>,
+    /// Wave 1001: host pending death FX residual name.
+    pub death_fx_name: Option<String>,
     /// Host Object::overcharge_enabled residual.
     pub overcharge_enabled: bool,
     /// Host Object::active_weapon_slot residual.
@@ -1982,6 +1988,9 @@ impl EntityStore {
             is_surrendered: false,
             emoticon_name: String::new(),
             emoticon_frames_left: 0,
+            damage_fx_name: None,
+            bone_fx_name: None,
+            death_fx_name: None,
             overcharge_enabled: false,
             active_weapon_slot: 0,
             weapon_fire_status: 0,

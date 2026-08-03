@@ -7114,6 +7114,19 @@ impl PresentationFrame {
                 obj.emoticon_frames_left = ent.emoticon_frames_left;
                 dirty = true;
             }
+            // Wave 1001: FX name residual last-writer.
+            if obj.damage_fx_name != ent.damage_fx_name {
+                obj.damage_fx_name = ent.damage_fx_name.clone();
+                dirty = true;
+            }
+            if obj.bone_fx_name != ent.bone_fx_name {
+                obj.bone_fx_name = ent.bone_fx_name.clone();
+                dirty = true;
+            }
+            if obj.death_fx_name != ent.death_fx_name {
+                obj.death_fx_name = ent.death_fx_name.clone();
+                dirty = true;
+            }
             // Wave 996: topple lean + healing icon residual last-writer.
             if (obj.topple_lean_radians - ent.topple_lean_radians).abs() > 1e-5 {
                 obj.topple_lean_radians = ent.topple_lean_radians;
@@ -7595,12 +7608,12 @@ impl PresentationFrame {
             production_door_phase: ent.production_door_phase,
             body_damage_state: ent.body_damage_state,
             // Wave 498 defaults; overlay_host_fx_residual stamps live host FX residual.
-            damage_fx_name: None,
-            bone_fx_name: None,
+            damage_fx_name: ent.damage_fx_name.clone(),
+            bone_fx_name: ent.bone_fx_name.clone(),
             poison_tinted: ent.poison_damage_frame != 0,
             undetected_defector: ent.defection_undetected,
             defector_flash: ent.defection_flash_this_frame,
-            death_fx_name: None,
+            death_fx_name: ent.death_fx_name.clone(),
             death_type_name: if ent.destroyed || ent.health <= 0.0 {
                 crate::game_logic::host_usa_pilot::HostDeathType::from_ordinal(ent.death_type)
                     .as_name()
