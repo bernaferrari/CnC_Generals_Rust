@@ -1095,6 +1095,13 @@ fn is_prisoner_target(target_id: ObjectID) -> bool {
         if !dual_target_status_ok(&e) {
             return false;
         }
+        // Wave 1074: FOW/stealth non-local prisoner residual fail-closed.
+        if e.shroud_status >= 2 && !translator_entry_is_local(&e) {
+            return false;
+        }
+        if e.effectively_stealthed && !translator_entry_is_local(&e) {
+            return false;
+        }
         return translator_entry_has_kind(&e, "CanSurrender")
             || translator_entry_has_kind(&e, "Prison")
             || translator_entry_has_kind(&e, "PowTruck");
@@ -1586,7 +1593,13 @@ fn selection_source_object_id(
         // Wave 1049: prefer living local source residual.
         for &id in selection {
             if let Some(e) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&e) && !e.destroyed && !e.sold && !e.disabled {
+                // Wave 1074: under-construction local source residual fail-closed.
+                if translator_entry_is_local(&e)
+                    && !e.destroyed
+                    && !e.sold
+                    && !e.disabled
+                    && !e.under_construction
+                {
                     return id;
                 }
             }
@@ -2164,10 +2177,13 @@ fn pick_context_target_for_click(
 fn is_locally_controlled_mine_target(object_id: ObjectID) -> bool {
     // Wave 973/1048: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
+        // Wave 1074: mine dual fail-closed on FOW/stealth non-local residuals.
         return translator_catalog_entry(object_id)
             .map(|e| {
                 dual_target_status_ok(&e)
                     && translator_entry_is_local(&e)
+                    && !(e.shroud_status >= 2)
+                    && !e.effectively_stealthed
                     && translator_catalog_has_kind(object_id, "Mine")
             })
             .unwrap_or(false);

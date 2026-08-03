@@ -370,6 +370,7 @@ pub mod host_live_host_presentation_selection_hud_residual_wave978;
 pub mod host_live_host_presentation_selection_peel_residual_wave949;
 pub mod host_live_host_presentation_shell_catalog_shroud_residual_wave1022;
 pub mod host_live_host_presentation_unit_catalog_residual_wave966;
+pub mod host_live_host_prisoner_source_mine_residual_wave1074;
 pub mod host_live_host_process_commands_if_needed_residual_wave914;
 pub mod host_live_host_process_sfx_world_template_peels_residual_wave915;
 pub mod host_live_host_producer_refresh_freeze_peels_residual_wave920;
@@ -4143,6 +4144,13 @@ pub use host_live_host_relationship_status_stealth_residual_wave1073::{
     honesty_host_relationship_status_stealth_residual_nav_commands_residual_wave1073,
     honesty_host_relationship_status_stealth_residual_residual_pack_wave1073,
     simulate_live_host_relationship_status_stealth_residual_honesty,
+};
+
+pub use host_live_host_prisoner_source_mine_residual_wave1074::{
+    honesty_host_prisoner_source_mine_residual_method_names_residual_wave1074,
+    honesty_host_prisoner_source_mine_residual_nav_commands_residual_wave1074,
+    honesty_host_prisoner_source_mine_residual_residual_pack_wave1074,
+    simulate_live_host_prisoner_source_mine_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
