@@ -5186,8 +5186,25 @@ impl InGameUI {
             else {
                 return (false, false, false);
             };
+            // Wave 1087: command-hint hover residual fail-closed on unusable /
+            // non-local FOW/stealth (matches create_mouseover_hint peels).
+            if entry.destroyed || entry.sold || entry.unselectable || entry.masked {
+                return (false, false, false);
+            }
             let local = !self.presentation_local_team_name.is_empty()
                 && entry.team_name == self.presentation_local_team_name;
+            if entry.effectively_stealthed && !local {
+                return (false, false, false);
+            }
+            let fogged = matches!(
+                entry.shroud_status,
+                ObjectShroudStatus::PartialClear
+                    | ObjectShroudStatus::Fogged
+                    | ObjectShroudStatus::Shrouded
+            );
+            if fogged && !local {
+                return (false, false, false);
+            }
             let is_mine = entry
                 .kind_names
                 .iter()
