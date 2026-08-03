@@ -597,11 +597,14 @@ impl ControlBar {
                 self.displayed_queue_count = 0;
                 // Wave 1078: clear OCL/garrison dual residuals with unusable selection.
                 // Wave 1079: also clear primary command-set residual (beacon/command).
+                // Wave 1080: clear under-construction dual residual with unusable selection.
                 self.presentation_ocl_timer_seconds = 0;
                 self.displayed_ocl_timer_seconds = 0;
                 self.presentation_max_garrison = 0;
                 self.presentation_garrisoned_count = 0;
                 self.presentation_primary_command_set.clear();
+                self.presentation_under_construction = false;
+                self.presentation_construction_percent = 0.0;
                 let mut guard = self
                     .context
                     .write()
@@ -614,12 +617,18 @@ impl ControlBar {
                 if let Some(entry) =
                     crate::presentation_translator_residual::translator_catalog_entry(obj_id)
                 {
-                    if entry.under_construction {
+                    // Wave 1080: skip UC/garrison seed for unusable dual catalog entries.
+                    let usable = !entry.destroyed
+                        && !entry.sold
+                        && !entry.disabled
+                        && !entry.unselectable
+                        && !entry.masked;
+                    if usable && entry.under_construction {
                         self.presentation_under_construction = true;
                         self.presentation_construction_percent = entry.construction_percent;
                     }
                     // Wave 1030: seed garrison residual from catalog when freeze unset.
-                    if self.presentation_max_garrison == 0 && entry.max_garrison > 0 {
+                    if usable && self.presentation_max_garrison == 0 && entry.max_garrison > 0 {
                         self.presentation_max_garrison = entry.max_garrison as usize;
                         self.presentation_garrisoned_count = entry.occupant_count as usize;
                     }
@@ -2902,7 +2911,13 @@ impl ControlBar {
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
                 // Wave 1053: destroyed/sold/unselectable clear portrait residual.
-                if entry.destroyed || entry.sold || entry.unselectable {
+                // Wave 1080: masked/disabled also clear dual portrait residual.
+                if entry.destroyed
+                    || entry.sold
+                    || entry.unselectable
+                    || entry.masked
+                    || entry.disabled
+                {
                     self.portrait_state = PortraitDisplayState::default();
                     self.build_queue_data.clear();
                     self.displayed_queue_count = 0;

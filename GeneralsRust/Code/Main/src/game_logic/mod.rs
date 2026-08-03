@@ -486,6 +486,7 @@ pub mod host_live_host_train_producer_residual_wave848;
 pub mod host_live_host_train_try_names_golden_opt_in_residual_wave724;
 pub mod host_live_host_translator_catalog_residual_wave973;
 pub mod host_live_host_translator_context_pick_residual_wave974;
+pub mod host_live_host_uc_garrison_seed_portrait_residual_wave1080;
 pub mod host_live_host_ui_framework_clippy_residual_wave881;
 pub mod host_live_host_ui_minimap_presentation_peel_residual_wave952;
 pub mod host_live_host_ui_observe_failclosed_residual_wave905;
@@ -4191,6 +4192,13 @@ pub use host_live_host_beacon_command_unusable_residual_wave1079::{
     honesty_host_beacon_command_unusable_residual_nav_commands_residual_wave1079,
     honesty_host_beacon_command_unusable_residual_residual_pack_wave1079,
     simulate_live_host_beacon_command_unusable_residual_honesty,
+};
+
+pub use host_live_host_uc_garrison_seed_portrait_residual_wave1080::{
+    honesty_host_uc_garrison_seed_portrait_residual_method_names_residual_wave1080,
+    honesty_host_uc_garrison_seed_portrait_residual_nav_commands_residual_wave1080,
+    honesty_host_uc_garrison_seed_portrait_residual_residual_pack_wave1080,
+    simulate_live_host_uc_garrison_seed_portrait_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
