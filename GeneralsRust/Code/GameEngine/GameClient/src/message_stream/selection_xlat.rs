@@ -324,8 +324,8 @@ impl SelectionTranslator {
                     if !entry.selectable {
                         continue;
                     }
-                    // Wave 1034: C++ OBJECT_STATUS_UNSELECTABLE / sold residual.
-                    if entry.unselectable || entry.sold {
+                    // Wave 1034/1035: C++ UNSELECTABLE / sold / destroyed / masked residual.
+                    if entry.unselectable || entry.sold || entry.destroyed || entry.masked {
                         continue;
                     }
                     // FOW residual: shroud_status 0 = clear (Clear), non-zero may be fogged/black.
@@ -349,16 +349,24 @@ impl SelectionTranslator {
                         is_structure,
                         is_garrisonable_building,
                         is_crate,
-                        is_selectable: entry.selectable && !entry.unselectable && !entry.sold,
-                        is_dead: false,
+                        is_selectable: entry.selectable
+                            && !entry.unselectable
+                            && !entry.sold
+                            && !entry.destroyed
+                            && !entry.masked,
+                        // Wave 1035: destroyed residual maps to is_dead for can_select.
+                        is_dead: entry.destroyed,
                         is_hidden: entry.shroud_status >= 2,
                         is_local_controlled: translator_entry_is_local(entry),
                         kind_of_flags: 0,
-                        // Wave 1034: status residual from catalog (fail-closed for dual peels).
+                        // Wave 1034/1035: status residual from catalog.
                         status_bits: {
                             let mut bits = 0u32;
                             if entry.unselectable {
                                 bits |= OBJECT_STATUS_UNSELECTABLE;
+                            }
+                            if entry.masked {
+                                bits |= OBJECT_STATUS_MASKED;
                             }
                             bits
                         },

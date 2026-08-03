@@ -20257,6 +20257,9 @@ impl CnCGameEngine {
                             sold: o.sold,
                             // Wave 1034: unselectable residual for dual-world selection.
                             unselectable: o.unselectable,
+                            // Wave 1035: destroyed/masked residual for dual-world selection.
+                            destroyed: o.destroyed,
+                            masked: o.masked,
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.
