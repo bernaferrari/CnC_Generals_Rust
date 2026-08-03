@@ -127,6 +127,7 @@ pub mod host_live_host_actively_constructing_complete_peel_residual_wave828;
 pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
 pub mod host_live_host_ai_shadow_host_object_seal_residual_wave956;
 pub mod host_live_host_alias_fallback_opt_in_residual_wave725;
+pub mod host_live_host_always_selectable_dead_residual_wave1061;
 pub mod host_live_host_angry_mob_member_follow_dual_peel_residual_wave801;
 pub mod host_live_host_angry_mob_projectile_dual_peel_residual_wave799;
 pub mod host_live_host_anim_steer_dual_peel_residual_wave784;
@@ -4039,6 +4040,13 @@ pub use host_live_host_floating_text_presentation_residual_wave1060::{
     honesty_host_floating_text_presentation_residual_nav_commands_residual_wave1060,
     honesty_host_floating_text_presentation_residual_residual_pack_wave1060,
     simulate_live_host_floating_text_presentation_residual_honesty,
+};
+
+pub use host_live_host_always_selectable_dead_residual_wave1061::{
+    honesty_host_always_selectable_dead_residual_method_names_residual_wave1061,
+    honesty_host_always_selectable_dead_residual_nav_commands_residual_wave1061,
+    honesty_host_always_selectable_dead_residual_residual_pack_wave1061,
+    simulate_live_host_always_selectable_dead_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

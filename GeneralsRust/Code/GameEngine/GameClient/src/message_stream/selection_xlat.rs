@@ -347,8 +347,12 @@ impl SelectionTranslator {
                     if !entry.selectable {
                         continue;
                     }
-                    // Wave 1034/1035/1036: C++ status + enemy stealth residual.
-                    if entry.unselectable || entry.sold || entry.destroyed || entry.masked {
+                    // Wave 1034/1035/1036/1061: C++ status + enemy stealth residual.
+                    // Wave 1061: destroyed still selectable when AlwaysSelectable (C++ KINDOF).
+                    if entry.unselectable || entry.sold || entry.masked {
+                        continue;
+                    }
+                    if entry.destroyed && !translator_entry_has_kind(entry, "AlwaysSelectable") {
                         continue;
                     }
                     // C++ SelectionInfo: neutral/enemy effectively stealthed → no select.
