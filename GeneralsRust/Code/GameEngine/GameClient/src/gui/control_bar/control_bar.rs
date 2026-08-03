@@ -1176,20 +1176,40 @@ impl ControlBar {
         context: &mut ControlBarContext,
         producer_id: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Wave 981: host empty dual-world keeps presentation residual queue/portrait.
+        // Wave 981/1010: host empty dual-world keeps presentation residual queue/portrait.
         if Self::dual_world_registry_unavailable() {
             if self.portrait_state.production_progress.is_some()
                 || self.portrait_state.production_template.is_some()
                 || !self.build_queue_data.is_empty()
             {
+                // Wave 1010: peel portrait production_template into residual queue entry.
+                if self.build_queue_data.is_empty() {
+                    if let Some(tmpl) = self.portrait_state.production_template.clone() {
+                        let is_upgrade = self.portrait_state.production_paused
+                            && tmpl.to_ascii_lowercase().contains("upgrade");
+                        self.build_queue_data.push(BuildQueueEntry {
+                            production_type: if is_upgrade {
+                                QueueProductionType::Upgrade
+                            } else {
+                                QueueProductionType::Unit
+                            },
+                            production_id: producer_id,
+                            upgrade_name: tmpl,
+                        });
+                    }
+                }
                 self.displayed_queue_count = self
                     .displayed_queue_count
                     .max(self.build_queue_data.len())
-                    .max(if self.portrait_state.production_progress.is_some() {
-                        1
-                    } else {
-                        0
-                    });
+                    .max(
+                        if self.portrait_state.production_progress.is_some()
+                            || self.portrait_state.production_template.is_some()
+                        {
+                            1
+                        } else {
+                            0
+                        },
+                    );
             }
             let _ = producer_id;
             return Ok(());
