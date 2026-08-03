@@ -20221,6 +20221,13 @@ impl CnCGameEngine {
                             position: [o.position.x, o.position.y, o.position.z],
                             health_pct,
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
+                            // Wave 1040: selection HUD legality residual.
+                            destroyed: o.destroyed,
+                            sold: o.sold,
+                            unselectable: o.unselectable,
+                            masked: o.masked,
+                            effectively_stealthed: o.effectively_stealthed,
+                            team_name: format!("{:?}", o.team),
                         }
                     })
                     .collect()
