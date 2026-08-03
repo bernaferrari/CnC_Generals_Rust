@@ -30,6 +30,8 @@ pub struct TranslatorCatalogEntry {
     pub health_current: f32,
     /// Wave 1011: max health residual.
     pub health_maximum: f32,
+    /// Wave 1012: veterancy chevron residual.
+    pub veterancy_overlay: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

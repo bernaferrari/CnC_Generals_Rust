@@ -2560,6 +2560,10 @@ impl ControlBar {
                         self.portrait_state.health_current = entry.health_current;
                         self.portrait_state.health_maximum = entry.health_maximum;
                     }
+                    // Wave 1012: veterancy chevron residual.
+                    if entry.veterancy_overlay.is_some() {
+                        self.portrait_state.veterancy_overlay = entry.veterancy_overlay.clone();
+                    }
                 }
             }
             return;

@@ -20273,6 +20273,16 @@ impl CnCGameEngine {
                             } else {
                                 1.0
                             },
+                            // Wave 1012: veterancy chevron residual.
+                            veterancy_overlay: {
+                                use crate::presentation_frame::PresentationVeterancy as PV;
+                                match o.veterancy {
+                                    PV::Veteran => Some("SSChevron1L".to_string()),
+                                    PV::Elite => Some("SSChevron2L".to_string()),
+                                    PV::Heroic => Some("SSChevron3L".to_string()),
+                                    PV::Rookie => None,
+                                }
+                            },
                         },
                     )
                     .collect()
