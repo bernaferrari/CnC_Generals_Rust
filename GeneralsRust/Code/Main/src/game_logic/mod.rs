@@ -443,6 +443,7 @@ pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
 pub mod host_live_host_support_boundary_residual_wave934;
 pub mod host_live_host_surrender_emoticon_presentation_residual_wave999;
 pub mod host_live_host_surrender_emoticon_writeback_residual_wave1003;
+pub mod host_live_host_sync_pose_visibility_residual_wave1050;
 pub mod host_live_host_sync_with_game_logic_catalog_pose_residual_wave1023;
 pub mod host_live_host_systems_dual_peel_residual_wave827;
 pub mod host_live_host_template_ui_residual_wave872;
@@ -3951,6 +3952,13 @@ pub use host_live_host_attack_source_legality_residual_wave1049::{
     honesty_host_attack_source_legality_residual_nav_commands_residual_wave1049,
     honesty_host_attack_source_legality_residual_residual_pack_wave1049,
     simulate_live_host_attack_source_legality_residual_honesty,
+};
+
+pub use host_live_host_sync_pose_visibility_residual_wave1050::{
+    honesty_host_sync_pose_visibility_residual_method_names_residual_wave1050,
+    honesty_host_sync_pose_visibility_residual_nav_commands_residual_wave1050,
+    honesty_host_sync_pose_visibility_residual_residual_pack_wave1050,
+    simulate_live_host_sync_pose_visibility_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
