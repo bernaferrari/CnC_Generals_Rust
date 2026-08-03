@@ -1176,8 +1176,22 @@ impl ControlBar {
         context: &mut ControlBarContext,
         producer_id: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Wave 981/1010: host empty dual-world keeps presentation residual queue/portrait.
+        // Wave 981/1010/1014: host empty dual-world keeps presentation residual queue/portrait.
         if Self::dual_world_registry_unavailable() {
+            // Wave 1014: seed portrait production head from translator catalog when empty.
+            if self.portrait_state.production_template.is_none()
+                && self.portrait_state.production_progress.is_none()
+            {
+                if let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(producer_id)
+                {
+                    if entry.production_template.is_some() || entry.production_progress.is_some() {
+                        self.portrait_state.production_progress = entry.production_progress;
+                        self.portrait_state.production_template = entry.production_template.clone();
+                        self.portrait_state.production_paused = entry.production_paused;
+                    }
+                }
+            }
             if self.portrait_state.production_progress.is_some()
                 || self.portrait_state.production_template.is_some()
                 || !self.build_queue_data.is_empty()
@@ -2544,32 +2558,33 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn update_portrait_for_object(&mut self, obj_id: u32) {
-        // Wave 249/1008: dual-world — prefer presentation residual portrait; if
-        // empty, peel template/SP ready from translator catalog by object id.
+        // Wave 249/1008/1014: dual-world peels portrait residual from translator catalog
+        // every call (health/veterancy/production refresh, not only first fill).
         if Self::dual_world_registry_unavailable() {
-            if !self.portrait_state.is_visible {
-                if let Some(entry) =
-                    crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            {
+                if !self.portrait_state.is_visible || self.portrait_state.portrait_image.is_empty()
                 {
                     self.portrait_state.portrait_image = entry.template_name.clone();
-                    self.portrait_state.is_visible = true;
-                    self.portrait_state.selected_count = self.portrait_state.selected_count.max(1);
-                    self.portrait_state.special_power_ready = entry.special_power_ready;
-                    // Wave 1011: health residual from presentation catalog.
-                    if entry.health_maximum > 0.0 {
-                        self.portrait_state.health_current = entry.health_current;
-                        self.portrait_state.health_maximum = entry.health_maximum;
-                    }
-                    // Wave 1012: veterancy chevron residual.
-                    if entry.veterancy_overlay.is_some() {
-                        self.portrait_state.veterancy_overlay = entry.veterancy_overlay.clone();
-                    }
-                    // Wave 1013: production head residual for empty portrait peel.
-                    if self.portrait_state.production_template.is_none() {
-                        self.portrait_state.production_progress = entry.production_progress;
-                        self.portrait_state.production_template = entry.production_template.clone();
-                        self.portrait_state.production_paused = entry.production_paused;
-                    }
+                }
+                self.portrait_state.is_visible = true;
+                self.portrait_state.selected_count = self.portrait_state.selected_count.max(1);
+                self.portrait_state.special_power_ready = entry.special_power_ready;
+                // Wave 1011/1014: health residual refresh.
+                if entry.health_maximum > 0.0 {
+                    self.portrait_state.health_current = entry.health_current;
+                    self.portrait_state.health_maximum = entry.health_maximum;
+                }
+                // Wave 1012/1014: veterancy chevron residual refresh.
+                if entry.veterancy_overlay.is_some() {
+                    self.portrait_state.veterancy_overlay = entry.veterancy_overlay.clone();
+                }
+                // Wave 1013/1014: production head residual refresh.
+                if entry.production_template.is_some() || entry.production_progress.is_some() {
+                    self.portrait_state.production_progress = entry.production_progress;
+                    self.portrait_state.production_template = entry.production_template.clone();
+                    self.portrait_state.production_paused = entry.production_paused;
                 }
             }
             return;
