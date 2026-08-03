@@ -3457,6 +3457,10 @@ impl BasicDrawable {
 
     /// Wave 980: host group/UI text residual without OBJECT_REGISTRY.
     fn draw_ui_text_from_presentation(&self) -> Result<(), Box<dyn Error>> {
+        // Wave 1077: FOW fully-obscured residual hides dual presentation UI text.
+        if self.drawable_fully_obscured_by_shroud {
+            return Ok(());
+        }
         // Wave 1055: hide group numerals for unselected effectively-stealthed residual.
         if self.presentation_effectively_stealthed && !self.selected_or_moused_over_for_icon_pips()
         {

@@ -2459,8 +2459,18 @@ impl ControlBar {
             return Ok(());
         };
         // Wave 1027: host empty dual-world peels presentation garrison residual count.
+        // Wave 1077: catalog occupant residual when freeze count unset; clear on unusable.
         if Self::dual_world_registry_unavailable() {
-            let contain_count = self.presentation_garrisoned_count as u32;
+            let mut contain_count = self.presentation_garrisoned_count as u32;
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(object_id)
+            {
+                if entry.destroyed || entry.sold || entry.masked || entry.unselectable {
+                    contain_count = 0;
+                } else if contain_count == 0 && entry.occupant_count > 0 {
+                    contain_count = entry.occupant_count as u32;
+                }
+            }
             if let Ok(mut ctx) = self.context.write() {
                 if ctx.last_recorded_inventory_count != contain_count {
                     ctx.last_recorded_inventory_count = contain_count;
