@@ -2701,13 +2701,19 @@ impl ControlBar {
     }
 
     pub fn set_portrait_by_object_id(&mut self, obj_id: Option<u32>) {
-        // Wave 249/1006: dual-world — presentation residual owns portrait fill;
+        // Wave 249/1006/1018: dual-world peels catalog portrait on selection;
         // deselection still clears residual portrait/queue (C++ clear path).
         if Self::dual_world_registry_unavailable() {
-            if obj_id.is_none() {
+            if let Some(id) = obj_id {
+                // Wave 1018: selection path must refresh portrait residual from catalog
+                // (health/veterancy/production/command-set), not only keep prior freeze.
+                self.update_portrait_for_object(id);
+            } else {
                 self.portrait_state = PortraitDisplayState::default();
                 self.build_queue_data.clear();
                 self.displayed_queue_count = 0;
+                self.presentation_primary_command_set.clear();
+                self.presentation_command_set_names.clear();
             }
             return;
         }
