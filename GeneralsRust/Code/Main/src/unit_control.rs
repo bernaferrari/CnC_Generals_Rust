@@ -359,6 +359,12 @@ impl UnitControlSystem {
                 if o.destroyed {
                     return None;
                 }
+                // Wave 1094: non-local FOW residual fail-closed (Clear only),
+                // matching dual collect_selectable shroud_status>=2 peel.
+                let is_local = player_team.is_some_and(|t| o.team == t);
+                if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
+                    return None;
+                }
                 let distance = o.position.distance(position);
                 let radius = base_selection_radius.max(o.selection_radius);
                 if distance > radius {
@@ -414,6 +420,10 @@ impl UnitControlSystem {
 
         for o in &frame.objects {
             if !Self::presentation_is_selectable(o) {
+                continue;
+            }
+            // Wave 1094: non-local FOW residual fail-closed (Clear only).
+            if o.team != self.local_player_team && o.fow_visibility.visibility_alpha < 0.95 {
                 continue;
             }
             let object_position = o.position;
