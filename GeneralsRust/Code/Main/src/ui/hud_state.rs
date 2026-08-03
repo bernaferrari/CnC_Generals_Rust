@@ -439,6 +439,8 @@ pub struct ControlBarSelectionPanelState {
     pub max_garrison: usize,
     /// Wave 1031: OCL timer residual seconds for ControlBar OclTimer.
     pub ocl_timer_seconds: u32,
+    /// Wave 1033: sold residual for ControlBar clear.
+    pub sold: bool,
     /// Contained unit count residual.
     pub garrisoned_count: usize,
     /// Under-construction residual for CancelConstruction command.
@@ -485,6 +487,7 @@ impl ControlBarSelectionPanelState {
                 .unwrap_or_default(),
             max_garrison: 0,
             ocl_timer_seconds: 0,
+            sold: false,
             garrisoned_count: 0,
             under_construction: false,
             construction_percent: 0.0,

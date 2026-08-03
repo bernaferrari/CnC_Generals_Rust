@@ -34,6 +34,8 @@ pub struct TranslatorCatalogEntry {
     pub occupant_count: u16,
     /// Wave 1031: OCL timer residual seconds.
     pub ocl_timer_seconds: u32,
+    /// Wave 1033: sold residual.
+    pub sold: bool,
     /// Wave 979: airborne residual for host plane-camera lock cycle.
     pub airborne_target: bool,
     /// Wave 981: FOW residual for host translators / command hints.
