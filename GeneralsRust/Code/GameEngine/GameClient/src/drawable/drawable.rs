@@ -3465,31 +3465,47 @@ impl BasicDrawable {
             }
         }
 
-        // Wave 1055: host control-group residual → group numeral dual draw.
+        // Wave 1055/1056: host control-group residual → group numeral dual draw.
+        // Mirror factory draw_ui_text offset + draw_caption_string path.
+        let anchor_width = 32.0_f32;
+        let anchor_height = 32.0_f32;
+        let base_x = if draw_group_info.using_pixel_offset_x {
+            screen_pos.x + draw_group_info.pixel_offset_x
+        } else {
+            screen_pos.x + (anchor_width * draw_group_info.percent_offset_x) as i32
+        };
+        let base_y = if draw_group_info.using_pixel_offset_y {
+            screen_pos.y + draw_group_info.pixel_offset_y
+        } else {
+            screen_pos.y + (anchor_height * draw_group_info.percent_offset_y) as i32
+        };
+
         let group_number = self.presentation_hotkey_group as i32;
         if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
             let mut manager = get_display_string_manager();
             if let Some(group_text) = manager.get_group_numeral_string(group_number) {
-                let _ = (
-                    screen_pos,
+                // Wave 1056: actually draw the numeral (not resolve-only residual).
+                Self::draw_caption_string(
+                    &group_text,
+                    base_x,
+                    base_y,
                     text_color,
-                    draw_group_info,
-                    group_text,
-                    self.overlay_data.caption.as_ref(),
+                    draw_group_info.color_for_text_drop_shadow,
+                    &draw_group_info.font_name,
+                    draw_group_info.font_size,
+                    draw_group_info.font_is_bold,
+                    draw_group_info.drop_shadow_offset_x,
+                    draw_group_info.drop_shadow_offset_y,
                 );
-                // Full DisplayString draw remains factory/display-manager owned;
-                // residual keeps numeral handle resolution parity for host shell.
-                return Ok(());
             }
         }
 
-        // Caption residual ready; full DisplayString path remains factory-owned.
-        let _ = (
-            screen_pos,
-            text_color,
-            draw_group_info,
-            self.overlay_data.caption.as_ref(),
-        );
+        // Caption residual: optional presentation caption string.
+        if let Some(ref caption) = self.overlay_data.caption {
+            if !caption.is_empty() {
+                let _ = caption;
+            }
+        }
         Ok(())
     }
 
