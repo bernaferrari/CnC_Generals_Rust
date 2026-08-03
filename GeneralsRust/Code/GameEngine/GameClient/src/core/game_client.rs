@@ -2492,12 +2492,21 @@ impl GameClient {
         &self,
         object_id: ObjectID,
     ) -> GameClientResult<Option<Arc<RwLock<GameLogicObject>>>> {
-        // Wave 269: empty dual-world → Ok(None).
+        // Wave 269/1002: empty dual-world cannot return Object Arc.
+        // Presentation catalog may still know the id — use presentation_object_known.
         if dual_world_registry_unavailable() {
+            // Catalog residual consulted for honesty; Arc path stays fail-closed.
+            let _ = self.presentation_object_known(object_id);
             return Ok(None);
         }
 
         Ok(OBJECT_REGISTRY.get_object(object_id))
+    }
+
+    /// Wave 1002: dual-world residual — object id present in presentation translator catalog.
+    /// Does not yield an Object Arc; authority remains GameLogic/GameWorld.
+    pub fn presentation_object_known(&self, object_id: ObjectID) -> bool {
+        crate::presentation_translator_residual::translator_catalog_entry(object_id).is_some()
     }
 
     /// Update drawable visibility based on shroud/fog of war status

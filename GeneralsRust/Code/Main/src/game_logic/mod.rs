@@ -227,6 +227,7 @@ pub mod host_live_host_evacuate_exit_no_damage_auth_hp_stomp_residual_wave747;
 pub mod host_live_host_event_drain_failclosed_residual_wave900;
 pub mod host_live_host_exec_smoke_release_prefer_residual_wave833;
 pub mod host_live_host_field_object_expire_dual_peel_residual_wave802;
+pub mod host_live_host_find_game_object_presentation_residual_wave1002;
 pub mod host_live_host_fire_sound_loop_dual_peel_residual_wave767;
 pub mod host_live_host_fire_spread_dual_peel_residual_wave820;
 pub mod host_live_host_firewall_radar_dual_peel_residual_wave809;
@@ -3567,6 +3568,13 @@ pub use host_live_host_fx_name_presentation_residual_wave1001::{
     honesty_host_fx_name_presentation_residual_nav_commands_residual_wave1001,
     honesty_host_fx_name_presentation_residual_residual_pack_wave1001,
     simulate_live_host_fx_name_presentation_residual_honesty,
+};
+
+pub use host_live_host_find_game_object_presentation_residual_wave1002::{
+    honesty_host_find_game_object_presentation_residual_method_names_residual_wave1002,
+    honesty_host_find_game_object_presentation_residual_nav_commands_residual_wave1002,
+    honesty_host_find_game_object_presentation_residual_residual_pack_wave1002,
+    simulate_live_host_find_game_object_presentation_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
