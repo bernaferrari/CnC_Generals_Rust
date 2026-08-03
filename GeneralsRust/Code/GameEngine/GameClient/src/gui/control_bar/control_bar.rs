@@ -1228,10 +1228,14 @@ impl ControlBar {
             // Host/presentation path: Main already filtered unit_command_buttons.
             // Wave 1025: dual-world peels catalog/command-set residual when portrait
             // freeze is not yet visible for this selection frame.
-            // Wave 1025/1026: catalog/command-set residual; disabled => Restricted.
+            // Wave 1025/1026/1052: catalog/command-set residual; disabled => Restricted.
+            // Wave 1052: destroyed/sold/unselectable fail-closed (no command UI).
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
+                if entry.destroyed || entry.sold || entry.unselectable {
+                    return Ok(CommandAvailability::Hidden);
+                }
                 if entry.disabled && !self.force_disabled_evaluation(command) {
                     let cmd_type = command.command_type;
                     if cmd_type != CommandType::Sell
