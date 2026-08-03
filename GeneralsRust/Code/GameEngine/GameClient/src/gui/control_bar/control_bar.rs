@@ -614,12 +614,28 @@ impl ControlBar {
             } else if self.portrait_state.is_visible
                 || !self.presentation_primary_command_set.is_empty()
             {
-                context.current_state = ControlBarState::Command;
+                // Wave 1032: beacon residual wins over generic Command when freeze says BEACON.
+                if Self::presentation_name_is_beacon(&self.presentation_primary_command_set)
+                    || Self::presentation_name_is_beacon(&self.portrait_state.portrait_image)
+                {
+                    context.current_state = ControlBarState::Beacon;
+                } else {
+                    context.current_state = ControlBarState::Command;
+                }
             } else if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
-                // Wave 1027: catalog residual when presentation freezes not yet stamped.
-                if !entry.command_set_name.is_empty() || entry.selectable {
+                // Wave 1027/1032: catalog residual when presentation freezes not yet stamped.
+                if Self::presentation_name_is_beacon(&entry.template_name)
+                    || Self::presentation_name_is_beacon(&entry.command_set_name)
+                {
+                    context.current_state = ControlBarState::Beacon;
+                    if self.presentation_primary_command_set.is_empty()
+                        && !entry.command_set_name.is_empty()
+                    {
+                        self.presentation_primary_command_set = entry.command_set_name.clone();
+                    }
+                } else if !entry.command_set_name.is_empty() || entry.selectable {
                     context.current_state = ControlBarState::Command;
                     if self.presentation_primary_command_set.is_empty()
                         && !entry.command_set_name.is_empty()
@@ -684,11 +700,26 @@ impl ControlBar {
                 drop(obj);
                 context.current_state = ControlBarState::StructureInventory;
             } else if has_command_set {
+                // Wave 1032: C++ beacon template residual before generic Command.
+                let template_name = obj.get_template_name().to_string();
+                let cmd_set = obj.get_command_set_string().to_string();
                 drop(obj);
-                context.current_state = ControlBarState::Command;
+                if Self::presentation_name_is_beacon(&template_name)
+                    || Self::presentation_name_is_beacon(&cmd_set)
+                {
+                    context.current_state = ControlBarState::Beacon;
+                } else {
+                    context.current_state = ControlBarState::Command;
+                }
             } else {
+                let template_name = obj.get_template_name().to_string();
                 drop(obj);
-                context.current_state = ControlBarState::None;
+                // Wave 1032: C++ CB_CONTEXT_BEACON when template matches beacon (no command set).
+                if Self::presentation_name_is_beacon(&template_name) {
+                    context.current_state = ControlBarState::Beacon;
+                } else {
+                    context.current_state = ControlBarState::None;
+                }
             }
         }
 
@@ -768,6 +799,11 @@ impl ControlBar {
     #[inline]
     fn dual_world_registry_unavailable() -> bool {
         OBJECT_REGISTRY.is_empty()
+    }
+
+    /// Wave 1032: C++ beacon template/command-set residual name match.
+    fn presentation_name_is_beacon(name: &str) -> bool {
+        name.to_ascii_uppercase().contains("BEACON")
     }
 
     fn get_object_production_info(&self, obj_id: u32) -> (usize, bool) {
