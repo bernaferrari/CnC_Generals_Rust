@@ -381,6 +381,7 @@ pub mod host_live_host_presentation_build_boundary_residual_wave926;
 pub mod host_live_host_presentation_cmd_hint_legality_residual_wave1097;
 pub mod host_live_host_presentation_drawable_ensure_residual_wave962;
 pub mod host_live_host_presentation_drawable_sync_residual_wave963;
+pub mod host_live_host_presentation_feed_usable_residual_wave1101;
 pub mod host_live_host_presentation_is_attackable_status_residual_wave1093;
 pub mod host_live_host_presentation_is_selectable_status_residual_wave1092;
 pub mod host_live_host_presentation_pick_fow_residual_wave1094;
@@ -4359,6 +4360,13 @@ pub use host_live_host_presentation_producer_usable_residual_wave1100::{
     honesty_host_presentation_producer_usable_nav_commands_residual_wave1100,
     honesty_host_presentation_producer_usable_residual_pack_wave1100,
     simulate_live_host_presentation_producer_usable_residual_honesty,
+};
+
+pub use host_live_host_presentation_feed_usable_residual_wave1101::{
+    honesty_host_presentation_feed_usable_method_names_residual_wave1101,
+    honesty_host_presentation_feed_usable_nav_commands_residual_wave1101,
+    honesty_host_presentation_feed_usable_residual_pack_wave1101,
+    simulate_live_host_presentation_feed_usable_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

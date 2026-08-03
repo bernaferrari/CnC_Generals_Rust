@@ -5013,17 +5013,25 @@ impl PresentationFrame {
 
     /// Structures with a non-empty production queue (ControlBar residual feed).
     pub fn structures_with_production(&self) -> Vec<&RenderableObject> {
+        // Wave 1101: fail-closed on sold/disabled production-queue residual feed.
         self.objects
             .iter()
-            .filter(|o| o.is_structure && !o.destroyed && !o.production_queue.is_empty())
+            .filter(|o| {
+                o.is_structure
+                    && !o.destroyed
+                    && !o.sold
+                    && !o.disabled
+                    && !o.production_queue.is_empty()
+            })
             .collect()
     }
 
     /// Structures currently holding garrisoned units (contain residual feed).
     pub fn garrisoned_structures(&self) -> Vec<&RenderableObject> {
+        // Wave 1101: fail-closed on sold garrison residual feed.
         self.objects
             .iter()
-            .filter(|o| o.is_structure && !o.destroyed && !o.garrisoned_units.is_empty())
+            .filter(|o| o.is_structure && !o.destroyed && !o.sold && !o.garrisoned_units.is_empty())
             .collect()
     }
 
@@ -5444,10 +5452,12 @@ impl PresentationFrame {
 
     /// Structures holding supply crates residual (ControlBar / gather UI).
     pub fn supply_storage_structures(&self) -> Vec<&RenderableObject> {
+        // Wave 1101: fail-closed on sold supply-storage residual feed.
         self.objects
             .iter()
             .filter(|o| {
                 !o.destroyed
+                    && !o.sold
                     && o.stored_supplies > 0
                     && (o.is_structure
                         || o.building_type.is_some()
@@ -5460,11 +5470,14 @@ impl PresentationFrame {
     /// Friendly workers residual (dozer / worker command feed by team).
     pub fn friendly_workers(&self, player_team: crate::game_logic::Team) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
+        // Wave 1101: fail-closed on sold/disabled worker residual feed.
         self.objects
             .iter()
             .filter(|o| {
                 o.team == player_team
                     && !o.destroyed
+                    && !o.sold
+                    && !o.disabled
                     && (Self::object_has_kind(o, KindOf::Worker)
                         || o.template_name.contains("Dozer")
                         || o.template_name.contains("Worker")
@@ -5605,11 +5618,15 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> Option<Vec3> {
         use crate::game_logic::KindOf;
+        // Wave 1101: fail-closed on sold/UC/disabled CC residual.
         self.objects
             .iter()
             .find(|o| {
                 o.team == player_team
                     && !o.destroyed
+                    && !o.sold
+                    && !o.under_construction
+                    && !o.disabled
                     && (o.building_type == Some(PresentationBuildingType::CommandCenter)
                         || Self::object_has_kind(o, KindOf::CommandCenter))
             })
@@ -5908,7 +5925,8 @@ impl PresentationFrame {
             .objects
             .iter()
             .filter(|o| {
-                if o.team != player_team || o.destroyed {
+                // Wave 1101: fail-closed on sold/disabled construct builders.
+                if o.team != player_team || o.destroyed || o.sold || o.disabled {
                     return false;
                 }
                 if Self::object_has_kind(o, KindOf::Worker) {
@@ -6256,10 +6274,12 @@ impl PresentationFrame {
     /// Structures residual (KindOf::Structure or object_type Building).
     pub fn structure_objects(&self) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
+        // Wave 1101: fail-closed on sold structure residual feed.
         self.objects
             .iter()
             .filter(|o| {
                 !o.destroyed
+                    && !o.sold
                     && (Self::object_has_kind(o, KindOf::Structure)
                         || o.object_type == PresentationObjectType::Building)
             })
@@ -6269,18 +6289,22 @@ impl PresentationFrame {
     /// Harvestable resource objects residual.
     pub fn harvestable_objects(&self) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
+        // Wave 1101: fail-closed on sold harvestable residual feed.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && Self::object_has_kind(o, KindOf::Harvestable))
+            .filter(|o| !o.destroyed && !o.sold && Self::object_has_kind(o, KindOf::Harvestable))
             .collect()
     }
 
     /// Worker units residual (dozer / worker command feed).
     pub fn worker_objects(&self) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
+        // Wave 1101: fail-closed on sold/disabled worker residual feed.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && Self::object_has_kind(o, KindOf::Worker))
+            .filter(|o| {
+                !o.destroyed && !o.sold && !o.disabled && Self::object_has_kind(o, KindOf::Worker)
+            })
             .collect()
     }
 
