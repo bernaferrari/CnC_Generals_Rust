@@ -294,6 +294,7 @@ pub mod host_live_host_mouseover_hint_catalog_residual_wave968;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
 pub mod host_live_host_object_api_alias_seal_residual_wave958;
+pub mod host_live_host_object_id_lookup_presentation_residual_wave1005;
 pub mod host_live_host_object_lifecycle_boundary_residual_wave931;
 pub mod host_live_host_object_scan_unify_residual_wave853;
 pub mod host_live_host_observe_failclosed_residual_wave898;
@@ -3591,6 +3592,13 @@ pub use host_live_host_fx_name_writeback_residual_wave1004::{
     honesty_host_fx_name_writeback_residual_nav_commands_residual_wave1004,
     honesty_host_fx_name_writeback_residual_residual_pack_wave1004,
     simulate_live_host_fx_name_writeback_residual_honesty,
+};
+
+pub use host_live_host_object_id_lookup_presentation_residual_wave1005::{
+    honesty_host_object_id_lookup_presentation_residual_method_names_residual_wave1005,
+    honesty_host_object_id_lookup_presentation_residual_nav_commands_residual_wave1005,
+    honesty_host_object_id_lookup_presentation_residual_residual_pack_wave1005,
+    simulate_live_host_object_id_lookup_presentation_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

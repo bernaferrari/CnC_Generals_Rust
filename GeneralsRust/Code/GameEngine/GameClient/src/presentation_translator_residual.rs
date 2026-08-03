@@ -63,6 +63,11 @@ pub fn translator_catalog_entry(object_id: u32) -> Option<TranslatorCatalogEntry
         .and_then(|g| g.catalog.iter().find(|e| e.object_id == object_id).cloned())
 }
 
+/// Wave 1005: dual-world residual — stamped presentation catalog size.
+pub fn translator_catalog_len() -> usize {
+    RESIDUAL.read().ok().map(|g| g.catalog.len()).unwrap_or(0)
+}
+
 pub fn translator_catalog_has_kind(object_id: u32, kind_name: &str) -> bool {
     translator_catalog_entry(object_id)
         .map(|e| {

@@ -1336,8 +1336,14 @@ fn dump_player_object_counts(include_all_objects: bool) {
 }
 
 fn report_object_id_lookup_performance() {
-    // Wave 345: empty dual-world → no-op.
+    // Wave 345/1005: empty dual-world → presentation catalog residual metrics.
     if dual_world_registry_unavailable() {
+        let n = crate::presentation_translator_residual::translator_catalog_len();
+        // C++ debug residual: report presentation-known object count instead of
+        // dual-world OBJECT_REGISTRY lookup timing.
+        TheInGameUI::message(&format!(
+            "Dual-world residual: presentation catalog knows {n} object ids (no OBJECT_REGISTRY lookup timing)."
+        ));
         return;
     }
 
