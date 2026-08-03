@@ -201,6 +201,10 @@ fn selection_can_enter_target(
         if target.under_construction {
             return false;
         }
+        // Wave 1072: disabled container residual fail-closed.
+        if target.disabled {
+            return false;
+        }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
                 // Wave 1068: unusable local source residual fail-closed.
@@ -458,7 +462,16 @@ fn selection_can_pickup_crate_target(
         let Some(target) = translator_catalog_entry(target_id) else {
             return None;
         };
-        if target.destroyed || target.sold {
+        // Wave 1072: crate dual fail-closed on status/FOW and unusable local sources.
+        if target.destroyed
+            || target.sold
+            || target.unselectable
+            || target.masked
+            || target.disabled
+        {
+            return None;
+        }
+        if target.shroud_status >= 2 && !translator_entry_is_local(&target) {
             return None;
         }
         if !translator_entry_has_kind(&target, "Crate") {
@@ -466,7 +479,12 @@ fn selection_can_pickup_crate_target(
         }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&sel) {
+                if translator_entry_is_local(&sel)
+                    && !sel.destroyed
+                    && !sel.sold
+                    && !sel.disabled
+                    && !sel.under_construction
+                {
                     return Some(Coord3D::new(
                         target.position[0],
                         target.position[1],
