@@ -20243,6 +20243,8 @@ impl CnCGameEngine {
                             position: [o.position.x, o.position.y, o.position.z],
                             // Wave 1024: orientation residual for dual-world pose peel.
                             orientation: o.orientation,
+                            // Wave 1026: disabled residual for dual-world command availability.
+                            disabled: o.disabled,
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.

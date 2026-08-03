@@ -22,6 +22,8 @@ pub struct TranslatorCatalogEntry {
     pub position: [f32; 3],
     /// Wave 1024: yaw residual for dual-world drawable pose peel.
     pub orientation: f32,
+    /// Wave 1026: disabled residual for dual-world command availability.
+    pub disabled: bool,
     /// Wave 979: airborne residual for host plane-camera lock cycle.
     pub airborne_target: bool,
     /// Wave 981: FOW residual for host translators / command hints.

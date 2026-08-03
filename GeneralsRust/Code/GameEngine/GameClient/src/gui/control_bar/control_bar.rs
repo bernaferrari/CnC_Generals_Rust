@@ -931,8 +931,11 @@ impl ControlBar {
         let has_production = self.get_object_has_production(obj_id);
         let registry_producer = OBJECT_REGISTRY.get_object(obj_id).is_some();
 
-        if has_production && registry_producer {
+        if has_production {
+            // Wave 1026: dual-world peels populate_build_queue from presentation/catalog
+            // even when OBJECT_REGISTRY has no producer Arc.
             // Dual-world residual: live production modules own queue when registry is bound.
+            let _ = registry_producer;
             let mut context = {
                 let mut guard = self
                     .context
@@ -1050,12 +1053,26 @@ impl ControlBar {
             // Host/presentation path: Main already filtered unit_command_buttons.
             // Wave 1025: dual-world peels catalog/command-set residual when portrait
             // freeze is not yet visible for this selection frame.
+            // Wave 1025/1026: catalog/command-set residual; disabled => Restricted.
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            {
+                if entry.disabled && !self.force_disabled_evaluation(command) {
+                    let cmd_type = command.command_type;
+                    if cmd_type != CommandType::Sell
+                        && cmd_type != CommandType::Evacuate
+                        && cmd_type != CommandType::DoStop
+                    {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                }
+                if !entry.command_set_name.is_empty() || entry.selectable {
+                    return Ok(CommandAvailability::Available);
+                }
+            }
             if self.portrait_state.is_visible
                 || !self.presentation_primary_command_set.is_empty()
                 || !self.presentation_command_set_names.is_empty()
-                || crate::presentation_translator_residual::translator_catalog_entry(obj_id)
-                    .map(|e| !e.command_set_name.is_empty() || e.selectable)
-                    .unwrap_or(false)
             {
                 return Ok(CommandAvailability::Available);
             }
