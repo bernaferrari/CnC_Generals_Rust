@@ -283,6 +283,7 @@ pub mod host_live_host_fx_name_presentation_residual_wave1001;
 pub mod host_live_host_fx_name_writeback_residual_wave1004;
 pub mod host_live_host_gamelogic_borrow_boundary_residual_wave935;
 pub mod host_live_host_gameworld_production_paused_writeback_residual_wave990;
+pub mod host_live_host_gameworld_shadow_ai_golden_lock_residual_wave1086;
 pub mod host_live_host_get_object_mut_seal_residual_wave950;
 pub mod host_live_host_golden_ranger_template_opt_in_residual_wave722;
 pub mod host_live_host_grant_min_supplies_opt_in_residual_wave721;
@@ -4239,6 +4240,13 @@ pub use host_live_host_mouseover_slaver_tip_unusable_fow_residual_wave1085::{
     honesty_host_mouseover_slaver_tip_unusable_fow_residual_nav_commands_residual_wave1085,
     honesty_host_mouseover_slaver_tip_unusable_fow_residual_residual_pack_wave1085,
     simulate_live_host_mouseover_slaver_tip_unusable_fow_residual_honesty,
+};
+
+pub use host_live_host_gameworld_shadow_ai_golden_lock_residual_wave1086::{
+    honesty_host_gameworld_shadow_ai_golden_lock_method_names_residual_wave1086,
+    honesty_host_gameworld_shadow_ai_golden_lock_nav_commands_residual_wave1086,
+    honesty_host_gameworld_shadow_ai_golden_lock_residual_pack_wave1086,
+    simulate_live_host_gameworld_shadow_ai_golden_lock_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
