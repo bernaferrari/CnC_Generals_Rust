@@ -332,7 +332,12 @@ impl UnitControlSystem {
 
     /// Snapshot residual: attackable when alive + Attackable kind.
     pub fn presentation_is_attackable(o: &RenderableObject) -> bool {
-        !o.destroyed && PresentationFrame::object_has_kind(o, KindOf::Attackable)
+        // Wave 1093: presentation attackable residual fail-closed on sold/masked
+        // (pick + enemy-priority bands must not target sold or masked objects).
+        !o.destroyed
+            && !o.sold
+            && !o.masked
+            && PresentationFrame::object_has_kind(o, KindOf::Attackable)
     }
 
     /// World-space pick residual from a presentation snapshot (engine + unit_control).

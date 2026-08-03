@@ -79,7 +79,11 @@ impl InputProcessor {
     }
 
     fn presentation_is_attackable(o: &crate::presentation_frame::RenderableObject) -> bool {
-        !o.destroyed && PresentationFrame::object_has_kind(o, KindOf::Attackable)
+        // Wave 1093: attackable residual fail-closed on sold/masked.
+        !o.destroyed
+            && !o.sold
+            && !o.masked
+            && PresentationFrame::object_has_kind(o, KindOf::Attackable)
     }
 
     fn local_player_team(&self, game_logic: &GameLogic) -> Team {
