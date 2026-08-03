@@ -26,6 +26,10 @@ pub struct TranslatorCatalogEntry {
     pub shroud_status: u8,
     /// Wave 982: slaver residual for IgnoredInGui host mouseover.
     pub slaver_object_id: Option<u32>,
+    /// Wave 1011: health residual.
+    pub health_current: f32,
+    /// Wave 1011: max health residual.
+    pub health_maximum: f32,
 }
 
 #[derive(Debug, Clone, Default)]

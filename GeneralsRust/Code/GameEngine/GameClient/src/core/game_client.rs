@@ -3729,6 +3729,8 @@ impl GameClient {
                     airborne_target: u.airborne_target,
                     shroud_status: u.shroud_status as u8,
                     slaver_object_id: u.slaver_object_id,
+                    health_current: u.health_current,
+                    health_maximum: u.health_maximum,
                 },
             )
             .collect();
@@ -3774,6 +3776,8 @@ impl GameClient {
                             airborne_target: u.airborne_target,
                             shroud_status: u.shroud_status as u8,
                             slaver_object_id: u.slaver_object_id,
+                            health_current: u.health_current,
+                            health_maximum: u.health_maximum,
                         },
                     )
                     .collect();

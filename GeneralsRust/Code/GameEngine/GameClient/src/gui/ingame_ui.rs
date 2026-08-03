@@ -880,6 +880,10 @@ pub struct PresentationUnitCatalogEntry {
     pub shroud_status: ObjectShroudStatus,
     /// Wave 982: producer/slaver residual for IgnoredInGui mouseover remap.
     pub slaver_object_id: Option<u32>,
+    /// Wave 1011: health residual for dual-world portrait peel.
+    pub health_current: f32,
+    /// Wave 1011: max health residual for dual-world portrait peel.
+    pub health_maximum: f32,
 }
 
 pub struct InGameUI {

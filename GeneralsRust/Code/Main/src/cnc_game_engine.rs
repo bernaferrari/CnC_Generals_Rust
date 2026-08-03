@@ -20266,6 +20266,13 @@ impl CnCGameEngine {
                             },
                             // Wave 982: producer/slaver residual for IgnoredInGui mouseover.
                             slaver_object_id: o.producer_id.map(|id| id.0),
+                            // Wave 1011: health residual for dual-world portrait.
+                            health_current: o.health_current,
+                            health_maximum: if o.health_max > 0.0 {
+                                o.health_max
+                            } else {
+                                1.0
+                            },
                         },
                     )
                     .collect()
