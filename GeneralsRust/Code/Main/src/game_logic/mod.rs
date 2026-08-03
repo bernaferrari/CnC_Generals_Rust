@@ -449,6 +449,7 @@ pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
 pub mod host_live_host_under_construction_catalog_residual_wave1028;
 pub mod host_live_host_unit_control_presentation_peel_residual_wave951;
 pub mod host_live_host_unmapped_damage_fallback_residual_wave943;
+pub mod host_live_host_unselectable_catalog_residual_wave1034;
 pub mod host_live_host_update_drawables_catalog_shroud_residual_wave1021;
 pub mod host_live_host_update_portrait_presentation_residual_wave1008;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
@@ -3823,6 +3824,13 @@ pub use host_live_host_sold_catalog_residual_wave1033::{
     honesty_host_sold_catalog_residual_nav_commands_residual_wave1033,
     honesty_host_sold_catalog_residual_residual_pack_wave1033,
     simulate_live_host_sold_catalog_residual_honesty,
+};
+
+pub use host_live_host_unselectable_catalog_residual_wave1034::{
+    honesty_host_unselectable_catalog_residual_method_names_residual_wave1034,
+    honesty_host_unselectable_catalog_residual_nav_commands_residual_wave1034,
+    honesty_host_unselectable_catalog_residual_residual_pack_wave1034,
+    simulate_live_host_unselectable_catalog_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

@@ -324,6 +324,10 @@ impl SelectionTranslator {
                     if !entry.selectable {
                         continue;
                     }
+                    // Wave 1034: C++ OBJECT_STATUS_UNSELECTABLE / sold residual.
+                    if entry.unselectable || entry.sold {
+                        continue;
+                    }
                     // FOW residual: shroud_status 0 = clear (Clear), non-zero may be fogged/black.
                     // Fail-open selectables that are fully hidden (3) are skipped.
                     if entry.shroud_status >= 3 {
@@ -345,12 +349,19 @@ impl SelectionTranslator {
                         is_structure,
                         is_garrisonable_building,
                         is_crate,
-                        is_selectable: entry.selectable,
+                        is_selectable: entry.selectable && !entry.unselectable && !entry.sold,
                         is_dead: false,
                         is_hidden: entry.shroud_status >= 2,
                         is_local_controlled: translator_entry_is_local(entry),
                         kind_of_flags: 0,
-                        status_bits: 0,
+                        // Wave 1034: status residual from catalog (fail-closed for dual peels).
+                        status_bits: {
+                            let mut bits = 0u32;
+                            if entry.unselectable {
+                                bits |= OBJECT_STATUS_UNSELECTABLE;
+                            }
+                            bits
+                        },
                     });
                 }
             });

@@ -885,6 +885,8 @@ pub struct PresentationUnitCatalogEntry {
     pub ocl_timer_seconds: u32,
     /// Wave 1033: sold residual for dual-world ControlBar clear (C++ OBJECT_STATUS_SOLD).
     pub sold: bool,
+    /// Wave 1034: unselectable residual for dual-world selection (C++ OBJECT_STATUS_UNSELECTABLE).
+    pub unselectable: bool,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.
