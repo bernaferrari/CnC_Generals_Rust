@@ -3805,6 +3805,10 @@ impl GameClient {
                     destroyed: u.destroyed,
                     masked: u.masked,
                     effectively_stealthed: u.effectively_stealthed,
+                    // Wave 1041: disguise residual.
+                    disguised: u.disguised,
+                    disguise_as_template: u.disguise_as_template.clone(),
+                    disguise_as_team: u.disguise_as_team.clone(),
                     airborne_target: u.airborne_target,
                     shroud_status: u.shroud_status as u8,
                     slaver_object_id: u.slaver_object_id,
@@ -3869,6 +3873,10 @@ impl GameClient {
                             destroyed: u.destroyed,
                             masked: u.masked,
                             effectively_stealthed: u.effectively_stealthed,
+                            // Wave 1041: disguise residual.
+                            disguised: u.disguised,
+                            disguise_as_template: u.disguise_as_template.clone(),
+                            disguise_as_team: u.disguise_as_team.clone(),
                             airborne_target: u.airborne_target,
                             shroud_status: u.shroud_status as u8,
                             slaver_object_id: u.slaver_object_id,
