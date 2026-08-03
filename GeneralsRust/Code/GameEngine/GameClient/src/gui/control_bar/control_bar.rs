@@ -2583,8 +2583,14 @@ impl ControlBar {
     }
 
     pub fn set_portrait_by_object_id(&mut self, obj_id: Option<u32>) {
-        // Wave 249: host empty dual-world short-circuit (portrait residual stays).
+        // Wave 249/1006: dual-world — presentation residual owns portrait fill;
+        // deselection still clears residual portrait/queue (C++ clear path).
         if Self::dual_world_registry_unavailable() {
+            if obj_id.is_none() {
+                self.portrait_state = PortraitDisplayState::default();
+                self.build_queue_data.clear();
+                self.displayed_queue_count = 0;
+            }
             return;
         }
         if let Some(id) = obj_id {

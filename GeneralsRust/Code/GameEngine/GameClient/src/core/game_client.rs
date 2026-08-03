@@ -2509,6 +2509,11 @@ impl GameClient {
         crate::presentation_translator_residual::translator_catalog_entry(object_id).is_some()
     }
 
+    /// Wave 1006: presentation/shell drawable map size residual (dual-world safe).
+    pub fn drawable_count(&self) -> usize {
+        self.drawable_map.len()
+    }
+
     /// Update drawable visibility based on shroud/fog of war status
     ///
     /// Synchronizes drawable visibility with the GameLogic shroud system.

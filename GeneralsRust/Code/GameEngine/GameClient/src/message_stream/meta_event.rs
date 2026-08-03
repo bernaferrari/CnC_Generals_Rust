@@ -1361,6 +1361,18 @@ fn report_object_id_lookup_performance() {
 }
 
 fn report_drawable_id_lookup_performance() {
+    // Wave 1006: dual-world residual — report presentation drawable count instead of
+    // hammering empty dual-world id space timing.
+    if dual_world_registry_unavailable() {
+        let n = TheGameClient::get()
+            .map(|c| c.drawable_count())
+            .unwrap_or(0);
+        TheInGameUI::message(&format!(
+            "Dual-world residual: presentation shell has {n} drawables (no DrawableID lookup timing)."
+        ));
+        return;
+    }
+
     let maybe_client = TheGameClient::get();
     for number_lookups in [10_000_u32, 100_000_u32, 1_000_000_u32] {
         let start = Instant::now();
