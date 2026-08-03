@@ -931,6 +931,8 @@ pub struct PresentationUnitCatalogEntry {
     pub production_paused: bool,
     /// Wave 1015: effective command-set name residual for dual-world ControlBar.
     pub command_set_name: String,
+    /// Wave 1055: host control-group residual (0..9, -1 = none) for dual group numerals.
+    pub hotkey_group: i8,
 }
 
 pub struct InGameUI {
