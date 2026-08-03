@@ -38,6 +38,8 @@ pub struct TranslatorCatalogEntry {
     pub production_template: Option<String>,
     /// Wave 1013: production paused residual.
     pub production_paused: bool,
+    /// Wave 1015: effective command-set name residual.
+    pub command_set_name: String,
 }
 
 #[derive(Debug, Clone, Default)]
