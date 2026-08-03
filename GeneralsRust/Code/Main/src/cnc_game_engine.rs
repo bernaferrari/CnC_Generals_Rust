@@ -20161,6 +20161,15 @@ impl CnCGameEngine {
                     emoticon_frames_left: o.emoticon_frames_left,
                     // Wave 1058: formation residual for dual formation letter.
                     formation_id: o.formation_id,
+                    // Wave 1059: caption residual (display_name when distinct from template).
+                    caption: {
+                        let dn = o.display_name.trim();
+                        if !dn.is_empty() && dn != o.template_name {
+                            dn.to_string()
+                        } else {
+                            String::new()
+                        }
+                    },
                 }
             });
             let (created, updated, pruned) =
