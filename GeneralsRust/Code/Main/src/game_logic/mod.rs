@@ -239,6 +239,7 @@ pub mod host_live_host_formation_spawn_buddy_opt_in_residual_wave720;
 pub mod host_live_host_fow_tod_residual_wave981;
 pub mod host_live_host_fwwd_continuous_dual_peel_residual_wave778;
 pub mod host_live_host_fwwd_reaction_dual_peel_residual_wave779;
+pub mod host_live_host_fx_name_presentation_residual_wave1001;
 pub mod host_live_host_gamelogic_borrow_boundary_residual_wave935;
 pub mod host_live_host_gameworld_production_paused_writeback_residual_wave990;
 pub mod host_live_host_get_object_mut_seal_residual_wave950;
@@ -3559,6 +3560,13 @@ pub use host_live_host_ignored_gui_slaver_presentation_residual_wave1000::{
     honesty_host_ignored_gui_slaver_presentation_residual_nav_commands_residual_wave1000,
     honesty_host_ignored_gui_slaver_presentation_residual_residual_pack_wave1000,
     simulate_live_host_ignored_gui_slaver_presentation_residual_honesty,
+};
+
+pub use host_live_host_fx_name_presentation_residual_wave1001::{
+    honesty_host_fx_name_presentation_residual_method_names_residual_wave1001,
+    honesty_host_fx_name_presentation_residual_nav_commands_residual_wave1001,
+    honesty_host_fx_name_presentation_residual_residual_pack_wave1001,
+    simulate_live_host_fx_name_presentation_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
