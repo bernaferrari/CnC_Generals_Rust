@@ -139,6 +139,7 @@ pub mod host_live_host_auto_select_mobile_opt_in_residual_wave726;
 pub mod host_live_host_auto_target_opt_in_residual_wave729;
 pub mod host_live_host_base_regen_dual_peel_residual_wave780;
 pub mod host_live_host_battlemaster_horde_dual_peel_residual_wave812;
+pub mod host_live_host_beacon_context_catalog_residual_wave1032;
 pub mod host_live_host_beacon_garrison_catalog_residual_wave1030;
 pub mod host_live_host_beam_flare_shell_dual_peel_residual_wave806;
 pub mod host_live_host_booby_trap_destroy_no_damage_auth_hp_stomp_residual_wave751;
@@ -3807,6 +3808,13 @@ pub use host_live_host_ocl_timer_catalog_residual_wave1031::{
     honesty_host_ocl_timer_catalog_residual_nav_commands_residual_wave1031,
     honesty_host_ocl_timer_catalog_residual_residual_pack_wave1031,
     simulate_live_host_ocl_timer_catalog_residual_honesty,
+};
+
+pub use host_live_host_beacon_context_catalog_residual_wave1032::{
+    honesty_host_beacon_context_catalog_residual_method_names_residual_wave1032,
+    honesty_host_beacon_context_catalog_residual_nav_commands_residual_wave1032,
+    honesty_host_beacon_context_catalog_residual_residual_pack_wave1032,
+    simulate_live_host_beacon_context_catalog_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
