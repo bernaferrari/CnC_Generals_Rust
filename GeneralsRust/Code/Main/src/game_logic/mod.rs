@@ -403,6 +403,7 @@ pub mod host_live_host_rebuild_spawn_requires_gw_bind_residual_wave741;
 pub mod host_live_host_redundant_authority_write_skip_residual_wave913;
 pub mod host_live_host_refresh_sim_failclosed_residual_wave901;
 pub mod host_live_host_register_drawable_template_catalog_residual_wave1019;
+pub mod host_live_host_relationship_status_stealth_residual_wave1073;
 pub mod host_live_host_remaining_clippy_wave890;
 pub mod host_live_host_residual_failclosed_peels_wave859;
 pub mod host_live_host_residual_mutation_boundary_residual_wave941;
@@ -4135,6 +4136,13 @@ pub use host_live_host_pickup_crate_enter_disabled_residual_wave1072::{
     honesty_host_pickup_crate_enter_disabled_residual_nav_commands_residual_wave1072,
     honesty_host_pickup_crate_enter_disabled_residual_residual_pack_wave1072,
     simulate_live_host_pickup_crate_enter_disabled_residual_honesty,
+};
+
+pub use host_live_host_relationship_status_stealth_residual_wave1073::{
+    honesty_host_relationship_status_stealth_residual_method_names_residual_wave1073,
+    honesty_host_relationship_status_stealth_residual_nav_commands_residual_wave1073,
+    honesty_host_relationship_status_stealth_residual_residual_pack_wave1073,
+    simulate_live_host_relationship_status_stealth_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
