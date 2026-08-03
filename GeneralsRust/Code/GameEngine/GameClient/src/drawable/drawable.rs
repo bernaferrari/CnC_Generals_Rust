@@ -3320,6 +3320,22 @@ impl BasicDrawable {
         // (dead check bail) → healing → bombed → enthusiastic → demoralized →
         // disabled → ammo → contained → veterancy
 
+        // Wave 1054: dual-world effectively-stealthed residual hides icon UI unless
+        // selected/moused (C++ local player still sees selected stealthed friendlies).
+        if dual_world_registry_unavailable()
+            && self.presentation_effectively_stealthed
+            && !self.selected_or_moused_over_for_icon_pips()
+        {
+            self.overlay_data.show_ammo = false;
+            self.overlay_data.show_contained = false;
+            self.overlay_data.show_healing = false;
+            self.overlay_data.show_disabled = false;
+            self.overlay_data.show_enthusiastic = false;
+            self.overlay_data.show_bombed = false;
+            self.overlay_data.visible = false;
+            return;
+        }
+
         if let Some(ref health_region) = region {
             self.draw_health_bar(health_region);
             self.draw_emoticon(health_region);
