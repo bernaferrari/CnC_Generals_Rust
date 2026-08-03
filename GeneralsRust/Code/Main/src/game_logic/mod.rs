@@ -341,6 +341,7 @@ pub mod host_live_host_populate_build_queue_presentation_residual_wave1010;
 pub mod host_live_host_portrait_catalog_refresh_residual_wave1014;
 pub mod host_live_host_portrait_drawable_presentation_residual_wave1006;
 pub mod host_live_host_portrait_selection_catalog_residual_wave1018;
+pub mod host_live_host_portrait_status_clear_residual_wave1053;
 pub mod host_live_host_post_logic_shadow_boundary_residual_wave927;
 pub mod host_live_host_post_writeback_complete_boundary_residual_wave938;
 pub mod host_live_host_power_disabled_dual_peel_residual_wave811;
@@ -3975,6 +3976,13 @@ pub use host_live_host_command_avail_pip_stealth_residual_wave1052::{
     honesty_host_command_avail_pip_stealth_residual_nav_commands_residual_wave1052,
     honesty_host_command_avail_pip_stealth_residual_residual_pack_wave1052,
     simulate_live_host_command_avail_pip_stealth_residual_honesty,
+};
+
+pub use host_live_host_portrait_status_clear_residual_wave1053::{
+    honesty_host_portrait_status_clear_residual_method_names_residual_wave1053,
+    honesty_host_portrait_status_clear_residual_nav_commands_residual_wave1053,
+    honesty_host_portrait_status_clear_residual_residual_pack_wave1053,
+    simulate_live_host_portrait_status_clear_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
