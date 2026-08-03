@@ -324,8 +324,12 @@ impl SelectionTranslator {
                     if !entry.selectable {
                         continue;
                     }
-                    // Wave 1034/1035: C++ UNSELECTABLE / sold / destroyed / masked residual.
+                    // Wave 1034/1035/1036: C++ status + enemy stealth residual.
                     if entry.unselectable || entry.sold || entry.destroyed || entry.masked {
+                        continue;
+                    }
+                    // C++ SelectionInfo: neutral/enemy effectively stealthed → no select.
+                    if entry.effectively_stealthed && !translator_entry_is_local(entry) {
                         continue;
                     }
                     // FOW residual: shroud_status 0 = clear (Clear), non-zero may be fogged/black.
@@ -353,7 +357,8 @@ impl SelectionTranslator {
                             && !entry.unselectable
                             && !entry.sold
                             && !entry.destroyed
-                            && !entry.masked,
+                            && !entry.masked
+                            && !(entry.effectively_stealthed && !translator_entry_is_local(entry)),
                         // Wave 1035: destroyed residual maps to is_dead for can_select.
                         is_dead: entry.destroyed,
                         is_hidden: entry.shroud_status >= 2,

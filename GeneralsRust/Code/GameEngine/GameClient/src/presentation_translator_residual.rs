@@ -42,6 +42,8 @@ pub struct TranslatorCatalogEntry {
     pub destroyed: bool,
     /// Wave 1035: masked residual.
     pub masked: bool,
+    /// Wave 1036: effectively stealthed residual.
+    pub effectively_stealthed: bool,
     /// Wave 979: airborne residual for host plane-camera lock cycle.
     pub airborne_target: bool,
     /// Wave 981: FOW residual for host translators / command hints.

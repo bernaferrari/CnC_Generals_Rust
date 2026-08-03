@@ -20260,6 +20260,8 @@ impl CnCGameEngine {
                             // Wave 1035: destroyed/masked residual for dual-world selection.
                             destroyed: o.destroyed,
                             masked: o.masked,
+                            // Wave 1036: effectively stealthed residual for dual-world selection.
+                            effectively_stealthed: o.effectively_stealthed,
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.
