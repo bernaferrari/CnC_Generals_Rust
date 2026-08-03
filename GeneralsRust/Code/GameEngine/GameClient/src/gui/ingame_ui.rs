@@ -5542,6 +5542,29 @@ impl InGameUI {
                 } else {
                     entry.clone()
                 };
+                // Wave 1085: slaver/tip residual fail-closed on unusable/FOW/stealth non-local.
+                {
+                    let local =
+                        crate::presentation_translator_residual::translator_local_team_name();
+                    let fogged = matches!(
+                        tip_entry.shroud_status,
+                        ObjectShroudStatus::PartialClear
+                            | ObjectShroudStatus::Fogged
+                            | ObjectShroudStatus::Shrouded
+                    );
+                    let tip_local = !local.is_empty() && tip_entry.team_name == local;
+                    if tip_entry.destroyed
+                        || tip_entry.sold
+                        || tip_entry.unselectable
+                        || tip_entry.masked
+                        || (tip_entry.effectively_stealthed && !tip_local)
+                        || (fogged && !tip_local)
+                    {
+                        self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+                        self.set_mouse_cursor(MouseCursor::Arrow);
+                        return;
+                    }
+                }
                 // Wave 1042: C++ InGameUI disguise tooltip residual — non-allied
                 // viewers see disguise template name.
                 let local = crate::presentation_translator_residual::translator_local_team_name();

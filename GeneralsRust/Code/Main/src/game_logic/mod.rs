@@ -336,6 +336,7 @@ pub mod host_live_host_model_cond_weather_residual_wave988;
 pub mod host_live_host_money_crate_delete_dual_peel_residual_wave817;
 pub mod host_live_host_mouse_presentation_only_residual_wave906;
 pub mod host_live_host_mouseover_hint_catalog_residual_wave968;
+pub mod host_live_host_mouseover_slaver_tip_unusable_fow_residual_wave1085;
 pub mod host_live_host_multi_select_catalog_command_set_residual_wave1017;
 pub mod host_live_host_multiplayer_science_failclosed_wave861;
 pub mod host_live_host_mutation_residual_refresh_wave867;
@@ -4231,6 +4232,13 @@ pub use host_live_host_sole_authority_presentation_shell_lock_residual_wave1084:
     honesty_host_sole_authority_presentation_shell_lock_nav_commands_residual_wave1084,
     honesty_host_sole_authority_presentation_shell_lock_residual_pack_wave1084,
     simulate_live_host_sole_authority_presentation_shell_lock_honesty,
+};
+
+pub use host_live_host_mouseover_slaver_tip_unusable_fow_residual_wave1085::{
+    honesty_host_mouseover_slaver_tip_unusable_fow_residual_method_names_residual_wave1085,
+    honesty_host_mouseover_slaver_tip_unusable_fow_residual_nav_commands_residual_wave1085,
+    honesty_host_mouseover_slaver_tip_unusable_fow_residual_residual_pack_wave1085,
+    simulate_live_host_mouseover_slaver_tip_unusable_fow_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
