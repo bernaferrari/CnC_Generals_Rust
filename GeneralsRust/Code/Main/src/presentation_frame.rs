@@ -5282,9 +5282,10 @@ impl PresentationFrame {
 
     /// Objects with a ready special power residual (UI / command button feed).
     pub fn special_power_ready_objects(&self) -> Vec<&RenderableObject> {
+        // Wave 1102: fail-closed on sold/disabled SP-ready residual feed.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && o.special_power_ready)
+            .filter(|o| !o.destroyed && !o.sold && !o.disabled && o.special_power_ready)
             .collect()
     }
 
@@ -5635,9 +5636,15 @@ impl PresentationFrame {
 
     /// Runtime-host residual: count of alive mobile friendlies.
     pub fn count_mobile_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
+        use crate::unit_control::UnitControlSystem;
+        // Wave 1102: mobile count residual uses presentation selectable legality.
         self.objects
             .iter()
-            .filter(|o| o.team == player_team && !o.destroyed && o.is_mobile)
+            .filter(|o| {
+                o.team == player_team
+                    && o.is_mobile
+                    && UnitControlSystem::presentation_is_selectable(o)
+            })
             .count() as u32
     }
 
@@ -5871,9 +5878,11 @@ impl PresentationFrame {
             .filter(|o| {
                 o.team == player_team
                     && !o.destroyed
+                    && !o.sold
                     && !o.under_construction
                     // Wave 856: selectable OR known structure/building residual (construct
                     // same-frame may lag presentation_is_selectable flags).
+                    // Wave 1102: sold residual fail-closed even on structure OR path.
                     && (UnitControlSystem::presentation_is_selectable(o)
                         || o.is_structure
                         || o.building_type.is_some()
@@ -5897,12 +5906,15 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
         use crate::game_logic::KindOf;
+        // Wave 1102: fail-closed on sold/disabled upgrade-producer residual.
         let mut ids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|o| {
                 o.team == player_team
                     && !o.destroyed
+                    && !o.sold
+                    && !o.disabled
                     && !o.under_construction
                     && (Self::object_has_kind(o, KindOf::Structure)
                         || o.object_type == PresentationObjectType::Building
@@ -6203,10 +6215,16 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
         use crate::unit_control::UnitControlSystem;
+        // Wave 1102: stop-all residual uses full presentation selectable legality.
         let mut ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|o| o.team == player_team && !o.destroyed && !o.is_structure && o.is_mobile)
+            .filter(|o| {
+                o.team == player_team
+                    && !o.is_structure
+                    && o.is_mobile
+                    && UnitControlSystem::presentation_is_selectable(o)
+            })
             .map(|o| o.id)
             .collect();
         ids.sort_by_key(|id| id.0);
