@@ -582,6 +582,20 @@ impl ControlBar {
                         self.presentation_under_construction = true;
                         self.presentation_construction_percent = entry.construction_percent;
                     }
+                    // Wave 1030: seed garrison residual from catalog when freeze unset.
+                    if self.presentation_max_garrison == 0 && entry.max_garrison > 0 {
+                        self.presentation_max_garrison = entry.max_garrison as usize;
+                        self.presentation_garrisoned_count = entry.occupant_count as usize;
+                    }
+                }
+            } else if self.presentation_max_garrison == 0 {
+                if let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+                {
+                    if entry.max_garrison > 0 {
+                        self.presentation_max_garrison = entry.max_garrison as usize;
+                        self.presentation_garrisoned_count = entry.occupant_count as usize;
+                    }
                 }
             }
             if self.presentation_under_construction {
@@ -2376,10 +2390,19 @@ impl ControlBar {
         };
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
             // Host presentation residual: beacon UI when command-set freeze says BEACON.
-            let is_beacon = self
-                .presentation_primary_command_set
-                .to_ascii_uppercase()
-                .contains("BEACON")
+            // Wave 1030: peel translator catalog template/command-set residual too.
+            let catalog_beacon =
+                crate::presentation_translator_residual::translator_catalog_entry(object_id)
+                    .map(|e| {
+                        e.template_name.to_ascii_uppercase().contains("BEACON")
+                            || e.command_set_name.to_ascii_uppercase().contains("BEACON")
+                    })
+                    .unwrap_or(false);
+            let is_beacon = catalog_beacon
+                || self
+                    .presentation_primary_command_set
+                    .to_ascii_uppercase()
+                    .contains("BEACON")
                 || self
                     .portrait_state
                     .portrait_image

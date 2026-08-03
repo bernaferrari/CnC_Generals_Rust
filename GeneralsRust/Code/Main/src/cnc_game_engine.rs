@@ -20248,6 +20248,9 @@ impl CnCGameEngine {
                             // Wave 1028: under-construction residual for dual-world ControlBar.
                             under_construction: o.under_construction,
                             construction_percent: o.construction_percent.clamp(0.0, 1.0),
+                            // Wave 1030: garrison residual for dual-world structure inventory.
+                            max_garrison: (o.max_garrison as u32).min(u16::MAX as u32) as u16,
+                            occupant_count: (o.occupant_count as u32).min(u16::MAX as u32) as u16,
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.

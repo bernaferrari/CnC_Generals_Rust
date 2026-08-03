@@ -877,6 +877,10 @@ pub struct PresentationUnitCatalogEntry {
     pub under_construction: bool,
     /// Wave 1028: construction percent residual [0,1].
     pub construction_percent: f32,
+    /// Wave 1030: garrison capacity residual for dual-world structure inventory.
+    pub max_garrison: u16,
+    /// Wave 1030: occupant count residual for dual-world structure inventory.
+    pub occupant_count: u16,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.
