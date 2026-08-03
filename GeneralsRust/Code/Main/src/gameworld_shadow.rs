@@ -16633,6 +16633,27 @@ impl GameWorldShadow {
             set_flag!(obj.status.disguised, ent.disguised);
             set_flag!(obj.status.no_collisions, ent.no_collisions);
             set_flag!(obj.status.private_captured, ent.private_captured);
+            // Wave 1003: surrender / emoticon / formation residual last-writer.
+            set_flag!(obj.is_surrendered, ent.is_surrendered);
+            if obj.emoticon_name != ent.emoticon_name {
+                obj.emoticon_name = ent.emoticon_name.clone();
+                dirty = true;
+            }
+            if obj.emoticon_frames_left != ent.emoticon_frames_left {
+                obj.emoticon_frames_left = ent.emoticon_frames_left;
+                dirty = true;
+            }
+            if obj.formation_id != ent.formation_id {
+                obj.formation_id = ent.formation_id;
+                dirty = true;
+            }
+            {
+                let form = glam::Vec2::new(ent.formation_offset[0], ent.formation_offset[1]);
+                if (obj.formation_offset - form).length_squared() > 1e-8 {
+                    obj.formation_offset = form;
+                    dirty = true;
+                }
+            }
             set_flag!(
                 obj.status.disguise_transitioning_to,
                 ent.disguise_transitioning_to
