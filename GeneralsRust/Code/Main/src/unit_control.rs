@@ -319,7 +319,13 @@ impl UnitControlSystem {
 
     /// Snapshot residual: selectable when alive, Selectable kind, not contained.
     pub fn presentation_is_selectable(o: &RenderableObject) -> bool {
+        // Wave 1092: presentation selectable residual fail-closed on sold /
+        // unselectable/masked/disabled (catalog + pick peels match C++ status).
         !o.destroyed
+            && !o.sold
+            && !o.unselectable
+            && !o.masked
+            && !o.disabled
             && PresentationFrame::object_has_kind(o, KindOf::Selectable)
             && o.contained_by.is_none()
     }
