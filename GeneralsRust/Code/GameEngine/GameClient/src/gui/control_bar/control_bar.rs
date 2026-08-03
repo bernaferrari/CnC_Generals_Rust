@@ -755,6 +755,33 @@ impl ControlBar {
         {
             return (self.displayed_queue_count.max(1), true);
         }
+        // Wave 1029: dual-world peels catalog production residual when registry empty.
+        if OBJECT_REGISTRY.get_object(obj_id).is_none() {
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            {
+                if entry.production_template.is_some() || entry.production_progress.is_some() {
+                    return (self.displayed_queue_count.max(1), true);
+                }
+                if !entry.command_set_name.is_empty() {
+                    const FACTORY_KINDS: &[&str] = &[
+                        "FSBarracks",
+                        "FSWarFactory",
+                        "FSAirfield",
+                        "CommandCenter",
+                        "Structure",
+                    ];
+                    if entry.kind_names.iter().any(|k| {
+                        FACTORY_KINDS
+                            .iter()
+                            .any(|f| k == f || k.eq_ignore_ascii_case(f))
+                    }) {
+                        return (0, true);
+                    }
+                }
+            }
+            return (0, false);
+        }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return (0, false);
         };
@@ -784,6 +811,19 @@ impl ControlBar {
                     return Some(first.progress);
                 }
             }
+        }
+        // Wave 1029: dual-world peels catalog production_progress residual.
+        if OBJECT_REGISTRY.get_object(obj_id).is_none() {
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            {
+                if let Some(p) = entry.production_progress {
+                    if p > 0.0 {
+                        return Some(p);
+                    }
+                }
+            }
+            return None;
         }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return None;
@@ -2500,17 +2540,26 @@ impl ControlBar {
 
         // Host/presentation residual owns construct percent display. Dual-world
         // get_construct_percent() can overlay later when OBJECT_REGISTRY modules exist.
+        // Wave 1029: catalog under_construction residual keeps dual-world UC context live.
+        let selected_id = self
+            .context
+            .read()
+            .ok()
+            .and_then(|c| c.selected_objects.first().copied())
+            .unwrap_or(0);
+        if !self.presentation_under_construction {
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(selected_id)
+            {
+                if entry.under_construction {
+                    self.presentation_under_construction = true;
+                    self.presentation_construction_percent = entry.construction_percent;
+                }
+            }
+        }
         if !(self.presentation_under_construction
             || self.portrait_state.is_visible
-            || OBJECT_REGISTRY
-                .get_object(
-                    self.context
-                        .read()
-                        .ok()
-                        .and_then(|c| c.selected_objects.first().copied())
-                        .unwrap_or(0),
-                )
-                .is_some())
+            || OBJECT_REGISTRY.get_object(selected_id).is_some())
         {
             return Ok(());
         }
