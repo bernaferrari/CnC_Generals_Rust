@@ -1599,6 +1599,10 @@ impl InGameUI {
             if !source.special_power_ready {
                 return false;
             }
+            // Wave 1038: source must be alive/usable residual.
+            if source.destroyed || source.sold {
+                return false;
+            }
             let Some(target) = self
                 .presentation_unit_catalog
                 .iter()
@@ -1606,6 +1610,17 @@ impl InGameUI {
             else {
                 return false;
             };
+            // Wave 1038: C++ target legality residual — skip dead/sold/unselectable/masked/stealthed.
+            if target.destroyed || target.sold || target.unselectable || target.masked {
+                return false;
+            }
+            // Enemy/neutral effectively stealthed targets fail closed (SelectionInfo parity).
+            if target.effectively_stealthed {
+                let local = crate::presentation_translator_residual::translator_local_team_name();
+                if local.is_empty() || target.team_name != local {
+                    return false;
+                }
+            }
             // Relationship residual from team names (fail-open when Neutral options present).
             let same_team = source.team_name == target.team_name;
             if options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
