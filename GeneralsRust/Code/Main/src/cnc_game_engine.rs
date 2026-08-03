@@ -20245,6 +20245,9 @@ impl CnCGameEngine {
                             orientation: o.orientation,
                             // Wave 1026: disabled residual for dual-world command availability.
                             disabled: o.disabled,
+                            // Wave 1028: under-construction residual for dual-world ControlBar.
+                            under_construction: o.under_construction,
+                            construction_percent: o.construction_percent.clamp(0.0, 1.0),
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.

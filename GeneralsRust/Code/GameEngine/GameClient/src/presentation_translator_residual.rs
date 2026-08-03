@@ -24,6 +24,10 @@ pub struct TranslatorCatalogEntry {
     pub orientation: f32,
     /// Wave 1026: disabled residual for dual-world command availability.
     pub disabled: bool,
+    /// Wave 1028: under-construction residual.
+    pub under_construction: bool,
+    /// Wave 1028: construction percent residual [0,1].
+    pub construction_percent: f32,
     /// Wave 979: airborne residual for host plane-camera lock cycle.
     pub airborne_target: bool,
     /// Wave 981: FOW residual for host translators / command hints.

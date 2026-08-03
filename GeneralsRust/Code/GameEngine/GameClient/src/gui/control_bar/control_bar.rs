@@ -573,6 +573,17 @@ impl ControlBar {
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Presentation-only selection residual (host path, no dual-world registry).
+            // Wave 1028: seed under-construction residual from catalog when freeze unset.
+            if !self.presentation_under_construction {
+                if let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+                {
+                    if entry.under_construction {
+                        self.presentation_under_construction = true;
+                        self.presentation_construction_percent = entry.construction_percent;
+                    }
+                }
+            }
             if self.presentation_under_construction {
                 context.current_state = ControlBarState::UnderConstruction;
             } else if self.presentation_max_garrison > 0
