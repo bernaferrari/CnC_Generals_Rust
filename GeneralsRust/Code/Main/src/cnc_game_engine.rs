@@ -20255,6 +20255,8 @@ impl CnCGameEngine {
                             ocl_timer_seconds: o.ocl_timer_seconds,
                             // Wave 1033: sold residual for dual-world ControlBar clear.
                             sold: o.sold,
+                            // Wave 1034: unselectable residual for dual-world selection.
+                            unselectable: o.unselectable,
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.

@@ -576,12 +576,17 @@ impl ControlBar {
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Presentation-only selection residual (host path, no dual-world registry).
-            // Wave 1033: C++ OBJECT_STATUS_SOLD residual — clear bar when sold.
-            let catalog_sold = self.presentation_sold
-                || crate::presentation_translator_residual::translator_catalog_entry(obj_id)
-                    .map(|e| e.sold)
-                    .unwrap_or(false);
-            if catalog_sold {
+            // Wave 1033/1034: C++ OBJECT_STATUS_SOLD / UNSELECTABLE residual — clear bar.
+            let catalog_entry =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id);
+            let catalog_sold =
+                self.presentation_sold || catalog_entry.as_ref().map(|e| e.sold).unwrap_or(false);
+            // Wave 1034: unselectable residual also clears dual-world ControlBar.
+            let catalog_unselectable = catalog_entry
+                .as_ref()
+                .map(|e| e.unselectable)
+                .unwrap_or(false);
+            if catalog_sold || catalog_unselectable {
                 context.current_state = ControlBarState::None;
                 context.available_commands.clear();
                 context.construction_queue.clear();
