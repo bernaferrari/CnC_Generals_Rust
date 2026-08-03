@@ -1909,7 +1909,8 @@ impl CommandSystem {
         };
 
         // Gather
-        if hint.is_resource && any_worker() {
+        // Wave 1099: sold residual fail-closed on gather target.
+        if hint.is_resource && !hint.sold && any_worker() {
             return Some(CommandType::Gather { target_id });
         }
         // Capture neutral structure
@@ -1946,7 +1947,9 @@ impl CommandSystem {
             return Some(CommandType::Repair { target_id });
         }
         // Enter friendly enterable
-        if hint.can_be_entered && !hint.is_enemy_of_local && !hint.under_construction {
+        // Wave 1099: sold residual fail-closed on enter target.
+        if hint.can_be_entered && !hint.sold && !hint.is_enemy_of_local && !hint.under_construction
+        {
             let any_mobile = if !selected_presentation.is_empty() {
                 selected_presentation
                     .iter()
@@ -1964,7 +1967,8 @@ impl CommandSystem {
             }
         }
         // Get healed at heal pad
-        if hint.provides_heal && hint.is_friendly_of_local {
+        // Wave 1099: sold residual fail-closed on heal pad.
+        if hint.provides_heal && !hint.sold && hint.is_friendly_of_local {
             let any_injured_infantry = if !selected_presentation.is_empty() {
                 selected_presentation
                     .iter()
@@ -1977,7 +1981,9 @@ impl CommandSystem {
             }
         }
         // Get repaired at repair pad / war factory / airfield
+        // Wave 1099: sold residual fail-closed on repair pad.
         if hint.is_friendly_of_local
+            && !hint.sold
             && (hint.provides_vehicle_repair || hint.provides_aircraft_repair)
         {
             let any_damaged_serviceable = if !selected_presentation.is_empty() {
