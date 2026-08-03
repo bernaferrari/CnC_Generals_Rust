@@ -4929,7 +4929,11 @@ impl PresentationFrame {
     }
 
     pub fn alive_object_count(&self) -> usize {
-        self.objects.iter().filter(|o| !o.destroyed).count()
+        // Wave 1104: alive count residual excludes sold.
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && !o.sold)
+            .count()
     }
 
     /// Stable object-id list for the production render collect path.
@@ -5497,9 +5501,14 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> Option<ObjectId> {
         use crate::unit_control::UnitControlSystem;
+        // Wave 1104: fail-closed on non-local FOW unless Clear (is_enemy_attackable parity).
         self.objects
             .iter()
-            .find(|o| o.team != player_team && UnitControlSystem::presentation_is_attackable(o))
+            .find(|o| {
+                o.team != player_team
+                    && o.fow_visibility.visibility_alpha >= 0.95
+                    && UnitControlSystem::presentation_is_attackable(o)
+            })
             .map(|o| o.id)
     }
 
@@ -5669,9 +5678,10 @@ impl PresentationFrame {
 
     /// Runtime-host residual: under-construction friendly count from snapshot.
     pub fn count_under_construction_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
+        // Wave 1104: fail-closed on sold UC residual count.
         self.objects
             .iter()
-            .filter(|o| o.team == player_team && !o.destroyed && o.under_construction)
+            .filter(|o| o.team == player_team && !o.destroyed && !o.sold && o.under_construction)
             .count() as u32
     }
 
