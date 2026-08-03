@@ -5462,16 +5462,28 @@ impl InGameUI {
                     draw_id
                 };
                 // Tooltip still from the hovered entry (drone) unless remapped to slaver catalog.
-                let tip_name = if ignored {
+                let tip_entry = if ignored {
                     self.presentation_unit_catalog
                         .iter()
                         .find(|u| Some(u.object_id) == entry.slaver_object_id)
-                        .map(|u| u.template_name.clone())
-                        .filter(|n| !n.is_empty())
-                        .unwrap_or_else(|| entry.template_name.clone())
+                        .cloned()
+                        .unwrap_or_else(|| entry.clone())
                 } else {
-                    entry.template_name.clone()
+                    entry.clone()
                 };
+                // Wave 1042: C++ InGameUI disguise tooltip residual — non-allied
+                // viewers see disguise template name.
+                let local = crate::presentation_translator_residual::translator_local_team_name();
+                let tip_name =
+                    if tip_entry.disguised && (local.is_empty() || tip_entry.team_name != local) {
+                        tip_entry
+                            .disguise_as_template
+                            .clone()
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or_else(|| tip_entry.template_name.clone())
+                    } else {
+                        tip_entry.template_name.clone()
+                    };
                 if !tip_name.is_empty() {
                     with_mouse(|m| {
                         m.set_cursor_tooltip(tip_name, Some(-1), None, None);
