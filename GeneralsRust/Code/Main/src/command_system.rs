@@ -1119,7 +1119,21 @@ impl CommandSystem {
         let mut command_type = match &mode {
             CommandMode::ForceAttack => {
                 if let Some(target_id) = context.target_object {
-                    CommandType::ForceAttackObject { target_id }
+                    // Wave 1103: force-attack object residual fail-closed on sold
+                    // (presentation pick already peels; belt-and-suspenders via hint).
+                    let sold = context
+                        .target_presentation
+                        .as_ref()
+                        .filter(|h| h.id == target_id)
+                        .map(|h| h.sold || !h.is_alive)
+                        .unwrap_or(false);
+                    if sold {
+                        CommandType::ForceAttackGround {
+                            location: context.world_position,
+                        }
+                    } else {
+                        CommandType::ForceAttackObject { target_id }
+                    }
                 } else {
                     CommandType::ForceAttackGround {
                         location: context.world_position,
