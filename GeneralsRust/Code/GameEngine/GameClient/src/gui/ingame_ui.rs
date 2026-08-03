@@ -1615,7 +1615,8 @@ impl InGameUI {
                 return false;
             }
             // Wave 1038: source must be alive/usable residual.
-            if source.destroyed || source.sold {
+            // Wave 1066: disabled source residual fail-closed (C++ disabled modules).
+            if source.destroyed || source.sold || source.disabled {
                 return false;
             }
             let Some(target) = self

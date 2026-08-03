@@ -986,6 +986,10 @@ fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<R
         if local.is_empty() {
             return None;
         }
+        // Wave 1066: FOW fogged/black non-local relationship residual fail-closed.
+        if entry.shroud_status >= 2 && !translator_entry_is_local(&entry) {
+            return None;
+        }
         let apparent = translator_entry_apparent_team(&entry);
         return Some(if apparent == local {
             Relationship::Allies
