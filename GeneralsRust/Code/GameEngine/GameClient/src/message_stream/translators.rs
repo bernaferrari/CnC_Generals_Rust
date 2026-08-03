@@ -269,6 +269,18 @@ fn selection_can_repair_target(
         if !dual_target_status_ok(&target) || !dual_target_is_apparent_ally(&target) {
             return false;
         }
+        // Wave 1069: FOW fogged/black non-local repair target residual fail-closed.
+        if target.shroud_status >= 2 && !translator_entry_is_local(&target) {
+            return false;
+        }
+        // Wave 1069: under-construction is resume, not repair.
+        if target.under_construction {
+            return false;
+        }
+        // Wave 1069: undamaged residual fail-closed (health_current >= health_maximum).
+        if target.health_maximum > 0.0 && target.health_current >= target.health_maximum {
+            return false;
+        }
         // Dozer repair residual: local selection vs damaged structure/vehicle residual.
         let repairable = translator_entry_has_kind(&target, "Structure")
             || translator_entry_has_kind(&target, "Vehicle")
@@ -278,7 +290,12 @@ fn selection_can_repair_target(
         }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
+                // Wave 1069: unusable local source residual fail-closed.
                 if translator_entry_is_local(&sel)
+                    && !sel.destroyed
+                    && !sel.sold
+                    && !sel.disabled
+                    && !sel.under_construction
                     && (translator_entry_has_kind(&sel, "Dozer")
                         || translator_entry_has_kind(&sel, "Vehicle")
                         || sel.selectable)
@@ -550,6 +567,10 @@ fn selection_can_resume_construction_target(
         if !dual_target_status_ok(&target) || !dual_target_is_apparent_ally(&target) {
             return false;
         }
+        // Wave 1069: FOW fogged/black non-local resume target residual fail-closed.
+        if target.shroud_status >= 2 && !translator_entry_is_local(&target) {
+            return false;
+        }
         if !target.under_construction {
             return false;
         }
@@ -558,7 +579,12 @@ fn selection_can_resume_construction_target(
         }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
+                // Wave 1069: unusable local source residual fail-closed.
                 if translator_entry_is_local(&sel)
+                    && !sel.destroyed
+                    && !sel.sold
+                    && !sel.disabled
+                    && !sel.under_construction
                     && (translator_entry_has_kind(&sel, "Dozer") || sel.selectable)
                 {
                     return true;
