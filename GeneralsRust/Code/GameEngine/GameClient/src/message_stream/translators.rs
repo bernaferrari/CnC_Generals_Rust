@@ -27,8 +27,9 @@ use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
 use crate::presentation_translator_residual::{
-    translator_catalog_entry, translator_catalog_has_kind, translator_entry_has_kind,
-    translator_entry_is_local, translator_local_team_name, with_translator_catalog,
+    translator_catalog_entry, translator_catalog_has_kind, translator_entry_apparent_team,
+    translator_entry_has_kind, translator_entry_is_local, translator_local_team_name,
+    with_translator_catalog,
 };
 use crate::system::beacon_display;
 use crate::system::GameMessageResult;
@@ -922,16 +923,18 @@ fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<R
     if local_player_id < 0 {
         return None;
     }
-    // Wave 973: host empty dual-world → team residual relationship.
+    // Wave 973/1043: host empty dual-world → team residual relationship.
+    // Disguised units present apparent team to non-allied viewers (C++ InGameUI).
     if dual_world_registry_unavailable() {
         let entry = translator_catalog_entry(target_id)?;
         let local = translator_local_team_name();
         if local.is_empty() {
             return None;
         }
-        return Some(if entry.team_name == local {
+        let apparent = translator_entry_apparent_team(&entry);
+        return Some(if apparent == local {
             Relationship::Allies
-        } else if entry.team_name == "Neutral" || local == "Neutral" {
+        } else if apparent == "Neutral" || local == "Neutral" {
             Relationship::Neutral
         } else {
             Relationship::Enemies
@@ -1555,7 +1558,8 @@ fn selection_attack_result(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> CanAttackResult {
-    // Wave 975: host empty dual-world → presentation catalog residual.
+    // Wave 975/1043: host empty dual-world → presentation catalog residual.
+    // Attack legality uses apparent team for disguised targets.
     if dual_world_registry_unavailable() {
         let Some(target) = translator_catalog_entry(target_id) else {
             return CanAttackResult::NotPossible;
@@ -1565,7 +1569,8 @@ fn selection_attack_result(
         if local.is_empty() {
             return CanAttackResult::NotPossible;
         }
-        if target.team_name == local {
+        let apparent = translator_entry_apparent_team(&target);
+        if apparent == local {
             return CanAttackResult::NotPossible;
         }
         let mut any_local = false;
