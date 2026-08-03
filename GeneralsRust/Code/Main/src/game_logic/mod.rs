@@ -460,6 +460,7 @@ pub mod host_live_host_sole_tick_object_id_boundary_residual_wave940;
 pub mod host_live_host_source_fallback_context_disabled_residual_wave1075;
 pub mod host_live_host_sp_cmdhint_mouseover_unusable_residual_wave1088;
 pub mod host_live_host_sp_prisoner_allow_surrender_off_residual_wave989;
+pub mod host_live_host_sp_source_unselectable_gw_pres_residual_wave1091;
 pub mod host_live_host_sp_target_legality_catalog_residual_wave1038;
 pub mod host_live_host_spawn_faction_base_opt_in_residual_wave733;
 pub mod host_live_host_special_power_catalog_residual_wave971;
@@ -4279,6 +4280,13 @@ pub use host_live_host_hover_shroud_selected_kind_unusable_residual_wave1090::{
     honesty_host_hover_shroud_selected_kind_unusable_nav_commands_residual_wave1090,
     honesty_host_hover_shroud_selected_kind_unusable_residual_pack_wave1090,
     simulate_live_host_hover_shroud_selected_kind_unusable_residual_honesty,
+};
+
+pub use host_live_host_sp_source_unselectable_gw_pres_residual_wave1091::{
+    honesty_host_sp_source_unselectable_gw_pres_method_names_residual_wave1091,
+    honesty_host_sp_source_unselectable_gw_pres_nav_commands_residual_wave1091,
+    honesty_host_sp_source_unselectable_gw_pres_residual_pack_wave1091,
+    simulate_live_host_sp_source_unselectable_gw_pres_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

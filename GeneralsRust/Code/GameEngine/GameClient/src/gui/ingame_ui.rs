@@ -1549,8 +1549,8 @@ impl InGameUI {
         // Full overridable-destination module walk requires dual-world; ready residual is
         // the host-safe approximation for pending SP destination override UI.
         if dual_world_registry_unavailable() {
-            // Wave 1088: SP override-destination source residual fail-closed on
-            // destroyed/sold/disabled/under-construction (matches is_valid_special_power_target).
+            // Wave 1088/1091: SP override-destination source residual fail-closed on
+            // destroyed/sold/disabled/UC/unselectable/masked (matches is_valid SP source).
             return self.presentation_unit_catalog.iter().any(|u| {
                 u.object_id == source_object_id
                     && u.special_power_ready
@@ -1558,6 +1558,8 @@ impl InGameUI {
                     && !u.sold
                     && !u.disabled
                     && !u.under_construction
+                    && !u.unselectable
+                    && !u.masked
             });
         }
 
@@ -1623,7 +1625,14 @@ impl InGameUI {
             // Wave 1038: source must be alive/usable residual.
             // Wave 1066: disabled source residual fail-closed (C++ disabled modules).
             // Wave 1067: under-construction source residual fail-closed.
-            if source.destroyed || source.sold || source.disabled || source.under_construction {
+            // Wave 1091: unselectable/masked source residual fail-closed.
+            if source.destroyed
+                || source.sold
+                || source.disabled
+                || source.under_construction
+                || source.unselectable
+                || source.masked
+            {
                 return false;
             }
             let Some(target) = self
@@ -4891,9 +4900,10 @@ impl InGameUI {
                 .presentation_unit_catalog
                 .iter()
                 .find(|u| u.object_id == object_id)?;
-            // Wave 1088: command-hint source residual fail-closed on unusable
-            // sources (dead/sold/masked/disabled must not drive MoveTo structure cursor).
-            if entry.destroyed || entry.sold || entry.masked || entry.disabled {
+            // Wave 1088/1091: command-hint source residual fail-closed on unusable
+            // sources (dead/sold/masked/disabled/unselectable must not drive cursors).
+            if entry.destroyed || entry.sold || entry.masked || entry.disabled || entry.unselectable
+            {
                 return None;
             }
             let local = !self.presentation_local_team_name.is_empty()
