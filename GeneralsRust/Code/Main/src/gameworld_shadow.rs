@@ -16654,6 +16654,27 @@ impl GameWorldShadow {
                     dirty = true;
                 }
             }
+            // Wave 1004: FX residual name last-writer (death + bone last_fx).
+            // Transition-damage queue stays host-produced (private event type).
+            if obj.pending_death_fx != ent.death_fx_name {
+                obj.pending_death_fx = ent.death_fx_name.clone();
+                dirty = true;
+            }
+            if let Some(bone) = obj.bone_fx_damage.as_mut() {
+                if bone.last_fx != ent.bone_fx_name {
+                    bone.last_fx = ent.bone_fx_name.clone();
+                    dirty = true;
+                }
+            }
+            // Align last transition FX name residual when a pending event already exists.
+            if let Some(name) = ent.damage_fx_name.as_ref() {
+                if let Some(last) = obj.pending_transition_damage_fx.last_mut() {
+                    if last.fx_name.as_ref() != Some(name) {
+                        last.fx_name = Some(name.clone());
+                        dirty = true;
+                    }
+                }
+            }
             set_flag!(
                 obj.status.disguise_transitioning_to,
                 ent.disguise_transitioning_to
