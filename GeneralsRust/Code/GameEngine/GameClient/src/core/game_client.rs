@@ -2547,6 +2547,30 @@ impl GameClient {
     pub fn update_drawable_visibility(&mut self, local_player_index: i32) -> GameClientResult<()> {
         use gamelogic::common::types::ObjectShroudStatus;
 
+        // Wave 1020: host empty dual-world peels presentation catalog shroud onto drawable_map.
+        // Catalog shroud_status residual: 0/1 clear-ish, >=2 fogged/shrouded (fully obscured).
+        if dual_world_registry_unavailable() {
+            let _ = local_player_index;
+            let pairs: Vec<(ObjectID, DrawableId)> = self
+                .drawable_object_map
+                .iter()
+                .map(|(oid, did)| (*oid, *did))
+                .collect();
+            for (object_id, drawable_id) in pairs {
+                let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(object_id)
+                else {
+                    continue;
+                };
+                let fully_obscured = entry.shroud_status >= 2;
+                if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+                    drawable.set_visible(!fully_obscured);
+                    drawable.set_fully_obscured_by_shroud(fully_obscured);
+                }
+            }
+            return Ok(());
+        }
+
         self.iterate_objects_with_drawables(|obj_ref| {
             let Ok(mut obj) = obj_ref.write() else {
                 return;
