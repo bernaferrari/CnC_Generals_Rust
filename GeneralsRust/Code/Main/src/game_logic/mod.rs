@@ -164,6 +164,7 @@ pub mod host_live_host_cmd_auto_pick_opt_in_residual_wave731;
 pub mod host_live_host_cmd_auto_select_opt_in_residual_wave730;
 pub mod host_live_host_cold_stamp_supplies_failclosed_residual_wave909;
 pub mod host_live_host_combat_field_dual_peel_residual_wave826;
+pub mod host_live_host_command_availability_catalog_residual_wave1025;
 pub mod host_live_host_command_barracks_complete_peels_residual_wave917;
 pub mod host_live_host_command_executor_host_object_seal_residual_wave955;
 pub mod host_live_host_command_hint_catalog_residual_wave969;
@@ -3751,6 +3752,13 @@ pub use host_live_host_catalog_orientation_pose_residual_wave1024::{
     honesty_host_catalog_orientation_pose_residual_nav_commands_residual_wave1024,
     honesty_host_catalog_orientation_pose_residual_residual_pack_wave1024,
     simulate_live_host_catalog_orientation_pose_residual_honesty,
+};
+
+pub use host_live_host_command_availability_catalog_residual_wave1025::{
+    honesty_host_command_availability_catalog_residual_method_names_residual_wave1025,
+    honesty_host_command_availability_catalog_residual_nav_commands_residual_wave1025,
+    honesty_host_command_availability_catalog_residual_residual_pack_wave1025,
+    simulate_live_host_command_availability_catalog_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

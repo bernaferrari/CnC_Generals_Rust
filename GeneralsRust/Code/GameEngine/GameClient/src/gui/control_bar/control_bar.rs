@@ -1048,8 +1048,15 @@ impl ControlBar {
     ) -> Result<CommandAvailability, Box<dyn std::error::Error>> {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Host/presentation path: Main already filtered unit_command_buttons.
-            // Do not hide presentation-fed command sets solely for missing registry.
-            if self.portrait_state.is_visible {
+            // Wave 1025: dual-world peels catalog/command-set residual when portrait
+            // freeze is not yet visible for this selection frame.
+            if self.portrait_state.is_visible
+                || !self.presentation_primary_command_set.is_empty()
+                || !self.presentation_command_set_names.is_empty()
+                || crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+                    .map(|e| !e.command_set_name.is_empty() || e.selectable)
+                    .unwrap_or(false)
+            {
                 return Ok(CommandAvailability::Available);
             }
             return Ok(CommandAvailability::Hidden);
