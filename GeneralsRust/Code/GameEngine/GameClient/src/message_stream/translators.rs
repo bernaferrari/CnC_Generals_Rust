@@ -587,6 +587,17 @@ fn collect_selectable_objects_from_presentation(
             if !matches {
                 continue;
             }
+            // Wave 1039: C++ status/stealth/FOW residual for dual context pick.
+            if entry.destroyed || entry.sold || entry.unselectable || entry.masked {
+                continue;
+            }
+            if entry.effectively_stealthed && !translator_entry_is_local(entry) {
+                continue;
+            }
+            // SelectionInfo: enemy/neutral FOW fogged+ fails closed (shroud_status >= 2).
+            if !translator_entry_is_local(entry) && entry.shroud_status >= 2 {
+                continue;
+            }
             let pos = Coord3D::new(entry.position[0], entry.position[1], entry.position[2]);
             if world_position_is_under_opaque_window_for_command(&pos) {
                 continue;

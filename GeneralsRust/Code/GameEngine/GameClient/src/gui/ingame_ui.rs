@@ -5367,6 +5367,21 @@ impl InGameUI {
                 .find(|u| u.object_id == draw_id)
                 .cloned()
             {
+                // Wave 1039: dead/sold/unselectable/masked/stealthed hover residual.
+                if entry.destroyed || entry.sold || entry.unselectable || entry.masked {
+                    self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+                    self.set_mouse_cursor(MouseCursor::Arrow);
+                    return;
+                }
+                if entry.effectively_stealthed {
+                    let local =
+                        crate::presentation_translator_residual::translator_local_team_name();
+                    if local.is_empty() || entry.team_name != local {
+                        self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+                        self.set_mouse_cursor(MouseCursor::Arrow);
+                        return;
+                    }
+                }
                 // Wave 982: IgnoredInGui → slaver mouseover residual (C++ parity).
                 let ignored = entry
                     .kind_names
