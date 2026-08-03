@@ -2555,6 +2555,11 @@ impl ControlBar {
                     self.portrait_state.is_visible = true;
                     self.portrait_state.selected_count = self.portrait_state.selected_count.max(1);
                     self.portrait_state.special_power_ready = entry.special_power_ready;
+                    // Wave 1011: health residual from presentation catalog.
+                    if entry.health_maximum > 0.0 {
+                        self.portrait_state.health_current = entry.health_current;
+                        self.portrait_state.health_maximum = entry.health_maximum;
+                    }
                 }
             }
             return;
