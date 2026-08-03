@@ -967,9 +967,24 @@ impl ControlBar {
         {
             return true;
         }
-        // Wave 249/997/1009: presentation residual above; dual-world peels selected
+        // Wave 249/997/1009/1046: presentation residual above; dual-world peels selected
         // producer command-set / construction / catalog factory KindOf residual.
+        // Wave 1046: destroyed/sold/disabled producers fail-closed (no production UI).
         if Self::dual_world_registry_unavailable() {
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            {
+                if entry.destroyed || entry.sold || entry.disabled || entry.unselectable {
+                    return false;
+                }
+                // Actual production residual beats factory KindOf heuristics.
+                if entry.production_template.is_some()
+                    || entry.production_progress.is_some()
+                    || entry.production_paused
+                {
+                    return true;
+                }
+            }
             let selected = self
                 .context
                 .read()
@@ -980,6 +995,14 @@ impl ControlBar {
                     || !self.presentation_command_set_names.is_empty()
                     || self.presentation_under_construction)
             {
+                // Wave 1046: still fail-closed if catalog says sold/destroyed.
+                if let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+                {
+                    if entry.destroyed || entry.sold || entry.disabled {
+                        return false;
+                    }
+                }
                 return true;
             }
             // Wave 1009/1015: translator catalog factory KindOf / command-set residual.
@@ -1355,8 +1378,21 @@ impl ControlBar {
         context: &mut ControlBarContext,
         producer_id: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Wave 981/1010/1014: host empty dual-world keeps presentation residual queue/portrait.
+        // Wave 981/1010/1014/1046: host empty dual-world keeps presentation residual queue/portrait.
         if Self::dual_world_registry_unavailable() {
+            // Wave 1046: destroyed/sold/disabled producer clears residual production UI.
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(producer_id)
+            {
+                if entry.destroyed || entry.sold || entry.disabled || entry.unselectable {
+                    self.portrait_state.production_progress = None;
+                    self.portrait_state.production_template = None;
+                    self.portrait_state.production_paused = false;
+                    self.build_queue_data.clear();
+                    self.displayed_queue_count = 0;
+                    return Ok(());
+                }
+            }
             // Wave 1014: seed portrait production head from translator catalog when empty.
             if self.portrait_state.production_template.is_none()
                 && self.portrait_state.production_progress.is_none()
