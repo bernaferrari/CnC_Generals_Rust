@@ -3732,6 +3732,9 @@ impl GameClient {
                     health_current: u.health_current,
                     health_maximum: u.health_maximum,
                     veterancy_overlay: u.veterancy_overlay.clone(),
+                    production_progress: u.production_progress,
+                    production_template: u.production_template.clone(),
+                    production_paused: u.production_paused,
                 },
             )
             .collect();
@@ -3780,6 +3783,9 @@ impl GameClient {
                             health_current: u.health_current,
                             health_maximum: u.health_maximum,
                             veterancy_overlay: u.veterancy_overlay.clone(),
+                            production_progress: u.production_progress,
+                            production_template: u.production_template.clone(),
+                            production_paused: u.production_paused,
                         },
                     )
                     .collect();

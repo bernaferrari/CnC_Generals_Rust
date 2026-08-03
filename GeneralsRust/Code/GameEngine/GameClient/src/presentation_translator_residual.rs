@@ -32,6 +32,12 @@ pub struct TranslatorCatalogEntry {
     pub health_maximum: f32,
     /// Wave 1012: veterancy chevron residual.
     pub veterancy_overlay: Option<String>,
+    /// Wave 1013: head production progress residual (0..1).
+    pub production_progress: Option<f32>,
+    /// Wave 1013: head production template residual.
+    pub production_template: Option<String>,
+    /// Wave 1013: production paused residual.
+    pub production_paused: bool,
 }
 
 #[derive(Debug, Clone, Default)]
