@@ -126,6 +126,7 @@ pub mod host_live_host_a10_strike_flight_dual_peel_residual_wave792;
 pub mod host_live_host_actively_constructing_complete_peel_residual_wave828;
 pub mod host_live_host_actively_constructing_dual_peel_residual_wave815;
 pub mod host_live_host_ai_shadow_host_object_seal_residual_wave956;
+pub mod host_live_host_airborne_sp_disabled_residual_wave1071;
 pub mod host_live_host_alias_fallback_opt_in_residual_wave725;
 pub mod host_live_host_always_selectable_dead_residual_wave1061;
 pub mod host_live_host_always_selectable_is_selectable_residual_wave1062;
@@ -4119,6 +4120,13 @@ pub use host_live_host_controlbar_destroyed_masked_producer_residual_wave1070::{
     honesty_host_controlbar_destroyed_masked_producer_residual_nav_commands_residual_wave1070,
     honesty_host_controlbar_destroyed_masked_producer_residual_residual_pack_wave1070,
     simulate_live_host_controlbar_destroyed_masked_producer_residual_honesty,
+};
+
+pub use host_live_host_airborne_sp_disabled_residual_wave1071::{
+    honesty_host_airborne_sp_disabled_residual_method_names_residual_wave1071,
+    honesty_host_airborne_sp_disabled_residual_nav_commands_residual_wave1071,
+    honesty_host_airborne_sp_disabled_residual_residual_pack_wave1071,
+    simulate_live_host_airborne_sp_disabled_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
