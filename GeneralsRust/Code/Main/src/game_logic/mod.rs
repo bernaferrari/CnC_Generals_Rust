@@ -301,6 +301,7 @@ pub mod host_live_host_ingame_ui_presentation_selection_residual_wave964;
 pub mod host_live_host_input_integration_presentation_peel_residual_wave954;
 pub mod host_live_host_internal_host_object_idiom_residual_wave959;
 pub mod host_live_host_inventory_seed_usable_residual_wave1081;
+pub mod host_live_host_is_selectable_fow_prisoner_disabled_residual_wave1082;
 pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
 pub mod host_live_host_kindof_flags_catalog_residual_wave1037;
 pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
@@ -4207,6 +4208,13 @@ pub use host_live_host_inventory_seed_usable_residual_wave1081::{
     honesty_host_inventory_seed_usable_residual_nav_commands_residual_wave1081,
     honesty_host_inventory_seed_usable_residual_residual_pack_wave1081,
     simulate_live_host_inventory_seed_usable_residual_honesty,
+};
+
+pub use host_live_host_is_selectable_fow_prisoner_disabled_residual_wave1082::{
+    honesty_host_is_selectable_fow_prisoner_disabled_residual_method_names_residual_wave1082,
+    honesty_host_is_selectable_fow_prisoner_disabled_residual_nav_commands_residual_wave1082,
+    honesty_host_is_selectable_fow_prisoner_disabled_residual_residual_pack_wave1082,
+    simulate_live_host_is_selectable_fow_prisoner_disabled_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
