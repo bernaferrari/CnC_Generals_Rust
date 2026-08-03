@@ -5384,30 +5384,37 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> Option<ObjectId> {
         // Prefer barracks/warfactory/airfield; fall back to any can_produce structure.
+        // Wave 1100: fail-closed on sold/UC/disabled producers (train UI residual).
+        let usable = |o: &&RenderableObject| {
+            o.team == player_team
+                && !o.destroyed
+                && !o.sold
+                && !o.under_construction
+                && !o.disabled
+                && o.can_produce
+        };
         self.objects
             .iter()
             .find(|o| {
-                o.team == player_team
-                    && !o.destroyed
-                    && o.can_produce
+                usable(o)
                     && o.building_type
                         .map(PresentationBuildingType::is_unit_producer)
                         .unwrap_or(false)
             })
-            .or_else(|| {
-                self.objects
-                    .iter()
-                    .find(|o| o.team == player_team && !o.destroyed && o.can_produce)
-            })
+            .or_else(|| self.objects.iter().find(usable))
             .map(|o| o.id)
     }
 
     /// Structures that can produce units (ControlBar factory residual feed).
     pub fn unit_producer_structures(&self) -> Vec<&RenderableObject> {
+        // Wave 1100: fail-closed on sold/UC/disabled factory residual feed.
         self.objects
             .iter()
             .filter(|o| {
                 !o.destroyed
+                    && !o.sold
+                    && !o.under_construction
+                    && !o.disabled
                     && o.can_produce
                     && o.building_type
                         .map(PresentationBuildingType::is_unit_producer)
