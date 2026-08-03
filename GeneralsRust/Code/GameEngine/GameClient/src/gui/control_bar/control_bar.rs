@@ -815,8 +815,8 @@ impl ControlBar {
         {
             return true;
         }
-        // Wave 249/997: presentation residual above; dual-world peels selected
-        // producer command-set / construction residual when queue portrait empty.
+        // Wave 249/997/1009: presentation residual above; dual-world peels selected
+        // producer command-set / construction / catalog factory KindOf residual.
         if Self::dual_world_registry_unavailable() {
             let selected = self
                 .context
@@ -829,6 +829,25 @@ impl ControlBar {
                     || self.presentation_under_construction)
             {
                 return true;
+            }
+            // Wave 1009: translator catalog factory KindOf residual (empty queue).
+            if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            {
+                const FACTORY_KINDS: &[&str] = &[
+                    "FSBarracks",
+                    "FSWarFactory",
+                    "FSAirfield",
+                    "CommandCenter",
+                    "Structure",
+                ];
+                if entry.kind_names.iter().any(|k| {
+                    FACTORY_KINDS
+                        .iter()
+                        .any(|f| k == f || k.eq_ignore_ascii_case(f))
+                }) {
+                    return true;
+                }
             }
             return false;
         }
