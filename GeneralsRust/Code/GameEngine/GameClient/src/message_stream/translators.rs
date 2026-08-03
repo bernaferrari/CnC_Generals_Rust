@@ -193,9 +193,23 @@ fn selection_can_enter_target(
         if !transportish {
             return false;
         }
+        // Wave 1068: full garrison residual fail-closed (C++ contain capacity).
+        if target.max_garrison > 0 && target.occupant_count >= target.max_garrison {
+            return false;
+        }
+        // Wave 1068: under-construction container residual fail-closed.
+        if target.under_construction {
+            return false;
+        }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&sel) {
+                // Wave 1068: unusable local source residual fail-closed.
+                if translator_entry_is_local(&sel)
+                    && !sel.destroyed
+                    && !sel.sold
+                    && !sel.disabled
+                    && !sel.under_construction
+                {
                     return true;
                 }
             }
