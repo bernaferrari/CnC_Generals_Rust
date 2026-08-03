@@ -341,6 +341,7 @@ pub mod host_live_host_object_id_lookup_presentation_residual_wave1005;
 pub mod host_live_host_object_lifecycle_boundary_residual_wave931;
 pub mod host_live_host_object_scan_unify_residual_wave853;
 pub mod host_live_host_observe_failclosed_residual_wave898;
+pub mod host_live_host_ocl_garrison_unusable_residual_wave1078;
 pub mod host_live_host_ocl_timer_catalog_residual_wave1031;
 pub mod host_live_host_override_camera_follow_residual_wave891;
 pub mod host_live_host_paradrop_cargo_flight_dual_peel_residual_wave796;
@@ -4175,6 +4176,13 @@ pub use host_live_host_fow_ui_text_garrison_catalog_residual_wave1077::{
     honesty_host_fow_ui_text_garrison_catalog_residual_nav_commands_residual_wave1077,
     honesty_host_fow_ui_text_garrison_catalog_residual_residual_pack_wave1077,
     simulate_live_host_fow_ui_text_garrison_catalog_residual_honesty,
+};
+
+pub use host_live_host_ocl_garrison_unusable_residual_wave1078::{
+    honesty_host_ocl_garrison_unusable_residual_method_names_residual_wave1078,
+    honesty_host_ocl_garrison_unusable_residual_nav_commands_residual_wave1078,
+    honesty_host_ocl_garrison_unusable_residual_residual_pack_wave1078,
+    simulate_live_host_ocl_garrison_unusable_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

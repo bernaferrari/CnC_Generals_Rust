@@ -595,6 +595,11 @@ impl ControlBar {
                 context.construction_queue.clear();
                 self.build_queue_data.clear();
                 self.displayed_queue_count = 0;
+                // Wave 1078: clear OCL/garrison dual residuals with unusable selection.
+                self.presentation_ocl_timer_seconds = 0;
+                self.displayed_ocl_timer_seconds = 0;
+                self.presentation_max_garrison = 0;
+                self.presentation_garrisoned_count = 0;
                 let mut guard = self
                     .context
                     .write()
@@ -617,7 +622,15 @@ impl ControlBar {
                         self.presentation_garrisoned_count = entry.occupant_count as usize;
                     }
                     // Wave 1031: seed OCL timer residual from catalog.
-                    if self.presentation_ocl_timer_seconds == 0 && entry.ocl_timer_seconds > 0 {
+                    // Wave 1078: skip OCL seed for unusable dual catalog entries.
+                    if !entry.destroyed
+                        && !entry.sold
+                        && !entry.disabled
+                        && !entry.unselectable
+                        && !entry.masked
+                        && self.presentation_ocl_timer_seconds == 0
+                        && entry.ocl_timer_seconds > 0
+                    {
                         self.presentation_ocl_timer_seconds = entry.ocl_timer_seconds;
                     }
                 }
