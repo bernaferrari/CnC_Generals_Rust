@@ -3731,6 +3731,7 @@ impl GameClient {
                     slaver_object_id: u.slaver_object_id,
                     health_current: u.health_current,
                     health_maximum: u.health_maximum,
+                    veterancy_overlay: u.veterancy_overlay.clone(),
                 },
             )
             .collect();
@@ -3778,6 +3779,7 @@ impl GameClient {
                             slaver_object_id: u.slaver_object_id,
                             health_current: u.health_current,
                             health_maximum: u.health_maximum,
+                            veterancy_overlay: u.veterancy_overlay.clone(),
                         },
                     )
                     .collect();

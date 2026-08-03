@@ -884,6 +884,8 @@ pub struct PresentationUnitCatalogEntry {
     pub health_current: f32,
     /// Wave 1011: max health residual for dual-world portrait peel.
     pub health_maximum: f32,
+    /// Wave 1012: veterancy chevron residual for dual-world portrait.
+    pub veterancy_overlay: Option<String>,
 }
 
 pub struct InGameUI {
