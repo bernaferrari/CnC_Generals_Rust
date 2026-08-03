@@ -2505,8 +2505,19 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn update_portrait_for_object(&mut self, obj_id: u32) {
-        // Wave 249: host empty dual-world — keep presentation residual portrait.
+        // Wave 249/1008: dual-world — prefer presentation residual portrait; if
+        // empty, peel template/SP ready from translator catalog by object id.
         if Self::dual_world_registry_unavailable() {
+            if !self.portrait_state.is_visible {
+                if let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+                {
+                    self.portrait_state.portrait_image = entry.template_name.clone();
+                    self.portrait_state.is_visible = true;
+                    self.portrait_state.selected_count = self.portrait_state.selected_count.max(1);
+                    self.portrait_state.special_power_ready = entry.special_power_ready;
+                }
+            }
             return;
         }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
