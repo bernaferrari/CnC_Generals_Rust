@@ -434,6 +434,7 @@ pub mod host_live_host_slaver_mouseover_residual_wave982;
 pub mod host_live_host_slow_death_dual_peel_residual_wave774;
 pub mod host_live_host_smart_bomb_homing_dual_peel_residual_wave787;
 pub mod host_live_host_sold_catalog_residual_wave1033;
+pub mod host_live_host_sold_vis_under_construction_source_residual_wave1067;
 pub mod host_live_host_sole_authority_surface_residual_wave936;
 pub mod host_live_host_sole_tick_object_id_boundary_residual_wave940;
 pub mod host_live_host_sp_prisoner_allow_surrender_off_residual_wave989;
@@ -4087,6 +4088,13 @@ pub use host_live_host_disabled_sp_fow_relationship_residual_wave1066::{
     honesty_host_disabled_sp_fow_relationship_residual_nav_commands_residual_wave1066,
     honesty_host_disabled_sp_fow_relationship_residual_residual_pack_wave1066,
     simulate_live_host_disabled_sp_fow_relationship_residual_honesty,
+};
+
+pub use host_live_host_sold_vis_under_construction_source_residual_wave1067::{
+    honesty_host_sold_vis_under_construction_source_residual_method_names_residual_wave1067,
+    honesty_host_sold_vis_under_construction_source_residual_nav_commands_residual_wave1067,
+    honesty_host_sold_vis_under_construction_source_residual_residual_pack_wave1067,
+    simulate_live_host_sold_vis_under_construction_source_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

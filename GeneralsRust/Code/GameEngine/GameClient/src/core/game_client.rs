@@ -2586,7 +2586,9 @@ impl GameClient {
                 let local =
                     crate::presentation_translator_residual::translator_entry_is_local(&entry);
                 // Wave 1044: destroyed residual always hidden; stealthed non-local hidden.
-                let status_hidden = entry.destroyed || (entry.effectively_stealthed && !local);
+                // Wave 1067: sold residual always hidden (C++ OBJECT_STATUS_SOLD drawable).
+                let status_hidden =
+                    entry.destroyed || entry.sold || (entry.effectively_stealthed && !local);
                 if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
                     // Trait path: stealth look residual for non-local effectively stealthed.
                     if entry.effectively_stealthed && !local {
@@ -2671,7 +2673,9 @@ impl GameClient {
                 let fully_obscured = entry.shroud_status >= 2;
                 let local =
                     crate::presentation_translator_residual::translator_entry_is_local(&entry);
-                let status_hidden = entry.destroyed || (entry.effectively_stealthed && !local);
+                // Wave 1067: sold residual always hidden (C++ OBJECT_STATUS_SOLD drawable).
+                let status_hidden =
+                    entry.destroyed || entry.sold || (entry.effectively_stealthed && !local);
                 if entry.effectively_stealthed && !local {
                     drawable.set_stealth_look(crate::drawable::drawable::StealthLook::Invisible);
                 }
