@@ -577,6 +577,7 @@ impl ControlBar {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Presentation-only selection residual (host path, no dual-world registry).
             // Wave 1033/1034: C++ OBJECT_STATUS_SOLD / UNSELECTABLE residual — clear bar.
+            // Wave 1070: destroyed/masked residual also clears dual-world ControlBar.
             let catalog_entry =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id);
             let catalog_sold =
@@ -586,7 +587,9 @@ impl ControlBar {
                 .as_ref()
                 .map(|e| e.unselectable)
                 .unwrap_or(false);
-            if catalog_sold || catalog_unselectable {
+            let catalog_destroyed = catalog_entry.as_ref().map(|e| e.destroyed).unwrap_or(false);
+            let catalog_masked = catalog_entry.as_ref().map(|e| e.masked).unwrap_or(false);
+            if catalog_sold || catalog_unselectable || catalog_destroyed || catalog_masked {
                 context.current_state = ControlBarState::None;
                 context.available_commands.clear();
                 context.construction_queue.clear();
@@ -974,7 +977,14 @@ impl ControlBar {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
-                if entry.destroyed || entry.sold || entry.disabled || entry.unselectable {
+                // Wave 1070: masked/under-construction producers also fail-closed.
+                if entry.destroyed
+                    || entry.sold
+                    || entry.disabled
+                    || entry.unselectable
+                    || entry.masked
+                    || entry.under_construction
+                {
                     return false;
                 }
                 // Actual production residual beats factory KindOf heuristics.
@@ -999,7 +1009,14 @@ impl ControlBar {
                 if let Some(entry) =
                     crate::presentation_translator_residual::translator_catalog_entry(obj_id)
                 {
-                    if entry.destroyed || entry.sold || entry.disabled {
+                    // Wave 1070: masked/UC/unselectable producer residual fail-closed.
+                    if entry.destroyed
+                        || entry.sold
+                        || entry.disabled
+                        || entry.unselectable
+                        || entry.masked
+                        || entry.under_construction
+                    {
                         return false;
                     }
                 }
@@ -1388,7 +1405,14 @@ impl ControlBar {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(producer_id)
             {
-                if entry.destroyed || entry.sold || entry.disabled || entry.unselectable {
+                // Wave 1070: masked/UC producer residual clears production UI.
+                if entry.destroyed
+                    || entry.sold
+                    || entry.disabled
+                    || entry.unselectable
+                    || entry.masked
+                    || entry.under_construction
+                {
                     self.portrait_state.production_progress = None;
                     self.portrait_state.production_template = None;
                     self.portrait_state.production_paused = false;
