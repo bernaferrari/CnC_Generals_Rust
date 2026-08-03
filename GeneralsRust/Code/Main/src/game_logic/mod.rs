@@ -193,6 +193,7 @@ pub mod host_live_host_drawable_icon_ui_residual_wave977;
 pub mod host_live_host_drawable_overlay_residual_wave970;
 pub mod host_live_host_drawable_presentation_residual_wave965;
 pub mod host_live_host_drawable_visibility_catalog_shroud_residual_wave1020;
+pub mod host_live_host_drawable_visibility_status_residual_wave1044;
 pub mod host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753;
 pub mod host_live_host_dual_read_zero_sole_tick_wave875;
 pub mod host_live_host_dual_tick_queue_destroy_peels_residual_wave916;
@@ -3903,6 +3904,13 @@ pub use host_live_host_disguise_relationship_attack_residual_wave1043::{
     honesty_host_disguise_relationship_attack_residual_nav_commands_residual_wave1043,
     honesty_host_disguise_relationship_attack_residual_residual_pack_wave1043,
     simulate_live_host_disguise_relationship_attack_residual_honesty,
+};
+
+pub use host_live_host_drawable_visibility_status_residual_wave1044::{
+    honesty_host_drawable_visibility_status_residual_method_names_residual_wave1044,
+    honesty_host_drawable_visibility_status_residual_nav_commands_residual_wave1044,
+    honesty_host_drawable_visibility_status_residual_residual_pack_wave1044,
+    simulate_live_host_drawable_visibility_status_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
