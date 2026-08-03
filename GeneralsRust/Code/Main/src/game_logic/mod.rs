@@ -174,6 +174,7 @@ pub mod host_live_host_command_pipeline_boundary_residual_wave932;
 pub mod host_live_host_construct_spawn_dozer_opt_in_residual_wave719;
 pub mod host_live_host_construction_same_frame_ready_complete_residual_wave715;
 pub mod host_live_host_contained_flash_residual_wave984;
+pub mod host_live_host_context_enter_repair_legality_residual_wave1047;
 pub mod host_live_host_context_pick_mouseover_legality_residual_wave1039;
 pub mod host_live_host_control_bar_production_legality_residual_wave1046;
 pub mod host_live_host_crush_failclosed_no_damage_auth_hp_stomp_residual_wave746;
@@ -3927,6 +3928,13 @@ pub use host_live_host_control_bar_production_legality_residual_wave1046::{
     honesty_host_control_bar_production_legality_residual_nav_commands_residual_wave1046,
     honesty_host_control_bar_production_legality_residual_residual_pack_wave1046,
     simulate_live_host_control_bar_production_legality_residual_honesty,
+};
+
+pub use host_live_host_context_enter_repair_legality_residual_wave1047::{
+    honesty_host_context_enter_repair_legality_residual_method_names_residual_wave1047,
+    honesty_host_context_enter_repair_legality_residual_nav_commands_residual_wave1047,
+    honesty_host_context_enter_repair_legality_residual_residual_pack_wave1047,
+    simulate_live_host_context_enter_repair_legality_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

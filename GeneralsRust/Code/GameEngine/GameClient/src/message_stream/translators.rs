@@ -63,6 +63,26 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
+/// Wave 1047: dual catalog target legality for context enter/repair/resume.
+#[inline]
+fn dual_target_status_ok(
+    target: &crate::presentation_translator_residual::TranslatorCatalogEntry,
+) -> bool {
+    !target.destroyed && !target.sold && !target.unselectable && !target.masked
+}
+
+/// Wave 1047: dual catalog apparent-ally residual (local team == apparent team).
+#[inline]
+fn dual_target_is_apparent_ally(
+    target: &crate::presentation_translator_residual::TranslatorCatalogEntry,
+) -> bool {
+    let local = translator_local_team_name();
+    if local.is_empty() {
+        return false;
+    }
+    translator_entry_apparent_team(target) == local
+}
+
 fn selection_any_local_object_can_target<F>(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
@@ -131,11 +151,18 @@ fn selection_can_enter_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
-    // Wave 975: host empty dual-world → presentation catalog residual.
+    // Wave 975/1047: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
         let Some(target) = translator_catalog_entry(target_id) else {
             return false;
         };
+        if !dual_target_status_ok(&target) {
+            return false;
+        }
+        // Enter residual: apparent ally container only (C++ relationship gate).
+        if !dual_target_is_apparent_ally(&target) {
+            return false;
+        }
         // Transport/garrison residual: selectable structure/container kinds.
         let transportish = translator_entry_has_kind(&target, "Structure")
             || translator_entry_has_kind(&target, "Transport")
@@ -198,11 +225,14 @@ fn selection_can_repair_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
-    // Wave 975: host empty dual-world → presentation catalog residual.
+    // Wave 975/1047: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
         let Some(target) = translator_catalog_entry(target_id) else {
             return false;
         };
+        if !dual_target_status_ok(&target) || !dual_target_is_apparent_ally(&target) {
+            return false;
+        }
         // Dozer repair residual: local selection vs damaged structure/vehicle residual.
         let repairable = translator_entry_has_kind(&target, "Structure")
             || translator_entry_has_kind(&target, "Vehicle")
@@ -370,11 +400,14 @@ fn selection_can_pickup_crate_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> Option<Coord3D> {
-    // Wave 975: host empty dual-world → presentation catalog residual.
+    // Wave 975/1047: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
         let Some(target) = translator_catalog_entry(target_id) else {
             return None;
         };
+        if target.destroyed || target.sold {
+            return None;
+        }
         if !translator_entry_has_kind(&target, "Crate") {
             return None;
         }
@@ -473,11 +506,17 @@ fn selection_can_resume_construction_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
-    // Wave 975: host empty dual-world → presentation catalog residual.
+    // Wave 975/1047: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
         let Some(target) = translator_catalog_entry(target_id) else {
             return false;
         };
+        if !dual_target_status_ok(&target) || !dual_target_is_apparent_ally(&target) {
+            return false;
+        }
+        if !target.under_construction {
+            return false;
+        }
         if !(translator_entry_has_kind(&target, "Structure") || target.selectable) {
             return false;
         }
