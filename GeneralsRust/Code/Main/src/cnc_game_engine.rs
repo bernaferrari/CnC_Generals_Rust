@@ -20159,6 +20159,8 @@ impl CnCGameEngine {
                     // Wave 1057: emoticon residual for dual icon UI.
                     emoticon_name: o.emoticon_name.clone(),
                     emoticon_frames_left: o.emoticon_frames_left,
+                    // Wave 1058: formation residual for dual formation letter.
+                    formation_id: o.formation_id,
                 }
             });
             let (created, updated, pruned) =
