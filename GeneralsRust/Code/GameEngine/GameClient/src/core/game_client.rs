@@ -2613,6 +2613,34 @@ impl GameClient {
     /// Updates drawable transforms from their owning GameLogic objects. This mirrors the
     /// C++ render-sync step that keeps drawables aligned with object positions/orientations.
     pub fn sync_with_game_logic(&mut self) -> GameClientResult<()> {
+        // Wave 1023: host empty dual-world peels translator catalog pose onto drawable_map.
+        // PresentationFrame apply_presentation_pose remains primary; this covers callers
+        // that still hit sync_with_game_logic without a fresh pose batch.
+        if dual_world_registry_unavailable() {
+            let pairs: Vec<(ObjectID, DrawableId)> = self
+                .drawable_object_map
+                .iter()
+                .map(|(oid, did)| (*oid, *did))
+                .collect();
+            for (object_id, drawable_id) in pairs {
+                let Some(entry) =
+                    crate::presentation_translator_residual::translator_catalog_entry(object_id)
+                else {
+                    continue;
+                };
+                let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                    continue;
+                };
+                // Catalog pose residual: position only (orientation owned by pose batch).
+                drawable.set_position(Vector3::new(
+                    entry.position[0],
+                    entry.position[1],
+                    entry.position[2],
+                ));
+            }
+            return Ok(());
+        }
+
         self.iterate_objects_with_drawables(|obj_ref| {
             let Ok(obj) = obj_ref.read() else {
                 return;
