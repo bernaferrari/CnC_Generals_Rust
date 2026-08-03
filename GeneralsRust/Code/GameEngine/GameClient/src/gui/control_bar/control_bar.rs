@@ -596,10 +596,12 @@ impl ControlBar {
                 self.build_queue_data.clear();
                 self.displayed_queue_count = 0;
                 // Wave 1078: clear OCL/garrison dual residuals with unusable selection.
+                // Wave 1079: also clear primary command-set residual (beacon/command).
                 self.presentation_ocl_timer_seconds = 0;
                 self.displayed_ocl_timer_seconds = 0;
                 self.presentation_max_garrison = 0;
                 self.presentation_garrisoned_count = 0;
+                self.presentation_primary_command_set.clear();
                 let mut guard = self
                     .context
                     .write()
@@ -668,7 +670,15 @@ impl ControlBar {
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
                 // Wave 1027/1032: catalog residual when presentation freezes not yet stamped.
-                if Self::presentation_name_is_beacon(&entry.template_name)
+                // Wave 1079: unusable dual catalog residual fail-closed for beacon/command.
+                if entry.destroyed
+                    || entry.sold
+                    || entry.disabled
+                    || entry.unselectable
+                    || entry.masked
+                {
+                    context.current_state = ControlBarState::None;
+                } else if Self::presentation_name_is_beacon(&entry.template_name)
                     || Self::presentation_name_is_beacon(&entry.command_set_name)
                 {
                     context.current_state = ControlBarState::Beacon;
