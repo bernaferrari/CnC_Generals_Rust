@@ -44,6 +44,12 @@ pub struct TranslatorCatalogEntry {
     pub masked: bool,
     /// Wave 1036: effectively stealthed residual.
     pub effectively_stealthed: bool,
+    /// Wave 1041: disguised residual for dual portrait/template peel.
+    pub disguised: bool,
+    /// Wave 1041: apparent template while disguised (non-allied viewers).
+    pub disguise_as_template: Option<String>,
+    /// Wave 1041: apparent team while disguised (non-allied viewers).
+    pub disguise_as_team: Option<String>,
     /// Wave 979: airborne residual for host plane-camera lock cycle.
     pub airborne_target: bool,
     /// Wave 981: FOW residual for host translators / command hints.
@@ -119,6 +125,31 @@ pub fn translator_catalog_has_kind(object_id: u32, kind_name: &str) -> bool {
 pub fn translator_entry_is_local(entry: &TranslatorCatalogEntry) -> bool {
     let local = translator_local_team_name();
     !local.is_empty() && entry.team_name == local
+}
+
+/// Wave 1041: C++ InGameUI/ControlBar disguise residual — non-allied viewers
+/// see disguise_as_template / disguise_as_team instead of the real identity.
+pub fn translator_entry_apparent_template(entry: &TranslatorCatalogEntry) -> &str {
+    if entry.disguised && !translator_entry_is_local(entry) {
+        if let Some(ref t) = entry.disguise_as_template {
+            if !t.is_empty() {
+                return t.as_str();
+            }
+        }
+    }
+    entry.template_name.as_str()
+}
+
+/// Wave 1041: apparent team name for non-allied disguise viewers.
+pub fn translator_entry_apparent_team(entry: &TranslatorCatalogEntry) -> String {
+    if entry.disguised && !translator_entry_is_local(entry) {
+        if let Some(ref t) = entry.disguise_as_team {
+            if !t.is_empty() {
+                return t.clone();
+            }
+        }
+    }
+    entry.team_name.clone()
 }
 
 pub fn translator_entry_has_kind(entry: &TranslatorCatalogEntry, kind_name: &str) -> bool {

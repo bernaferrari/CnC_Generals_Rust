@@ -20269,6 +20269,10 @@ impl CnCGameEngine {
                             masked: o.masked,
                             // Wave 1036: effectively stealthed residual for dual-world selection.
                             effectively_stealthed: o.effectively_stealthed,
+                            // Wave 1041: disguise residual for dual portrait/template peel.
+                            disguised: o.disguised,
+                            disguise_as_template: o.disguise_as_template.clone(),
+                            disguise_as_team: o.disguise_as_team.map(|t| format!("{t:?}")),
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.

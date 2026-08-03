@@ -2795,9 +2795,19 @@ impl ControlBar {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
+                // Wave 1041: C++ ControlBar disguise portrait swap for non-allied viewers.
+                let apparent =
+                    crate::presentation_translator_residual::translator_entry_apparent_template(
+                        &entry,
+                    )
+                    .to_string();
                 if !self.portrait_state.is_visible || self.portrait_state.portrait_image.is_empty()
                 {
-                    self.portrait_state.portrait_image = entry.template_name.clone();
+                    self.portrait_state.portrait_image = apparent.clone();
+                } else if entry.disguised
+                    && !crate::presentation_translator_residual::translator_entry_is_local(&entry)
+                {
+                    self.portrait_state.portrait_image = apparent;
                 }
                 self.portrait_state.is_visible = true;
                 self.portrait_state.selected_count = self.portrait_state.selected_count.max(1);

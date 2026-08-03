@@ -900,6 +900,12 @@ pub struct PresentationUnitCatalogEntry {
     pub masked: bool,
     /// Wave 1036: effectively stealthed residual (stealthed && !detected) for dual selection.
     pub effectively_stealthed: bool,
+    /// Wave 1041: disguised residual (bomb truck etc.) for dual portrait/template.
+    pub disguised: bool,
+    /// Wave 1041: apparent template while disguised (non-allied viewers).
+    pub disguise_as_template: Option<String>,
+    /// Wave 1041: apparent team while disguised (non-allied viewers).
+    pub disguise_as_team: Option<String>,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.
@@ -1833,9 +1839,55 @@ impl InGameUI {
                 .presentation_unit_catalog
                 .iter()
                 .filter(|u| {
-                    u.selectable
-                        && u.template_name == reference.template_name
-                        && u.team_name == reference.team_name
+                    // Wave 1041: match on apparent template/team for disguised units
+                    // (C++ non-allied viewers see disguise identity).
+                    let uref_t = if reference.disguised {
+                        reference
+                            .disguise_as_template
+                            .as_deref()
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or(reference.template_name.as_str())
+                    } else {
+                        reference.template_name.as_str()
+                    };
+                    let uref_team = if reference.disguised {
+                        reference
+                            .disguise_as_team
+                            .as_deref()
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or(reference.team_name.as_str())
+                    } else {
+                        reference.team_name.as_str()
+                    };
+                    // Local player always matches real identity of own units.
+                    let local =
+                        crate::presentation_translator_residual::translator_local_team_name();
+                    let (ut, uteam) = if !local.is_empty() && u.team_name == local {
+                        (u.template_name.as_str(), u.team_name.as_str())
+                    } else if u.disguised {
+                        (
+                            u.disguise_as_template
+                                .as_deref()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or(u.template_name.as_str()),
+                            u.disguise_as_team
+                                .as_deref()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or(u.team_name.as_str()),
+                        )
+                    } else {
+                        (u.template_name.as_str(), u.team_name.as_str())
+                    };
+                    // Reference apparent from local view:
+                    let (rt, rteam) = if !local.is_empty() && reference.team_name == local {
+                        (
+                            reference.template_name.as_str(),
+                            reference.team_name.as_str(),
+                        )
+                    } else {
+                        (uref_t, uref_team)
+                    };
+                    u.selectable && ut == rt && uteam == rteam
                 })
                 .map(|u| u.object_id)
                 .collect();
