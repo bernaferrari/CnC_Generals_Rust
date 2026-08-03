@@ -891,6 +891,8 @@ pub struct PresentationUnitCatalogEntry {
     pub destroyed: bool,
     /// Wave 1035: masked residual for dual-world selection (C++ OBJECT_STATUS_MASKED).
     pub masked: bool,
+    /// Wave 1036: effectively stealthed residual (stealthed && !detected) for dual selection.
+    pub effectively_stealthed: bool,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.
