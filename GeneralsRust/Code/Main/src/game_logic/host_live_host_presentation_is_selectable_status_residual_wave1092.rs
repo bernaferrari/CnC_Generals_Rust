@@ -94,7 +94,7 @@ pub fn honesty_host_presentation_is_selectable_status_residual_pack_wave1092() -
             return false;
         }
     };
-    let pick = &uc[pick_i..pick_i.saturating_add(900)];
+    let pick = &uc[pick_i..pick_i.saturating_add(2000)];
     let ok = window.contains("Wave 1092: presentation selectable residual fail-closed")
         && window.contains("!o.sold")
         && window.contains("!o.unselectable")

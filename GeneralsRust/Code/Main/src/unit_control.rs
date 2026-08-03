@@ -698,6 +698,20 @@ impl UnitControlSystem {
 
     /// Select a single object
     fn select_single_object(&mut self, object_id: ObjectId, game_logic: &mut GameLogic) {
+        // Wave 1095: when a presentation freeze is installed, refuse unusable ids
+        // (pick already peels FOW/status; belt-and-suspenders for hotkey/stale paths).
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let ok = frame.objects.iter().any(|o| {
+                o.id == object_id
+                    && o.team == self.local_player_team
+                    && Self::presentation_is_selectable(o)
+            });
+            if !ok {
+                self.selected_objects.clear();
+                game_logic.select_objects(self.player_id, self.selected_objects.clone());
+                return;
+            }
+        }
         self.selected_objects.clear();
         self.selected_objects.push(object_id);
         game_logic.select_objects(self.player_id, self.selected_objects.clone());
@@ -705,15 +719,27 @@ impl UnitControlSystem {
 
     /// Add object to selection (Shift+click)
     fn add_to_selection(&mut self, object_id: ObjectId, game_logic: &mut GameLogic) {
-        if !self.selected_objects.contains(&object_id) {
-            self.selected_objects.push(object_id);
-            game_logic.select_objects(self.player_id, self.selected_objects.clone());
-            println!(
-                "Added unit {} to selection (total: {})",
-                object_id,
-                self.selected_objects.len()
-            );
+        if self.selected_objects.contains(&object_id) {
+            return;
         }
+        // Wave 1095: presentation freeze fail-closed on unusable add-to-selection.
+        if let Some(frame) = self.presentation_frame.as_ref() {
+            let ok = frame.objects.iter().any(|o| {
+                o.id == object_id
+                    && o.team == self.local_player_team
+                    && Self::presentation_is_selectable(o)
+            });
+            if !ok {
+                return;
+            }
+        }
+        self.selected_objects.push(object_id);
+        game_logic.select_objects(self.player_id, self.selected_objects.clone());
+        println!(
+            "Added unit {} to selection (total: {})",
+            object_id,
+            self.selected_objects.len()
+        );
     }
 
     /// Remove object from selection (Ctrl+click)
@@ -788,7 +814,9 @@ impl UnitControlSystem {
             // Prefer presentation pose when dual-tick snapshot is installed.
             if let Some(frame) = self.presentation_frame.as_ref() {
                 if let Some(o) = frame.objects.iter().find(|o| o.id == object_id) {
-                    if o.destroyed {
+                    // Wave 1095: assign residual fail-closed on full selectable
+                    // legality (sold/unselectable/masked/disabled), not only destroyed.
+                    if !Self::presentation_is_selectable(o) {
                         continue;
                     }
                     control_group.add_object(object_id, o.position);
