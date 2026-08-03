@@ -5356,10 +5356,15 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> bool {
         use crate::unit_control::UnitControlSystem;
+        // Wave 1103: fail-closed on non-local FOW unless Clear (pick parity).
         self.objects
             .iter()
             .find(|o| o.id == target_id)
-            .map(|o| o.team != player_team && UnitControlSystem::presentation_is_attackable(o))
+            .map(|o| {
+                o.team != player_team
+                    && o.fow_visibility.visibility_alpha >= 0.95
+                    && UnitControlSystem::presentation_is_attackable(o)
+            })
             .unwrap_or(false)
     }
 
@@ -5650,9 +5655,15 @@ impl PresentationFrame {
 
     /// Runtime-host residual: selected friendly count from snapshot.
     pub fn count_selected_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
+        use crate::unit_control::UnitControlSystem;
+        // Wave 1103: selected count residual uses presentation selectable legality.
         self.objects
             .iter()
-            .filter(|o| o.team == player_team && !o.destroyed && o.selected)
+            .filter(|o| {
+                o.team == player_team
+                    && o.selected
+                    && UnitControlSystem::presentation_is_selectable(o)
+            })
             .count() as u32
     }
 
