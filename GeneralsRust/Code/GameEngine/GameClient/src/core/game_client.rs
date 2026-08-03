@@ -1465,6 +1465,8 @@ impl GameClient {
             // Shared THE_MOUSE/THE_KEYBOARD may still be polled for shell widgets;
             // Main remains command authority. Prefer local drawable modules only.
             self.update_drawables_local(visual_delta)?;
+            // Wave 1022: catalog shroud residual on presentation shell tick path.
+            self.update_drawable_visibility(self.local_player_id)?;
             if self.should_skip_visual_updates_for_no_draw() {
                 self.rendered_object_count = 0;
                 self.finish_frame_timing(current_time);

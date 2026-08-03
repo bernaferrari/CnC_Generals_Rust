@@ -331,6 +331,7 @@ pub mod host_live_host_presentation_drawable_ensure_residual_wave962;
 pub mod host_live_host_presentation_drawable_sync_residual_wave963;
 pub mod host_live_host_presentation_selection_hud_residual_wave978;
 pub mod host_live_host_presentation_selection_peel_residual_wave949;
+pub mod host_live_host_presentation_shell_catalog_shroud_residual_wave1022;
 pub mod host_live_host_presentation_unit_catalog_residual_wave966;
 pub mod host_live_host_process_commands_if_needed_residual_wave914;
 pub mod host_live_host_process_sfx_world_template_peels_residual_wave915;
@@ -3727,6 +3728,13 @@ pub use host_live_host_update_drawables_catalog_shroud_residual_wave1021::{
     honesty_host_update_drawables_catalog_shroud_residual_nav_commands_residual_wave1021,
     honesty_host_update_drawables_catalog_shroud_residual_residual_pack_wave1021,
     simulate_live_host_update_drawables_catalog_shroud_residual_honesty,
+};
+
+pub use host_live_host_presentation_shell_catalog_shroud_residual_wave1022::{
+    honesty_host_presentation_shell_catalog_shroud_residual_method_names_residual_wave1022,
+    honesty_host_presentation_shell_catalog_shroud_residual_nav_commands_residual_wave1022,
+    honesty_host_presentation_shell_catalog_shroud_residual_residual_pack_wave1022,
+    simulate_live_host_presentation_shell_catalog_shroud_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
