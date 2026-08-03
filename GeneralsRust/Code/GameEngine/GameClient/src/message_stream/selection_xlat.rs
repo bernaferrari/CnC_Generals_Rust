@@ -195,6 +195,29 @@ pub const KINDOF_INFANTRY: u32 = 0x00000010;
 pub const KINDOF_VEHICLE: u32 = 0x00000020;
 pub const KINDOF_AIRCRAFT: u32 = 0x00000040;
 
+/// Wave 1037: pack selection KindOf residual bits from catalog kind_names.
+fn catalog_kind_of_flags(kind_names: &[String]) -> u32 {
+    let mut flags = 0u32;
+    for k in kind_names {
+        if k.eq_ignore_ascii_case("Selectable") {
+            flags |= KINDOF_SELECTABLE;
+        } else if k.eq_ignore_ascii_case("ForceAttackable") {
+            flags |= KINDOF_FORCEATTACKABLE;
+        } else if k.eq_ignore_ascii_case("AlwaysSelectable") {
+            flags |= KINDOF_ALWAYS_SELECTABLE;
+        } else if k.eq_ignore_ascii_case("Structure") {
+            flags |= KINDOF_STRUCTURE;
+        } else if k.eq_ignore_ascii_case("Infantry") {
+            flags |= KINDOF_INFANTRY;
+        } else if k.eq_ignore_ascii_case("Vehicle") {
+            flags |= KINDOF_VEHICLE;
+        } else if k.eq_ignore_ascii_case("Aircraft") {
+            flags |= KINDOF_AIRCRAFT;
+        }
+    }
+    flags
+}
+
 // Object status bits from C++ Object.h
 pub const OBJECT_STATUS_UNSELECTABLE: u32 = 0x00000001;
 pub const OBJECT_STATUS_MASKED: u32 = 0x00000002;
@@ -342,6 +365,8 @@ impl SelectionTranslator {
                     let is_garrisonable_building = is_structure
                         && (translator_entry_has_kind(entry, "GarrisonableStructure")
                             || translator_entry_has_kind(entry, "Structure"));
+                    // Wave 1037: KindOf residual bits for can_select (ForceAttackable/Structure/…).
+                    let kind_of_flags = catalog_kind_of_flags(&entry.kind_names);
                     drawables.push(SelectableDrawable {
                         id: entry.object_id,
                         object_id: entry.object_id,
@@ -363,7 +388,7 @@ impl SelectionTranslator {
                         is_dead: entry.destroyed,
                         is_hidden: entry.shroud_status >= 2,
                         is_local_controlled: translator_entry_is_local(entry),
-                        kind_of_flags: 0,
+                        kind_of_flags,
                         // Wave 1034/1035: status residual from catalog.
                         status_bits: {
                             let mut bits = 0u32;
@@ -413,6 +438,9 @@ impl SelectionTranslator {
             let mut kind_of_flags = 0u32;
             if obj.is_kind_of(KindOf::Selectable) {
                 kind_of_flags |= KINDOF_SELECTABLE;
+            }
+            if obj.is_kind_of(KindOf::ForceAttackable) {
+                kind_of_flags |= KINDOF_FORCEATTACKABLE;
             }
             if obj.is_kind_of(KindOf::AlwaysSelectable) {
                 kind_of_flags |= KINDOF_ALWAYS_SELECTABLE;

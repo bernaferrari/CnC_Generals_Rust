@@ -271,6 +271,7 @@ pub mod host_live_host_ingame_ui_presentation_selection_residual_wave964;
 pub mod host_live_host_input_integration_presentation_peel_residual_wave954;
 pub mod host_live_host_internal_host_object_idiom_residual_wave959;
 pub mod host_live_host_jet_slow_death_dual_peel_residual_wave772;
+pub mod host_live_host_kindof_flags_catalog_residual_wave1037;
 pub mod host_live_host_leaflet_b52_flight_dual_peel_residual_wave795;
 pub mod host_live_host_legal_build_cache_residual_wave911;
 pub mod host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residual_wave752;
@@ -3847,6 +3848,13 @@ pub use host_live_host_stealth_selection_catalog_residual_wave1036::{
     honesty_host_stealth_selection_catalog_residual_nav_commands_residual_wave1036,
     honesty_host_stealth_selection_catalog_residual_residual_pack_wave1036,
     simulate_live_host_stealth_selection_catalog_residual_honesty,
+};
+
+pub use host_live_host_kindof_flags_catalog_residual_wave1037::{
+    honesty_host_kindof_flags_catalog_residual_method_names_residual_wave1037,
+    honesty_host_kindof_flags_catalog_residual_nav_commands_residual_wave1037,
+    honesty_host_kindof_flags_catalog_residual_residual_pack_wave1037,
+    simulate_live_host_kindof_flags_catalog_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
