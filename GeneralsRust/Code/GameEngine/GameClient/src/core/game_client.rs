@@ -1616,7 +1616,11 @@ impl GameClient {
         if dual_world_registry_unavailable() {
             let object_id = drawable.get_object_id()?;
             return crate::presentation_translator_residual::translator_catalog_entry(object_id)
-                .map(|e| e.template_name)
+                .map(|e| {
+                    // Wave 1051: apparent disguise template for non-allied viewers.
+                    crate::presentation_translator_residual::translator_entry_apparent_template(&e)
+                        .to_string()
+                })
                 .filter(|n| !n.is_empty());
         }
 
@@ -1771,8 +1775,12 @@ impl GameClient {
                     if let Some(entry) =
                         crate::presentation_translator_residual::translator_catalog_entry(object_id)
                     {
-                        if !entry.template_name.is_empty() {
-                            drawable.set_template_name(Some(entry.template_name.clone()));
+                        // Wave 1051: apparent disguise template for non-allied viewers.
+                        let apparent = crate::presentation_translator_residual::translator_entry_apparent_template(
+                            &entry,
+                        );
+                        if !apparent.is_empty() {
+                            drawable.set_template_name(Some(apparent.to_string()));
                         }
                     }
                 } else if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
