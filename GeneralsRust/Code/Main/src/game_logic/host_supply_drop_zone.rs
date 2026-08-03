@@ -261,6 +261,20 @@ impl HostSupplyDropZoneRegistry {
         self.next_drop_frame.keys().copied().collect()
     }
 
+    /// Wave 1031: ControlBar OCL timer residual seconds for a zone object.
+    ///
+    /// `ceil(remaining_frames / LOGIC_FPS)` when next_drop_frame is tracked.
+    pub fn remaining_ocl_timer_seconds(&self, zone_id: ObjectId, current_frame: u32) -> u32 {
+        let Some(&next) = self.next_drop_frame.get(&zone_id) else {
+            return 0;
+        };
+        let rem_frames = next.saturating_sub(current_frame);
+        if rem_frames == 0 {
+            return 0;
+        }
+        (rem_frames + (SUPPLY_DROP_ZONE_LOGIC_FPS as u32) - 1) / (SUPPLY_DROP_ZONE_LOGIC_FPS as u32)
+    }
+
     /// Residual honesty: at least one cargo flight started (OCL create residual).
     pub fn honesty_flight_ok(&self) -> bool {
         self.flights_started > 0

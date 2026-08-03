@@ -587,6 +587,10 @@ impl ControlBar {
                         self.presentation_max_garrison = entry.max_garrison as usize;
                         self.presentation_garrisoned_count = entry.occupant_count as usize;
                     }
+                    // Wave 1031: seed OCL timer residual from catalog.
+                    if self.presentation_ocl_timer_seconds == 0 && entry.ocl_timer_seconds > 0 {
+                        self.presentation_ocl_timer_seconds = entry.ocl_timer_seconds;
+                    }
                 }
             } else if self.presentation_max_garrison == 0 {
                 if let Some(entry) =
@@ -600,6 +604,9 @@ impl ControlBar {
             }
             if self.presentation_under_construction {
                 context.current_state = ControlBarState::UnderConstruction;
+            } else if self.presentation_ocl_timer_seconds > 0 {
+                // Wave 1031: C++ CB_CONTEXT_OCL_TIMER residual (after UC, before inventory/command).
+                context.current_state = ControlBarState::OclTimer;
             } else if self.presentation_max_garrison > 0
                 && self.presentation_primary_command_set.is_empty()
             {
@@ -661,6 +668,10 @@ impl ControlBar {
         if under_construction {
             drop(obj);
             context.current_state = ControlBarState::UnderConstruction;
+        } else if self.presentation_ocl_timer_seconds > 0 {
+            // Wave 1031: presentation/host OCL timer residual (C++ OCLUpdate module path).
+            drop(obj);
+            context.current_state = ControlBarState::OclTimer;
         } else {
             let has_command_set = !obj.get_command_set_string().is_empty();
 
@@ -3242,6 +3253,14 @@ impl ControlBar {
             context.ui_dirty = true;
         }
         self.mark_ui_dirty();
+    }
+
+    /// Wave 1031: host/presentation OCL timer residual (ControlBar OclTimer context).
+    pub fn sync_ocl_timer_from_presentation(&mut self, seconds: u32) {
+        self.presentation_ocl_timer_seconds = seconds;
+        if seconds != self.displayed_ocl_timer_seconds {
+            self.displayed_ocl_timer_seconds = seconds;
+        }
     }
 
     pub fn selection_panel_health(&self) -> Option<(f32, f32)> {

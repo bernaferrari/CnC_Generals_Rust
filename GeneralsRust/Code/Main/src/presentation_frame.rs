@@ -357,6 +357,8 @@ pub struct RenderableObject {
     pub under_construction: bool,
     /// Construction progress 0..1 residual (structures / dozer builds).
     pub construction_percent: f32,
+    /// Wave 1031: OCL timer residual seconds (ControlBar OclTimer dual path).
+    pub ocl_timer_seconds: u32,
     /// C++ OBJECT_STATUS_SOLD residual frozen for presentation/UI.
     pub sold: bool,
     /// C++ OBJECT_STATUS_UNSELECTABLE residual frozen for presentation/UI.
@@ -3804,6 +3806,17 @@ impl PresentationFrame {
                 },
                 under_construction: obj.status.under_construction,
                 construction_percent: obj.construction_percent.clamp(0.0, 1.0),
+                // Wave 1031: OCL timer residual for dual-world ControlBar OclTimer context.
+                ocl_timer_seconds:
+                    if crate::game_logic::host_supply_drop_zone::is_supply_drop_zone_template(
+                        &obj.template_name,
+                    ) {
+                        logic
+                            .supply_drop_zones()
+                            .remaining_ocl_timer_seconds(obj.id, logic.get_frame())
+                    } else {
+                        0
+                    },
                 sold: obj.status.sold,
                 unselectable: obj.status.unselectable,
                 is_rebuild_hole: obj.is_rebuild_hole,
@@ -7623,6 +7636,8 @@ impl PresentationFrame {
             },
             under_construction: ent.under_construction,
             construction_percent: ent.construction_percent,
+            // Wave 1031: GW path has no host supply-drop OCL timer residual yet.
+            ocl_timer_seconds: 0,
             sold: ent.sold,
             unselectable: ent.unselectable,
             is_rebuild_hole: ent.is_rebuild_hole,
@@ -9360,6 +9375,7 @@ impl PresentationFrame {
                         panel.production_queue.first().map(|(t, _, _)| t.clone());
                 }
                 panel.production_paused = ro.production_paused;
+                panel.ocl_timer_seconds = ro.ocl_timer_seconds;
                 panel.production_is_upgrade = panel
                     .production_queue
                     .first()
@@ -9460,6 +9476,8 @@ impl PresentationFrame {
             panel.under_construction,
             panel.construction_percent,
         );
+        // Wave 1031: OCL timer residual into ControlBar OclTimer dual path.
+        control_bar.sync_ocl_timer_from_presentation(panel.ocl_timer_seconds);
         control_bar.sync_upgrades_and_specials_from_presentation(
             &panel.applied_upgrades,
             panel.rally_point,

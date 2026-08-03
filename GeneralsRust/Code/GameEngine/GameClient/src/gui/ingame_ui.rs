@@ -881,6 +881,8 @@ pub struct PresentationUnitCatalogEntry {
     pub max_garrison: u16,
     /// Wave 1030: occupant count residual for dual-world structure inventory.
     pub occupant_count: u16,
+    /// Wave 1031: OCL timer residual seconds for dual-world ControlBar OclTimer context.
+    pub ocl_timer_seconds: u32,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.

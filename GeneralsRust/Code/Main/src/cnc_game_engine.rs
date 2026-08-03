@@ -20251,6 +20251,8 @@ impl CnCGameEngine {
                             // Wave 1030: garrison residual for dual-world structure inventory.
                             max_garrison: (o.max_garrison as u32).min(u16::MAX as u32) as u16,
                             occupant_count: (o.occupant_count as u32).min(u16::MAX as u32) as u16,
+                            // Wave 1031: OCL timer residual for dual-world ControlBar OclTimer.
+                            ocl_timer_seconds: o.ocl_timer_seconds,
                             kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.
