@@ -310,6 +310,7 @@ pub mod host_live_host_map_name_failclosed_residual_wave860;
 pub mod host_live_host_map_primary_enemy_residual_wave830;
 pub mod host_live_host_map_shell_failclosed_residual_wave896;
 pub mod host_live_host_map_start_army_spawn_residual_wave831;
+pub mod host_live_host_masked_vis_repair_resume_residual_wave1069;
 pub mod host_live_host_match_alive_object_residuals_wave851;
 pub mod host_live_host_match_camera_follow_residuals_wave847;
 pub mod host_live_host_match_diplomacy_template_residuals_wave846;
@@ -4103,6 +4104,13 @@ pub use host_live_host_enter_garrison_capacity_residual_wave1068::{
     honesty_host_enter_garrison_capacity_residual_nav_commands_residual_wave1068,
     honesty_host_enter_garrison_capacity_residual_residual_pack_wave1068,
     simulate_live_host_enter_garrison_capacity_residual_honesty,
+};
+
+pub use host_live_host_masked_vis_repair_resume_residual_wave1069::{
+    honesty_host_masked_vis_repair_resume_residual_method_names_residual_wave1069,
+    honesty_host_masked_vis_repair_resume_residual_nav_commands_residual_wave1069,
+    honesty_host_masked_vis_repair_resume_residual_residual_pack_wave1069,
+    simulate_live_host_masked_vis_repair_resume_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
