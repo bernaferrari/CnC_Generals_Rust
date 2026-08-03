@@ -583,6 +583,20 @@ impl ControlBar {
                 || !self.presentation_primary_command_set.is_empty()
             {
                 context.current_state = ControlBarState::Command;
+            } else if let Some(entry) =
+                crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+            {
+                // Wave 1027: catalog residual when presentation freezes not yet stamped.
+                if !entry.command_set_name.is_empty() || entry.selectable {
+                    context.current_state = ControlBarState::Command;
+                    if self.presentation_primary_command_set.is_empty()
+                        && !entry.command_set_name.is_empty()
+                    {
+                        self.presentation_primary_command_set = entry.command_set_name.clone();
+                    }
+                } else {
+                    context.current_state = ControlBarState::None;
+                }
             } else {
                 context.current_state = ControlBarState::None;
             }
@@ -2233,6 +2247,18 @@ impl ControlBar {
         let Some(object_id) = selected_object else {
             return Ok(());
         };
+        // Wave 1027: host empty dual-world peels presentation garrison residual count.
+        if Self::dual_world_registry_unavailable() {
+            let contain_count = self.presentation_garrisoned_count as u32;
+            if let Ok(mut ctx) = self.context.write() {
+                if ctx.last_recorded_inventory_count != contain_count {
+                    ctx.last_recorded_inventory_count = contain_count;
+                    ctx.ui_dirty = true;
+                }
+            }
+            let _ = object_id;
+            return Ok(());
+        }
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
             return Ok(());
         };

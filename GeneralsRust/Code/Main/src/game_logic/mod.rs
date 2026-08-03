@@ -416,6 +416,7 @@ pub mod host_live_host_status_timer_dual_peel_residual_wave761;
 pub mod host_live_host_sticky_booby_attach_dual_peel_residual_wave807;
 pub mod host_live_host_stinger_hive_dual_peel_residual_wave814;
 pub mod host_live_host_structure_collapse_dual_peel_residual_wave775;
+pub mod host_live_host_structure_inventory_catalog_residual_wave1027;
 pub mod host_live_host_structure_topple_crush_dual_peel_residual_wave777;
 pub mod host_live_host_structure_topple_dual_peel_residual_wave776;
 pub mod host_live_host_subdual_heal_dual_peel_residual_wave765;
@@ -3767,6 +3768,13 @@ pub use host_live_host_production_queue_disabled_catalog_residual_wave1026::{
     honesty_host_production_queue_disabled_catalog_residual_nav_commands_residual_wave1026,
     honesty_host_production_queue_disabled_catalog_residual_residual_pack_wave1026,
     simulate_live_host_production_queue_disabled_catalog_residual_honesty,
+};
+
+pub use host_live_host_structure_inventory_catalog_residual_wave1027::{
+    honesty_host_structure_inventory_catalog_residual_method_names_residual_wave1027,
+    honesty_host_structure_inventory_catalog_residual_nav_commands_residual_wave1027,
+    honesty_host_structure_inventory_catalog_residual_residual_pack_wave1027,
+    simulate_live_host_structure_inventory_catalog_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
