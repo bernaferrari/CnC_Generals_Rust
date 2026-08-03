@@ -175,6 +175,10 @@ pub struct PresentationDrawableSync {
     pub healing_icon_type: u8,
     /// Wave 984: garrisoned unit ids for contained-flash residual.
     pub garrisoned_ids: Vec<u32>,
+    /// Wave 1057: emoticon residual name for dual icon UI.
+    pub emoticon_name: String,
+    /// Wave 1057: remaining frames for emoticon residual.
+    pub emoticon_frames_left: i32,
 }
 
 // Wave 269: host-only path has no dual-world factory objects.
@@ -3590,6 +3594,8 @@ impl GameClient {
                 show_healing: false,
                 healing_icon_type: 0,
                 garrisoned_ids: Vec::new(),
+                emoticon_name: String::new(),
+                emoticon_frames_left: 0,
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -3727,6 +3733,8 @@ impl GameClient {
             e.show_healing,
             e.healing_icon_type,
             e.garrisoned_ids.clone(),
+            e.emoticon_name.clone(),
+            e.emoticon_frames_left,
         );
     }
 

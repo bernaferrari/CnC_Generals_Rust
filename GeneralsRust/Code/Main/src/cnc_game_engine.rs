@@ -20156,6 +20156,9 @@ impl CnCGameEngine {
                     healing_icon_type: o.healing_icon_type,
                     // Wave 984: garrisoned unit ids for contained-flash residual.
                     garrisoned_ids: o.garrisoned_units.iter().map(|id| id.0).collect(),
+                    // Wave 1057: emoticon residual for dual icon UI.
+                    emoticon_name: o.emoticon_name.clone(),
+                    emoticon_frames_left: o.emoticon_frames_left,
                 }
             });
             let (created, updated, pruned) =
