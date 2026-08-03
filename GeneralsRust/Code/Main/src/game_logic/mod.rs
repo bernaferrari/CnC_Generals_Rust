@@ -194,6 +194,7 @@ pub mod host_live_host_destroy_list_if_needed_residual_wave912;
 pub mod host_live_host_destroyed_masked_catalog_residual_wave1035;
 pub mod host_live_host_direct_order_boundary_residual_wave929;
 pub mod host_live_host_direct_order_gamelogic_boundary_residual_wave930;
+pub mod host_live_host_disabled_sp_fow_relationship_residual_wave1066;
 pub mod host_live_host_disguise_catalog_residual_wave1041;
 pub mod host_live_host_disguise_mouseover_tooltip_residual_wave1042;
 pub mod host_live_host_disguise_relationship_attack_residual_wave1043;
@@ -4079,6 +4080,13 @@ pub use host_live_host_fow_fogged_sp_mouseover_residual_wave1065::{
     honesty_host_fow_fogged_sp_mouseover_residual_nav_commands_residual_wave1065,
     honesty_host_fow_fogged_sp_mouseover_residual_residual_pack_wave1065,
     simulate_live_host_fow_fogged_sp_mouseover_residual_honesty,
+};
+
+pub use host_live_host_disabled_sp_fow_relationship_residual_wave1066::{
+    honesty_host_disabled_sp_fow_relationship_residual_method_names_residual_wave1066,
+    honesty_host_disabled_sp_fow_relationship_residual_nav_commands_residual_wave1066,
+    honesty_host_disabled_sp_fow_relationship_residual_residual_pack_wave1066,
+    simulate_live_host_disabled_sp_fow_relationship_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
