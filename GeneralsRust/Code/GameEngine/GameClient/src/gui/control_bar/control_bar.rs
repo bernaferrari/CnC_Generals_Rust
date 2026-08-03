@@ -210,6 +210,8 @@ pub struct ControlBar {
     presentation_garrisoned_count: usize,
     /// Under-construction residual from PresentationFrame.
     presentation_under_construction: bool,
+    /// Wave 1033: sold residual from PresentationFrame.
+    presentation_sold: bool,
     /// Construction percent residual from PresentationFrame (0..1).
     presentation_construction_percent: f32,
     /// OCL timer seconds residual from PresentationFrame.
@@ -334,6 +336,7 @@ impl ControlBar {
             presentation_max_garrison: 0,
             presentation_garrisoned_count: 0,
             presentation_under_construction: false,
+            presentation_sold: false,
             presentation_construction_percent: 0.0,
             presentation_ocl_timer_seconds: 0,
             displayed_construct_percent: -1.0,
@@ -573,6 +576,24 @@ impl ControlBar {
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Presentation-only selection residual (host path, no dual-world registry).
+            // Wave 1033: C++ OBJECT_STATUS_SOLD residual — clear bar when sold.
+            let catalog_sold = self.presentation_sold
+                || crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+                    .map(|e| e.sold)
+                    .unwrap_or(false);
+            if catalog_sold {
+                context.current_state = ControlBarState::None;
+                context.available_commands.clear();
+                context.construction_queue.clear();
+                self.build_queue_data.clear();
+                self.displayed_queue_count = 0;
+                let mut guard = self
+                    .context
+                    .write()
+                    .map_err(|_| "Failed to acquire context write lock")?;
+                *guard = context;
+                return Ok(());
+            }
             // Wave 1028: seed under-construction residual from catalog when freeze unset.
             if !self.presentation_under_construction {
                 if let Some(entry) =
@@ -3292,6 +3313,11 @@ impl ControlBar {
     }
 
     /// Wave 1031: host/presentation OCL timer residual (ControlBar OclTimer context).
+    /// Wave 1033: host/presentation sold residual (ControlBar clear path).
+    pub fn sync_sold_from_presentation(&mut self, sold: bool) {
+        self.presentation_sold = sold;
+    }
+
     pub fn sync_ocl_timer_from_presentation(&mut self, seconds: u32) {
         self.presentation_ocl_timer_seconds = seconds;
         if seconds != self.displayed_ocl_timer_seconds {

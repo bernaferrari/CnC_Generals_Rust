@@ -883,6 +883,8 @@ pub struct PresentationUnitCatalogEntry {
     pub occupant_count: u16,
     /// Wave 1031: OCL timer residual seconds for dual-world ControlBar OclTimer context.
     pub ocl_timer_seconds: u32,
+    /// Wave 1033: sold residual for dual-world ControlBar clear (C++ OBJECT_STATUS_SOLD).
+    pub sold: bool,
     /// Wave 968: KindOf Debug names from presentation freeze.
     pub kind_names: Vec<String>,
     /// Wave 971: special power ready residual for host SP targeting.

@@ -9376,6 +9376,7 @@ impl PresentationFrame {
                 }
                 panel.production_paused = ro.production_paused;
                 panel.ocl_timer_seconds = ro.ocl_timer_seconds;
+                panel.sold = ro.sold;
                 panel.production_is_upgrade = panel
                     .production_queue
                     .first()
@@ -9478,6 +9479,7 @@ impl PresentationFrame {
         );
         // Wave 1031: OCL timer residual into ControlBar OclTimer dual path.
         control_bar.sync_ocl_timer_from_presentation(panel.ocl_timer_seconds);
+        control_bar.sync_sold_from_presentation(panel.sold);
         control_bar.sync_upgrades_and_specials_from_presentation(
             &panel.applied_upgrades,
             panel.rally_point,
