@@ -1003,11 +1003,17 @@ fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<R
 }
 
 fn is_prisoner_target(target_id: ObjectID) -> bool {
-    // Wave 973: host empty dual-world → presentation catalog residual.
+    // Wave 973/1049: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
-        return translator_catalog_has_kind(target_id, "CanSurrender")
-            || translator_catalog_has_kind(target_id, "Prison")
-            || translator_catalog_has_kind(target_id, "PowTruck");
+        let Some(e) = translator_catalog_entry(target_id) else {
+            return false;
+        };
+        if !dual_target_status_ok(&e) {
+            return false;
+        }
+        return translator_entry_has_kind(&e, "CanSurrender")
+            || translator_entry_has_kind(&e, "Prison")
+            || translator_entry_has_kind(&e, "PowTruck");
     }
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
@@ -1493,6 +1499,14 @@ fn selection_source_object_id(
         return 0;
     }
     if dual_world_registry_unavailable() {
+        // Wave 1049: prefer living local source residual.
+        for &id in selection {
+            if let Some(e) = translator_catalog_entry(id) {
+                if translator_entry_is_local(&e) && !e.destroyed && !e.sold && !e.disabled {
+                    return id;
+                }
+            }
+        }
         for &id in selection {
             if let Some(e) = translator_catalog_entry(id) {
                 if translator_entry_is_local(&e) {
@@ -1605,12 +1619,19 @@ fn selection_attack_result(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> CanAttackResult {
-    // Wave 975/1043: host empty dual-world → presentation catalog residual.
+    // Wave 975/1043/1049: host empty dual-world → presentation catalog residual.
     // Attack legality uses apparent team for disguised targets.
+    // Wave 1049: fail-closed on illegal target status/stealth and dead local sources.
     if dual_world_registry_unavailable() {
         let Some(target) = translator_catalog_entry(target_id) else {
             return CanAttackResult::NotPossible;
         };
+        if !dual_target_status_ok(&target) {
+            return CanAttackResult::NotPossible;
+        }
+        if target.effectively_stealthed && !translator_entry_is_local(&target) {
+            return CanAttackResult::NotPossible;
+        }
         // Enemy/neutral residual → Possible; ally → NotPossible.
         let local = translator_local_team_name();
         if local.is_empty() {
@@ -1623,7 +1644,7 @@ fn selection_attack_result(
         let mut any_local = false;
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&sel) {
+                if translator_entry_is_local(&sel) && !sel.destroyed && !sel.sold && !sel.disabled {
                     any_local = true;
                     break;
                 }

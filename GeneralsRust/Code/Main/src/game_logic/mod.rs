@@ -134,6 +134,7 @@ pub mod host_live_host_anthrax_bomb_flight_dual_peel_residual_wave789;
 pub mod host_live_host_any_local_target_legality_residual_wave1048;
 pub mod host_live_host_artillery_barrage_flight_dual_peel_residual_wave793;
 pub mod host_live_host_assets_big_unpack_clippy_wave882;
+pub mod host_live_host_attack_source_legality_residual_wave1049;
 pub mod host_live_host_aurora_bomb_projectile_dual_peel_residual_wave797;
 pub mod host_live_host_auto_deposit_dual_peel_residual_wave821;
 pub mod host_live_host_auto_select_mobile_opt_in_residual_wave726;
@@ -3943,6 +3944,13 @@ pub use host_live_host_any_local_target_legality_residual_wave1048::{
     honesty_host_any_local_target_legality_residual_nav_commands_residual_wave1048,
     honesty_host_any_local_target_legality_residual_residual_pack_wave1048,
     simulate_live_host_any_local_target_legality_residual_honesty,
+};
+
+pub use host_live_host_attack_source_legality_residual_wave1049::{
+    honesty_host_attack_source_legality_residual_method_names_residual_wave1049,
+    honesty_host_attack_source_legality_residual_nav_commands_residual_wave1049,
+    honesty_host_attack_source_legality_residual_residual_pack_wave1049,
+    simulate_live_host_attack_source_legality_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{
