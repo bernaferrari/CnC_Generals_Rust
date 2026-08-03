@@ -95,17 +95,25 @@ where
     if selection.is_empty() {
         return false;
     }
-    // Wave 975: host empty dual-world → presentation catalog residual.
+    // Wave 975/1048: host empty dual-world → presentation catalog residual.
     // ActionManager dual-world can_do is unavailable; residual answers "local selection
     // has a unit and target is known" so command-hint / context paths can proceed.
     // Authoritative command issuance remains Main presentation-command peels.
+    // Wave 1048: fail-closed on destroyed/sold/unselectable/masked targets and
+    // non-local effectively-stealthed residuals.
     if dual_world_registry_unavailable() {
-        let Some(_target) = translator_catalog_entry(target_id) else {
+        let Some(target) = translator_catalog_entry(target_id) else {
             return false;
         };
+        if !dual_target_status_ok(&target) {
+            return false;
+        }
+        if target.effectively_stealthed && !translator_entry_is_local(&target) {
+            return false;
+        }
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&sel) {
+                if translator_entry_is_local(&sel) && !sel.destroyed && !sel.sold && !sel.disabled {
                     return true;
                 }
             }
@@ -2039,11 +2047,13 @@ fn pick_context_target_for_click(
 }
 
 fn is_locally_controlled_mine_target(object_id: ObjectID) -> bool {
-    // Wave 973: host empty dual-world → presentation catalog residual.
+    // Wave 973/1048: host empty dual-world → presentation catalog residual.
     if dual_world_registry_unavailable() {
         return translator_catalog_entry(object_id)
             .map(|e| {
-                translator_entry_is_local(&e) && translator_catalog_has_kind(object_id, "Mine")
+                dual_target_status_ok(&e)
+                    && translator_entry_is_local(&e)
+                    && translator_catalog_has_kind(object_id, "Mine")
             })
             .unwrap_or(false);
     }
