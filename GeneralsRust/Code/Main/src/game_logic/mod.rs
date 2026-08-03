@@ -187,6 +187,7 @@ pub mod host_live_host_direct_order_gamelogic_boundary_residual_wave930;
 pub mod host_live_host_disguise_catalog_residual_wave1041;
 pub mod host_live_host_disguise_mouseover_tooltip_residual_wave1042;
 pub mod host_live_host_disguise_relationship_attack_residual_wave1043;
+pub mod host_live_host_disguise_sp_target_relationship_residual_wave1045;
 pub mod host_live_host_dozer_bored_dual_peel_residual_wave819;
 pub mod host_live_host_drawable_icon_pip_residual_wave972;
 pub mod host_live_host_drawable_icon_ui_residual_wave977;
@@ -3911,6 +3912,13 @@ pub use host_live_host_drawable_visibility_status_residual_wave1044::{
     honesty_host_drawable_visibility_status_residual_nav_commands_residual_wave1044,
     honesty_host_drawable_visibility_status_residual_residual_pack_wave1044,
     simulate_live_host_drawable_visibility_status_residual_honesty,
+};
+
+pub use host_live_host_disguise_sp_target_relationship_residual_wave1045::{
+    honesty_host_disguise_sp_target_relationship_residual_method_names_residual_wave1045,
+    honesty_host_disguise_sp_target_relationship_residual_nav_commands_residual_wave1045,
+    honesty_host_disguise_sp_target_relationship_residual_residual_pack_wave1045,
+    simulate_live_host_disguise_sp_target_relationship_residual_honesty,
 };
 
 pub use host_live_host_eager_apply_batch_residual_wave925::{

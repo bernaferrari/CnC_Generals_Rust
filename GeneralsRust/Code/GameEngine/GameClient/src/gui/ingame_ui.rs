@@ -1635,7 +1635,18 @@ impl InGameUI {
                 }
             }
             // Relationship residual from team names (fail-open when Neutral options present).
-            let same_team = source.team_name == target.team_name;
+            // Wave 1045: disguised targets present apparent team to non-allied casters
+            // (C++ InGameUI disguise residual; allies of real owner still see true team).
+            let target_team = if target.disguised && source.team_name != target.team_name {
+                target
+                    .disguise_as_team
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(target.team_name.as_str())
+            } else {
+                target.team_name.as_str()
+            };
+            let same_team = source.team_name == target_team;
             if options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
                 && !options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
                 && same_team
