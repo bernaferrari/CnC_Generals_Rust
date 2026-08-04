@@ -519,6 +519,7 @@ pub mod host_live_host_ui_framework_clippy_residual_wave881;
 pub mod host_live_host_ui_minimap_presentation_peel_residual_wave952;
 pub mod host_live_host_ui_observe_failclosed_residual_wave905;
 pub mod host_live_host_ui_pres_rebuild_physics_clippy_wave880;
+pub mod host_live_host_ui_state_minimap_build_queue_sold_residual_wave1110;
 pub mod host_live_host_under_construction_catalog_residual_wave1028;
 pub mod host_live_host_unit_caption_residual_wave1059;
 pub mod host_live_host_unit_control_presentation_peel_residual_wave951;
@@ -4402,6 +4403,12 @@ pub use host_live_host_power_uc_alive_panel_sold_residual_wave1108::{
     honesty_host_power_uc_alive_panel_sold_nav_commands_residual_wave1108,
     honesty_host_power_uc_alive_panel_sold_residual_pack_wave1108,
     simulate_live_host_power_uc_alive_panel_sold_residual_honesty,
+};
+pub use host_live_host_ui_state_minimap_build_queue_sold_residual_wave1110::{
+    honesty_host_ui_state_minimap_build_queue_sold_method_names_residual_wave1110,
+    honesty_host_ui_state_minimap_build_queue_sold_nav_commands_residual_wave1110,
+    honesty_host_ui_state_minimap_build_queue_sold_residual_pack_wave1110,
+    simulate_live_host_ui_state_minimap_build_queue_sold_residual_honesty,
 };
 pub use host_live_host_upgrade_mine_minimap_hud_queue_sold_residual_wave1109::{
     honesty_host_upgrade_mine_minimap_hud_queue_sold_method_names_residual_wave1109,
