@@ -5053,13 +5053,21 @@ impl PresentationFrame {
     /// CommandSet name residual for the primary selected object.
     /// Prefers `command_set_override`; empty when unset (template default left to boot path).
     pub fn selected_command_set_name(&self) -> Option<&str> {
-        let primary = self.selected.first().copied().or_else(|| {
-            self.objects
-                .iter()
-                .find(|o| o.selected && !o.destroyed)
-                .map(|o| o.id)
-        })?;
+        // Wave 1105: primary selection residual fail-closed on sold/unselectable/
+        // masked/disabled (not only destroyed) so ControlBar does not show a
+        // command set for unusable selected objects.
+        let usable = |o: &&RenderableObject| {
+            o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+        };
+        let primary = self
+            .selected
+            .first()
+            .copied()
+            .or_else(|| self.objects.iter().find(usable).map(|o| o.id))?;
         let o = self.objects.iter().find(|o| o.id == primary)?;
+        if o.destroyed || o.sold || o.unselectable || o.masked || o.disabled {
+            return None;
+        }
         if !o.command_set_name.is_empty() {
             return Some(o.command_set_name.as_str());
         }
@@ -5073,18 +5081,23 @@ impl PresentationFrame {
     /// Command-set names for current multi-selection (override or ThingFactory template).
     /// Empty entries omitted; used to populate ControlBar without OBJECT_REGISTRY.
     pub fn selected_command_set_names(&self) -> Vec<String> {
+        // Wave 1105: multi-select command-set residual fail-closed on sold/
+        // unselectable/masked/disabled (not only destroyed).
+        let usable = |o: &&RenderableObject| {
+            !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+        };
         let ids: Vec<ObjectId> = if !self.selected.is_empty() {
             self.selected.clone()
         } else {
             self.objects
                 .iter()
-                .filter(|o| o.selected && !o.destroyed)
+                .filter(|o| o.selected && usable(o))
                 .map(|o| o.id)
                 .collect()
         };
         let mut names = Vec::new();
         for id in ids {
-            let Some(ro) = self.objects.iter().find(|o| o.id == id && !o.destroyed) else {
+            let Some(ro) = self.objects.iter().find(|o| o.id == id && usable(&o)) else {
                 continue;
             };
             // Prefer freeze from build_from_logic; resolve only if older frames lack it.
@@ -5519,18 +5532,21 @@ impl PresentationFrame {
     ) -> Option<ObjectId> {
         use crate::game_logic::KindOf;
         use crate::unit_control::UnitControlSystem;
-        let mobile = self.objects.iter().find(|o| {
+        // Wave 1105: fail-closed on non-local FOW unless Clear (is_enemy_attackable /
+        // first_enemy_attackable_id parity). Force-attack object residual must not
+        // pick fogged/black enemies the local player cannot see.
+        let visible_enemy = |o: &&RenderableObject| {
             o.team != player_team
+                && o.fow_visibility.visibility_alpha >= 0.95
                 && UnitControlSystem::presentation_is_attackable(o)
+        };
+        let mobile = self.objects.iter().find(|o| {
+            visible_enemy(o)
                 && !Self::object_has_kind(o, KindOf::Structure)
                 && o.object_type != PresentationObjectType::Building
         });
         mobile
-            .or_else(|| {
-                self.objects.iter().find(|o| {
-                    o.team != player_team && UnitControlSystem::presentation_is_attackable(o)
-                })
-            })
+            .or_else(|| self.objects.iter().find(visible_enemy))
             .map(|o| o.id)
     }
 
