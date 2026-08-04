@@ -2900,6 +2900,12 @@ impl BasicDrawable {
         self.overlay_data.health_region = Some(*health_region);
         self.overlay_data.visible = true;
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual health-bar residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0 {
+                self.overlay_data.health_ratio = 0.0;
+                self.overlay_data.visible = false;
+                return;
+            }
             self.overlay_data.health_ratio = self.presentation_health_pct;
             return;
         }
@@ -2922,6 +2928,11 @@ impl BasicDrawable {
     fn draw_veterancy(&mut self, _health_region: &IRegion2D) {
         // Wave 970: host empty dual-world → presentation veterancy residual.
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual veterancy residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0 {
+                self.overlay_data.veterancy_level = 0;
+                return;
+            }
             self.overlay_data.veterancy_level = self.presentation_veterancy_level;
             return;
         }
@@ -3001,7 +3012,9 @@ impl BasicDrawable {
     pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
         // Wave 972/1052: host empty dual-world → presentation ammo residual.
         if dual_world_registry_unavailable() {
-            if !self.selected_or_moused_over_for_icon_pips()
+            // Wave 1114: dual ammo residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0
+                || !self.selected_or_moused_over_for_icon_pips()
                 || self.presentation_effectively_stealthed
             {
                 self.overlay_data.show_ammo = false;
@@ -3052,7 +3065,9 @@ impl BasicDrawable {
     pub fn draw_contained(&mut self, _health_region: &IRegion2D) {
         // Wave 972/1052: host empty dual-world → presentation contain residual.
         if dual_world_registry_unavailable() {
-            if !self.selected_or_moused_over_for_icon_pips()
+            // Wave 1114: dual contain residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0
+                || !self.selected_or_moused_over_for_icon_pips()
                 || self.presentation_effectively_stealthed
             {
                 self.overlay_data.show_contained = false;
@@ -3123,6 +3138,12 @@ impl BasicDrawable {
     pub fn draw_healing(&mut self, _health_region: &IRegion2D) {
         // Wave 983: host empty dual-world → presentation healing residual.
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual healing residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0 {
+                self.overlay_data.show_healing = false;
+                self.overlay_data.healing_icon_type = 0;
+                return;
+            }
             self.overlay_data.show_healing = self.presentation_show_healing;
             self.overlay_data.healing_icon_type = self.presentation_healing_icon_type;
             return;
@@ -3189,6 +3210,11 @@ impl BasicDrawable {
     pub fn draw_enthusiastic(&mut self, _health_region: &IRegion2D) {
         // Wave 972: host empty dual-world → presentation enthusiastic residual.
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual enthusiastic residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0 {
+                self.overlay_data.show_enthusiastic = false;
+                return;
+            }
             self.overlay_data.show_enthusiastic = self.presentation_weapon_bonus_enthusiastic;
             return;
         }
@@ -3238,6 +3264,12 @@ impl BasicDrawable {
     pub fn draw_bombed(&mut self, _health_region: &IRegion2D) {
         // Wave 972: host empty dual-world → presentation carbomb residual.
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual bombed residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0 {
+                self.overlay_data.show_bombed = false;
+                self.overlay_data.bomb_type = 0;
+                return;
+            }
             if self.presentation_is_carbomb {
                 self.overlay_data.show_bombed = true;
                 self.overlay_data.bomb_type = 3;
@@ -3308,6 +3340,11 @@ impl BasicDrawable {
     pub fn draw_disabled(&mut self, _health_region: &IRegion2D) {
         // Wave 972: host empty dual-world → presentation disabled residual.
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual disabled residual fail-closed on dead presentation.
+            if self.presentation_health_pct <= 0.0 {
+                self.overlay_data.show_disabled = false;
+                return;
+            }
             self.overlay_data.show_disabled = self.presentation_disabled;
             return;
         }
