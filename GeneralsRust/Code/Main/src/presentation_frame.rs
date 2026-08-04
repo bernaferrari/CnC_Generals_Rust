@@ -5231,25 +5231,28 @@ impl PresentationFrame {
 
     /// Units currently attacking (status residual).
     pub fn attacking_units(&self) -> Vec<&RenderableObject> {
+        // Wave 1106: attacking residual excludes sold.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && o.attacking)
+            .filter(|o| !o.destroyed && !o.sold && o.attacking)
             .collect()
     }
 
     /// Effectively stealthed units (hidden from non-allied targeting residual).
     pub fn effectively_stealthed_units(&self) -> Vec<&RenderableObject> {
+        // Wave 1106: stealth residual excludes sold.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && o.effectively_stealthed)
+            .filter(|o| !o.destroyed && !o.sold && o.effectively_stealthed)
             .collect()
     }
 
     /// Contained (garrisoned/transported) units residual.
     pub fn contained_units(&self) -> Vec<&RenderableObject> {
+        // Wave 1106: contained residual excludes sold containers/occupants.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && o.contained_by.is_some())
+            .filter(|o| !o.destroyed && !o.sold && o.contained_by.is_some())
             .collect()
     }
 
@@ -5706,9 +5709,10 @@ impl PresentationFrame {
         &self,
         player_team: crate::game_logic::Team,
     ) -> Option<String> {
+        // Wave 1106: sample label residual fail-closed on sold.
         self.objects
             .iter()
-            .find(|o| o.team == player_team && !o.destroyed)
+            .find(|o| o.team == player_team && !o.destroyed && !o.sold)
             .map(|o| {
                 format!(
                     "{:.1},{:.1},{:.1}:{}",
@@ -5737,9 +5741,12 @@ impl PresentationFrame {
     }
 
     pub fn first_alive_position_for_template(&self, template_name: &str) -> Option<glam::Vec3> {
+        // Wave 1106: template pose residual fail-closed on sold.
         self.objects
             .iter()
-            .find(|o| !o.destroyed && o.template_name.eq_ignore_ascii_case(template_name))
+            .find(|o| {
+                !o.destroyed && !o.sold && o.template_name.eq_ignore_ascii_case(template_name)
+            })
             .map(|o| o.position)
     }
 
@@ -8525,19 +8532,25 @@ impl PresentationFrame {
     pub fn selected_unit_display_infos(&self) -> Vec<crate::ui::UnitDisplayInfo> {
         use crate::ui::UnitDisplayInfo;
 
+        // Wave 1106: selection display residual fail-closed on sold/unselectable/
+        // masked/disabled (not only destroyed) so ControlBar/RTS panel does not
+        // keep UI for unusable selected objects.
+        let usable = |o: &RenderableObject| {
+            !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+        };
         let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
             self.objects.iter().map(|o| (o.id, o)).collect();
         let mut selected_infos = Vec::with_capacity(self.selected.len().max(1));
         for id in &self.selected {
             if let Some(ro) = by_id.get(id) {
-                if ro.destroyed {
+                if !usable(ro) {
                     continue;
                 }
                 selected_infos.push(Self::unit_display_info_from_renderable(ro));
             }
         }
         if selected_infos.is_empty() {
-            for ro in self.objects.iter().filter(|o| o.selected && !o.destroyed) {
+            for ro in self.objects.iter().filter(|o| o.selected && usable(o)) {
                 selected_infos.push(Self::unit_display_info_from_renderable(ro));
             }
         }
@@ -9618,7 +9631,19 @@ impl PresentationFrame {
 
     /// Selection IDs for multi-consumer apply (player list or object.selected flags).
     pub fn selection_ids_for_consumers(&self) -> Vec<crate::game_logic::ObjectId> {
-        let mut ids = self.selected.clone();
+        // Wave 1106: consumer selection residual filters sold/unusable ids even
+        // when the frozen selected list still holds them.
+        let usable_id = |id: &ObjectId| {
+            self.objects.iter().any(|o| {
+                o.id == *id
+                    && !o.destroyed
+                    && !o.sold
+                    && !o.unselectable
+                    && !o.masked
+                    && !o.disabled
+            })
+        };
+        let mut ids: Vec<ObjectId> = self.selected.iter().copied().filter(usable_id).collect();
         if ids.is_empty() {
             ids = self
                 .selected_unit_display_infos()
