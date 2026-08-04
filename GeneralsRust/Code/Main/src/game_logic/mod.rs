@@ -207,6 +207,7 @@ pub mod host_live_host_disguise_sp_target_relationship_residual_wave1045;
 pub mod host_live_host_dozer_bored_dual_peel_residual_wave819;
 pub mod host_live_host_drawable_icon_pip_residual_wave972;
 pub mod host_live_host_drawable_icon_ui_residual_wave977;
+pub mod host_live_host_drawable_overlay_dead_residual_wave1114;
 pub mod host_live_host_drawable_overlay_residual_wave970;
 pub mod host_live_host_drawable_presentation_residual_wave965;
 pub mod host_live_host_drawable_visibility_catalog_shroud_residual_wave1020;
@@ -4395,6 +4396,12 @@ pub use host_live_host_enemy_fow_count_click_selectable_residual_wave1104::{
     simulate_live_host_enemy_fow_count_click_selectable_residual_honesty,
 };
 
+pub use host_live_host_drawable_overlay_dead_residual_wave1114::{
+    honesty_host_drawable_overlay_dead_method_names_residual_wave1114,
+    honesty_host_drawable_overlay_dead_nav_commands_residual_wave1114,
+    honesty_host_drawable_overlay_dead_residual_pack_wave1114,
+    simulate_live_host_drawable_overlay_dead_residual_honesty,
+};
 pub use host_live_host_dual_local_source_masked_unselectable_residual_wave1111::{
     honesty_host_dual_local_source_masked_unselectable_method_names_residual_wave1111,
     honesty_host_dual_local_source_masked_unselectable_nav_commands_residual_wave1111,
