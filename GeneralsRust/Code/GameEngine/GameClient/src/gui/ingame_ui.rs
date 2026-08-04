@@ -2787,11 +2787,31 @@ impl InGameUI {
             if u.destroyed || u.sold || u.unselectable || u.masked || u.health_pct <= 0.0 {
                 continue;
             }
-            if u.effectively_stealthed {
-                let local = crate::presentation_translator_residual::translator_local_team_name();
-                if local.is_empty() || u.team_name != local {
+            // Wave 1113: disabled + non-local FOW selection HUD residual via catalog.
+            let local = crate::presentation_translator_residual::translator_local_team_name();
+            let is_local = !local.is_empty() && u.team_name == local;
+            if let Some(entry) = self
+                .presentation_unit_catalog
+                .iter()
+                .find(|e| e.object_id == u.object_id)
+            {
+                if entry.disabled {
                     continue;
                 }
+                if entry.effectively_stealthed && !is_local {
+                    continue;
+                }
+                let fogged = matches!(
+                    entry.shroud_status,
+                    ObjectShroudStatus::PartialClear
+                        | ObjectShroudStatus::Fogged
+                        | ObjectShroudStatus::Shrouded
+                );
+                if fogged && !is_local {
+                    continue;
+                }
+            } else if u.effectively_stealthed && !is_local {
+                continue;
             }
             let world = Coord3D::new(u.position[0], u.position[1], u.position[2]);
             let Some(screen) = self.world_to_screen(&world) else {
