@@ -5216,27 +5216,34 @@ impl PresentationFrame {
     }
 
     pub fn net_power_from_objects(&self) -> i32 {
+        // Wave 1108: power residual excludes sold structures (sell removes
+        // power contribution from the residual power bar feed).
         self.objects
             .iter()
-            .filter(|o| !o.destroyed)
+            .filter(|o| !o.destroyed && !o.sold)
             .map(|o| o.power_provided - o.power_consumed)
             .sum()
     }
 
     /// Objects still under construction (dozer / structure residual).
     pub fn under_construction_objects(&self) -> Vec<&RenderableObject> {
+        // Wave 1108: UC residual excludes sold.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && o.under_construction)
+            .filter(|o| !o.destroyed && !o.sold && o.under_construction)
             .collect()
     }
 
     /// Units at Veteran or higher (chevron residual feed).
     pub fn veteran_or_higher_units(&self) -> Vec<&RenderableObject> {
+        // Wave 1108: veterancy residual excludes sold.
         self.objects
             .iter()
             .filter(|o| {
-                !o.destroyed && o.is_unit && !matches!(o.veterancy, PresentationVeterancy::Rookie)
+                !o.destroyed
+                    && !o.sold
+                    && o.is_unit
+                    && !matches!(o.veterancy, PresentationVeterancy::Rookie)
             })
             .collect()
     }
@@ -8334,7 +8341,8 @@ impl PresentationFrame {
 
     /// All alive presentation objects including engine-bridged (for FOW/id lists).
     pub fn alive_renderables(&self) -> impl Iterator<Item = &RenderableObject> {
-        self.objects.iter().filter(|o| !o.destroyed)
+        // Wave 1108: alive residual excludes sold.
+        self.objects.iter().filter(|o| !o.destroyed && !o.sold)
     }
 
     /// Active combat particle systems on this frame (host registry snapshot).
@@ -9474,8 +9482,12 @@ impl PresentationFrame {
             &self.selected_unit_display_infos(),
         );
         // Prefer full queue from the primary selected renderable when present.
+        // Wave 1108: fail-closed on sold/unusable primary (belt-and-suspenders after
+        // selected_unit_display_infos Wave 1106).
         if let Some(id) = panel.primary_object_id {
-            if let Some(ro) = self.objects.iter().find(|o| o.id == id) {
+            if let Some(ro) = self.objects.iter().find(|o| {
+                o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+            }) {
                 panel.production_queue = ro
                     .production_queue
                     .iter()
