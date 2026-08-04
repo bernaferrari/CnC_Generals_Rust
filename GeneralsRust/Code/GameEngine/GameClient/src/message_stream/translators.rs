@@ -123,6 +123,8 @@ where
                     && !sel.sold
                     && !sel.disabled
                     && !sel.under_construction
+                    && !sel.masked
+                    && !sel.unselectable
                 {
                     return true;
                 }
@@ -213,6 +215,8 @@ fn selection_can_enter_target(
                     && !sel.sold
                     && !sel.disabled
                     && !sel.under_construction
+                    && !sel.masked
+                    && !sel.unselectable
                 {
                     return true;
                 }
@@ -300,6 +304,8 @@ fn selection_can_repair_target(
                     && !sel.sold
                     && !sel.disabled
                     && !sel.under_construction
+                    && !sel.masked
+                    && !sel.unselectable
                     && (translator_entry_has_kind(&sel, "Dozer")
                         || translator_entry_has_kind(&sel, "Vehicle")
                         || sel.selectable)
@@ -484,6 +490,8 @@ fn selection_can_pickup_crate_target(
                     && !sel.sold
                     && !sel.disabled
                     && !sel.under_construction
+                    && !sel.masked
+                    && !sel.unselectable
                 {
                     return Some(Coord3D::new(
                         target.position[0],
@@ -603,6 +611,8 @@ fn selection_can_resume_construction_target(
                     && !sel.sold
                     && !sel.disabled
                     && !sel.under_construction
+                    && !sel.masked
+                    && !sel.unselectable
                     && (translator_entry_has_kind(&sel, "Dozer") || sel.selectable)
                 {
                     return true;
@@ -1597,28 +1607,30 @@ fn selection_source_object_id(
     }
     if dual_world_registry_unavailable() {
         // Wave 1049: prefer living local source residual.
+        // Wave 1111: also fail-closed on masked/unselectable local sources
+        // (parity with selection_attack_result / dual_target_status_ok peels).
+        let usable_local = |e: &crate::presentation_translator_residual::TranslatorCatalogEntry| {
+            translator_entry_is_local(e)
+                && !e.destroyed
+                && !e.sold
+                && !e.disabled
+                && !e.under_construction
+                && !e.masked
+                && !e.unselectable
+        };
         for &id in selection {
             if let Some(e) = translator_catalog_entry(id) {
                 // Wave 1074: under-construction local source residual fail-closed.
-                if translator_entry_is_local(&e)
-                    && !e.destroyed
-                    && !e.sold
-                    && !e.disabled
-                    && !e.under_construction
-                {
+                // Wave 1111: masked/unselectable local source residual fail-closed.
+                if usable_local(&e) {
                     return id;
                 }
             }
         }
-        // Wave 1075: no unusable local fallback residual (destroyed/sold/disabled/UC).
+        // Wave 1075/1111: no unusable local fallback residual.
         for &id in selection {
             if let Some(e) = translator_catalog_entry(id) {
-                if translator_entry_is_local(&e)
-                    && !e.destroyed
-                    && !e.sold
-                    && !e.disabled
-                    && !e.under_construction
-                {
+                if usable_local(&e) {
                     return id;
                 }
             }
@@ -1758,11 +1770,14 @@ fn selection_attack_result(
         for &id in selection {
             if let Some(sel) = translator_catalog_entry(id) {
                 // Wave 1067: under-construction local source residual fail-closed.
+                // Wave 1111: masked/unselectable local source residual fail-closed.
                 if translator_entry_is_local(&sel)
                     && !sel.destroyed
                     && !sel.sold
                     && !sel.disabled
                     && !sel.under_construction
+                    && !sel.masked
+                    && !sel.unselectable
                 {
                     any_local = true;
                     break;

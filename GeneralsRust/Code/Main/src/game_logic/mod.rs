@@ -212,6 +212,7 @@ pub mod host_live_host_drawable_presentation_residual_wave965;
 pub mod host_live_host_drawable_visibility_catalog_shroud_residual_wave1020;
 pub mod host_live_host_drawable_visibility_status_residual_wave1044;
 pub mod host_live_host_dual_line_lethal_no_damage_auth_hp_stomp_residual_wave753;
+pub mod host_live_host_dual_local_source_masked_unselectable_residual_wave1111;
 pub mod host_live_host_dual_read_zero_sole_tick_wave875;
 pub mod host_live_host_dual_tick_queue_destroy_peels_residual_wave916;
 pub mod host_live_host_eager_ai_fire_intent_helper_residual_wave687;
@@ -4392,6 +4393,12 @@ pub use host_live_host_enemy_fow_count_click_selectable_residual_wave1104::{
     simulate_live_host_enemy_fow_count_click_selectable_residual_honesty,
 };
 
+pub use host_live_host_dual_local_source_masked_unselectable_residual_wave1111::{
+    honesty_host_dual_local_source_masked_unselectable_method_names_residual_wave1111,
+    honesty_host_dual_local_source_masked_unselectable_nav_commands_residual_wave1111,
+    honesty_host_dual_local_source_masked_unselectable_residual_pack_wave1111,
+    simulate_live_host_dual_local_source_masked_unselectable_residual_honesty,
+};
 pub use host_live_host_force_attack_fow_cmdset_usable_residual_wave1105::{
     honesty_host_force_attack_fow_cmdset_usable_method_names_residual_wave1105,
     honesty_host_force_attack_fow_cmdset_usable_nav_commands_residual_wave1105,
@@ -4410,6 +4417,7 @@ pub use host_live_host_ui_state_minimap_build_queue_sold_residual_wave1110::{
     honesty_host_ui_state_minimap_build_queue_sold_residual_pack_wave1110,
     simulate_live_host_ui_state_minimap_build_queue_sold_residual_honesty,
 };
+
 pub use host_live_host_upgrade_mine_minimap_hud_queue_sold_residual_wave1109::{
     honesty_host_upgrade_mine_minimap_hud_queue_sold_method_names_residual_wave1109,
     honesty_host_upgrade_mine_minimap_hud_queue_sold_nav_commands_residual_wave1109,
