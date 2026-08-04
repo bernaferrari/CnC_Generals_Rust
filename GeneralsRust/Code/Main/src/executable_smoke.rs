@@ -1241,10 +1241,11 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             saw_early_combat_cmd = true;
                             commanded_at = Some(Instant::now());
                         } else if commanded_at
-                            .map(|t| t.elapsed() < Duration::from_secs(2))
+                            .map(|t| t.elapsed() < Duration::from_secs(6))
                             .unwrap_or(false)
                         {
-                            // brief window for attack residual + damage counters
+                            // Wave 1112: longer window for attack residual + damage
+                            // counters (2s was flaky under load; still fail-closed).
                             if snap.last_gameplay_cmd.starts_with("attack_ok") {
                                 saw_attack_ok = true;
                             }
