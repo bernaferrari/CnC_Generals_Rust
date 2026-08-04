@@ -5042,9 +5042,10 @@ impl PresentationFrame {
     /// Net power from non-destroyed objects (presentation economy residual).
     /// Count presentation objects with host turret idle-scan residual.
     pub fn turret_idle_scan_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.turret_idle_scanning && !o.destroyed)
+            .filter(|o| o.turret_idle_scanning && !o.destroyed && !o.sold)
             .count()
     }
 
@@ -5121,17 +5122,19 @@ impl PresentationFrame {
     }
 
     pub fn detector_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.is_detector && !o.destroyed)
+            .filter(|o| o.is_detector && !o.destroyed && !o.sold)
             .count()
     }
 
     /// Count presentation objects with non-empty command_set_override residual.
     pub fn command_set_override_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| !o.command_set_override.is_empty() && !o.destroyed)
+            .filter(|o| !o.command_set_override.is_empty() && !o.destroyed && !o.sold)
             .count()
     }
 
@@ -5140,55 +5143,63 @@ impl PresentationFrame {
     /// Count presentation objects with host humvee transport residual.
     /// Count presentation objects with host innate_stealth residual.
     pub fn innate_stealth_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.innate_stealth && !o.destroyed)
+            .filter(|o| o.innate_stealth && !o.destroyed && !o.sold)
             .count()
     }
 
     /// Count presentation objects with non-zero detection_rate_frames residual.
     pub fn timed_detector_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.detection_rate_frames > 0 && !o.destroyed)
+            .filter(|o| o.detection_rate_frames > 0 && !o.destroyed && !o.sold)
             .count()
     }
 
     pub fn humvee_transport_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.is_humvee_transport && !o.destroyed)
+            .filter(|o| o.is_humvee_transport && !o.destroyed && !o.sold)
             .count()
     }
 
     /// Count presentation objects with host overlord gattling addon residual.
     pub fn overlord_gattling_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.has_overlord_gattling_addon && !o.destroyed)
+            .filter(|o| o.has_overlord_gattling_addon && !o.destroyed && !o.sold)
             .count()
     }
 
     pub fn hive_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.hive_slave_count > 0 && !o.destroyed)
+            .filter(|o| o.hive_slave_count > 0 && !o.destroyed && !o.sold)
             .count()
     }
 
     /// Count presentation objects with continuous-fire residual > 0.
     pub fn continuous_fire_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.continuous_fire_level > 0 && !o.destroyed)
+            .filter(|o| o.continuous_fire_level > 0 && !o.destroyed && !o.sold)
             .count()
     }
 
     pub fn battle_plan_bonus_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
             .filter(|o| {
                 !o.destroyed
+                    && !o.sold
                     && (o.weapon_bonus_battle_plan_bombardment
                         || o.weapon_bonus_battle_plan_hold_the_line
                         || o.weapon_bonus_battle_plan_search_and_destroy)
@@ -5197,9 +5208,10 @@ impl PresentationFrame {
     }
 
     pub fn horde_bonus_object_count(&self) -> usize {
+        // Wave 1107: residual counts exclude sold.
         self.objects
             .iter()
-            .filter(|o| o.weapon_bonus_horde && !o.destroyed)
+            .filter(|o| o.weapon_bonus_horde && !o.destroyed && !o.sold)
             .count()
     }
 
@@ -5722,11 +5734,12 @@ impl PresentationFrame {
     }
 
     pub fn centroid_of_ids(&self, ids: &[ObjectId]) -> Option<glam::Vec3> {
+        // Wave 1107: camera/group centroid residual fail-closed on sold.
         let mut sum = glam::Vec3::ZERO;
         let mut n = 0u32;
         for id in ids {
             if let Some(o) = self.objects.iter().find(|o| o.id == *id) {
-                if o.destroyed {
+                if o.destroyed || o.sold {
                     continue;
                 }
                 sum += o.position;
@@ -9673,7 +9686,10 @@ impl PresentationFrame {
         let Some(id) = panel.primary_object_id else {
             return Vec::new();
         };
-        let Some(ro) = self.objects.iter().find(|o| o.id == id && !o.destroyed) else {
+        // Wave 1107: unit command buttons residual fail-closed on sold/unusable primary.
+        let Some(ro) = self.objects.iter().find(|o| {
+            o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+        }) else {
             return Vec::new();
         };
         let mut cmds = Vec::new();
