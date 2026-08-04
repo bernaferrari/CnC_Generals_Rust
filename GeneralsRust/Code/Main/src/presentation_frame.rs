@@ -8774,8 +8774,13 @@ impl PresentationFrame {
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
             use crate::ui::{color_for_player, MinimapDot};
+            // Wave 1110: beacon bounds residual excludes sold.
             let (min_x, max_x, min_z, max_z) = {
-                let alive: Vec<_> = self.objects.iter().filter(|o| !o.destroyed).collect();
+                let alive: Vec<_> = self
+                    .objects
+                    .iter()
+                    .filter(|o| !o.destroyed && !o.sold)
+                    .collect();
                 if alive.is_empty() {
                     (-100.0_f32, 100.0_f32, -100.0_f32, 100.0_f32)
                 } else {
@@ -8844,8 +8849,9 @@ impl PresentationFrame {
         }
 
         // Structure production + under-construction residual for build-queue HUD strip.
+        // Wave 1110: build-queue residual excludes sold producers/structures.
         let mut build_queue = Vec::new();
-        for o in self.objects.iter().filter(|o| !o.destroyed) {
+        for o in self.objects.iter().filter(|o| !o.destroyed && !o.sold) {
             if o.under_construction {
                 build_queue.push(BuildQueueEntry {
                     template_name: o.template_name.clone(),
@@ -8866,7 +8872,12 @@ impl PresentationFrame {
         ui.build_queue = build_queue;
 
         // Minimap dots from snapshot positions/teams (normalized into frame bounds).
-        let alive: Vec<&RenderableObject> = self.objects.iter().filter(|o| !o.destroyed).collect();
+        // Wave 1110: minimap unit-dot residual excludes sold (parity hud_minimap_units).
+        let alive: Vec<&RenderableObject> = self
+            .objects
+            .iter()
+            .filter(|o| !o.destroyed && !o.sold)
+            .collect();
         let (world_min_x, world_max_x, world_min_z, world_max_z) = if alive.is_empty() {
             (-100.0, 100.0, -100.0, 100.0)
         } else {
@@ -9625,13 +9636,21 @@ impl PresentationFrame {
             panel.special_power_ready,
             panel.special_power_cooldown_remaining,
         );
+        // Wave 1110: multi-select count residual excludes sold/unusable.
+        let usable_selected = |o: &&RenderableObject| {
+            o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+        };
         let selected_count = if !self.selected.is_empty() {
-            self.selected.len()
-        } else {
-            self.objects
+            self.selected
                 .iter()
-                .filter(|o| o.selected && !o.destroyed)
+                .filter(|id| {
+                    self.objects
+                        .iter()
+                        .any(|o| o.id == **id && usable_selected(&o))
+                })
                 .count()
+        } else {
+            self.objects.iter().filter(usable_selected).count()
         };
         if selected_count > 1 {
             let names = self.selected_command_set_names();
@@ -9646,16 +9665,23 @@ impl PresentationFrame {
             .filter_map(|info| {
                 self.objects
                     .iter()
-                    .find(|o| o.id == info.object_id && o.special_power_ready)
+                    .find(|o| {
+                        o.id == info.object_id
+                            && o.special_power_ready
+                            && !o.destroyed
+                            && !o.sold
+                            && !o.disabled
+                    })
                     .map(|o| o.template_name.clone())
             })
             .collect();
         // Also include any selected renderable with ready SP (selection flags path).
+        // Wave 1110: ready SP residual fail-closed on sold/disabled.
         let mut ready_sp = ready_sp;
         for o in self
             .objects
             .iter()
-            .filter(|o| o.selected && o.special_power_ready)
+            .filter(|o| usable_selected(o) && o.special_power_ready)
         {
             if !ready_sp.iter().any(|n| n == &o.template_name) {
                 ready_sp.push(o.template_name.clone());
@@ -14284,7 +14310,10 @@ mod tests {
         );
         assert_eq!(
             ui.minimap_unit_dots.len(),
-            snap.objects.iter().filter(|o| !o.destroyed).count()
+            snap.objects
+                .iter()
+                .filter(|o| !o.destroyed && !o.sold)
+                .count()
         );
         assert!(
             ui.selection_panel.has_positive_health(),
