@@ -526,6 +526,7 @@ pub mod host_live_host_unmapped_damage_fallback_residual_wave943;
 pub mod host_live_host_unselectable_catalog_residual_wave1034;
 pub mod host_live_host_update_drawables_catalog_shroud_residual_wave1021;
 pub mod host_live_host_update_portrait_presentation_residual_wave1008;
+pub mod host_live_host_upgrade_mine_minimap_hud_queue_sold_residual_wave1109;
 pub mod host_live_host_vertical_render_mesh_gate_residual_wave839;
 pub mod host_live_host_victory_fps_failclosed_residual_wave907;
 pub mod host_live_host_victory_fps_legal_failclosed_residual_wave910;
@@ -4402,6 +4403,13 @@ pub use host_live_host_power_uc_alive_panel_sold_residual_wave1108::{
     honesty_host_power_uc_alive_panel_sold_residual_pack_wave1108,
     simulate_live_host_power_uc_alive_panel_sold_residual_honesty,
 };
+pub use host_live_host_upgrade_mine_minimap_hud_queue_sold_residual_wave1109::{
+    honesty_host_upgrade_mine_minimap_hud_queue_sold_method_names_residual_wave1109,
+    honesty_host_upgrade_mine_minimap_hud_queue_sold_nav_commands_residual_wave1109,
+    honesty_host_upgrade_mine_minimap_hud_queue_sold_residual_pack_wave1109,
+    simulate_live_host_upgrade_mine_minimap_hud_queue_sold_residual_honesty,
+};
+
 pub use host_live_host_residual_counts_centroid_cmd_sold_residual_wave1107::{
     honesty_host_residual_counts_centroid_cmd_sold_method_names_residual_wave1107,
     honesty_host_residual_counts_centroid_cmd_sold_nav_commands_residual_wave1107,

@@ -5338,9 +5338,10 @@ impl PresentationFrame {
 
     /// Objects that have applied at least one upgrade residual.
     pub fn upgraded_objects(&self) -> Vec<&RenderableObject> {
+        // Wave 1109: upgrade residual feed excludes sold.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && !o.applied_upgrades.is_empty())
+            .filter(|o| !o.destroyed && !o.sold && !o.applied_upgrades.is_empty())
             .collect()
     }
 
@@ -5351,9 +5352,10 @@ impl PresentationFrame {
 
     /// Live mine / demo-trap presentation residuals.
     pub fn mine_objects(&self) -> Vec<&RenderableObject> {
+        // Wave 1109: mine residual feed excludes sold.
         self.objects
             .iter()
-            .filter(|o| !o.destroyed && o.has_mine)
+            .filter(|o| !o.destroyed && !o.sold && o.has_mine)
             .collect()
     }
 
@@ -8961,9 +8963,10 @@ impl PresentationFrame {
 
     /// Units list for GameHud minimap: (id, x, z, team_color_index).
     pub fn hud_minimap_units(&self) -> Vec<(ObjectId, f32, f32, u8)> {
+        // Wave 1109: minimap unit-dot residual excludes sold (alive dots only).
         self.objects
             .iter()
-            .filter(|o| !o.destroyed)
+            .filter(|o| !o.destroyed && !o.sold)
             .map(|o| {
                 let team_idx = match o.team {
                     Team::USA => 1u8,
@@ -9037,15 +9040,27 @@ impl PresentationFrame {
                 .collect::<Vec<_>>(),
         );
         // Production queue residual for primary selected producer.
+        // Wave 1109: HUD queue residual fail-closed on sold/unusable primary
+        // (parity with control_bar_selection_panel Wave 1108).
         {
             let mut queue_items: Vec<(String, f32, i32, f32)> = Vec::new();
-            if let Some(id) = self.selected.first().copied().or_else(|| {
-                self.objects
-                    .iter()
-                    .find(|o| o.selected && !o.destroyed)
-                    .map(|o| o.id)
-            }) {
-                if let Some(ro) = self.objects.iter().find(|o| o.id == id) {
+            let usable = |o: &&RenderableObject| {
+                o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+            };
+            if let Some(id) = self
+                .selected
+                .first()
+                .copied()
+                .or_else(|| self.objects.iter().find(usable).map(|o| o.id))
+            {
+                if let Some(ro) = self.objects.iter().find(|o| {
+                    o.id == id
+                        && !o.destroyed
+                        && !o.sold
+                        && !o.unselectable
+                        && !o.masked
+                        && !o.disabled
+                }) {
                     for p in &ro.production_queue {
                         queue_items.push((
                             p.template_name.clone(),
