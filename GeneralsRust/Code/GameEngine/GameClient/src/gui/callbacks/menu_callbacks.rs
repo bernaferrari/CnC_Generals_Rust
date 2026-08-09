@@ -2829,13 +2829,9 @@ pub fn simulate_map_select_menu_select_map(map_path: &str) -> bool {
     with_map_select_menu_mut(|menu| {
         ensure_map_select_control_ids(menu);
         menu.selected_map = Some(map_path.to_string());
-        if let Ok(mut guard) = RESIDUAL_MAP_SELECT_MAP.lock() {
-            *guard = map_path.to_string();
-        } else {
-            *RESIDUAL_MAP_SELECT_MAP
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = map_path.to_string();
-        }
+        *RESIDUAL_MAP_SELECT_MAP
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = map_path.to_string();
         residual_map_select_action_store(ResidualMapSelectMenuAction::SelectMap);
         residual_map_select_menu_selected_map().as_deref() == Some(map_path)
     })

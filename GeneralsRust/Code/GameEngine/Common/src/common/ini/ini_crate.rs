@@ -212,43 +212,53 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
         system_guard.insert(template);
     }
 
-    // 3. Parse fields
+    // 3. Parse fields. The block callback is entered while `ini.buffer` still
+    // contains the `CrateData <name>` header. Field values therefore have to
+    // be read from subsequent lines, just like C++ `initFromINI`; consuming
+    // tokens from the header made the old port return immediately and left
+    // `CreationChance` to be misread as a top-level block.
     let template = system_guard.get_mut(&name).unwrap();
 
-    while let Some(token) = ini.get_next_token_or_null() {
-        match token.as_str() {
-            "End" => break,
+    while let Some(field) = ini.get_next_field() {
+        let values: Vec<String> = ini
+            .get_line_tokens()
+            .into_iter()
+            .skip(1)
+            .filter(|token| *token != "=")
+            .map(str::to_owned)
+            .collect();
 
+        match field.as_str() {
             // Matches C++: { "CreationChance", INI::parseReal, ... }
             "CreationChance" => {
-                let token_str = ini.get_next_token()?;
+                let token_str = values.first().ok_or(INIError::InvalidData)?;
                 let val = INI::parse_real(&token_str)?;
                 template.creation_chance = val;
             }
 
             // Matches C++: { "VeterancyLevel", INI::parseIndexList, TheVeterancyNames, ... }
             "VeterancyLevel" => {
-                let level_str = ini.get_next_token()?;
-                template.veterancy_level = level_str;
+                template.veterancy_level = values.first().ok_or(INIError::InvalidData)?.clone();
             }
 
             // Matches C++: { "KilledByType", KindOfMaskType::parseFromINI, ... }
             "KilledByType" => {
-                let kind_str = ini.get_next_token()?;
-                template.killed_by_type_kindof = parse_kind_of_mask(&kind_str);
+                if values.is_empty() {
+                    return Err(INIError::InvalidData);
+                }
+                template.killed_by_type_kindof = parse_kind_of_mask(&values.join(" "));
             }
 
             // Matches C++: { "KillerScience", INI::parseScience, ... }
             "KillerScience" => {
-                let sci_str = ini.get_next_token()?;
-                template.killer_science = sci_str;
+                template.killer_science = values.first().ok_or(INIError::InvalidData)?.clone();
             }
 
             // Matches C++: { "CrateObject", CrateTemplate::parseCrateCreationEntry, ... }
             // C++ format: CrateObject <crateName> <crateChance>
             "CrateObject" => {
-                let crate_name = ini.get_next_token()?;
-                let chance_str = ini.get_next_token()?;
+                let crate_name = values.first().ok_or(INIError::InvalidData)?.clone();
+                let chance_str = values.get(1).ok_or(INIError::InvalidData)?;
                 let chance: f32 = chance_str.parse().map_err(|_| INIError::InvalidData)?;
                 template.possible_crates.push(ParsedCrateCreationEntry {
                     crate_name,
@@ -258,13 +268,13 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
 
             // Matches C++: { "OwnedByMaker", INI::parseBool, ... }
             "OwnedByMaker" => {
-                let token_str = ini.get_next_token()?;
+                let token_str = values.first().ok_or(INIError::InvalidData)?;
                 let val = INI::parse_bool(&token_str)?;
                 template.is_owned_by_maker = val;
             }
 
-            // Unknown field -- skip silently (C++ would log a warning)
-            _ => {}
+            // C++ `initFromINI` rejects unknown fields in a known block.
+            _ => return Err(INIError::UnknownToken),
         }
     }
 

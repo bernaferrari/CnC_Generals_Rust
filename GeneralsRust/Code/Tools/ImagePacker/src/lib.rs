@@ -1,8 +1,10 @@
 //! ImagePacker library surface (no gpui) for C++-matching pack/parse tests.
 
+pub mod chrome;
 pub mod packer;
 pub mod texture_page;
 
+pub use chrome::{ChromePreviewPage, ImagePackerChrome};
 pub use texture_page::{
     add_image_data_tga, extend_image_edges, generate_mapped_image_ini,
     generate_mapped_image_ini_from_pages, pack_named_images_to_pages, ImagePlacement, ImageToPack,

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::ini::ini::INI;
 
 pub type FXListResult<T> = Result<T, FXListError>;
 
@@ -100,6 +101,7 @@ pub enum FXNugget {
         rotate_y: f32,
         rotate_z: f32,
         orient_to_object: bool,
+        ricochet: bool,
         attach_to_object: bool,
         create_at_ground_height: bool,
         use_callers_radius: bool,
@@ -109,6 +111,211 @@ pub enum FXNugget {
         bone_name: AsciiString,
         orient_to_bone: bool,
     },
+}
+
+fn property<'a>(properties: &'a HashMap<String, String>, name: &str) -> Option<&'a str> {
+    properties
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn real(properties: &HashMap<String, String>, name: &str, default: f32) -> FXListResult<f32> {
+    let Some(value) = property(properties, name) else {
+        return Ok(default);
+    };
+    // GameClientRandomVariable accepts a range; this representation stores a
+    // single deterministic value, so retain its first (base) component.
+    let value = value.split_whitespace().next().unwrap_or(value);
+    value
+        .trim_end_matches('%')
+        .parse::<f32>()
+        .map(|parsed| {
+            if value.ends_with('%') {
+                parsed / 100.0
+            } else {
+                parsed
+            }
+        })
+        .map_err(|_| FXListError::ParseError(format!("invalid {} value '{}'", name, value)))
+}
+
+fn integer(properties: &HashMap<String, String>, name: &str, default: i32) -> FXListResult<i32> {
+    let Some(value) = property(properties, name) else {
+        return Ok(default);
+    };
+    value
+        .parse::<i32>()
+        .map_err(|_| FXListError::ParseError(format!("invalid {} value '{}'", name, value)))
+}
+
+fn boolean(properties: &HashMap<String, String>, name: &str, default: bool) -> FXListResult<bool> {
+    let Some(value) = property(properties, name) else {
+        return Ok(default);
+    };
+    match value.trim().to_ascii_lowercase().as_str() {
+        "yes" | "true" | "1" => Ok(true),
+        "no" | "false" | "0" => Ok(false),
+        _ => Err(FXListError::ParseError(format!(
+            "invalid {} boolean '{}'",
+            name, value
+        ))),
+    }
+}
+
+fn labelled_vec3(value: &str) -> FXListResult<(f32, f32, f32)> {
+    let mut result = [None; 3];
+    for component in value.split_whitespace() {
+        if let Some((label, raw)) = component.split_once(':') {
+            // Retail FXList.ini contains `Y:15:` in two offsets; C++ `atof`
+            // accepts the numeric prefix, so tolerate that trailing colon.
+            let parsed = raw.trim_end_matches(':').parse::<f32>().map_err(|_| {
+                FXListError::ParseError(format!("invalid vector component '{}'", component))
+            })?;
+            match label.to_ascii_uppercase().as_str() {
+                "X" | "R" => result[0] = Some(parsed),
+                "Y" | "G" => result[1] = Some(parsed),
+                "Z" | "B" => result[2] = Some(parsed),
+                _ => {
+                    return Err(FXListError::ParseError(format!(
+                        "unknown vector component '{}'",
+                        label
+                    )))
+                }
+            }
+        }
+    }
+    Ok((
+        result[0].unwrap_or(0.0),
+        result[1].unwrap_or(0.0),
+        result[2].unwrap_or(0.0),
+    ))
+}
+
+/// Parse one nested C++ FX nugget block while preserving repeated nuggets.
+pub fn parse_fx_nugget_definition(
+    kind: &str,
+    properties: &HashMap<String, String>,
+) -> FXListResult<FXNugget> {
+    let name = |field: &str| AsciiString::from(property(properties, field).unwrap_or(""));
+    match kind.to_ascii_lowercase().as_str() {
+        "sound" => Ok(FXNugget::Sound { name: name("Name") }),
+        "tracer" => Ok(FXNugget::Tracer {
+            name: name("TracerName"),
+            bone_name: name("BoneName"),
+            speed: real(properties, "Speed", 0.0)?,
+            decay_at: real(properties, "DecayAt", 1.0)?,
+            length: real(properties, "Length", 10.0)?,
+            width: real(properties, "Width", 1.0)?,
+            color: property(properties, "Color")
+                .map(labelled_vec3)
+                .transpose()?
+                .unwrap_or((255.0, 255.0, 255.0)),
+            probability: real(properties, "Probability", 1.0)?,
+        }),
+        "rayeffect" => Ok(FXNugget::RayEffect {
+            name: name("Name"),
+            primary_offset: property(properties, "PrimaryOffset")
+                .map(labelled_vec3)
+                .transpose()?
+                .unwrap_or((0.0, 0.0, 0.0)),
+            secondary_offset: property(properties, "SecondaryOffset")
+                .map(labelled_vec3)
+                .transpose()?
+                .unwrap_or((0.0, 0.0, 0.0)),
+        }),
+        "lightpulse" => Ok(FXNugget::LightPulse {
+            color: property(properties, "Color")
+                .map(labelled_vec3)
+                .transpose()?
+                .unwrap_or((0.0, 0.0, 0.0)),
+            radius: real(properties, "Radius", 0.0)?,
+            radius_as_percent_of_object_size: real(properties, "RadiusAsPercentOfObjectSize", 0.0)?,
+            increase_frames: property(properties, "IncreaseTime")
+                .map(INI::parse_duration_unsigned_int)
+                .transpose()
+                .map_err(|_| FXListError::ParseError("invalid IncreaseTime".into()))?
+                .unwrap_or(0),
+            decrease_frames: property(properties, "DecreaseTime")
+                .map(INI::parse_duration_unsigned_int)
+                .transpose()
+                .map_err(|_| FXListError::ParseError("invalid DecreaseTime".into()))?
+                .unwrap_or(0),
+        }),
+        "viewshake" => {
+            let shake_type = match property(properties, "Type")
+                .unwrap_or("NORMAL")
+                .to_ascii_uppercase()
+                .as_str()
+            {
+                "SUBTLE" => CameraShakeType::Subtle,
+                "NORMAL" => CameraShakeType::Normal,
+                "STRONG" => CameraShakeType::Strong,
+                "SEVERE" => CameraShakeType::Severe,
+                "CINE_EXTREME" => CameraShakeType::CineExtreme,
+                "CINE_INSANE" => CameraShakeType::CineInsane,
+                other => {
+                    return Err(FXListError::ParseError(format!(
+                        "unknown view shake type '{}'",
+                        other
+                    )))
+                }
+            };
+            Ok(FXNugget::ViewShake { shake_type })
+        }
+        "terrainscorch" => {
+            let scorch_type = match property(properties, "Type")
+                .unwrap_or("RANDOM")
+                .to_ascii_uppercase()
+                .as_str()
+            {
+                "SCORCH_1" => ScorchType::Scorch1,
+                "SCORCH_2" => ScorchType::Scorch2,
+                "SCORCH_3" => ScorchType::Scorch3,
+                "SCORCH_4" => ScorchType::Scorch4,
+                "SHADOW_SCORCH" => ScorchType::ShadowScorch,
+                "RANDOM" => ScorchType::Random,
+                other => {
+                    return Err(FXListError::ParseError(format!(
+                        "unknown terrain scorch type '{}'",
+                        other
+                    )))
+                }
+            };
+            Ok(FXNugget::TerrainScorch {
+                scorch_type,
+                radius: real(properties, "Radius", 0.0)?,
+            })
+        }
+        "particlesystem" => Ok(FXNugget::ParticleSystem {
+            name: name("Name"),
+            count: integer(properties, "Count", 1)?,
+            offset: property(properties, "Offset")
+                .map(labelled_vec3)
+                .transpose()?
+                .unwrap_or((0.0, 0.0, 0.0)),
+            radius: real(properties, "Radius", 0.0)?,
+            height: real(properties, "Height", 0.0)?,
+            initial_delay: real(properties, "InitialDelay", -1.0)?,
+            rotate_x: real(properties, "RotateX", 0.0)?.to_radians(),
+            rotate_y: real(properties, "RotateY", 0.0)?.to_radians(),
+            rotate_z: real(properties, "RotateZ", 0.0)?.to_radians(),
+            orient_to_object: boolean(properties, "OrientToObject", false)?,
+            ricochet: boolean(properties, "Ricochet", false)?,
+            attach_to_object: boolean(properties, "AttachToObject", false)?,
+            create_at_ground_height: boolean(properties, "CreateAtGroundHeight", false)?,
+            use_callers_radius: boolean(properties, "UseCallersRadius", false)?,
+        }),
+        "fxlistatbonepos" => Ok(FXNugget::FXListAtBonePos {
+            fx_name: name("FX"),
+            bone_name: name("BoneName"),
+            orient_to_bone: boolean(properties, "OrientToBone", false)?,
+        }),
+        _ => Err(FXListError::ParseError(format!(
+            "unknown FX nugget type '{}'",
+            kind
+        ))),
+    }
 }
 
 /// FX List - collection of effects
@@ -203,6 +410,7 @@ pub fn parse_fx_list_definition(
                     rotate_y: 0.0,
                     rotate_z: 0.0,
                     orient_to_object: false,
+                    ricochet: false,
                     attach_to_object: false,
                     create_at_ground_height: false,
                     use_callers_radius: false,

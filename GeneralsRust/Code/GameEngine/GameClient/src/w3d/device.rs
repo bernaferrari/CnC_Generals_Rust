@@ -13,7 +13,6 @@
 use bytemuck::{Pod, Zeroable};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use dashmap::DashMap;
-use gpu_allocator::{vulkan::Allocator as VulkanAllocator, MemoryLocation};
 use slotmap::{DefaultKey, SlotMap};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};

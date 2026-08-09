@@ -94,6 +94,15 @@ impl FloatUpdate {
             enabled: specific_data.enabled,
         })
     }
+
+    /// C++ `FloatUpdate::setEnabled`. OCL FLOATING disposition turns this on.
+    pub fn set_enabled(&mut self, enabled: Bool) {
+        self.enabled = enabled;
+    }
+
+    pub fn is_enabled(&self) -> Bool {
+        self.enabled
+    }
 }
 
 impl UpdateModuleInterface for FloatUpdate {

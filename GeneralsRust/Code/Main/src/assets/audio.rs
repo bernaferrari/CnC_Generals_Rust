@@ -13,6 +13,8 @@ use log::{debug, error, info, warn};
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
+use std::sync::mpsc;
+use std::thread::{self, JoinHandle};
 
 /// Audio affect types (matches C++ AudioAffect enum)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,7 +38,7 @@ pub enum AudioFormat {
 
 /// Audio channel information (matches C++ AudioChannel structure)
 struct AudioChannel {
-    sink: SendSyncWrapper<Sink>,
+    sink: Sink,
     affect_type: AudioAffect,
     volume: f32,
     enabled: bool,
@@ -70,35 +72,84 @@ impl AudioFormat {
     }
 }
 
-/// Wrapper to make audio types Send/Sync (controlled usage matching C++ thread safety)
-pub struct SendSyncWrapper<T>(T);
-unsafe impl<T> Send for SendSyncWrapper<T> {}
-unsafe impl<T> Sync for SendSyncWrapper<T> {}
+/// Owns a rodio `OutputStream` on the thread that created it.
+///
+/// rodio 0.17: `Sink`, `SpatialSink`, and `OutputStreamHandle` are already
+/// `Send + Sync`. `OutputStream` is not — it contains `cpal::Stream`, which
+/// cpal marks `!Send + !Sync` on every platform via
+/// `NotSendSyncAcrossAllPlatforms` (Android AAudio is not thread-safe).
+///
+/// `AudioManager` lives in `Mutex<AssetManager>` / `Mutex<SubsystemManager>`
+/// and can be moved across threads, so the stream is created and dropped on a
+/// dedicated owner thread. Only the already-Send handle is stored here.
+/// No blanket `unsafe impl Send/Sync` for arbitrary `T`.
+struct OutputStreamKeepalive {
+    shutdown: Option<mpsc::Sender<()>>,
+    thread: Option<JoinHandle<()>>,
+}
 
-impl<T> SendSyncWrapper<T> {
-    pub fn new(value: T) -> Self {
-        SendSyncWrapper(value)
+impl Drop for OutputStreamKeepalive {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
+}
 
-    pub fn get(&self) -> &T {
-        &self.0
-    }
+fn spawn_output_stream_owner() -> Result<(OutputStreamKeepalive, OutputStreamHandle)> {
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (shutdown_tx, shutdown_rx) = mpsc::channel();
 
-    pub fn get_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
+    let thread = thread::Builder::new()
+        .name("rodio-output-stream".into())
+        .spawn(move || match OutputStream::try_default() {
+            Ok((output, handle)) => {
+                if ready_tx.send(Ok(handle)).is_err() {
+                    return;
+                }
+                let _output = output;
+                let _ = shutdown_rx.recv();
+            }
+            Err(err) => {
+                let _ = ready_tx.send(Err(err.to_string()));
+            }
+        })
+        .map_err(|e| anyhow!("Failed to spawn audio stream thread: {}", e))?;
 
-    pub fn into_inner(self) -> T {
-        self.0
-    }
+    let handle = match ready_rx.recv() {
+        Ok(Ok(handle)) => handle,
+        Ok(Err(err)) => {
+            let _ = thread.join();
+            return Err(anyhow!("Failed to initialize audio output: {}", err));
+        }
+        Err(_) => {
+            let _ = thread.join();
+            return Err(anyhow!(
+                "Audio stream thread exited before reporting output device status"
+            ));
+        }
+    };
+
+    Ok((
+        OutputStreamKeepalive {
+            shutdown: Some(shutdown_tx),
+            thread: Some(thread),
+        },
+        handle,
+    ))
 }
 
 /// AudioManager - Main audio management class (mirrors C++ AudioManager)
 /// Handles all audio operations including music, sound effects, and voice
 pub struct AudioManager {
-    #[allow(dead_code)] // Kept alive to prevent audio stream from dropping
-    output: Option<SendSyncWrapper<OutputStream>>,
-    pub handle: Option<SendSyncWrapper<OutputStreamHandle>>,
+    /// Keeps the cpal/rodio output stream alive on its owner thread.
+    #[allow(dead_code)]
+    output: Option<OutputStreamKeepalive>,
+    /// Already `Send + Sync` rodio mixer handle used to create sinks.
+    pub handle: Option<OutputStreamHandle>,
 
     // Multi-channel audio system matching C++ implementation
     audio_channels: HashMap<AudioAffect, Vec<AudioChannel>>,
@@ -106,8 +157,8 @@ pub struct AudioManager {
     channel_enabled: HashMap<AudioAffect, bool>,
 
     // Legacy single-channel support for backward compatibility
-    background_music: Option<SendSyncWrapper<Sink>>,
-    sound_effects: Vec<SendSyncWrapper<Sink>>,
+    background_music: Option<Sink>,
+    sound_effects: Vec<Sink>,
     current_music_track: Option<String>,
 
     // Global audio settings (matching C++ member variables)
@@ -176,10 +227,9 @@ impl AudioManager {
             return Ok(());
         }
 
-        let (output, handle) = OutputStream::try_default()
-            .map_err(|e| anyhow!("Failed to initialize audio output: {}", e))?;
-        self.output = Some(SendSyncWrapper::new(output));
-        self.handle = Some(SendSyncWrapper::new(handle));
+        let (output, handle) = spawn_output_stream_owner()?;
+        self.output = Some(output);
+        self.handle = Some(handle);
         info!("Audio output device activated");
         Ok(())
     }
@@ -201,7 +251,7 @@ impl AudioManager {
 
         // Stop current music if playing
         if let Some(ref music) = self.background_music {
-            music.get().stop();
+            music.stop();
         }
 
         // Try to load from archive with better diagnostics
@@ -280,11 +330,11 @@ impl AudioManager {
 
         // Create sink and play
         if let Some(ref handle) = self.handle {
-            match Sink::try_new(handle.get()) {
+            match Sink::try_new(handle) {
                 Ok(sink) => {
                     sink.set_volume(self.music_volume * self.master_volume);
                     sink.append(source);
-                    self.background_music = Some(SendSyncWrapper::new(sink));
+                    self.background_music = Some(sink);
                     self.current_music_track = Some(resolved_track.clone());
                     self.is_music_already_loaded = true;
                     info!("Started playing background music: {}", resolved_track);
@@ -310,13 +360,13 @@ impl AudioManager {
         debug!("Playing sound effect: {}", sound_name);
 
         // Clean up finished sound effects
-        self.sound_effects.retain(|sink| !sink.get().empty());
+        self.sound_effects.retain(|sink| !sink.empty());
 
         // Enforce max concurrent sounds limit
         if self.sound_effects.len() >= self.max_concurrent_sounds {
             // Remove oldest sound effect
             if let Some(oldest) = self.sound_effects.first() {
-                oldest.get().stop();
+                oldest.stop();
             }
             self.sound_effects.remove(0);
         }
@@ -337,11 +387,11 @@ impl AudioManager {
 
         // Create sink and play
         if let Some(ref handle) = self.handle {
-            match Sink::try_new(handle.get()) {
+            match Sink::try_new(handle) {
                 Ok(sink) => {
                     sink.set_volume(self.sfx_volume * self.master_volume);
                     sink.append(source);
-                    self.sound_effects.push(SendSyncWrapper::new(sink));
+                    self.sound_effects.push(sink);
                     debug!("Started playing sound effect: {}", sound_name);
                 }
                 Err(e) => {
@@ -359,23 +409,23 @@ impl AudioManager {
         match affect {
             AudioAffect::Music => {
                 if let Some(ref music) = self.background_music {
-                    music.get().pause();
+                    music.pause();
                     info!("Music paused");
                 }
             }
             AudioAffect::Sound | AudioAffect::Sound3D => {
                 for sink in &self.sound_effects {
-                    sink.get().pause();
+                    sink.pause();
                 }
                 info!("Sound effects paused");
             }
             _ => {
                 // For other types, pause all
                 if let Some(ref music) = self.background_music {
-                    music.get().pause();
+                    music.pause();
                 }
                 for sink in &self.sound_effects {
-                    sink.get().pause();
+                    sink.pause();
                 }
                 info!("All audio paused for affect: {:?}", affect);
             }
@@ -387,23 +437,23 @@ impl AudioManager {
         match affect {
             AudioAffect::Music => {
                 if let Some(ref music) = self.background_music {
-                    music.get().play();
+                    music.play();
                     info!("Music resumed");
                 }
             }
             AudioAffect::Sound | AudioAffect::Sound3D => {
                 for sink in &self.sound_effects {
-                    sink.get().play();
+                    sink.play();
                 }
                 info!("Sound effects resumed");
             }
             _ => {
                 // For other types, resume all
                 if let Some(ref music) = self.background_music {
-                    music.get().play();
+                    music.play();
                 }
                 for sink in &self.sound_effects {
-                    sink.get().play();
+                    sink.play();
                 }
                 info!("All audio resumed for affect: {:?}", affect);
             }
@@ -419,12 +469,9 @@ impl AudioManager {
             for channel in &mut *channels {
                 channel.enabled = enabled;
                 if enabled {
-                    channel
-                        .sink
-                        .get()
-                        .set_volume(channel.volume * self.master_volume);
+                    channel.sink.set_volume(channel.volume * self.master_volume);
                 } else {
-                    channel.sink.get().set_volume(0.0);
+                    channel.sink.set_volume(0.0);
                 }
             }
         }
@@ -434,20 +481,18 @@ impl AudioManager {
             AudioAffect::Music => {
                 if let Some(ref music) = self.background_music {
                     if enabled {
-                        music
-                            .get()
-                            .set_volume(self.music_volume * self.master_volume);
+                        music.set_volume(self.music_volume * self.master_volume);
                     } else {
-                        music.get().set_volume(0.0);
+                        music.set_volume(0.0);
                     }
                 }
             }
             AudioAffect::Sound | AudioAffect::Sound3D => {
                 for sink in &self.sound_effects {
                     if enabled {
-                        sink.get().set_volume(self.sfx_volume * self.master_volume);
+                        sink.set_volume(self.sfx_volume * self.master_volume);
                     } else {
-                        sink.get().set_volume(0.0);
+                        sink.set_volume(0.0);
                     }
                 }
             }
@@ -477,10 +522,7 @@ impl AudioManager {
             for channel in &mut *channels {
                 channel.volume = clamped_volume;
                 if channel.enabled {
-                    channel
-                        .sink
-                        .get()
-                        .set_volume(clamped_volume * self.master_volume);
+                    channel.sink.set_volume(clamped_volume * self.master_volume);
                 }
             }
         }
@@ -490,13 +532,13 @@ impl AudioManager {
             AudioAffect::Music => {
                 self.music_volume = clamped_volume;
                 if let Some(ref music) = self.background_music {
-                    music.get().set_volume(clamped_volume * self.master_volume);
+                    music.set_volume(clamped_volume * self.master_volume);
                 }
             }
             AudioAffect::Sound | AudioAffect::Sound3D => {
                 self.sfx_volume = clamped_volume;
                 for sink in &self.sound_effects {
-                    sink.get().set_volume(clamped_volume * self.master_volume);
+                    sink.set_volume(clamped_volume * self.master_volume);
                 }
             }
             AudioAffect::Speech => self.speech_volume = clamped_volume,
@@ -524,13 +566,11 @@ impl AudioManager {
 
         // Update all active audio with new master volume
         if let Some(ref music) = self.background_music {
-            music
-                .get()
-                .set_volume(self.music_volume * self.master_volume);
+            music.set_volume(self.music_volume * self.master_volume);
         }
 
         for sink in &self.sound_effects {
-            sink.get().set_volume(self.sfx_volume * self.master_volume);
+            sink.set_volume(self.sfx_volume * self.master_volume);
         }
 
         // Update channel audio as well
@@ -538,10 +578,7 @@ impl AudioManager {
             let base_volume = self.channel_volumes.get(affect).unwrap_or(&0.7);
             for channel in &mut *channels {
                 if channel.enabled {
-                    channel
-                        .sink
-                        .get()
-                        .set_volume(base_volume * self.master_volume);
+                    channel.sink.set_volume(base_volume * self.master_volume);
                 }
             }
         }
@@ -559,14 +596,14 @@ impl AudioManager {
         self.stop_background_music();
 
         for sink in &self.sound_effects {
-            sink.get().stop();
+            sink.stop();
         }
         self.sound_effects.clear();
 
         // Stop all channel audio
         for channels in self.audio_channels.values_mut() {
             for channel in &*channels {
-                channel.sink.get().stop();
+                channel.sink.stop();
             }
             channels.clear();
         }
@@ -577,7 +614,7 @@ impl AudioManager {
     /// Stop all sounds (matches C++ stopAllSounds)
     pub fn stop_all_sounds(&mut self) {
         for sink in &self.sound_effects {
-            sink.get().stop();
+            sink.stop();
         }
         self.sound_effects.clear();
 
@@ -585,7 +622,7 @@ impl AudioManager {
         for (affect, channels) in &mut self.audio_channels {
             if *affect == AudioAffect::Sound || *affect == AudioAffect::Sound3D {
                 for channel in &*channels {
-                    channel.sink.get().stop();
+                    channel.sink.stop();
                 }
                 channels.clear();
             }
@@ -597,7 +634,7 @@ impl AudioManager {
     /// Pause background music (matches C++ pauseBackgroundMusic)
     pub fn pause_background_music(&self) {
         if let Some(ref music) = self.background_music {
-            music.get().pause();
+            music.pause();
             info!("Background music paused");
         }
     }
@@ -605,7 +642,7 @@ impl AudioManager {
     /// Resume background music (matches C++ resumeBackgroundMusic)
     pub fn resume_background_music(&self) {
         if let Some(ref music) = self.background_music {
-            music.get().play();
+            music.play();
             info!("Background music resumed");
         }
     }
@@ -613,7 +650,7 @@ impl AudioManager {
     /// Stop background music (matches C++ stopBackgroundMusic)
     pub fn stop_background_music(&mut self) {
         if let Some(ref music) = self.background_music {
-            music.get().stop();
+            music.stop();
             info!("Background music stopped");
         }
         self.background_music = None;
@@ -624,11 +661,11 @@ impl AudioManager {
     /// Toggle background music pause/resume (matches C++ toggleBackgroundMusic)
     pub fn toggle_background_music(&self) {
         if let Some(ref music) = self.background_music {
-            if music.get().is_paused() {
-                music.get().play();
+            if music.is_paused() {
+                music.play();
                 info!("Background music resumed");
             } else {
-                music.get().pause();
+                music.pause();
                 info!("Background music paused");
             }
         }
@@ -638,9 +675,7 @@ impl AudioManager {
     pub fn set_music_volume(&mut self, volume: f32) {
         self.music_volume = volume.clamp(0.0, 1.0);
         if let Some(ref music) = self.background_music {
-            music
-                .get()
-                .set_volume(self.music_volume * self.master_volume);
+            music.set_volume(self.music_volume * self.master_volume);
         }
         info!("Music volume set to: {:.2}", self.music_volume);
     }
@@ -649,7 +684,7 @@ impl AudioManager {
     pub fn set_sfx_volume(&mut self, volume: f32) {
         self.sfx_volume = volume.clamp(0.0, 1.0);
         for sink in &self.sound_effects {
-            sink.get().set_volume(self.sfx_volume * self.master_volume);
+            sink.set_volume(self.sfx_volume * self.master_volume);
         }
         info!("Sound effects volume set to: {:.2}", self.sfx_volume);
     }
@@ -672,7 +707,7 @@ impl AudioManager {
     /// Check if background music is playing (matches C++ isMusicPlaying)
     pub fn is_music_playing(&self) -> bool {
         if let Some(ref music) = self.background_music {
-            !music.get().is_paused() && !music.get().empty()
+            !music.is_paused() && !music.empty()
         } else {
             false
         }
@@ -712,7 +747,7 @@ impl AudioManager {
 
         // Create sink
         if let Some(ref handle) = self.handle {
-            match Sink::try_new(handle.get()) {
+            match Sink::try_new(handle) {
                 Ok(sink) => {
                     let base_volume = self.channel_volumes.get(&affect).unwrap_or(&0.7);
                     let final_volume = base_volume * self.master_volume;
@@ -721,7 +756,7 @@ impl AudioManager {
                     sink.append(source);
 
                     let channel = AudioChannel {
-                        sink: SendSyncWrapper::new(sink),
+                        sink,
                         affect_type: affect,
                         volume: *base_volume,
                         enabled: true,
@@ -736,7 +771,7 @@ impl AudioManager {
                         {
                             // Remove oldest sound
                             if let Some(oldest) = channels.first() {
-                                oldest.sink.get().stop();
+                                oldest.sink.stop();
                             }
                             channels.remove(0);
                         }
@@ -759,7 +794,7 @@ impl AudioManager {
     pub fn stop_affect(&mut self, affect: AudioAffect) {
         if let Some(channels) = self.audio_channels.get_mut(&affect) {
             for channel in &*channels {
-                channel.sink.get().stop();
+                channel.sink.stop();
             }
             channels.clear();
         }
@@ -777,11 +812,11 @@ impl AudioManager {
     fn cleanup_finished_sounds(&mut self) {
         // Clean up finished sounds in all channels
         for channels in self.audio_channels.values_mut() {
-            channels.retain(|channel| !channel.sink.get().empty());
+            channels.retain(|channel| !channel.sink.empty());
         }
 
         // Clean up legacy sound effects
-        self.sound_effects.retain(|sink| !sink.get().empty());
+        self.sound_effects.retain(|sink| !sink.empty());
     }
 
     /// Update audio system (matches C++ update) - call every frame
@@ -1014,5 +1049,43 @@ mod tests {
             .all(|track| track.to_ascii_lowercase().starts_with("gla")));
 
         assert!(faction_music_candidates("unknown").is_none());
+    }
+
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+
+    #[test]
+    fn send_sync_wrapper_is_gone_and_audio_types_are_honestly_send() {
+        // The old generic wrapper marked every T as thread-safe. That type must stay gone.
+        let src = include_str!("audio.rs");
+        let production_src = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("audio.rs should keep a test module after production code");
+        assert!(
+            !production_src.contains("struct SendSyncWrapper"),
+            "SendSyncWrapper must remain removed; do not restore a generic Send/Sync lie"
+        );
+        assert!(
+            !production_src.contains("unsafe impl<T>"),
+            "blanket unsafe Send/Sync for arbitrary T is forbidden"
+        );
+
+        // rodio 0.17: control types are already Send + Sync. OutputStream is not
+        // (cpal::Stream / NotSendSyncAcrossAllPlatforms); it lives on a dedicated
+        // owner thread so AudioManager can sit in Mutex<AssetManager>.
+        assert_send::<rodio::Sink>();
+        assert_send::<rodio::SpatialSink>();
+        assert_send::<rodio::OutputStreamHandle>();
+        assert_sync::<rodio::Sink>();
+        assert_sync::<rodio::SpatialSink>();
+        assert_sync::<rodio::OutputStreamHandle>();
+        assert_send::<AudioManager>();
+        assert_send::<OutputStreamKeepalive>();
+
+        let manager = AudioManager::new().expect("AudioManager constructs without a device");
+        assert!(manager.handle.is_none());
+        assert!(!manager.is_music_playing());
+        assert_eq!(manager.get_master_volume(), 1.0);
     }
 }

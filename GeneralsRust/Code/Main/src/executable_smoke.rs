@@ -6,9 +6,13 @@
 //! path GPUI uses.
 //!
 //! Honesty:
-//! - `playable_claim` is **always false** here until full interactive retail WND navigation is proven end-to-end
-//!   path + GPU match playthrough is proven. Headless latch peels are not that bar
-//!   (`behavior_gate` enforces `playable_claim=false`).
+//! - `playable_claim` is the five-flag retail formula (`window_visible` &&
+//!   `wnd_widget_tree_nav` && `live_frame_ok` && InGame && gameplay). Headless
+//!   host smoke never publishes a visible OS window or OS/WND widget-tree nav, so
+//!   the claim stays false (`executable_smoke_gate` / `behavior_gate` still require
+//!   false for the headless host).
+//! - `retail_sit_through_missing` lists whichever of those five flags are still
+//!   false (empty only when the claim is true). Status lines print each flag.
 //! - `host_vertical_slice_ok` is the strengthened headless claim: shell WND + skirmish
 //!   latch chain (map/slots/rules/start) + InGame + construct/train/gameplay +
 //!   presentation boundary with non-zero stable render items (no live GameLogic
@@ -38,8 +42,9 @@ const LONE_EAGLE_CANDIDATES: &[&str] = &[
 pub struct ExecutableSmokeResult {
     pub status: String,
     pub detail: String,
-    /// Always false — not a retail W3D interactive playthrough claim.
-    /// Headless latch peels must not flip this; behavior_gate enforces false.
+    /// True only via `retail_windowed_playable_claim` (all five flags).
+    /// Headless host smoke never sets `window_visible` / `wnd_widget_tree_nav`.
+    /// Residual-pack honesty must not OR into this flag (`host_wave_inflation`).
     pub playable_claim: bool,
     /// Honest headless vertical slice: shell WND + skirmish latch chain
     /// (map/slots/rules/start) + InGame + select/move + construct + train +
@@ -134,6 +139,10 @@ pub struct ExecutableSmokeResult {
     pub window_visible: bool,
     /// Host published a hit-verified WND widget-tree LeftDown/Up click.
     pub wnd_widget_tree_nav: bool,
+    /// Comma-separated names of the five retail sit-through flags that are still
+    /// false (`window_visible`, `wnd_widget_tree_nav`, `live_frame_ok`, `ingame`,
+    /// `gameplay`). Empty only when `playable_claim` is true.
+    pub retail_sit_through_missing: String,
     /// Peak InGame unit mesh render_item_count from host status (world draw residual).
     pub max_render_item_count: u32,
     /// Peak InGame presentation-alive object count.
@@ -176,14 +185,49 @@ impl ExecutableSmokeResult {
         window_visible && wnd_widget_tree_nav && gpu_present && ingame && gameplay
     }
 
+    /// Comma-separated list of the five retail sit-through flags that are false.
+    /// Empty iff `retail_windowed_playable_claim` would be true.
+    pub fn retail_sit_through_missing_flags(
+        window_visible: bool,
+        wnd_widget_tree_nav: bool,
+        live_frame_ok: bool,
+        ingame: bool,
+        gameplay: bool,
+    ) -> String {
+        let mut missing = Vec::new();
+        if !window_visible {
+            missing.push("window_visible");
+        }
+        if !wnd_widget_tree_nav {
+            missing.push("wnd_widget_tree_nav");
+        }
+        if !live_frame_ok {
+            missing.push("live_frame_ok");
+        }
+        if !ingame {
+            missing.push("ingame");
+        }
+        if !gameplay {
+            missing.push("gameplay");
+        }
+        missing.join(",")
+    }
+
     /// Wave 176: latch `host_vertical_slice_ok` from presentation boundary + WND/cmd residuals.
     ///
     /// InGame requires a presentation-owned frame with zero live GameLogic dual-reads.
     /// Soft when the display never reached InGame (assets/GPU unavailable).
-    /// `playable_claim` stays false.
+    /// `playable_claim` follows the five-flag retail formula (false in headless).
     pub fn apply_host_vertical_slice_gate(&mut self) {
-        // Retail windowed WND+GPU sit-through is not proven in this host smoke.
-        // GenericTracer INI + leftover FX now register; that does not flip this claim.
+        // Headless latch peels / GenericTracer INI do not flip this claim.
+        // Windowed interactive can prove it only when all five residuals are true.
+        self.retail_sit_through_missing = Self::retail_sit_through_missing_flags(
+            self.window_visible,
+            self.wnd_widget_tree_nav,
+            self.live_frame_ok,
+            self.reached_ingame,
+            self.gameplay_cmd_ok,
+        );
         self.playable_claim = Self::retail_windowed_playable_claim(
             self.window_visible,
             self.wnd_widget_tree_nav,
@@ -306,6 +350,9 @@ impl Default for ExecutableSmokeResult {
             live_frame_ok: false,
             window_visible: false,
             wnd_widget_tree_nav: false,
+            retail_sit_through_missing: Self::retail_sit_through_missing_flags(
+                false, false, false, false, false,
+            ),
             max_render_item_count: 0,
             max_render_alive_objects: 0,
             render_items_stable_ok: false,
@@ -358,6 +405,7 @@ struct StatusSnap {
     live_frame_ok: bool,
     window_visible: bool,
     wnd_widget_tree_nav: bool,
+    retail_sit_through_missing: String,
     render_item_count: u32,
     render_alive_objects: u32,
     render_fow_filtered: u32,
@@ -452,6 +500,9 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
+            }
+            "retail_sit_through_missing" => {
+                snap.retail_sit_through_missing = v.trim().to_string();
             }
             "render_item_count" => {
                 snap.render_item_count = v.trim().parse().unwrap_or(0);
@@ -2787,11 +2838,24 @@ fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -
 }
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
+    let sit_through_missing = ExecutableSmokeResult::retail_sit_through_missing_flags(
+        r.window_visible,
+        r.wnd_widget_tree_nav,
+        r.live_frame_ok,
+        r.reached_ingame,
+        r.gameplay_cmd_ok,
+    );
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} window_visible={} wnd_widget_tree_nav={} live_frame_ok={} ingame={} gameplay={} retail_sit_through_missing={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
+        r.window_visible,
+        r.wnd_widget_tree_nav,
+        r.live_frame_ok,
+        r.reached_ingame,
+        r.gameplay_cmd_ok,
+        sit_through_missing,
         r.host_vertical_slice_ok,
             r.presentation_live_fallback_ok,
         r.process_started,
@@ -2925,9 +2989,74 @@ mod tests {
     }
 
     #[test]
+    fn residual_packs_cannot_set_playable_claim() {
+        use crate::game_logic::{
+            honesty_host_construct_dead_combat_latch_residual_pack_wave1115,
+            honesty_host_drawable_overlay_dead_residual_pack_wave1114,
+            honesty_host_selection_hud_disabled_fow_residual_pack_wave1113,
+            residual_pack_cannot_set_playable_claim, self_table_honesty_is_inflation,
+            simulate_live_host_construct_dead_combat_latch_residual_honesty,
+            simulate_live_host_drawable_overlay_dead_residual_honesty,
+            simulate_live_host_selection_hud_disabled_fow_residual_honesty,
+        };
+
+        assert!(
+            self_table_honesty_is_inflation(),
+            "self-table residual honesty is inflation policy"
+        );
+
+        // Constructing/running residual packs must not publish playable_claim.
+        assert!(honesty_host_construct_dead_combat_latch_residual_pack_wave1115());
+        assert!(honesty_host_drawable_overlay_dead_residual_pack_wave1114());
+        assert!(honesty_host_selection_hud_disabled_fow_residual_pack_wave1113());
+        assert!(simulate_live_host_construct_dead_combat_latch_residual_honesty());
+        assert!(simulate_live_host_drawable_overlay_dead_residual_honesty());
+        assert!(simulate_live_host_selection_hud_disabled_fow_residual_honesty());
+
+        let mut r = ExecutableSmokeResult::default();
+        assert!(residual_pack_cannot_set_playable_claim(r.playable_claim));
+        assert!(!r.playable_claim);
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            residual_pack_cannot_set_playable_claim(r.playable_claim),
+            "residual packs + host_ok path must leave playable_claim false"
+        );
+
+        let report = format_executable_smoke_report(&r);
+        assert!(report.contains("playable_claim=false"));
+        assert!(report.contains("window_visible=false"));
+        assert!(report.contains("wnd_widget_tree_nav=false"));
+        assert!(report.contains("live_frame_ok=false"));
+        assert!(report.contains("retail_sit_through_missing="));
+
+        // Production smoke must keep five-flag formula only (no residual_pack OR).
+        let src = include_str!("executable_smoke.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("production smoke");
+        assert!(prod.contains("self.playable_claim = Self::retail_windowed_playable_claim("));
+        assert!(!prod.contains("playable_claim |= "));
+        assert!(!prod.contains("executable_host_ok |= honesty_"));
+        assert!(!prod.contains("playable_claim = honesty_"));
+        assert!(!prod.contains("playable_claim = playable_claim ||"));
+    }
+
+    #[test]
     fn playable_claim_always_false_on_default() {
         let r = ExecutableSmokeResult::default();
         assert!(!r.playable_claim);
+        assert_eq!(
+            r.retail_sit_through_missing,
+            "window_visible,wnd_widget_tree_nav,live_frame_ok,ingame,gameplay"
+        );
+        let report = format_executable_smoke_report(&r);
+        assert!(report.contains("playable_claim=false"));
+        assert!(report.contains("window_visible=false"));
+        assert!(report.contains("wnd_widget_tree_nav=false"));
+        assert!(report.contains("live_frame_ok=false"));
+        assert!(report.contains("ingame=false"));
+        assert!(report.contains("gameplay=false"));
+        assert!(report.contains(
+            "retail_sit_through_missing=window_visible,wnd_widget_tree_nav,live_frame_ok,ingame,gameplay"
+        ));
     }
 
     #[test]
@@ -2962,6 +3091,10 @@ mod tests {
             !r.playable_claim,
             "retail windowed WND/GPU sit-through is not proven; playable_claim stays false"
         );
+        assert!(
+            r.retail_sit_through_missing.contains("window_visible"),
+            "headless sit-through must report window_visible missing"
+        );
         assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
             false, true, true, true, true
         ));
@@ -2978,7 +3111,26 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            "state=Menu\nwindow_visible=true\nwnd_widget_tree_nav=true\nlive_frame_ok=true\n",
+            "state=Menu\nwindow_visible=true\nwnd_widget_tree_nav=true\nlive_frame_ok=true\nretail_sit_through_missing=ingame,gameplay\n",
+        )
+        .unwrap();
+        let snap = parse_status(&path).expect("snap");
+        let _ = std::fs::remove_file(&path);
+        assert!(snap.window_visible);
+        assert!(snap.wnd_widget_tree_nav);
+        assert!(snap.live_frame_ok);
+        assert_eq!(snap.retail_sit_through_missing, "ingame,gameplay");
+    }
+
+    #[test]
+    fn parses_window_visible_and_wnd_widget_tree_nav_numeric_yes() {
+        let path = std::env::temp_dir().join(format!(
+            "generals_smoke_wnd_vis_num_{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "state=InGame\nwindow_visible=1\nwnd_widget_tree_nav=yes\nlive_frame_ok=on\n",
         )
         .unwrap();
         let snap = parse_status(&path).expect("snap");
@@ -2999,6 +3151,8 @@ mod tests {
             !r.playable_claim,
             "headless/missing window+WND nav must not flip playable_claim"
         );
+        assert!(r.retail_sit_through_missing.contains("window_visible"));
+        assert!(r.retail_sit_through_missing.contains("wnd_widget_tree_nav"));
         r.window_visible = true;
         r.wnd_widget_tree_nav = true;
         r.apply_host_vertical_slice_gate();
@@ -3006,6 +3160,107 @@ mod tests {
             r.playable_claim,
             "all five retail windowed flags true => playable_claim"
         );
+        assert!(r.retail_sit_through_missing.is_empty());
+        r.live_frame_ok = false;
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            !r.playable_claim,
+            "missing live GPU frame.png must not flip playable_claim"
+        );
+        assert_eq!(r.retail_sit_through_missing, "live_frame_ok");
+    }
+
+    #[test]
+    fn retail_windowed_playable_claim_false_unless_all_five() {
+        assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
+            false, true, true, true, true
+        ));
+        assert_eq!(
+            ExecutableSmokeResult::retail_sit_through_missing_flags(
+                false, true, true, true, true
+            ),
+            "window_visible"
+        );
+        assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
+            true, false, true, true, true
+        ));
+        assert_eq!(
+            ExecutableSmokeResult::retail_sit_through_missing_flags(
+                true, false, true, true, true
+            ),
+            "wnd_widget_tree_nav"
+        );
+        assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
+            true, true, false, true, true
+        ));
+        assert_eq!(
+            ExecutableSmokeResult::retail_sit_through_missing_flags(
+                true, true, false, true, true
+            ),
+            "live_frame_ok"
+        );
+        assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
+            true, true, true, false, true
+        ));
+        assert_eq!(
+            ExecutableSmokeResult::retail_sit_through_missing_flags(
+                true, true, true, false, true
+            ),
+            "ingame"
+        );
+        assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
+            true, true, true, true, false
+        ));
+        assert_eq!(
+            ExecutableSmokeResult::retail_sit_through_missing_flags(
+                true, true, true, true, false
+            ),
+            "gameplay"
+        );
+        assert!(ExecutableSmokeResult::retail_windowed_playable_claim(
+            true, true, true, true, true
+        ));
+        assert_eq!(
+            ExecutableSmokeResult::retail_sit_through_missing_flags(true, true, true, true, true),
+            ""
+        );
+    }
+
+    #[test]
+    fn four_of_five_retail_flags_keep_playable_claim_false() {
+        let mut r = ExecutableSmokeResult::default();
+        r.window_visible = true;
+        r.wnd_widget_tree_nav = true;
+        r.live_frame_ok = true;
+        r.reached_ingame = true;
+        // gameplay still false — 4/5
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            !r.playable_claim,
+            "4/5 retail flags must not flip playable_claim"
+        );
+        assert_eq!(r.retail_sit_through_missing, "gameplay");
+        let report = format_executable_smoke_report(&r);
+        assert!(report.contains("playable_claim=false"));
+        assert!(report.contains("window_visible=true"));
+        assert!(report.contains("wnd_widget_tree_nav=true"));
+        assert!(report.contains("live_frame_ok=true"));
+        assert!(report.contains("ingame=true"));
+        assert!(report.contains("gameplay=false"));
+        assert!(report.contains("retail_sit_through_missing=gameplay"));
+
+        r.gameplay_cmd_ok = true;
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            r.playable_claim,
+            "only all five retail flags true => playable_claim"
+        );
+        assert!(r.retail_sit_through_missing.is_empty());
+        let report = format_executable_smoke_report(&r);
+        assert!(report.contains("playable_claim=true"));
+        assert!(report.contains("gameplay=true"));
+        assert!(report.contains("retail_sit_through_missing="));
+        assert!(!report.contains("retail_sit_through_missing=gameplay"));
     }
 
     #[test]

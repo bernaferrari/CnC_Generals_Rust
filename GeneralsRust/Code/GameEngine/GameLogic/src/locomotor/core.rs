@@ -2934,8 +2934,9 @@ impl Locomotor {
             turn_radius = self.calc_min_turn_radius(condition);
         }
 
-        let dx = current_pos.x - current_pos.x;
-        let dy = current_pos.y - current_pos.y;
+        // C++ Locomotor.cpp:2502-2521 — orbit relative to m_maintainPos, not current pos.
+        let dx = self.maintain_pos.x - current_pos.x;
+        let dy = self.maintain_pos.y - current_pos.y;
         let angle_toward = if dx.abs() < 0.001 && dy.abs() < 0.001 {
             current_angle
         } else {
@@ -2950,9 +2951,9 @@ impl Locomotor {
         let circle_angle = angle_toward + aim_dir;
 
         let circle_target = Coord3D::new(
-            current_pos.x + circle_angle.cos() * turn_radius,
-            current_pos.y + circle_angle.sin() * turn_radius,
-            current_pos.z,
+            self.maintain_pos.x + circle_angle.cos() * turn_radius,
+            self.maintain_pos.y + circle_angle.sin() * turn_radius,
+            self.maintain_pos.z,
         );
 
         self.move_towards_position_other_physics(

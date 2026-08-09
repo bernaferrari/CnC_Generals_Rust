@@ -2542,7 +2542,8 @@ pub fn last_os_wnd_widget_tree_click_ok() -> bool {
     LAST_OS_WND_WIDGET_TREE_CLICK_OK.load(Ordering::SeqCst)
 }
 
-/// Sticky: at least one hit-verified WND widget-tree click was consumed.
+/// Sticky: a hit-verified WND gadget was under the cursor (`note_os_wnd_widget_tree_hit`)
+/// or a named `dispatch_os_click_named_window` hit-tested the live widget tree.
 pub fn os_wnd_widget_tree_nav_ok() -> bool {
     OS_WND_WIDGET_TREE_NAV_OK.load(Ordering::SeqCst)
 }
@@ -2593,6 +2594,8 @@ fn window_is_named_or_descendant(
 /// Honesty: `get_window_under_cursor` must hit the named gadget (or a descendant)
 /// before LeftDown/Up are sent through `process_mouse_event`. Shell-active wrapping
 /// of `dispatch_os_mouse_to_window_manager` is not treated as a successful click.
+/// Return value is hit-test success; `last_os_wnd_widget_tree_click_ok` is Used.
+/// Used is never latched without this hit-test.
 pub fn dispatch_os_click_named_window(name: &str) -> bool {
     use crate::gui::game_window::WindowInputReturnCode;
     use crate::gui::window_manager::with_window_manager;
@@ -2623,6 +2626,8 @@ pub fn dispatch_os_click_named_window(name: &str) -> bool {
     };
 
     let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
+    // Named dispatch and live OS mouse share the same sticky nav latch.
+    let _ = note_os_wnd_widget_tree_hit(x, y);
     let (down, up) = with_window_manager(|manager| {
         let down = manager.process_mouse_event(WindowMessage::LeftDown, x, y, data);
         let up = manager.process_mouse_event(WindowMessage::LeftUp, x, y, data);
@@ -2633,6 +2638,8 @@ pub fn dispatch_os_click_named_window(name: &str) -> bool {
     if used {
         OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
     }
+    // Hit-test succeeded. Used is LAST_OS_WND_WIDGET_TREE_CLICK_OK only — never
+    // without the get_window_under_cursor gate above.
     true
 }
 
@@ -2888,6 +2895,23 @@ mod tests {
             ShowSide::None,
             GameDifficulty::Normal
         ));
+    }
+
+    #[test]
+    fn dispatch_os_click_named_window_requires_hit_test_for_used() {
+        reset_os_wnd_widget_tree_nav_for_tests();
+        assert!(
+            !dispatch_os_click_named_window("MainMenu.wnd:MissingHitTest"),
+            "missing gadget must not count as a click"
+        );
+        assert!(
+            !last_os_wnd_widget_tree_click_ok(),
+            "Used must not latch without get_window_under_cursor hit"
+        );
+        assert!(
+            !os_wnd_widget_tree_nav_ok(),
+            "sticky nav must not latch on a miss"
+        );
     }
 
     #[test]

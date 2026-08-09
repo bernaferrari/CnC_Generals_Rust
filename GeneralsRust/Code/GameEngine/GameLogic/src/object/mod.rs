@@ -31,7 +31,7 @@ pub mod weapon;
 // pub mod update_modules;
 // pub mod concrete_update_modules;
 pub mod drawable;
-pub use drawable::DrawableArcExt;
+pub use drawable::{apply_debris_draw, DebrisDrawAnims, DrawableArcExt};
 pub mod experience_tracker;
 pub mod firing_tracker;
 pub mod ghost_object;
@@ -4939,6 +4939,25 @@ impl Object {
             .map(BehaviorModuleHandle::new)
     }
 
+    /// Install an update module after construction (tests / internal harnesses).
+    #[cfg(any(test, feature = "internal"))]
+    pub fn install_update_module(
+        &mut self,
+        name: &str,
+        module: Box<dyn Module>,
+        module_data: Arc<dyn ModuleData>,
+    ) {
+        let entry = Arc::new(ModuleEntry::new(
+            AsciiString::from(name),
+            AsciiString::new(),
+            ModuleInterfaceType::UPDATE,
+            module_data,
+            module,
+        ));
+        self.modules.push(Arc::clone(&entry));
+        self.update_module_handles.push(entry);
+    }
+
     /// Find a legacy behavior module by name (behavior list only).
     pub fn find_update_behavior(
         &self,
@@ -7183,6 +7202,23 @@ impl Object {
         100.0 // Default health
     }
 
+    /// Last DamageInfo recorded by the body module (`BodyModule::getLastDamageInfo`).
+    /// Includes the death type of a killing blow (e.g. `DeathType::Flooded`).
+    pub fn get_last_damage_info(&self) -> Option<DamageInfo> {
+        self.body.as_ref().and_then(|body| {
+            body.lock()
+                .ok()
+                .and_then(|body_guard| body_guard.get_last_damage_info())
+        })
+    }
+
+    /// Last death type stored on this object via the body last-damage snapshot.
+    /// C++: `getBodyModule()->getLastDamageInfo()->in.m_deathType`.
+    pub fn get_last_death_type(&self) -> Option<DeathType> {
+        self.get_last_damage_info()
+            .map(|info| info.input.death_type)
+    }
+
     /// Get maximum health
     /// C++ Reference: Object.cpp - max health accessor
     pub fn get_max_health(&self) -> f32 {
@@ -7333,6 +7369,11 @@ impl Object {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<f32, ObjectError> {
+        // C++ DamageInfo only has input.m_deathType / m_damageType. Callers that
+        // set input (OCL diesOnBadLand: DAMAGE_WATER + DEATH_FLOODED) must have
+        // those values visible on the compatibility fields after this call.
+        damage_info.sync_from_input();
+
         // Prevent damage to dead objects
         if self.is_effectively_dead() {
             return Err(ObjectError::AlreadyDead);
@@ -7704,6 +7745,16 @@ impl Object {
         self.geometry_info.angle
     }
 
+    /// Tiny fudge so "on ground" (z ~= layer height) is not treated as airborne.
+    /// C++ Thing::isAboveTerrain uses `getHeightAboveTerrain() > 0.0f`.
+    pub const ABOVE_TERRAIN_SLOP: Real = 0.0;
+
+    /// C++ Thing::isAboveTerrain comparison: `z > ground height + slop`.
+    #[inline]
+    pub fn is_above_terrain_height(z: Real, ground_height: Real) -> bool {
+        z > ground_height + Self::ABOVE_TERRAIN_SLOP
+    }
+
     /// Get height above the terrain.
     pub fn get_height_above_terrain(&self) -> Real {
         self.geometry_info.height_above_terrain
@@ -7717,12 +7768,20 @@ impl Object {
     /// C++ parity: Object::calculateHeightAboveTerrain() (Object.cpp line 2751)
     pub fn calculate_height_above_terrain(&self) -> Real {
         let pos = self.get_position();
-        let terrain_z = if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
+        pos.z - self.ground_height_for_above_terrain()
+    }
+
+    /// Ground/layer height used by [`Self::is_above_terrain`].
+    ///
+    /// C++ Object::calculateHeightAboveTerrain uses `TheTerrainLogic->getLayerHeight`.
+    /// Missing terrain (unit tests) stubs ground height as 0.
+    fn ground_height_for_above_terrain(&self) -> Real {
+        let pos = self.get_position();
+        if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
             terrain.get_layer_height(pos.x, pos.y, self.layer)
         } else {
             0.0
-        };
-        pos.z - terrain_z
+        }
     }
 
     /// Returns true if the object is well above the ground plane. Matches the C++ helper used
@@ -9994,29 +10053,15 @@ impl Object {
     // Object API helpers used by behaviors
     //=========================================================================
 
-    /// Check if object is above terrain (not on ground)
-    /// C++ Reference: Object.cpp - isAboveTerrain checks physics state or Z position
+    /// Check if object is above terrain (not on ground).
+    ///
+    /// C++ Thing.h: `isAboveTerrain() { return getHeightAboveTerrain() > 0.0f; }`
+    /// Object overrides height via layer (bridges): `z > ground/layer height + slop`.
     pub fn is_above_terrain(&self) -> bool {
-        if self.status.test_status(ObjectStatusTypes::AirborneTarget) {
-            return true;
-        }
-
-        let height_above = self.geometry_info.height_above_terrain;
-        if height_above > 0.1 {
-            return true;
-        }
-
-        // Fallback to terrain query if height is stale.
-        if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-            let ground_z = terrain.get_layer_height(
-                self.geometry_info.position.x,
-                self.geometry_info.position.y,
-                self.layer,
-            );
-            return self.geometry_info.position.z - ground_z > 0.1;
-        }
-
-        self.geometry_info.position.z > 1.0
+        Self::is_above_terrain_height(
+            self.get_position().z,
+            self.ground_height_for_above_terrain(),
+        )
     }
 
     /// Clear and set model condition flags atomically
@@ -11149,6 +11194,21 @@ impl Object {
         obj
     }
 
+    /// Swap the thing template on a test object (KINDOF flags, trainable, etc.).
+    #[cfg(any(test, feature = "internal"))]
+    pub fn set_template_for_test(&mut self, template: Arc<dyn ThingTemplate>) {
+        self.thing_template = template;
+    }
+
+    /// Attach a behavior module for unit tests / internal harnesses.
+    #[cfg(any(test, feature = "internal"))]
+    pub fn push_behavior_module_for_test(
+        &mut self,
+        behavior: Arc<Mutex<dyn crate::modules::BehaviorModuleInterface>>,
+    ) {
+        self.behaviors.push(behavior);
+    }
+
     //=========================================================================
     // CONTAINER AND PARTITION METHODS
     // Container and spatial partition management
@@ -11405,22 +11465,51 @@ impl Object {
     // Object API helpers used by modules
     //=========================================================================
 
-    /// Get the pathfinding layer this object is on
-    /// C++ Reference: Object.cpp - Layer management
-    ///
-    /// # Returns
-    /// The pathfinding layer enum for this object
+    /// C++ `Object::getLayer` (Object.h:380).
     pub fn get_layer(&self) -> PathfindLayerEnum {
         self.layer
     }
 
-    /// Set the pathfinding layer this object is on
-    /// C++ Reference: Object.cpp - Layer management
+    /// C++ `Object::setLayer` (Object.cpp:2699-2714).
     ///
-    /// # Arguments
-    /// * `layer` - The new pathfinding layer for this object
+    /// OCL `PreserveLayer` / `ON_GROUND_ALIGNED` call this so debris stays on
+    /// the source object's pathfind layer (bridge/wall) instead of dropping to
+    /// ground. Pathfinder occupancy is refreshed when TheAI is available.
     pub fn set_layer(&mut self, layer: PathfindLayerEnum) {
+        if layer == self.layer {
+            return;
+        }
+        // C++: TheAI->pathfinder()->removePos(this);
+        self.sync_pathfinder_pos(true);
         self.layer = layer;
+        // C++: TheAI->pathfinder()->updatePos(this, getPosition());
+        self.sync_pathfinder_pos(false);
+    }
+
+    /// Best-effort C++ Pathfinder::removePos / updatePos around a layer change.
+    /// No-ops when AI/pathfinder is not constructed (unit tests, early boot).
+    fn sync_pathfinder_pos(&self, remove_only: bool) {
+        let Ok(ai_guard) = crate::ai::THE_AI.read() else {
+            return;
+        };
+        let Some(pathfinder) = ai_guard.pathfinder() else {
+            return;
+        };
+        let Ok(pf) = pathfinder.write() else {
+            return;
+        };
+        let cell = crate::ai::pathfind_astar::GridCoord::from_world(self.get_position());
+        let astar_layer = match self.layer {
+            PathfindLayerEnum::Top | PathfindLayerEnum::Air => {
+                crate::ai::pathfind_astar::PathfindLayerEnum::Top
+            }
+            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+        };
+        if remove_only {
+            pf.remove_pos_cells(self.get_id(), 0, true, astar_layer);
+        } else {
+            pf.update_pos_cells(cell, self.get_id(), astar_layer, 0, true, false);
+        }
     }
 
     pub fn get_destination_layer(&self) -> PathfindLayerEnum {
@@ -12400,27 +12489,16 @@ impl Object {
     }
 
     pub fn get_health_box_dimensions(&self) -> (f32, f32) {
-        let max_hp = self
-            .body
-            .as_ref()
-            .and_then(|b| b.lock().ok())
-            .map(|g| g.get_max_health())
-            .unwrap_or(100.0);
-
-        if self.is_kind_of(KindOf::Structure) {
-            let height = 5.0_f32.max(max_hp / 50.0).min(3.0);
-            let width = 100.0_f32.max(max_hp / 10.0).min(150.0);
-            (height, width)
-        } else if self.is_kind_of(KindOf::MobNexus) {
-            let height = 5.0_f32.max(max_hp / 50.0).min(3.0);
-            let width = 66.0_f32.max(max_hp / 10.0).min(100.0);
-            (height, width)
-        } else if self.is_kind_of(KindOf::IgnoredInGui) {
+        // C++ Object.cpp:3402-3413 (`CALC_HEALTHBAR_FROM_HITPOINTS` is undefined).
+        // The ifdef HP path used `min(3, max(5, hp/50))`, which is always 3.0.
+        if self.is_kind_of(KindOf::IgnoredInGui) {
             (0.0, 0.0)
         } else {
-            let height = 5.0_f32.max(max_hp / 50.0).min(3.0);
-            let width = 35.0_f32.max(max_hp / 10.0).min(150.0);
-            (height, width)
+            let size = (self.geometry_info.get_major_radius()
+                + self.geometry_info.get_minor_radius())
+            .min(150.0)
+            .max(20.0);
+            (3.0, (size * 2.0).max(20.0))
         }
     }
 
@@ -13550,6 +13628,45 @@ mod tests {
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 
     #[test]
+    fn allow_to_fall_is_above_terrain_true_when_z_well_above_stub_ground() {
+        // C++ Thing::isAboveTerrain: z > ground height + slop. Stub ground = 0.
+        assert!(!Object::is_above_terrain_height(0.0, 0.0));
+        assert!(Object::is_above_terrain_height(100.0, 0.0));
+
+        let mut obj = Object::new_test(88_010, 100.0);
+        obj.set_geometry_info_z(0.0);
+        assert!(
+            !obj.is_above_terrain(),
+            "on ground (z == stub ground 0) is not above terrain"
+        );
+
+        obj.set_geometry_info_z(100.0);
+        assert!(
+            obj.is_above_terrain(),
+            "z >> stub ground height 0 is above terrain"
+        );
+    }
+
+    #[test]
+    fn set_layer_stores_pathfind_layer_for_ocl_preserve_layer() {
+        let mut obj = Object::new_test(88_001, 100.0);
+        assert_eq!(obj.get_layer(), PathfindLayerEnum::Ground);
+
+        obj.set_layer(PathfindLayerEnum::Bridge1);
+        assert_eq!(obj.get_layer(), PathfindLayerEnum::Bridge1);
+
+        obj.set_layer(PathfindLayerEnum::Wall);
+        assert_eq!(obj.get_layer(), PathfindLayerEnum::Wall);
+
+        obj.set_layer(PathfindLayerEnum::Ground);
+        assert_eq!(obj.get_layer(), PathfindLayerEnum::Ground);
+
+        // Same-layer set is a no-op (C++ Object::setLayer early-out).
+        obj.set_layer(PathfindLayerEnum::Ground);
+        assert_eq!(obj.get_layer(), PathfindLayerEnum::Ground);
+    }
+
+    #[test]
     fn object_crc_matches_cpp_object_cpp_field_order() {
         let src = include_str!("mod.rs");
         let crc = src
@@ -13978,6 +14095,37 @@ mod tests {
             Some(ModelConditionFlags::WEAPONSET_CRATEUPGRADE_TWO)
         );
         assert_eq!(weapon_set_model_condition(WeaponSetType::CarBomb), None);
+    }
+
+    #[test]
+    fn attempt_damage_water_death_flooded_stores_last_death_type() {
+        // C++ ObjectCreationList diesOnBadLand / WaveGuideUpdate:
+        // do not call kill(); attemptDamage with DAMAGE_WATER + DEATH_FLOODED.
+        let mut obj = Object::new_test(42, 10.0);
+        assert!(!obj.is_effectively_dead());
+        assert_eq!(obj.get_health(), 10.0);
+        assert!(obj.get_last_death_type().is_none());
+
+        let mut damage_info = DamageInfo::with_simple(
+            HUGE_DAMAGE_AMOUNT,
+            crate::common::INVALID_ID,
+            DamageType::Water,
+            DeathType::Flooded,
+        );
+
+        assert!(obj.attempt_damage(&mut damage_info).is_ok());
+        assert!(obj.is_effectively_dead());
+        assert!(obj.get_health() <= 0.0);
+        assert_eq!(obj.get_last_death_type(), Some(DeathType::Flooded));
+
+        let last = obj
+            .get_last_damage_info()
+            .expect("killing blow must be stored on the body last-damage snapshot");
+        assert_eq!(last.input.damage_type, DamageType::Water);
+        assert_eq!(last.input.death_type, DeathType::Flooded);
+        assert_eq!(last.damage_type, DamageType::Water);
+        assert_eq!(last.death_type, DeathType::Flooded);
+        assert!(damage_info.output.killed_target);
     }
 
     #[test]

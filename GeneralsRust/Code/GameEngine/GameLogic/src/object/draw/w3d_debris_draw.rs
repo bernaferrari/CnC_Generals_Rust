@@ -153,6 +153,30 @@ impl W3DDebrisDraw {
         self.owner_id = Some(owner_id);
     }
 
+    pub fn model_name(&self) -> &AsciiString {
+        &self.model_name
+    }
+
+    pub fn model_color(&self) -> Color {
+        self.model_color
+    }
+
+    pub fn shadow_type(&self) -> ShadowType {
+        self.shadow_type
+    }
+
+    pub fn anim_initial(&self) -> &AsciiString {
+        &self.anim_initial
+    }
+
+    pub fn anim_flying(&self) -> &AsciiString {
+        &self.anim_flying
+    }
+
+    pub fn anim_final(&self) -> &AsciiString {
+        &self.anim_final
+    }
+
     fn transition_to_flying(&mut self) {
         if self.current_state == DebrisAnimState::Initial {
             self.current_state = DebrisAnimState::Flying;

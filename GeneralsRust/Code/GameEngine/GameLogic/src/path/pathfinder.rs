@@ -24,13 +24,14 @@ impl<'a> GridPassability<'a> {
         to: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
         radius_cells: i32,
+        crusher: bool,
     ) -> bool {
         let dx = to.x - from.x;
         let dy = to.y - from.y;
         let dz = to.z - from.z;
         let distance = (dx * dx + dy * dy + dz * dz).sqrt();
         if distance <= f32::EPSILON {
-            return self.sample_point(from, surfaces, radius_cells);
+            return self.sample_point(from, surfaces, radius_cells, crusher);
         }
 
         let step_length = (crate::path::PATHFIND_CELL_SIZE_F * 0.5).max(0.1);
@@ -39,7 +40,7 @@ impl<'a> GridPassability<'a> {
         for step in 0..=steps {
             let t = step as f32 / steps as f32;
             let sample = Coord3D::new(from.x + dx * t, from.y + dy * t, from.z + dz * t);
-            if !self.sample_point(&sample, surfaces, radius_cells) {
+            if !self.sample_point(&sample, surfaces, radius_cells, crusher) {
                 return false;
             }
         }
@@ -52,12 +53,13 @@ impl<'a> GridPassability<'a> {
         pos: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
         radius_cells: i32,
+        crusher: bool,
     ) -> bool {
         let center = world_to_grid(pos);
         for dx in -radius_cells..=radius_cells {
             for dy in -radius_cells..=radius_cells {
                 let cell = ICoord2D::new(center.x + dx, center.y + dy);
-                if !self.cell_passable(cell, surfaces) {
+                if !self.cell_passable(cell, surfaces, crusher) {
                     return false;
                 }
                 if let Some(nav) = self.navigation {
@@ -72,7 +74,16 @@ impl<'a> GridPassability<'a> {
         true
     }
 
-    fn cell_passable(&self, cell: ICoord2D, surfaces: LocomotorSurfaceTypeMask) -> bool {
+    fn cell_passable(
+        &self,
+        cell: ICoord2D,
+        surfaces: LocomotorSurfaceTypeMask,
+        crusher: bool,
+    ) -> bool {
+        // C++ validMovementPosition: crushers may enter fence obstacles only.
+        if self.pathfinder.crusher_may_cross_obstacle(cell, crusher) {
+            return true;
+        }
         let Some(cell_type) = self.pathfinder.cell_type(cell) else {
             return false;
         };
@@ -92,7 +103,7 @@ impl<'a> PassabilityQuery for GridPassability<'a> {
         if blocked {
             return false;
         }
-        self.sample_passability(from, to, surfaces, 0)
+        self.sample_passability(from, to, surfaces, 0, false)
     }
 
     fn is_ground_line_passable(
@@ -106,8 +117,9 @@ impl<'a> PassabilityQuery for GridPassability<'a> {
             / crate::path::PATHFIND_CELL_SIZE_F)
             .ceil()
             .max(if crusher { 0.0 } else { 0.5 }) as i32;
-        let surfaces = if crusher { u32::MAX } else { SURFACE_GROUND };
-        self.sample_passability(from, to, surfaces, radius_cells)
+        // Ground locomotor surfaces only — crushers do not fly over buildings.
+        // Fence exceptions are applied in cell_passable via crusher_may_cross_obstacle.
+        self.sample_passability(from, to, SURFACE_GROUND, radius_cells, crusher)
     }
 }
 
@@ -260,6 +272,29 @@ impl Pathfinder {
         }
     }
 
+    /// Stamp CELL_OBSTACLE with C++ `setTypeAsObstacle` fence flag.
+    /// `is_fence == true` is crushable; solid buildings stay blocked for ground crushers.
+    pub fn set_cell_as_obstacle(&mut self, cell: ICoord2D, is_fence: bool) {
+        if let Some((x, y)) = self.cell_indices(cell) {
+            let _ = self.grid[x][y].set_type_as_obstacle(1, is_fence, &cell);
+        }
+    }
+
+    /// C++ `PathfindCell::isObstacleFence`.
+    pub fn is_obstacle_fence(&self, cell: ICoord2D) -> bool {
+        self.cell_indices(cell)
+            .map(|(x, y)| self.grid[x][y].is_obstacle_fence())
+            .unwrap_or(false)
+    }
+
+    /// C++ `isCrusher && toCell->isObstacleFence()` in validMovementPosition.
+    #[inline]
+    fn crusher_may_cross_obstacle(&self, cell: ICoord2D, is_crusher: bool) -> bool {
+        is_crusher
+            && matches!(self.cell_type(cell), Some(PathfindCellType::Obstacle))
+            && self.is_obstacle_fence(cell)
+    }
+
     pub fn set_navigation(&mut self, samples: NavigationSamples) {
         self.navigation = Some(samples);
     }
@@ -399,26 +434,28 @@ impl Pathfinder {
             .map(|(x, y)| self.grid[x][y].get_type())
     }
 
-    fn is_passable(&self, locomotor: &LocomotorSet, cell_type: PathfindCellType) -> bool {
-        if matches!(
-            cell_type,
-            PathfindCellType::Impassable | PathfindCellType::BridgeImpassable
-        ) {
-            return locomotor.can_move_on_surface(SURFACE_AIR);
+    /// C++ `Pathfinder::validMovementPosition` (AIPathfind.cpp:4839-4847).
+    /// Crushers enter fence obstacles only; AIR may enter obstacle/impassable/bridge_impassable.
+    fn is_passable(&self, locomotor: &LocomotorSet, cell: ICoord2D) -> bool {
+        if self.crusher_may_cross_obstacle(cell, locomotor.is_crusher()) {
+            return true;
         }
-        if matches!(cell_type, PathfindCellType::Obstacle) {
-            return locomotor.is_crusher() || locomotor.can_move_on_surface(SURFACE_AIR);
-        }
+        let Some(cell_type) = self.cell_type(cell) else {
+            return false;
+        };
         let surfaces = valid_locomotor_surfaces_for_cell_type(cell_type);
         surfaces != 0 && (locomotor.get_valid_surfaces() & surfaces) != 0
     }
 
-    fn traversal_cost(&self, locomotor: &LocomotorSet, cell_type: PathfindCellType) -> u32 {
+    fn traversal_cost(&self, locomotor: &LocomotorSet, cell: ICoord2D) -> u32 {
         if locomotor.can_move_on_surface(SURFACE_AIR) {
-            return 10;
+            return COST_ORTHOGONAL;
         }
+        let Some(cell_type) = self.cell_type(cell) else {
+            return u32::MAX;
+        };
         match cell_type {
-            PathfindCellType::Clear => 10,
+            PathfindCellType::Clear => COST_ORTHOGONAL,
             PathfindCellType::Water => {
                 if locomotor.can_move_on_surface(SURFACE_WATER) {
                     15
@@ -443,8 +480,9 @@ impl Pathfinder {
                 }
             }
             PathfindCellType::Obstacle => {
-                if locomotor.is_crusher() {
-                    30
+                if self.crusher_may_cross_obstacle(cell, locomotor.is_crusher()) {
+                    // C++ examineNeighboringCells: CELL_OBSTACLE += 100*COST_ORTHOGONAL
+                    100 * COST_ORTHOGONAL
                 } else {
                     u32::MAX
                 }
@@ -559,11 +597,11 @@ impl Pathfinder {
                 let neighbor_cell = ICoord2D::new(node.key.x + dx, node.key.y + dy);
                 let neighbor_key = CellKey::from(neighbor_cell);
 
-                let Some(cell_type) = self.cell_type(neighbor_cell) else {
+                if self.cell_type(neighbor_cell).is_none() {
                     continue;
-                };
+                }
 
-                if !self.is_passable(locomotor, cell_type) {
+                if !self.is_passable(locomotor, neighbor_cell) {
                     continue;
                 }
 
@@ -583,24 +621,15 @@ impl Pathfinder {
                 if dx != 0 && dy != 0 {
                     let adj1 = ICoord2D::new(node.key.x + dx, node.key.y);
                     let adj2 = ICoord2D::new(node.key.x, node.key.y + dy);
-                    if let Some(type1) = self.cell_type(adj1) {
-                        if !self.is_passable(locomotor, type1) {
-                            continue;
-                        }
-                    } else {
+                    if self.cell_type(adj1).is_none() || !self.is_passable(locomotor, adj1) {
                         continue;
                     }
-
-                    if let Some(type2) = self.cell_type(adj2) {
-                        if !self.is_passable(locomotor, type2) {
-                            continue;
-                        }
-                    } else {
+                    if self.cell_type(adj2).is_none() || !self.is_passable(locomotor, adj2) {
                         continue;
                     }
                 }
 
-                let mut terrain_cost = self.traversal_cost(locomotor, cell_type);
+                let mut terrain_cost = self.traversal_cost(locomotor, neighbor_cell);
                 if let Some(nav) = self.navigation.as_ref() {
                     if let Some(sample) = nav.sample_cell(neighbor_cell) {
                         if !locomotor.can_move_on_surface(SURFACE_AIR) {
@@ -638,15 +667,19 @@ impl Pathfinder {
     }
 }
 
+/// C++ `COST_ORTHOGONAL` / `COST_DIAGONAL` (AIPathfind.cpp:1649).
+const COST_ORTHOGONAL: u32 = 10;
+const COST_DIAGONAL: u32 = 14;
+
 const NEIGHBOR_DELTAS: &[(i32, i32, u32)] = &[
-    (-1, -1, 14),
-    (-1, 0, 10),
-    (-1, 1, 14),
-    (0, -1, 10),
-    (0, 1, 10),
-    (1, -1, 14),
-    (1, 0, 10),
-    (1, 1, 14),
+    (-1, -1, COST_DIAGONAL),
+    (-1, 0, COST_ORTHOGONAL),
+    (-1, 1, COST_DIAGONAL),
+    (0, -1, COST_ORTHOGONAL),
+    (0, 1, COST_ORTHOGONAL),
+    (1, -1, COST_DIAGONAL),
+    (1, 0, COST_ORTHOGONAL),
+    (1, 1, COST_DIAGONAL),
 ];
 
 impl PathfindServicesInterface for Pathfinder {
@@ -689,10 +722,10 @@ impl PathfindServicesInterface for Pathfinder {
                         continue;
                     }
                     let candidate = ICoord2D::new(goal_cell.x + dx, goal_cell.y + dy);
-                    let Some(candidate_type) = self.cell_type(candidate) else {
+                    if self.cell_type(candidate).is_none() {
                         continue;
-                    };
-                    if !self.is_passable(locomotor_set, candidate_type) {
+                    }
+                    if !self.is_passable(locomotor_set, candidate) {
                         continue;
                     }
                     if let Some(cells) =
@@ -795,7 +828,58 @@ impl PathfindServicesInterface for Pathfinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{ICoord2D, IRegion2D};
+    use crate::common::{Coord3D, ICoord2D, IRegion2D};
+    use crate::locomotor::SURFACE_AIR;
+    use crate::path::{
+        grid_to_world, world_to_grid, LocomotorSet, NavigationMap, PathHandle, PathfindCellType,
+        PATHFIND_CELL_SIZE_F, SURFACE_GROUND,
+    };
+
+    fn clear_grid(pathfinder: &mut Pathfinder, width: i32, height: i32) {
+        let extent = IRegion2D::new(ICoord2D::new(0, 0), ICoord2D::new(width - 1, height - 1));
+        pathfinder.set_extent(extent);
+        for x in 0..width {
+            for y in 0..height {
+                pathfinder.set_cell_type(ICoord2D::new(x, y), PathfindCellType::Clear);
+            }
+        }
+    }
+
+    fn path_nodes(pathfinder: &Pathfinder, handle: PathHandle) -> Vec<Coord3D> {
+        let path = pathfinder.path(handle).expect("stored path");
+        let mut nodes = Vec::new();
+        let mut cursor = path.get_first_node();
+        while let Some(node) = cursor {
+            nodes.push(*node.get_position());
+            cursor = node.get_next();
+        }
+        nodes
+    }
+
+    fn path_crosses_column(nodes: &[Coord3D], column: i32) -> bool {
+        if nodes.iter().any(|p| world_to_grid(p).x == column) {
+            return true;
+        }
+        for window in nodes.windows(2) {
+            let a = window[0];
+            let b = window[1];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist <= f32::EPSILON {
+                continue;
+            }
+            let steps = (dist / (PATHFIND_CELL_SIZE_F * 0.25)).ceil().max(1.0) as i32;
+            for step in 0..=steps {
+                let t = step as f32 / steps as f32;
+                let sample = Coord3D::new(a.x + dx * t, a.y + dy * t, 0.0);
+                if world_to_grid(&sample).x == column {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 
     #[test]
     fn steep_slope_blocks_ground_path() {
@@ -821,5 +905,168 @@ mod tests {
         let to = grid_to_world(&ICoord2D::new(2, 0), PathLayer::Ground);
 
         assert!(pathfinder.find_path(0, &locomotor, &from, &to).is_none());
+    }
+
+    #[test]
+    fn crusher_find_path_only_crosses_fence_obstacles_like_cpp() {
+        // Full-height wall at x=4 so the only route is through the obstacle column.
+        // C++ AIPathfind.cpp:4840-4842 — crushers enter isObstacleFence only.
+        let mut pf = Pathfinder::new();
+        clear_grid(&mut pf, 9, 5);
+        for y in 0..5 {
+            pf.set_cell_as_obstacle(ICoord2D::new(4, y), false);
+        }
+        let start = ICoord2D::new(0, 2);
+        let goal = ICoord2D::new(8, 2);
+        let from = grid_to_world(&start, PathLayer::Ground);
+        let to = grid_to_world(&goal, PathLayer::Ground);
+        let crusher = LocomotorSet::new(SURFACE_GROUND, true, 5.0);
+        let infantry = LocomotorSet::new(SURFACE_GROUND, false, 5.0);
+
+        assert!(
+            !pf.is_obstacle_fence(ICoord2D::new(4, 2)),
+            "solid building must not be stamped as fence"
+        );
+        assert!(
+            !pf.is_passable(&crusher, ICoord2D::new(4, 2)),
+            "crusher must not enter solid CELL_OBSTACLE buildings"
+        );
+        assert!(!pf.is_passable(&infantry, ICoord2D::new(4, 2)));
+        assert_eq!(pf.traversal_cost(&crusher, ICoord2D::new(4, 2)), u32::MAX);
+        assert!(
+            pf.find_path(0, &crusher, &from, &to).is_none(),
+            "crusher must not path through solid CELL_OBSTACLE buildings"
+        );
+        assert!(pf.find_path(0, &infantry, &from, &to).is_none());
+
+        for y in 0..5 {
+            pf.set_cell_as_obstacle(ICoord2D::new(4, y), true);
+        }
+        assert!(
+            pf.is_obstacle_fence(ICoord2D::new(4, 2)),
+            "wall must be stamped as fence"
+        );
+        assert!(
+            !pf.is_passable(&infantry, ICoord2D::new(4, 2)),
+            "non-crusher still blocked by fence"
+        );
+        assert!(
+            pf.is_passable(&crusher, ICoord2D::new(4, 2)),
+            "crusher may enter fence cells"
+        );
+        assert_eq!(
+            pf.traversal_cost(&crusher, ICoord2D::new(4, 2)),
+            100 * COST_ORTHOGONAL,
+            "fence crusher cost matches C++ 100*COST_ORTHOGONAL"
+        );
+        assert!(
+            pf.find_path(0, &infantry, &from, &to).is_none(),
+            "non-crusher must not path through a fence wall"
+        );
+        let handle = pf
+            .find_path(0, &crusher, &from, &to)
+            .expect("crusher must path through a fence wall");
+        let nodes = path_nodes(&pf, handle);
+        assert!(
+            !nodes.is_empty(),
+            "crusher fence path must contain nodes"
+        );
+        assert_eq!(world_to_grid(&nodes[0]), start);
+        assert_eq!(world_to_grid(nodes.last().unwrap()), goal);
+        assert!(
+            path_crosses_column(&nodes, 4),
+            "crusher path must cross fence column: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn air_find_path_crosses_obstacle_impassable_and_bridge_impassable() {
+        // C++ validLocomotorSurfacesForCellType: OBSTACLE/IMPASSABLE/BRIDGE_IMPASSABLE → AIR.
+        let mut pf = Pathfinder::new();
+        clear_grid(&mut pf, 9, 5);
+        for y in 0..5 {
+            pf.set_cell_as_obstacle(ICoord2D::new(4, y), false);
+        }
+        let from = grid_to_world(&ICoord2D::new(0, 2), PathLayer::Ground);
+        let to = grid_to_world(&ICoord2D::new(8, 2), PathLayer::Ground);
+        let air = LocomotorSet::new(SURFACE_AIR, false, 5.0);
+        let ground = LocomotorSet::new(SURFACE_GROUND, false, 5.0);
+
+        assert!(pf.is_passable(&air, ICoord2D::new(4, 2)));
+        assert!(!pf.is_passable(&ground, ICoord2D::new(4, 2)));
+        assert!(
+            pf.find_path(0, &air, &from, &to).is_some(),
+            "AIR must path through solid obstacles"
+        );
+        assert!(pf.find_path(0, &ground, &from, &to).is_none());
+
+        for y in 0..5 {
+            pf.set_cell_type(ICoord2D::new(4, y), PathfindCellType::Impassable);
+        }
+        assert!(pf.is_passable(&air, ICoord2D::new(4, 2)));
+        assert!(!pf.is_passable(&ground, ICoord2D::new(4, 2)));
+        assert!(
+            pf.find_path(0, &air, &from, &to).is_some(),
+            "AIR must path through CELL_IMPASSABLE"
+        );
+        assert!(pf.find_path(0, &ground, &from, &to).is_none());
+
+        for y in 0..5 {
+            pf.set_cell_type(ICoord2D::new(4, y), PathfindCellType::BridgeImpassable);
+        }
+        assert!(pf.is_passable(&air, ICoord2D::new(4, 2)));
+        assert!(!pf.is_passable(&ground, ICoord2D::new(4, 2)));
+        assert!(
+            pf.find_path(0, &air, &from, &to).is_some(),
+            "AIR must path through CELL_BRIDGE_IMPASSABLE"
+        );
+        assert!(pf.find_path(0, &ground, &from, &to).is_none());
+    }
+
+    #[test]
+    fn crusher_find_path_goes_around_solid_building_not_through() {
+        // Building occupies (3,1)-(5,3); start/goal on the mid row so a tank
+        // that treated every CELL_OBSTACLE as crushable would cut through.
+        let mut pf = Pathfinder::new();
+        clear_grid(&mut pf, 9, 5);
+        for x in 3..=5 {
+            for y in 1..=3 {
+                pf.set_cell_as_obstacle(ICoord2D::new(x, y), false);
+            }
+        }
+        let from = grid_to_world(&ICoord2D::new(0, 2), PathLayer::Ground);
+        let to = grid_to_world(&ICoord2D::new(8, 2), PathLayer::Ground);
+        let crusher = LocomotorSet::new(SURFACE_GROUND, true, 5.0);
+        let infantry = LocomotorSet::new(SURFACE_GROUND, false, 5.0);
+
+        assert!(!pf.is_passable(&crusher, ICoord2D::new(4, 2)));
+        let handle = pf
+            .find_path(0, &crusher, &from, &to)
+            .expect("crusher must detour around solid buildings");
+        let infantry_handle = pf
+            .find_path(0, &infantry, &from, &to)
+            .expect("infantry must detour around solid buildings");
+        let crusher_nodes = path_nodes(&pf, handle);
+        let infantry_nodes = path_nodes(&pf, infantry_handle);
+        assert!(
+            !path_crosses_column(&crusher_nodes, 4)
+                || crusher_nodes.iter().all(|p| {
+                    let c = world_to_grid(p);
+                    c.x != 4 || c.y == 0 || c.y == 4
+                }),
+            "crusher must not enter the building interior: {:?}",
+            crusher_nodes
+        );
+        for node in &crusher_nodes {
+            let cell = world_to_grid(node);
+            if (3..=5).contains(&cell.x) && (1..=3).contains(&cell.y) {
+                panic!("crusher waypoint inside solid building {:?}", cell);
+            }
+        }
+        assert!(
+            !infantry_nodes.is_empty() && !crusher_nodes.is_empty(),
+            "both ground units must find the around-building route"
+        );
     }
 }

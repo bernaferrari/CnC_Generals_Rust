@@ -1250,6 +1250,9 @@ pub mod parity_test_support {
 
         fn transition_to_state(&mut self, new_state: GameState) {
             match new_state {
+                GameState::Initializing => {
+                    self.ui_screen = Some(Screen::Loading);
+                }
                 GameState::Menu => {
                     self.game_paused = false;
                     self.game_logic_paused = false;
@@ -1268,6 +1271,13 @@ pub mod parity_test_support {
                     self.game_paused = true;
                     self.game_logic_paused = true;
                     self.ui_screen = Some(Screen::PauseMenu);
+                }
+                GameState::Victory | GameState::Defeat => {
+                    self.game_paused = true;
+                    self.game_logic_paused = true;
+                    self.match_over = true;
+                    self.victory_summary_present = true;
+                    self.ui_screen = Some(Screen::GameHUD);
                 }
                 GameState::Exiting => {
                     self.ui_screen = None;
@@ -1380,6 +1390,97 @@ enum PendingUnitAbility {
     ConvertToCarbomb,
     /// Dozer/Worker repair residual awaiting damaged structure click.
     Repair,
+}
+
+/// Evidence collected exclusively from physical winit input during one windowed
+/// session.  Runtime-host commands and the GameClient's scripted WND helpers do
+/// not call `CnCGameEngine::input`, so they cannot manufacture this evidence.
+///
+/// Keeping the claim here rather than in the smoke runner is important: this is
+/// the boundary that knows whether an event came from the OS or from a test
+/// control file.  It also makes the in-game status useful to a real player
+/// without weakening the headless vertical-slice checks.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct InteractivePlayabilityEvidence {
+    /// A physical left click was hit-tested and consumed by a visible shell WND
+    /// widget while the engine was in its menu state.
+    menu_wnd_click: bool,
+    /// That menu interaction subsequently started an offline match through the
+    /// normal `start_game_from_ui` authority path.
+    match_started_from_menu_wnd: bool,
+    /// A physical context-click issued an order after that match began.  Selection
+    /// alone is intentionally insufficient: this proves a player can command a
+    /// unit, not merely move the pointer over the HUD.
+    gameplay_order: bool,
+}
+
+impl InteractivePlayabilityEvidence {
+    fn note_menu_wnd_click(&mut self, windowed: bool, wnd_consumed: bool, hit_widget: bool) {
+        if windowed && wnd_consumed && hit_widget {
+            self.menu_wnd_click = true;
+        }
+    }
+
+    fn note_offline_match_started(&mut self, was_menu: bool, offline_mode: bool) {
+        if self.menu_wnd_click && was_menu && offline_mode {
+            self.match_started_from_menu_wnd = true;
+        }
+    }
+
+    fn note_gameplay_order(&mut self, windowed: bool, had_selection: bool) {
+        if windowed && self.match_started_from_menu_wnd && had_selection {
+            self.gameplay_order = true;
+        }
+    }
+
+    /// The WND-navigation component of the retail claim requires the complete
+    /// menu-to-match chain, rather than a broad sticky "some gadget was hovered"
+    /// bit from the GUI singleton.
+    fn wnd_menu_to_match_complete(self) -> bool {
+        self.menu_wnd_click && self.match_started_from_menu_wnd
+    }
+
+    fn gameplay_complete(self) -> bool {
+        self.match_started_from_menu_wnd && self.gameplay_order
+    }
+}
+
+#[cfg(test)]
+mod interactive_playability_evidence_tests {
+    use super::InteractivePlayabilityEvidence;
+
+    #[test]
+    fn scripted_or_hover_only_input_cannot_claim_retail_navigation() {
+        let mut evidence = InteractivePlayabilityEvidence::default();
+        evidence.note_menu_wnd_click(true, true, false);
+        evidence.note_offline_match_started(true, true);
+        evidence.note_gameplay_order(true, true);
+
+        assert!(!evidence.wnd_menu_to_match_complete());
+        assert!(!evidence.gameplay_complete());
+    }
+
+    #[test]
+    fn physical_offline_menu_to_match_and_order_completes_evidence() {
+        let mut evidence = InteractivePlayabilityEvidence::default();
+        evidence.note_menu_wnd_click(true, true, true);
+        evidence.note_offline_match_started(true, true);
+        evidence.note_gameplay_order(true, true);
+
+        assert!(evidence.wnd_menu_to_match_complete());
+        assert!(evidence.gameplay_complete());
+    }
+
+    #[test]
+    fn network_or_headless_paths_do_not_complete_retail_evidence() {
+        let mut evidence = InteractivePlayabilityEvidence::default();
+        evidence.note_menu_wnd_click(false, true, true);
+        evidence.note_offline_match_started(true, false);
+        evidence.note_gameplay_order(false, true);
+
+        assert!(!evidence.wnd_menu_to_match_complete());
+        assert!(!evidence.gameplay_complete());
+    }
 }
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
@@ -1633,6 +1734,9 @@ pub struct CnCGameEngine {
     /// Sticky: open_skirmish_menu / Skirmish UI was entered this host session.
     runtime_host_saw_skirmish_menu: bool,
     runtime_host_last_gameplay_cmd: String,
+    /// Real-person, windowed input evidence for the retail playable claim.
+    /// Deliberately separate from `runtime_host_last_gameplay_cmd`.
+    interactive_playability: InteractivePlayabilityEvidence,
     /// Cumulative HP damage applied this match (host_damage_log residual).
     match_damage_applied: f32,
     /// Cumulative destroy events from damage this match.
@@ -2153,6 +2257,20 @@ impl CnCGameEngine {
         self.runtime_host_active
     }
 
+    /// Honest OS-window residual for status.txt.
+    ///
+    /// True only when this is not a headless host and winit reports visible
+    /// (`Some(true)`), or the platform cannot query visibility (`None` →
+    /// `unwrap_or(!headless)`). Headless stays false even if the hidden
+    /// window later reports `Some(true)`.
+    fn runtime_host_window_visible(&self) -> bool {
+        !self.runtime_host_headless
+            && self
+                .window
+                .is_visible()
+                .unwrap_or(!self.runtime_host_headless)
+    }
+
     fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
         let projected = match state {
             UISystemState::MainMenu => "MainMenu",
@@ -2333,19 +2451,15 @@ impl CnCGameEngine {
                 .last_presentation_live_fallback_reads()
                 as u32,
             waypoint_mode: self.sticky_waypoint_mode,
+            // Snapshot stays false; publish_status ORs a real promoted capture.
             live_frame_ok: false,
-            window_visible: !self.runtime_host_headless
-                && self.window.is_visible().unwrap_or(!self.runtime_host_headless),
-            wnd_widget_tree_nav: {
-                #[cfg(feature = "game_client")]
-                {
-                    game_client::gui::os_wnd_widget_tree_nav_ok()
-                }
-                #[cfg(not(feature = "game_client"))]
-                {
-                    false
-                }
-            },
+            window_visible: self.runtime_host_window_visible(),
+            // Do not publish the GUI singleton's broad sticky hit bit here: scripted
+            // WND helpers and a pointer hover can set it without a real menu→match
+            // sit-through.  This is physical winit input plus the authoritative
+            // offline start path only.
+            wnd_widget_tree_nav: self.interactive_playability.wnd_menu_to_match_complete(),
+            interactive_gameplay: self.interactive_playability.gameplay_complete(),
             pending_capture: self.runtime_host_pending_capture,
             render_alive_objects: self.render_pipeline.debug_last_alive_objects() as u32,
             render_fow_filtered: self.render_pipeline.debug_last_fow_filtered() as u32,
@@ -14142,6 +14256,11 @@ impl CnCGameEngine {
         // Wave 610: host residual helper.
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
         self.host_replace_game_logic(result.game_logic);
+        // The boot presentation frame describes the pre-load, terrain-less
+        // GameLogic instance.  Rebuild it after the worker handoff so WGPU sees
+        // the retail map's decoded HeightMapData, lighting, roads, and bounds.
+        self.render_pipeline.set_presentation_frame(None);
+        self.last_presentation_frame = None;
 
         if let Some(active_map_name) = result.loaded_map_name.as_ref() {
             if result.replay_requested {
@@ -14824,6 +14943,7 @@ impl CnCGameEngine {
             runtime_host_ui_screen_override: None,
             runtime_host_saw_skirmish_menu: false,
             runtime_host_last_gameplay_cmd: String::new(),
+            interactive_playability: InteractivePlayabilityEvidence::default(),
             match_damage_applied: 0.0,
             match_kills: 0,
             runtime_host_pending_capture: false,
@@ -16003,8 +16123,22 @@ impl CnCGameEngine {
                 }
                 let wnd_used = self.dispatch_os_mouse_to_window_manager(*button, pressed, x, y);
                 #[cfg(feature = "game_client")]
+                let hit_wnd_widget = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
+                #[cfg(not(feature = "game_client"))]
+                let hit_wnd_widget = false;
+
+                // This path is entered only for a physical winit mouse event.  The
+                // shell marks every click as Used while it is active, so require an
+                // enabled gadget hit as well before counting menu navigation.
+                if pressed
+                    && matches!(*button, MouseButton::Left)
+                    && self.current_state == GameState::Menu
                 {
-                    let _ = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
+                    self.interactive_playability.note_menu_wnd_click(
+                        !self.runtime_host_headless && !self.runtime_host_active,
+                        wnd_used,
+                        hit_wnd_widget,
+                    );
                 }
                 // Main-owned screens (HUD/pause/skirmish fallback) plus Menu when overlay
                 // is not the only UI. Clicks on a None overlay screen no-op.
@@ -16041,7 +16175,15 @@ impl CnCGameEngine {
                                     let dx = self.mouse_position.0 - anchor.0;
                                     let dy = self.mouse_position.1 - anchor.1;
                                     if dx * dx + dy * dy < DRAG_THRESHOLD_SQ {
+                                        let had_selection = !self
+                                            .ui_selected_ids(self.current_player_id)
+                                            .is_empty();
                                         self.handle_right_click();
+                                        self.interactive_playability.note_gameplay_order(
+                                            !self.runtime_host_headless
+                                                && !self.runtime_host_active,
+                                            had_selection,
+                                        );
                                     }
                                 }
                             }
@@ -16554,12 +16696,12 @@ impl CnCGameEngine {
 
         // Diagnostic: log first few Menu update_internal calls
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
-            info!("update_internal: Menu state, about to call update_runtime_subsystems (menu_frame={})", self.menu_world_frames_rendered);
+            debug!("update_internal: Menu state, about to call update_runtime_subsystems (menu_frame={})", self.menu_world_frames_rendered);
         }
         // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
         self.update_runtime_subsystems(dt);
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
-            info!(
+            debug!(
                 "update_internal: Menu state, update_runtime_subsystems done, entering state match"
             );
         }
@@ -19836,7 +19978,7 @@ impl CnCGameEngine {
         {
             let gc = &mut self.game_client;
             if early_menu_frame {
-                info!(
+                debug!(
                     "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
                     self.menu_world_frames_rendered
                 );
@@ -19844,18 +19986,18 @@ impl CnCGameEngine {
             let _ = gc.ensure_shell_visible();
             let t1 = std::time::Instant::now();
             if early_menu_frame {
-                info!("Menu update_internal: calling gc.update_input");
+                debug!("Menu update_internal: calling gc.update_input");
             }
             // Wave 587/588: device bookkeeping on Main-injected state (not dual OS poll).
             let _ = gc.update_input();
             let t2 = std::time::Instant::now();
             if early_menu_frame {
-                info!("Menu update_internal: calling gc.update_pre_draw_ui");
+                debug!("Menu update_internal: calling gc.update_pre_draw_ui");
             }
             let _ = gc.update_pre_draw_ui();
             let t3 = std::time::Instant::now();
             if early_menu_frame {
-                info!("Menu update_internal: calling gc.update_post_draw_ui");
+                debug!("Menu update_internal: calling gc.update_post_draw_ui");
             }
             let _ = gc.update_post_draw_ui();
             let _ = (t1, t2, t3);
@@ -19879,7 +20021,7 @@ impl CnCGameEngine {
         {
             let gc = &mut self.game_client;
             if early_menu_frame {
-                info!("Menu update_internal: calling gc.pump_message_stream");
+                debug!("Menu update_internal: calling gc.pump_message_stream");
             }
             let _ = gc.pump_message_stream();
         }
@@ -19902,7 +20044,7 @@ impl CnCGameEngine {
         let t5 = std::time::Instant::now();
         let menu_gc_elapsed = t0.elapsed();
         if menu_gc_elapsed >= std::time::Duration::from_millis(50) || early_menu_frame {
-            info!(
+            debug!(
                 "Menu GC update: total={:?} newgame_scan={:?} pump_tail={:?} frame={}",
                 menu_gc_elapsed,
                 t4.duration_since(t0),
@@ -21963,6 +22105,12 @@ impl CnCGameEngine {
         map: String,
         skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
     ) {
+        // Capture the provenance before this function moves Menu → Loading.  The
+        // flag may only be completed after the normal map/bootstrap path reaches
+        // InGame; a runtime-host `start_game` command has no physical WND click and
+        // therefore cannot satisfy it.
+        let interactive_start_from_menu = self.current_state == GameState::Menu;
+        let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
         // Wave 611: host residual helper.
         // Show loading screen before starting map load (matches C++ loading screen flow)
         #[cfg(feature = "game_client")]
@@ -22075,6 +22223,8 @@ impl CnCGameEngine {
         // frustum contains host armies (metadata InitialCameraPosition can be far off).
         self.snap_camera_to_local_units_if_needed();
         self.transition_to_state(GameState::InGame);
+        self.interactive_playability
+            .note_offline_match_started(interactive_start_from_menu, offline_mode);
     }
 
     /// Prefer a local base focus for the match camera when bootstrap aim is far
@@ -27791,8 +27941,10 @@ struct RuntimeHostSnapshot {
     live_frame_ok: bool,
     /// winit window is visible and host is not headless.
     window_visible: bool,
-    /// Sticky: a hit-verified WND widget-tree LeftDown/Up was consumed.
+    /// Physical WND menu click completed an offline menu-to-match transition.
     wnd_widget_tree_nav: bool,
+    /// Physical in-game command after a physical WND menu→match transition.
+    interactive_gameplay: bool,
     /// Host requested capture this frame (bridge should force screenshot).
     pending_capture: bool,
     /// Last unit-pass collect honesty (presentation residual).
@@ -27973,6 +28125,7 @@ impl RuntimeHostBridge {
             live_frame_ok: false,
             window_visible: false,
             wnd_widget_tree_nav: false,
+            interactive_gameplay: false,
             pending_capture: false,
             render_alive_objects: 0,
             render_fow_filtered: 0,
@@ -28063,16 +28216,39 @@ impl RuntimeHostBridge {
             snapshot.presentation_live_fallback_reads
         ));
         payload.push_str(&format!("waypoint_mode={}\n", snapshot.waypoint_mode));
+        // Honest: only a promoted GPU/screenshot capture (or an explicit snapshot
+        // flag). Fallback PNGs written to frame_path must not flip live_frame_ok.
         payload.push_str(&format!(
             "live_frame_ok={}\n",
-            snapshot.live_frame_ok
-                || self.has_published_live_frame
-                || Self::png_file_looks_usable(&self.frame_path)
+            snapshot.live_frame_ok || self.has_published_live_frame
         ));
         payload.push_str(&format!("window_visible={}\n", snapshot.window_visible));
         payload.push_str(&format!(
             "wnd_widget_tree_nav={}\n",
             snapshot.wnd_widget_tree_nav
+        ));
+        // Five-flag sit-through diagnostic. `live_frame_ok` above is
+        // capture-promoted only; gameplay is physical input evidence, never a
+        // runtime-host command string.
+        let live_frame_ok = snapshot.live_frame_ok || self.has_published_live_frame;
+        let ingame = matches!(snapshot.state.as_str(), "InGame" | "Paused");
+        let gameplay = snapshot.interactive_gameplay;
+        let sit_through_missing =
+            crate::executable_smoke::ExecutableSmokeResult::retail_sit_through_missing_flags(
+                snapshot.window_visible,
+                snapshot.wnd_widget_tree_nav,
+                live_frame_ok,
+                ingame,
+                gameplay,
+            );
+        payload.push_str(&format!("ingame={ingame}\n"));
+        payload.push_str(&format!("gameplay={gameplay}\n"));
+        payload.push_str(&format!(
+            "interactive_menu_wnd_match={}\n",
+            snapshot.wnd_widget_tree_nav
+        ));
+        payload.push_str(&format!(
+            "retail_sit_through_missing={sit_through_missing}\n"
         ));
         payload.push_str(&format!(
             "render_alive_objects={}\n",
@@ -28159,7 +28335,9 @@ impl RuntimeHostBridge {
         self.promote_capture_frame_if_ready();
 
         if Self::png_file_looks_usable(&self.frame_path) {
-            self.has_published_live_frame = true;
+            // Keep an already-written PNG (live capture or previous fallback) so
+            // we do not clobber it. Do not treat fallback bytes as live_frame_ok;
+            // only promote_capture_frame_if_ready latches has_published_live_frame.
             return;
         }
         if self.has_published_live_frame {
@@ -31019,8 +31197,30 @@ fn runtime_host_live_frame_residual() {
             && src.contains("png_file_looks_usable")
             && src.contains("window_visible")
             && src.contains("wnd_widget_tree_nav")
-            && src.contains("os_wnd_widget_tree_nav_ok"),
-        "runtime host must publish live_frame_ok / window_visible / WND widget-tree honesty"
+            && src.contains("wnd_menu_to_match_complete"),
+        "runtime host must publish live_frame_ok / window_visible / physical WND menu-to-match honesty"
+    );
+    let status_fn = src.find("fn publish_status").expect("publish_status");
+    let status_end = src[status_fn..]
+        .find("fn publish_frame")
+        .map(|i| status_fn + i)
+        .unwrap_or(status_fn + 3_200);
+    let status_body = &src[status_fn..status_end];
+    assert!(
+        status_body.contains("snapshot.live_frame_ok || self.has_published_live_frame"),
+        "live_frame_ok must stay capture-promoted, not fallback PNG"
+    );
+    assert!(
+        status_body.contains("retail_sit_through_missing"),
+        "publish_status must list which of the five sit-through flags are still false"
+    );
+    assert!(
+        status_body.contains("ingame=") && status_body.contains("gameplay="),
+        "publish_status must print ingame/gameplay sit-through flags explicitly"
+    );
+    assert!(
+        !status_body.contains("png_file_looks_usable"),
+        "publish_status must not claim live_frame_ok from fallback frame.png"
     );
     let i = src.find("fn publish_runtime").expect("publish_runtime");
     let w = &src[i..src.len().min(i + 350)];
@@ -31154,7 +31354,11 @@ mod runtime_host_windowed_bridge_tests {
     fn runtime_host_enabled_uses_active_not_only_headless() {
         let src = include_str!("cnc_game_engine.rs");
         let start = src.find("fn runtime_host_enabled").expect("enabled");
-        let body = &src[start..src.len().min(start + 120)];
+        let end = src[start..]
+            .find("fn runtime_host_window_visible")
+            .map(|i| start + i)
+            .unwrap_or(start + 120);
+        let body = &src[start..end];
         assert!(
             body.contains("self.runtime_host_active"),
             "windowed runtime host must enable host cmds/status"
@@ -31164,6 +31368,77 @@ mod runtime_host_windowed_bridge_tests {
             "enabled must not be headless-only"
         );
         assert!(src.contains("note_os_wnd_widget_tree_hit"));
+    }
+
+    #[test]
+    fn windowed_runtime_host_publishes_visible_from_winit_is_visible() {
+        let src = include_str!("cnc_game_engine.rs");
+        let start = src
+            .find("fn runtime_host_window_visible")
+            .expect("window_visible helper");
+        let body = &src[start..src.len().min(start + 420)];
+        assert!(
+            body.contains("!self.runtime_host_headless"),
+            "window_visible must stay false in headless"
+        );
+        assert!(
+            body.contains("is_visible()") && body.contains("unwrap_or(!self.runtime_host_headless)"),
+            "window_visible must use winit is_visible Some(true) or unwrap_or(!headless)"
+        );
+        assert!(
+            src.contains("window_visible: self.runtime_host_window_visible()"),
+            "status snapshot must publish the honest winit visibility residual"
+        );
+        assert!(
+            src.contains("live_frame_ok: false"),
+            "snapshot live_frame_ok stays false; publish ORs a real capture"
+        );
+        assert!(
+            src.contains("interactive_playability.wnd_menu_to_match_complete()"),
+            "snapshot must publish physical WND menu-to-match evidence, not a singleton latch"
+        );
+        assert!(
+            src.contains("retail_sit_through_missing"),
+            "windowed status must list which sit-through flags are still false"
+        );
+    }
+
+    #[test]
+    fn windowed_runtime_host_does_not_init_headless_ww3d() {
+        let src = include_str!("cnc_game_engine.rs");
+        let headless_init = src
+            .find("ww3d_engine::init_headless")
+            .expect("init_headless");
+        let window_init = src
+            .find("ww3d_engine::init_with_window")
+            .expect("init_with_window");
+        assert!(window_init > headless_init);
+        let gate = &src[headless_init.saturating_sub(200)..headless_init];
+        assert!(
+            gate.contains("if runtime_host_headless"),
+            "init_headless must stay behind runtime_host_headless"
+        );
+        assert!(
+            src[headless_init..window_init].contains("} else if"),
+            "windowed runtime_host must not call init_headless"
+        );
+    }
+
+    #[test]
+    fn windowed_runtime_host_redraw_presents_gpu() {
+        let src = include_str!("cnc_game_engine.rs");
+        assert!(
+            src.contains("drive_frame(engine, current_window, &mut runtime_host_bridge, true)"),
+            "windowed RedrawRequested must present (render_frame=true)"
+        );
+        assert!(
+            src.contains("next_redraw_at = now + FRAME_INTERVAL"),
+            "windowed AboutToWait must pace GPU presents"
+        );
+        assert!(
+            src.contains("HEADLESS_PRESENT_INTERVAL"),
+            "headless present interval must remain a separate path"
+        );
     }
 }
 

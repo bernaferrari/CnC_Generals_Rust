@@ -3,6 +3,10 @@ name = "map_cache_builder"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "map_cache_builder"
+path = "src/lib.rs"
+
 [dependencies]
 # Core dependencies
 serde = { workspace = true, features = ["derive"] }
@@ -35,6 +39,10 @@ lz4 = { workspace = true }
 # Image processing (for map previews)
 image = { workspace = true }
 
+# Optional chrome (egui already in workspace; keep default CLI checkable)
+egui = { workspace = true, optional = true }
+eframe = { workspace = true, optional = true }
+
 [dev-dependencies]
 tempfile = "3.8"
 
@@ -48,3 +56,4 @@ compression = []
 parallel_processing = []
 preview_generation = []
 debug_output = []
+ui = ["egui", "eframe"]

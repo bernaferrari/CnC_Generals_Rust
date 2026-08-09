@@ -392,7 +392,11 @@ impl WeaponTemplate {
     }
 
     pub fn is_valid(&self) -> bool {
-        !self.name.is_empty() && self.primary_damage > 0.0 && self.range > 0.0
+        // C++ accepts utility/FX weapons with zero damage (for example
+        // `ScorpionTankGunFXWeapon`) and data-only weapons with no conventional
+        // attack range. Field parsers validate malformed values; the template
+        // itself only requires a name.
+        !self.name.is_empty()
     }
 
     pub fn is_area_weapon(&self) -> bool {
@@ -580,11 +584,19 @@ static WEAPON_STORE: OnceCell<RwLock<WeaponStore>> = OnceCell::new();
 
 /// Initialize the global weapon store
 pub fn initialize_weapon_store() {
-    if WEAPON_STORE.get().is_none() {
-        let _ = WEAPON_STORE.set(RwLock::new(WeaponStore::new()));
-    } else if let Some(store) = WEAPON_STORE.get() {
+    WEAPON_STORE.get_or_init(|| RwLock::new(WeaponStore::new()));
+}
+
+/// Explicitly clear registered weapon definitions.
+///
+/// Initialization must be idempotent because every parsed `Weapon` calls it;
+/// resetting there previously discarded the preceding retail definition and
+/// left the store containing only the final weapon.
+pub fn reset_weapon_store() {
+    initialize_weapon_store();
+    if let Some(store) = WEAPON_STORE.get() {
         if let Ok(mut guard) = store.write() {
-            *guard = WeaponStore::new();
+            guard.clear();
         }
     }
 }
@@ -598,6 +610,10 @@ pub fn get_weapon_store() -> Option<RwLockWriteGuard<'static, WeaponStore>> {
 
 /// Parse a boolean value from string
 pub fn parse_bool(value: &str) -> Result<bool, String> {
+    // C++ token parsers consume the first value token. This also preserves
+    // compatibility with the retail Humvee weapon line whose explanatory text
+    // accidentally lacks a leading semicolon.
+    let value = value.split_whitespace().next().unwrap_or(value);
     match value.trim().to_lowercase().as_str() {
         "true" | "yes" | "1" => Ok(true),
         "false" | "no" | "0" => Ok(false),
@@ -606,19 +622,22 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
 }
 
 fn parse_f32_field(field_name: &str, value: &str) -> WeaponResult<f32> {
-    value.parse::<f32>().map_err(|e| {
+    let token = value.split_whitespace().next().unwrap_or(value);
+    token.parse::<f32>().map_err(|e| {
         WeaponError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
     })
 }
 
 fn parse_u32_field(field_name: &str, value: &str) -> WeaponResult<u32> {
-    value.parse::<u32>().map_err(|e| {
+    let token = value.split_whitespace().next().unwrap_or(value);
+    token.parse::<u32>().map_err(|e| {
         WeaponError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
     })
 }
 
 fn parse_i32_field(field_name: &str, value: &str) -> WeaponResult<i32> {
-    value.parse::<i32>().map_err(|e| {
+    let token = value.split_whitespace().next().unwrap_or(value);
+    token.parse::<i32>().map_err(|e| {
         WeaponError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
     })
 }

@@ -170,8 +170,15 @@ impl TerrainLogicContext for LiveTerrainLogicContext {
             .unwrap_or(false)
     }
 
-    fn flatten_terrain(&self, _object: &Object) {
-        // Terrain deformation is not wired yet in the Rust port.
+    fn flatten_terrain(&self, object: &Object) {
+        // C++ TheTerrainLogic->flattenTerrain(obj). Live TerrainLogic takes an Arc.
+        let id = object.get_id();
+        let Some(arc) = crate::object::registry::OBJECT_REGISTRY.get_object(id) else {
+            return;
+        };
+        if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
+            terrain.flatten_terrain(&arc);
+        }
     }
 
     fn find_closest_edge_point(&self, pos: &Coord3D) -> Coord3D {

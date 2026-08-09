@@ -15,7 +15,6 @@ use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
 use crate::ai::{
     AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, AttitudeType, GuardMode,
 };
-use crate::commands::commands as cmd_api;
 use crate::commands::{
     get_command_queue_manager, Command, CommandPriority, CommandType, QueuedCommand,
 };
@@ -1277,7 +1276,7 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doDamageTeamMembers() line 400
+    /// C++ Reference: ScriptActions::doDamageTeamMembers() / Team::damageTeamMembers()
     fn do_damage_team_members(
         &mut self,
         action: &ScriptAction,
@@ -1287,16 +1286,37 @@ impl ScriptActionDispatcher {
 
         log::info!("Damaging team '{}' for {} points", team_name, damage_amount);
 
-        // Get team by name and damage all members
-        let factory = get_team_factory();
-        if let Ok(mut factory_guard) = factory.lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                if let Ok(mut team_guard) = team_arc.write() {
-                    team_guard.damage_team_members(damage_amount);
-                    log::info!("Team '{}' damaged for {} points", team_name, damage_amount);
-                }
+        let members = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name))
+            .and_then(|team| team.read().ok().map(|team| team.get_members().to_vec()))
+            .unwrap_or_default();
+        if members.is_empty() {
+            log::warn!("Team '{}' not found for damage", team_name);
+            return Ok(ScriptActionResult::Success);
+        }
+
+        for object_id in members {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                continue;
+            };
+            let Ok(mut obj_guard) = obj_arc.write() else {
+                continue;
+            };
+            if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
+                continue;
+            }
+            if damage_amount < 0.0 {
+                obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
             } else {
-                log::warn!("Team '{}' not found for damage", team_name);
+                let mut damage_info = DamageInfo::with_simple(
+                    damage_amount,
+                    INVALID_ID,
+                    DamageType::Unresistable,
+                    DeathType::Normal,
+                );
+                let _ = obj_guard.attempt_damage(&mut damage_info);
             }
         }
 
@@ -1590,7 +1610,7 @@ impl ScriptActionDispatcher {
     // C++ Reference: ScriptActions.cpp line 438 (named move)
     // ============================================================================
 
-    /// C++ Reference: ScriptActions::doNamedMoveToWaypoint() line 438
+    /// C++ Reference: ScriptActions::doNamedMoveToWaypoint()
     fn do_named_move_to_waypoint(
         &mut self,
         action: &ScriptAction,
@@ -1604,62 +1624,49 @@ impl ScriptActionDispatcher {
             waypoint_name
         );
 
-        // Look up object ID by name
         let tracker = get_named_object_tracker();
-        let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
-
-        if let Some(object_id) = object_id_opt {
-            // Get waypoint position from terrain logic
-            let waypoint_name_ascii = AsciiString::from(waypoint_name.as_str());
-            let waypoint_pos = get_terrain_logic().read().ok().and_then(|terrain| {
-                terrain
-                    .get_waypoint_by_name(&waypoint_name_ascii)
-                    .map(|w| w.get_location().clone())
-            });
-
-            if let Some(position) = waypoint_pos {
-                // Get the object to find player ID
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                    let player_id = obj_arc
-                        .read()
-                        .ok()
-                        .and_then(|obj| obj.get_controlling_player_id().map(|id| id as i32));
-
-                    if let Some(pid) = player_id {
-                        let current_frame = TheGameLogic::get_frame();
-                        if let Err(e) = cmd_api::move_objects_to_position(
-                            vec![object_id],
-                            position.clone(),
-                            pid,
-                            current_frame,
-                        ) {
-                            log::warn!(
-                                "Failed to move '{}' to waypoint '{}': {}",
-                                unit_name,
-                                waypoint_name,
-                                e
-                            );
-                        } else {
-                            log::info!(
-                                "Named unit '{}' moving to waypoint '{}' at ({:.1}, {:.1}, {:.1})",
-                                unit_name,
-                                waypoint_name,
-                                position.x,
-                                position.y,
-                                position.z
-                            );
-                        }
-                    } else {
-                        log::warn!("Named unit '{}' has no controlling player", unit_name);
-                    }
-                } else {
-                    log::warn!("Named unit '{}' not found in object registry", unit_name);
-                }
-            } else {
-                log::warn!("Waypoint '{}' not found for move", waypoint_name);
-            }
-        } else {
+        let Some(object_id) = tracker.get_object_id(&unit_name).ok().flatten() else {
             log::warn!("Named unit '{}' not found for move to waypoint", unit_name);
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            log::warn!("Named unit '{}' not found in object registry", unit_name);
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let waypoint_name_ascii = AsciiString::from(waypoint_name.as_str());
+        let Some(position) = get_terrain_logic().read().ok().and_then(|terrain| {
+            terrain
+                .get_waypoint_by_name(&waypoint_name_ascii)
+                .map(|waypoint| *waypoint.get_location())
+        }) else {
+            log::warn!("Waypoint '{}' not found for move", waypoint_name);
+            return Ok(ScriptActionResult::Success);
+        };
+
+        if let Ok(mut obj_guard) = obj_arc.write() {
+            let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                log::warn!("Named unit '{}' has no AI update interface", unit_name);
+                return Ok(ScriptActionResult::Success);
+            };
+            obj_guard.leave_group();
+            if let Ok(mut ai_guard) = ai_arc.lock() {
+                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                let mut params = AiCommandParams::new(
+                    AiCommandType::MoveToPosition,
+                    CommandSourceType::FromScript,
+                );
+                params.pos = position;
+                let _ = ai_guard.execute_command(&params);
+                log::info!(
+                    "Named unit '{}' moving to waypoint '{}' at ({:.1}, {:.1}, {:.1})",
+                    unit_name,
+                    waypoint_name,
+                    position.x,
+                    position.y,
+                    position.z
+                );
+            };
         }
 
         Ok(ScriptActionResult::Success)
@@ -4063,8 +4070,8 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doTeamTransferToPlayer()
-    /// Transfers all team members to a different player's control
+    /// C++ Reference: ScriptActions::doTransferTeamToPlayer()
+    /// Reassigns the team's controlling player; members stay on the same team.
     fn do_team_transfer_to_player(
         &mut self,
         action: &ScriptAction,
@@ -4077,47 +4084,77 @@ impl ScriptActionDispatcher {
             player_name
         );
 
-        // Find the target player by name
-        let target_player_id = if let Ok(list) = player_list().read() {
-            list.find_player_by_name(&player_name).and_then(|p| {
-                p.read()
-                    .ok()
-                    .and_then(|player| Some(player.get_player_index() as u32))
-            })
-        } else {
-            None
+        let Some(target_player) = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.find_player_by_name(&player_name))
+        else {
+            log::warn!("Player '{}' not found for team transfer", player_name);
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(player_id) = target_player
+            .read()
+            .ok()
+            .map(|player| player.get_player_index() as u32)
+        else {
+            return Ok(ScriptActionResult::Success);
         };
 
-        if let Some(player_id) = target_player_id {
-            // Get team and iterate members to transfer ownership
-            if let Ok(mut factory) = get_team_factory().lock() {
-                if let Some(team_arc) = factory.find_team(&team_name) {
-                    if let Ok(team) = team_arc.read() {
-                        let object_manager = get_object_manager();
-                        if let Ok(obj_manager) = object_manager.read() {
-                            for obj_id in team.get_members() {
-                                if let Some(obj) = obj_manager.get_object(*obj_id) {
-                                    if let Ok(mut obj_write) = obj.write() {
-                                        let _ =
-                                            obj_write.set_controlling_player_id(Some(player_id));
-                                    }
-                                }
-                            }
-                            log::info!(
-                                "Team '{}' transferred to player '{}'",
-                                team_name,
-                                player_name
-                            );
-                        };
-                    }
-                } else {
-                    log::warn!("Team '{}' not found for transfer", team_name);
-                }
+        let Some(team_arc) = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name))
+        else {
+            log::warn!("Team '{}' not found for transfer", team_name);
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let members = team_arc
+            .read()
+            .ok()
+            .map(|team| team.get_members().to_vec())
+            .unwrap_or_default();
+        if let Ok(mut team_guard) = team_arc.write() {
+            // Team::set_controlling_player_id walks members and calls
+            // Object::handle_partition_cell_maintenance, which re-locks the team
+            // via get_controlling_player(). Detach first so the owner swap cannot
+            // deadlock, then restore membership (C++ never captures the units).
+            for object_id in &members {
+                team_guard.remove_member(*object_id);
             }
-        } else {
-            log::warn!("Player '{}' not found for team transfer", player_name);
+            team_guard.set_controlling_player_id(Some(player_id));
+            for object_id in &members {
+                team_guard.add_member(*object_id);
+            }
         }
 
+        let night_time = global_data::read().time_of_day == global_data::TimeOfDay::Night;
+        for object_id in members {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                continue;
+            };
+            let Ok(mut obj_guard) = obj_arc.write() else {
+                continue;
+            };
+            obj_guard.handle_partition_cell_maintenance();
+            obj_guard.update_upgrade_modules_from_player();
+            let color = if night_time {
+                obj_guard.get_night_indicator_color()
+            } else {
+                obj_guard.get_indicator_color()
+            };
+            if let Some(drawable) = obj_guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.set_indicator_color(color);
+                }
+            }
+        }
+
+        log::info!(
+            "Team '{}' transferred to player '{}'",
+            team_name,
+            player_name
+        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -5556,11 +5593,15 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
+    /// C++ Reference: ScriptActions::doTeamHuntWithCommandButton() (ScriptActions.cpp ~2003-2147)
+    ///
+    /// Validates that `ability` is a hunt-capable GUI command, then for each living team
+    /// member with AI + that button in its command set, calls CommandButtonHuntUpdate::setCommandButton.
     fn do_team_hunt_with_command_button(
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.get_string_param(action, 0)?;
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let command_button_name = self.get_string_param(action, 1)?;
         log::debug!(
             "Team '{}' hunting with command button '{}'",
@@ -5568,174 +5609,30 @@ impl ScriptActionDispatcher {
             command_button_name
         );
 
-        let team_arc = self.get_team_by_name(&team_name)?;
-        let members = if let Ok(team_guard) = team_arc.read() {
-            team_guard.get_members().to_vec()
-        } else {
-            Vec::new()
+        // C++: Team *theTeam = TheScriptEngine->getTeamNamed(teamName); if (!theTeam) return;
+        let Ok(team_arc) = self.get_team_by_name(&team_name) else {
+            return Ok(ScriptActionResult::Success);
         };
+        let members = team_arc
+            .read()
+            .map(|team| team.get_members().to_vec())
+            .unwrap_or_default();
 
-        let control_bar = get_control_bar_bridge().ok_or_else(|| {
-            ScriptError::ExecutionFailed("Control bar not initialized".to_string())
-        })?;
+        // C++: TheControlBar->findCommandButton(ability); if (!commandButton) return;
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return Ok(ScriptActionResult::Success);
+        };
         let Some(command_button) = control_bar.find_command_button_by_name(&command_button_name)
         else {
             return Ok(ScriptActionResult::Success);
         };
 
-        match command_button.get_command_type() {
-            CommandType::DoSpecialPower => {
-                let Some(_sp_template) = command_button.get_special_power_template() else {
-                    return Ok(ScriptActionResult::Success);
-                };
-                let options = SpecialPowerCommandOption::from_bits_truncate(
-                    command_button.get_options_bits(),
-                );
-                let needs_object_target = options.intersects(
-                    SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
-                        | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
-                        | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT
-                        | SpecialPowerCommandOption::NEED_TARGET_PRISONER,
-                );
-                if !needs_object_target {
-                    log::warn!(
-                        "TEAM_HUNT_WITH_COMMAND_BUTTON: '{}' cannot hunt with non-object-target special power",
-                        command_button_name
-                    );
-                    return Ok(ScriptActionResult::Success);
-                }
-            }
-            CommandType::SwitchWeapons
-            | CommandType::DoAttackObject
-            | CommandType::ConvertToCarbomb
-            | CommandType::Enter => {}
-            // PARITY_NOTE: C++ ScriptActions.cpp doTeamHuntWithCommandButton() (lines 2047-2073)
-            // explicitly rejects these GUI command types and catches all others via `default`.
-            // In C++ the explicitly listed types are: GUI_COMMAND_OBJECT_UPGRADE,
-            // GUI_COMMAND_PLAYER_UPGRADE, GUI_COMMAND_DOZER_CONSTRUCT,
-            // GUI_COMMAND_DOZER_CONSTRUCT_CANCEL, GUI_COMMAND_UNIT_BUILD,
-            // GUI_COMMAND_CANCEL_UNIT_BUILD, GUI_COMMAND_CANCEL_UPGRADE,
-            // GUI_COMMAND_ATTACK_MOVE, GUI_COMMAND_GUARD, GUI_COMMAND_GUARD_WITHOUT_PURSUIT,
-            // GUI_COMMAND_GUARD_FLYING_UNITS_ONLY, GUI_COMMAND_WAYPOINTS,
-            // GUI_COMMAND_EXIT_CONTAINER, GUI_COMMAND_EVACUATE,
-            // GUI_COMMAND_EXECUTE_RAILED_TRANSPORT, GUI_COMMAND_BEACON_DELETE,
-            // GUI_COMMAND_SET_RALLY_POINT, GUI_COMMAND_SELL, GUI_COMMAND_HACK_INTERNET,
-            // GUI_COMMAND_TOGGLE_OVERCHARGE (plus conditional POW_RETURN_TO_PRISON,
-            // PICK_UP_PRISONER under ALLOW_SURRENDER).
-            //
-            // Rust maps GUI command strings to CommandType via map_gui_command_to_command_type().
-            // Types below are all known-mapped types that C++ rejects (either explicitly or via
-            // `default` fallthrough). We list them all explicitly to avoid silent drops.
-            CommandType::QueueUpgrade              // C++: OBJECT_UPGRADE, PLAYER_UPGRADE
-            | CommandType::DozerConstruct          // C++: DOZER_CONSTRUCT
-            | CommandType::DozerCancelConstruct    // C++: DOZER_CONSTRUCT_CANCEL
-            | CommandType::QueueUnitCreate         // C++: UNIT_BUILD
-            | CommandType::CancelUnitCreate        // C++: CANCEL_UNIT_BUILD
-            | CommandType::CancelUpgrade           // C++: CANCEL_UPGRADE
-            | CommandType::DoAttackMoveTo          // C++: ATTACK_MOVE
-            | CommandType::DoGuardPosition         // C++: GUARD, GUARD_WITHOUT_PURSUIT, GUARD_FLYING_UNITS_ONLY
-            | CommandType::DoStop                  // C++: STOP (falls to default)
-            | CommandType::AddWaypoint             // C++: WAYPOINTS
-            | CommandType::Exit                    // C++: EXIT_CONTAINER
-            | CommandType::Evacuate                // C++: EVACUATE
-            | CommandType::ExecuteRailedTransport  // C++: EXECUTE_RAILED_TRANSPORT
-            | CommandType::CombatDropAtLocation    // C++: COMBATDROP (falls to default)
-            | CommandType::RemoveBeacon            // C++: BEACON_DELETE
-            | CommandType::SetRallyPoint           // C++: SET_RALLY_POINT
-            | CommandType::Sell                    // C++: SELL
-            | CommandType::PurchaseScience         // C++: PURCHASE_SCIENCE (falls to default)
-            | CommandType::InternetHack            // C++: HACK_INTERNET
-            | CommandType::ToggleOvercharge        // C++: TOGGLE_OVERCHARGE
-            | CommandType::PlaceBeacon             // C++: PLACE_BEACON (falls to default)
-            | CommandType::MetaSelectMatchingUnits // C++: SELECT_ALL_UNITS_OF_TYPE (falls to default)
-            => {
-                log::warn!(
-                    "TEAM_HUNT_WITH_COMMAND_BUTTON: '{}' is not hunt-capable (type {:?})",
-                    command_button_name,
-                    command_button.get_command_type()
-                );
-                return Ok(ScriptActionResult::Success);
-            }
-            // PARITY_NOTE: Unsupported/unknown GUI command strings currently map to Invalid in
-            // map_gui_command_to_command_type(). C++ reports script debug errors for these.
-            // Also covers conditional C++ types GUI_COMMAND_POW_RETURN_TO_PRISON and
-            // GUICOMMANDMODE_PICK_UP_PRISONER (ALLOW_SURRENDER) which have no Rust mapping.
-            CommandType::Invalid => {
-                log::warn!(
-                    "TEAM_HUNT_WITH_COMMAND_BUTTON: '{}' mapped to invalid/unsupported command type",
-                    command_button_name
-                );
-                return Ok(ScriptActionResult::Success);
-            }
-            // PARITY_NOTE: CommandType variants that exist in the enum but are NOT currently
-            // produced by map_gui_command_to_command_type(). These cannot appear from
-            // command_button.get_command_type() today, but are listed explicitly for
-            // forward-compatibility if the mapping is extended. C++ rejects all of these
-            // via `default` (line 2073 of ScriptActions.cpp).
-            CommandType::CaptureBuilding
-            | CommandType::DisableVehicleHack
-            | CommandType::StealCashHack
-            | CommandType::DisableBuildingHack
-            | CommandType::SnipeVehicle
-            | CommandType::DoSalvage
-            | CommandType::DoSpecialPowerOverrideDestination
-            | CommandType::DoWeapon
-            | CommandType::DoWeaponAtLocation
-            | CommandType::DoWeaponAtObject
-            | CommandType::DoSpecialPowerAtLocation
-            | CommandType::DoSpecialPowerAtObject
-            | CommandType::DoMoveTo
-            | CommandType::DoForceMoveTo
-            | CommandType::DoForceAttackObject
-            | CommandType::DoForceAttackGround
-            | CommandType::DoGuardObject
-            | CommandType::DoScatter
-            | CommandType::DoAttackSquad
-            | CommandType::GetRepaired
-            | CommandType::GetHealed
-            | CommandType::DoRepair
-            | CommandType::ResumeConstruction
-            | CommandType::Dock
-            | CommandType::DozerConstructLine
-            | CommandType::DoCheer
-            | CommandType::SelfDestruct
-            | CommandType::CreateFormation
-            | CommandType::SetMineClearingDetail
-            | CommandType::EnableRetaliationMode
-            | CommandType::SetBeaconText
-            | CommandType::SetReplayCamera
-            | CommandType::ClearInGamePopupMessage
-            | CommandType::LogicCrc
-            | CommandType::CreateSelectedGroup
-            | CommandType::CreateSelectedGroupNoSound
-            | CommandType::DestroySelectedGroup
-            | CommandType::RemoveFromSelectedGroup
-            | CommandType::SelectedGroupCommand
-            | CommandType::AreaSelection
-            | CommandType::CombatDropAtObject
-            => {
-                log::warn!(
-                    "TEAM_HUNT_WITH_COMMAND_BUTTON: '{}' is not hunt-capable (type {:?})",
-                    command_button_name,
-                    command_button.get_command_type()
-                );
-                return Ok(ScriptActionResult::Success);
-            }
-            // Catch-all for any future CommandType variants not explicitly listed above.
-            // PARITY_NOTE: C++ uses `default` to reject all unhandled types with an error
-            // message. This arm provides the same safety net — if a new CommandType is added
-            // to the enum but not handled here, it will be caught and logged rather than
-            // silently proceeding to the hunt logic.
-            _ => {
-                log::warn!(
-                    "TEAM_HUNT_WITH_COMMAND_BUTTON: unsupported command button '{}' (type {:?})",
-                    command_button_name,
-                    command_button.get_command_type()
-                );
-                return Ok(ScriptActionResult::Success);
-            }
+        if !Self::command_button_is_hunt_capable(command_button, &command_button_name) {
+            return Ok(ScriptActionResult::Success);
         }
 
+        // C++: iterate TeamMemberList; skip units without AI; require the button in the unit's
+        // command set; then CommandButtonHuntUpdate::setCommandButton(ability).
         for member_id in members {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
@@ -5744,6 +5641,9 @@ impl ScriptActionDispatcher {
                 continue;
             };
 
+            if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
+                continue;
+            }
             if obj_guard.get_ai_update_interface().is_none() {
                 continue;
             }
@@ -5760,13 +5660,18 @@ impl ScriptActionDispatcher {
                 })
                 .unwrap_or(false);
             if !has_matching_command {
+                log::warn!(
+                    "Error - Team hunt with command button - unit type '{}' is not valid for ability {}",
+                    obj_guard.get_template_name(),
+                    command_button_name
+                );
                 continue;
             }
 
             let Some(module) = obj_guard.find_update_module("CommandButtonHuntUpdate") else {
                 log::warn!(
-                    "TEAM_HUNT_WITH_COMMAND_BUTTON: object {} requires CommandButtonHuntUpdate for '{}'",
-                    member_id,
+                    "Error - Team hunt with command button - unit type '{}' requires CommandButtonHuntUpdate in .ini definition to hunt with {}",
+                    obj_guard.get_template_name(),
                     command_button_name
                 );
                 continue;
@@ -5780,13 +5685,59 @@ impl ScriptActionDispatcher {
             });
             if !set_ok {
                 log::warn!(
-                    "TEAM_HUNT_WITH_COMMAND_BUTTON: missing hunt control interface for object {}",
-                    member_id
+                    "Error - Team hunt with command button - unit type '{}' requires CommandButtonHuntUpdate in .ini definition to hunt with {}",
+                    obj_guard.get_template_name(),
+                    command_button_name
                 );
             }
         }
 
         Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ ScriptActions.cpp doTeamHuntWithCommandButton switch (~2017-2080):
+    /// allow SPECIAL_POWER (object-target only), SWITCH_WEAPON, FIRE_WEAPON,
+    /// HIJACK_VEHICLE, CONVERT_TO_CARBOMB, SABOTAGE_BUILDING; reject all others.
+    fn command_button_is_hunt_capable(
+        command_button: &crate::command_button::CommandButton,
+        ability: &str,
+    ) -> bool {
+        match command_button.get_command_type() {
+            CommandType::DoSpecialPower => {
+                let Some(_sp_template) = command_button.get_special_power_template() else {
+                    return false;
+                };
+                let options = SpecialPowerCommandOption::from_bits_truncate(
+                    command_button.get_options_bits(),
+                );
+                // C++ COMMAND_OPTION_NEED_OBJECT_TARGET = ENEMY | NEUTRAL | ALLY
+                let needs_object_target = options.intersects(
+                    SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                        | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                        | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
+                );
+                if !needs_object_target {
+                    log::warn!(
+                        "ERROR-Team hunt with command button - cannot hunt with ability {}",
+                        ability
+                    );
+                    return false;
+                }
+                true
+            }
+            // FIRE_WEAPON -> DoAttackObject; HIJACK/SABOTAGE -> Enter
+            CommandType::SwitchWeapons
+            | CommandType::DoAttackObject
+            | CommandType::Enter
+            | CommandType::ConvertToCarbomb => true,
+            _ => {
+                log::warn!(
+                    "ERROR-Team hunt with command button - cannot hunt with ability {}",
+                    ability
+                );
+                false
+            }
+        }
     }
 
     fn do_team_use_command_button_on_named(
@@ -8766,8 +8717,12 @@ impl ScriptActionDispatcher {
                 continue;
             };
             let sell_obj = if let Ok(obj_guard) = obj_arc.read() {
+                // C++ Player::sellEverythingUnderTheSun -> sellBuildings():
+                // faction structures, command centers, and FS power plants.
                 if obj_guard.is_effectively_dead()
-                    || !obj_guard.is_kind_of(crate::common::KindOf::Structure)
+                    || !(obj_guard.is_faction_structure()
+                        || obj_guard.is_kind_of(crate::common::KindOf::CommandCenter)
+                        || obj_guard.is_kind_of(crate::common::KindOf::FSPower))
                 {
                     continue;
                 }
@@ -20318,5 +20273,538 @@ mod tests {
             ScriptConditionResult::True,
             "C++ evaluates threshold < player's credits, not player's credits < threshold"
         );
+    }
+
+    /// Records CommandButtonHuntUpdate::setCommandButton calls without running the full hunt update.
+    struct RecordingHuntModule {
+        recorded: Arc<Mutex<Vec<String>>>,
+        data: Arc<crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModuleData>,
+    }
+
+    impl game_engine::common::system::Snapshotable for RecordingHuntModule {
+        fn crc(&self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+            Ok(())
+        }
+        fn xfer(&mut self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+            Ok(())
+        }
+        fn load_post_process(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    impl game_engine::common::thing::module::Module for RecordingHuntModule {
+        fn get_module_data(&self) -> &dyn game_engine::common::thing::module::ModuleData {
+            self.data.as_ref()
+        }
+
+        fn get_command_button_hunt_control_interface(
+            &mut self,
+        ) -> Option<&mut dyn game_engine::common::thing::module::CommandButtonHuntControlInterface>
+        {
+            Some(self)
+        }
+    }
+
+    impl game_engine::common::thing::module::CommandButtonHuntControlInterface
+        for RecordingHuntModule
+    {
+        fn set_command_button(&mut self, button_name: String) {
+            self.recorded.lock().unwrap().push(button_name);
+        }
+    }
+
+    #[test]
+    fn team_hunt_with_command_button_invokes_hunt_update() {
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+
+        const TEAM_NAME: &str = "HuntWithCommandTeam";
+        const BUTTON_NAME: &str = "Command_DummyHuntFireWeapon";
+        const COMMAND_SET: &str = "HuntWithCommandTestSet";
+        const HUNTER_ID: ObjectID = 8801;
+
+        crate::control_bar::install_test_command_button(
+            crate::command_button::CommandButton::new(
+                8801,
+                BUTTON_NAME.to_string(),
+                String::new(),
+                0,
+            )
+            .with_command_type(CommandType::DoAttackObject),
+            COMMAND_SET,
+            0,
+        )
+        .expect("dummy hunt command button");
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from(TEAM_NAME),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team(TEAM_NAME)
+                .expect("hunt team should be created");
+        }
+
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let hunter = crate::object_manager::GameObjectInstance::new(
+            HUNTER_ID,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test hunter instance");
+
+        {
+            let __base_arc = hunter.base();
+            let mut base = __base_arc.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.set_command_set_string_override(&AsciiString::from(COMMAND_SET));
+            let data = Arc::new(
+                crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModuleData::default(),
+            );
+            base.install_update_module(
+                "CommandButtonHuntUpdate",
+                Box::new(RecordingHuntModule {
+                    recorded: Arc::clone(&recorded),
+                    data: Arc::clone(&data),
+                }),
+                data,
+            );
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(hunter, Coord3D::new(8.0, 4.0, 0.0))
+            .unwrap();
+        {
+            let factory = get_team_factory();
+            let mut factory_guard = factory.lock().unwrap();
+            factory_guard
+                .find_team(TEAM_NAME)
+                .unwrap()
+                .write()
+                .unwrap()
+                .add_member(HUNTER_ID);
+        }
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamHuntWithCommandButton);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                TEAM_NAME.to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::CommandbuttonAllAbilities,
+                BUTTON_NAME.to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let result = dispatcher
+            .execute_action(&action)
+            .expect("TEAM_HUNT_WITH_COMMAND_BUTTON should succeed");
+        assert_eq!(result, ScriptActionResult::Success);
+        assert_eq!(
+            *recorded.lock().unwrap(),
+            vec![BUTTON_NAME.to_string()],
+            "C++ calls CommandButtonHuntUpdate::setCommandButton(ability) on each valid team member"
+        );
+
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+    }
+
+    #[test]
+    fn team_transfer_to_player_reassigns_team_controller_without_capture() {
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+        player_list().write().unwrap().clear();
+
+        const TEAM_NAME: &str = "ExecutorTransferTeam";
+        const SRC_PLAYER: &str = "ExecutorTransferSrc";
+        const DST_PLAYER: &str = "ExecutorTransferDst";
+        const MEMBER_ID: ObjectID = 8701;
+
+        let src_player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        src_player
+            .write()
+            .unwrap()
+            .set_display_name(SRC_PLAYER);
+        let dst_player = Arc::new(RwLock::new(crate::player::Player::new(1)));
+        dst_player
+            .write()
+            .unwrap()
+            .set_display_name(DST_PLAYER);
+        {
+            let mut list = player_list().write().unwrap();
+            list.add_player(src_player);
+            list.add_player(dst_player);
+        }
+
+        let team = {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from(TEAM_NAME),
+                AsciiString::from(SRC_PLAYER),
+                false,
+                None,
+            );
+            factory
+                .create_team(TEAM_NAME)
+                .expect("transfer team should be created")
+        };
+
+        let member = crate::object_manager::GameObjectInstance::new(
+            MEMBER_ID,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("transfer team member");
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(member, Coord3D::new(3.0, 4.0, 0.0))
+            .unwrap();
+        // Registry must be non-empty or Team::set_controlling_player_id no-ops.
+        team.write()
+            .unwrap()
+            .set_controlling_player_id(Some(0));
+        team.write().unwrap().add_member(MEMBER_ID);
+        assert_eq!(team.read().unwrap().get_controlling_player_id(), Some(0));
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamTransferToPlayer);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                TEAM_NAME.to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                DST_PLAYER.to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let result = dispatcher
+            .execute_action(&action)
+            .expect("TEAM_TRANSFER_TO_PLAYER should succeed");
+        assert_eq!(result, ScriptActionResult::Success);
+        assert_eq!(
+            team.read().unwrap().get_controlling_player_id(),
+            Some(1),
+            "C++ Team::setControllingPlayer reassigns the team, not individual captures"
+        );
+        assert_eq!(
+            team.read().unwrap().get_members(),
+            &[MEMBER_ID],
+            "members stay on the same team after TEAM_TRANSFER_TO_PLAYER"
+        );
+
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+        player_list().write().unwrap().clear();
+    }
+
+    #[test]
+    fn player_sell_everything_sells_faction_structures_like_cxx() {
+        get_object_manager().write().unwrap().reset();
+        player_list().write().unwrap().clear();
+        game_engine::common::system::build_assistant::init_build_assistant();
+
+        const PLAYER_NAME: &str = "ExecutorSellPlayer";
+        const FACTORY_ID: ObjectID = 8710;
+        const CC_ID: ObjectID = 8711;
+        const UNIT_ID: ObjectID = 8712;
+
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        player.write().unwrap().set_display_name(PLAYER_NAME);
+        player_list().write().unwrap().add_player(player.clone());
+
+        let mut factory_template =
+            crate::common::DefaultThingTemplate::new("ExecutorFactionFactory".to_string());
+        factory_template.add_kind_of(crate::common::KindOf::FSWarfactory);
+        let mut factory = crate::object::Object::new_test(FACTORY_ID, 100.0);
+        factory.set_template_for_test(Arc::new(factory_template));
+        TheGameLogic::register_object(Arc::new(RwLock::new(factory)))
+            .expect("register faction factory");
+
+        let mut cc_template =
+            crate::common::DefaultThingTemplate::new("ExecutorCommandCenter".to_string());
+        cc_template.add_kind_of(crate::common::KindOf::CommandCenter);
+        let mut command_center = crate::object::Object::new_test(CC_ID, 100.0);
+        command_center.set_template_for_test(Arc::new(cc_template));
+        TheGameLogic::register_object(Arc::new(RwLock::new(command_center)))
+            .expect("register command center");
+
+        let unit = crate::object::Object::new_test(UNIT_ID, 100.0);
+        TheGameLogic::register_object(Arc::new(RwLock::new(unit))).expect("register unit");
+
+        {
+            let mut player_guard = player.write().unwrap();
+            player_guard.add_owned_object(FACTORY_ID);
+            player_guard.add_owned_object(CC_ID);
+            player_guard.add_owned_object(UNIT_ID);
+        }
+
+        let mut action = ScriptAction::new(ScriptActionType::PlayerSellEverything);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                PLAYER_NAME.to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let result = dispatcher
+            .execute_action(&action)
+            .expect("PLAYER_SELL_EVERYTHING should succeed");
+        assert_eq!(result, ScriptActionResult::Success);
+
+        let assistant = game_engine::common::system::build_assistant::get_build_assistant()
+            .expect("build assistant");
+        let sold: Vec<ObjectID> = assistant.get_sell_list().iter().map(|info| info.id).collect();
+        assert!(
+            sold.contains(&FACTORY_ID),
+            "C++ sellBuildings sells faction structures: {sold:?}"
+        );
+        assert!(
+            sold.contains(&CC_ID),
+            "C++ sellBuildings also sells command centers: {sold:?}"
+        );
+        assert!(
+            !sold.contains(&UNIT_ID),
+            "non-faction units must not be sold: {sold:?}"
+        );
+
+        get_object_manager().write().unwrap().reset();
+        player_list().write().unwrap().clear();
+    }
+
+    #[test]
+    fn damage_members_of_team_applies_unresistable_damage() {
+        get_object_manager().write().unwrap().reset();
+
+        const TEAM_NAME: &str = "ExecutorDamageTeam";
+        const MEMBER_ID: ObjectID = 8720;
+
+        let team = {
+            let mut factory = get_team_factory()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            factory.reset();
+            factory.init_team(
+                AsciiString::from(TEAM_NAME),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team(TEAM_NAME)
+                .expect("damage team should be created")
+        };
+
+        let member = crate::object::Object::new_test(MEMBER_ID, 100.0);
+        let member_arc = Arc::new(RwLock::new(member));
+        TheGameLogic::register_object(member_arc.clone()).expect("register damage member");
+        team.write().unwrap().add_member(MEMBER_ID);
+
+        let mut action = ScriptAction::new(ScriptActionType::DamageMembersOfTeam);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                TEAM_NAME.to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_real(ParameterType::Real, 25.0))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let result = dispatcher
+            .execute_action(&action)
+            .expect("DAMAGE_MEMBERS_OF_TEAM should succeed");
+        assert_eq!(result, ScriptActionResult::Success);
+        assert_eq!(
+            member_arc.read().unwrap().get_health(),
+            75.0,
+            "C++ Team::damageTeamMembers applies DAMAGE_UNRESISTABLE of the given amount"
+        );
+
+        get_object_manager().write().unwrap().reset();
+        get_team_factory()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .reset();
+    }
+
+    #[derive(Debug)]
+    struct RecordingMoveAi {
+        commands: Arc<Mutex<Vec<(AiCommandType, Coord3D, CommandSourceType)>>>,
+        locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+    }
+
+    impl AIUpdateInterface for RecordingMoveAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        fn is_moving(&self) -> bool {
+            false
+        }
+
+        fn is_idle(&self) -> bool {
+            true
+        }
+
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn choose_locomotor_set(
+            &mut self,
+            set: LocomotorSetType,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.locomotors.lock().unwrap().push(set);
+            Ok(())
+        }
+
+        fn execute_command(
+            &mut self,
+            command: &AiCommandParams,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.commands.lock().unwrap().push((
+                command.cmd,
+                command.pos,
+                command.cmd_source,
+            ));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+        get_terrain_logic().write().unwrap().reset();
+
+        let mut map_data = crate::system::map_loader::MapData::new();
+        map_data.width = 4;
+        map_data.height = 4;
+        map_data.heightmap = vec![0; 16];
+        map_data.waypoints.push(crate::system::map_loader::MapWaypoint {
+            id: 9101,
+            name: "ExecutorMoveWp".to_string(),
+            location: crate::system::map_loader::Coord3D::new(50.0, 60.0, 0.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        get_terrain_logic()
+            .write()
+            .unwrap()
+            .load_map_data(map_data);
+        let waypoint_pos = *get_terrain_logic()
+            .read()
+            .unwrap()
+            .get_waypoint_by_name(&AsciiString::from("ExecutorMoveWp"))
+            .expect("loaded MOVE_NAMED_UNIT_TO waypoint")
+            .get_location();
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        const UNIT_ID: ObjectID = 8730;
+        let unit = crate::object_manager::GameObjectInstance::new(
+            UNIT_ID,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("named move unit");
+        {
+            let __base_arc = unit.base();
+            let mut base = __base_arc.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(93));
+            assert_eq!(base.get_group_id(), Some(93));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(unit, Coord3D::new(4.0, 5.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorMover".to_string(), UNIT_ID)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::MoveNamedUnitTo);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorMover".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Waypoint,
+                "ExecutorMoveWp".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let result = dispatcher
+            .execute_action(&action)
+            .expect("MOVE_NAMED_UNIT_TO should succeed");
+        assert_eq!(result, ScriptActionResult::Success);
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::MoveToPosition,
+                waypoint_pos,
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(UNIT_ID, |o| o
+                    .base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_group_id()))
+                .flatten(),
+            None
+        );
+
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+        get_terrain_logic().write().unwrap().reset();
     }
 }

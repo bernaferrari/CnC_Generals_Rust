@@ -155,11 +155,12 @@ pub use ini_fx_list::{
     FXListResult, FXListStore, FXNugget,
 };
 pub use ini_game_lod::{
-    get_game_lod_manager, get_game_lod_manager_mut, init_game_lod_manager, parse_bench_profile,
-    parse_dynamic_game_lod_definition, parse_lod_preset, parse_really_low_mhz,
-    parse_static_game_lod_definition, BenchProfile, ChipsetType, CpuType, DynamicGameLODInfo,
-    DynamicGameLODLevel, GameLODManager, LODPresetInfo, ParticlePriorityType, StaticGameLODInfo,
-    StaticGameLODLevel, MAX_BENCH_PROFILES, MAX_LOD_PRESETS_PER_LEVEL,
+    get_dynamic_lod_level, get_game_lod_manager, get_game_lod_manager_mut, init_game_lod_manager,
+    is_debris_skipped, is_particle_skipped, parse_bench_profile, parse_dynamic_game_lod_definition,
+    parse_lod_preset, parse_really_low_mhz, parse_static_game_lod_definition,
+    set_dynamic_debris_skip_mask, set_dynamic_lod_level, BenchProfile, ChipsetType, CpuType,
+    DynamicGameLODInfo, DynamicGameLODLevel, GameLODManager, LODPresetInfo, ParticlePriorityType,
+    StaticGameLODInfo, StaticGameLODLevel, MAX_BENCH_PROFILES, MAX_LOD_PRESETS_PER_LEVEL,
 };
 pub use ini_language::{
     get_global_language, get_global_language_read, get_global_language_write, init_global_language,

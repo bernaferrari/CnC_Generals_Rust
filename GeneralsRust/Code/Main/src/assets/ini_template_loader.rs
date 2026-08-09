@@ -921,22 +921,99 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
     }
 }
 
+/// C++ `UpgradeTemplate::m_upgradeFieldParseTable` keys that GameLogic currently
+/// applies (`parse_from_ini` / setters). ResearchSound / UnitSpecificSound /
+/// AcademyClassify are parsed in C++ but have no GameLogic setters yet.
+const UPGRADE_INI_SETTER_FIELDS: &[&str] = &[
+    "DisplayName",
+    "Type",
+    "BuildTime",
+    "BuildCost",
+    "ButtonImage",
+];
+
+/// Look up an INI property with C++-style case-insensitive field names.
+fn find_ini_property<'a>(properties: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
+    if let Some(value) = properties.get(key) {
+        return Some(value.as_str());
+    }
+    properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v.as_str())
+}
+
+/// Apply C++ `initFromINI` fields onto an already-registered GameLogic template.
+///
+/// `UpgradeCenter::new_upgrade` stores `Arc<UpgradeTemplate>`, so setters cannot
+/// mutate the live entry. `parse_upgrade_definition` clones the existing
+/// template (C++ `findNonConstUpgradeByKey` + `initFromINI`), applies the
+/// parse table, and stores it back.
+fn apply_upgrade_template_ini_fields(
+    name: &str,
+    properties: &HashMap<String, String>,
+) -> Result<(), String> {
+    use game_engine::common::ini::{INI, INIError};
+    use gamelogic::upgrade::center::with_upgrade_center_mut;
+
+    let mut source = String::new();
+    source.push_str(name);
+    source.push('\n');
+
+    let mut has_fields = false;
+    for key in UPGRADE_INI_SETTER_FIELDS {
+        if let Some(value) = find_ini_property(properties, key) {
+            source.push_str(key);
+            source.push_str(" = ");
+            source.push_str(value);
+            source.push('\n');
+            has_fields = true;
+        }
+    }
+
+    if !has_fields {
+        return Ok(());
+    }
+
+    source.push_str("End\n");
+
+    let mut ini = INI::new();
+    ini.with_inline_source(&source, |ini| {
+        ini.read_line()?;
+        with_upgrade_center_mut(|center| {
+            center
+                .parse_upgrade_definition(ini)
+                .map_err(|_| INIError::InvalidData)
+        })
+    })
+    .map_err(|e| format!("{:?}", e))
+}
+
 /// Register an upgrade template parsed from INI into the GameLogic UpgradeCenter.
-fn register_upgrade_template(name: &str, _properties: &HashMap<String, String>) -> bool {
+fn register_upgrade_template(name: &str, properties: &HashMap<String, String>) -> bool {
     use game_engine::common::ascii_string::AsciiString;
     use gamelogic::upgrade::center::with_upgrade_center_mut;
 
     let ascii_name = AsciiString::from(name);
 
     with_upgrade_center_mut(|center| {
-        // C++ parity: duplicate Upgrade blocks can exist in INI and should not
-        // spam warnings during registration.
+        // C++ parseUpgradeDefinition: find existing or newUpgrade (inherits
+        // DefaultUpgrade). Duplicate Upgrade blocks must not spam warnings.
         if center.find_upgrade(name).is_none() {
             let _template = center.new_upgrade(ascii_name);
         }
-        debug!("Registered upgrade template: {}", name);
     });
 
+    // C++ initFromINI on the (possibly pre-existing) template. Always apply
+    // ButtonImage / DisplayName / BuildCost / BuildTime / Type when present.
+    if let Err(e) = apply_upgrade_template_ini_fields(name, properties) {
+        warn!(
+            "Failed to apply Upgrade.ini fields for '{}': {}",
+            name, e
+        );
+    }
+
+    debug!("Registered upgrade template: {}", name);
     true
 }
 
@@ -1097,6 +1174,55 @@ End
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0].0, "Upgrade");
         assert_eq!(sections[0].1, "AmericaTankCompositeArmor");
+    }
+
+    #[test]
+    fn register_upgrade_template_copies_button_image() {
+        let mut properties = HashMap::new();
+        properties.insert("ButtonImage".to_string(), "SSTestCameo".to_string());
+
+        assert!(register_upgrade_template(
+            "Upgrade_TestButtonImageCameo",
+            &properties
+        ));
+
+        gamelogic::upgrade::center::with_upgrade_center(|center| {
+            let template = center
+                .find_upgrade("Upgrade_TestButtonImageCameo")
+                .expect("upgrade registered");
+            assert_eq!(template.get_button_image_name().as_str(), "SSTestCameo");
+        });
+    }
+
+    #[test]
+    fn register_upgrade_template_updates_existing_button_image() {
+        let name = "Upgrade_TestButtonImageCameoExisting";
+
+        // First pass creates the template with no ButtonImage (C++ newUpgrade).
+        assert!(register_upgrade_template(name, &HashMap::new()));
+        gamelogic::upgrade::center::with_upgrade_center(|center| {
+            let template = center.find_upgrade(name).expect("upgrade registered");
+            assert!(template.get_button_image_name().as_str().is_empty());
+        });
+
+        // C++ initFromINI on existing: case-insensitive ButtonImage still applies.
+        let mut properties = HashMap::new();
+        properties.insert("buttonimage".to_string(), "SSTestCameo".to_string());
+        properties.insert(
+            "DisplayName".to_string(),
+            "CONTROLBAR:TestCameo".to_string(),
+        );
+        properties.insert("BuildCost".to_string(), "500".to_string());
+        properties.insert("BuildTime".to_string(), "15.0".to_string());
+        assert!(register_upgrade_template(name, &properties));
+
+        gamelogic::upgrade::center::with_upgrade_center(|center| {
+            let template = center.find_upgrade(name).expect("upgrade still registered");
+            assert_eq!(template.get_button_image_name().as_str(), "SSTestCameo");
+            assert_eq!(template.get_display_name().as_str(), "CONTROLBAR:TestCameo");
+            assert_eq!(template.get_cost(), 500);
+            assert_eq!(template.get_build_time(), 15.0);
+        });
     }
 
     #[test]

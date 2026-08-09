@@ -55,14 +55,13 @@ nalgebra = { version = "0.32", features = ["serde", "serde-serialize"] }
 ultraviolet = { version = "0.9", features = ["serde", "bytemuck"] }
 mint = "0.5"
 
-# Graphics and rendering
+# Graphics and rendering (wgpu is the device backend; do not add Direct3D crates)
 wgpu = { version = "27.0.1", features = ["wgsl", "spirv"] }
 wgpu-hal = "27.0.4"
 winit = { version = "0.29", features = ["rwh_05"] }
 pollster = "0.3"
 bytemuck = { version = "1.24", features = ["derive"] }
 raw-window-handle = "0.6"
-gpu-allocator = { version = "0.25", features = ["vulkan", "d3d12"] }
 
 # Advanced 3D formats and processing
 gltf = { version = "1.4", features = ["KHR_lights_punctual", "KHR_materials_transmission"] }
@@ -129,39 +128,8 @@ bracket-noise = "0.8"
 quinn = { version = "0.10", optional = true }
 
 # Platform-specific dependencies
-
-# Windows Platform - Complete Win32, DirectX, and WASAPI support
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.52", features = [
-    # Foundation APIs
-    "Win32_Foundation",
-    "Win32_System_Com",
-    "Win32_System_Threading",
-    "Win32_System_SystemInformation",
-    "Win32_System_Registry",
-    "Win32_System_Power",
-    "Win32_System_LibraryLoader",
-    
-    # Graphics APIs (DirectX 11/12, DXGI)
-    "Win32_Graphics_Direct3D",
-    "Win32_Graphics_Direct3D11",
-    "Win32_Graphics_Direct3D12",
-    "Win32_Graphics_Dxgi",
-    
-    # Audio APIs (WASAPI, DirectSound)
-    "Win32_Media_Audio",
-    "Win32_Media_MediaFoundation",
-    
-    # Input APIs (Raw Input, XInput)
-    "Win32_UI_Input",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_Devices_HumanInterfaceDevice",
-    
-    # Additional Windows features
-    "Win32_Security",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Diagnostics_Debug",
-] }
+# Windows `windows` crate (Foundation / Direct3D / DXGI / WASAPI / input) is unused.
+# Production GameClient talks to the OS through wgpu + winit + kira only.
 
 # Linux Platform - X11/Wayland, ALSA/PulseAudio, Vulkan support
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]

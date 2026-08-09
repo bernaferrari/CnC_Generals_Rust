@@ -187,12 +187,14 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
         // Inside a sub-block
         if block_depth > 0 {
             if let Some((key, _value)) = split_ini_assignment(&line) {
-                if object_field_starts_subblock(key) {
+                if object_field_starts_subblock(key)
+                    || object_module_assignment_starts_subblock(key)
+                {
                     block_depth += 1;
                     continue;
                 }
             } else if object_field_starts_subblock(first_token)
-                || !object_line_is_plain_field_without_assignment(first_token)
+                || object_module_field_starts_subblock(first_token)
             {
                 block_depth += 1;
                 continue;
@@ -240,10 +242,29 @@ fn object_field_starts_subblock(field: &str) -> bool {
     )
 }
 
-fn object_line_is_plain_field_without_assignment(first_token: &str) -> bool {
+/// End-terminated blocks that may occur inside an object module.  Retail INI
+/// also permits ordinary module fields without `=` (for example
+/// `AnimationSpeedFactorRange 0.9 1.1`), so absence of an assignment is not by
+/// itself evidence that a line opens a nested block.
+fn object_module_field_starts_subblock(field: &str) -> bool {
     matches!(
-        first_token.to_ascii_lowercase().as_str(),
-        "removemodule" | "locomotor"
+        field.to_ascii_lowercase().as_str(),
+        "defaultconditionstate"
+            | "conditionstate"
+            | "transitionstate"
+            | "turret"
+            | "altturret"
+            | "attackareadecal"
+            | "targetingreticledecal"
+            | "griddecaltemplate"
+            | "deliverydecal"
+    )
+}
+
+fn object_module_assignment_starts_subblock(field: &str) -> bool {
+    matches!(
+        field.to_ascii_lowercase().as_str(),
+        "conditionstate" | "transitionstate"
     )
 }
 
@@ -855,7 +876,10 @@ pub fn generic_tracer_template_matches_system_ini() -> bool {
         != 0;
     let has_tracer_draw = template.get_draw_module_info().iter().any(|entry| {
         entry.name.as_str().eq_ignore_ascii_case("W3DTracerDraw")
-            && entry.module_tag.as_str().eq_ignore_ascii_case("ModuleTag_01")
+            && entry
+                .module_tag
+                .as_str()
+                .eq_ignore_ascii_case("ModuleTag_01")
     });
     drawable_only && has_tracer_draw
 }
@@ -867,96 +891,96 @@ impl ThingFactory {
     }
 
     fn load_ini_text_inner(&mut self, content: &str) -> usize {
-    let factory = self;
-    let mut loaded = 0usize;
-    let lines: Vec<&str> = content.lines().collect();
-    let mut index = 0usize;
+        let factory = self;
+        let mut loaded = 0usize;
+        let lines: Vec<&str> = content.lines().collect();
+        let mut index = 0usize;
 
-    while index < lines.len() {
-        let line = strip_ini_comment(lines[index]).trim();
-        if line.is_empty() {
-            index += 1;
-            continue;
-        }
-
-        let tokens: Vec<&str> = line.split_whitespace().filter(|t| *t != "=").collect();
-        let Some(keyword) = tokens.first().copied() else {
-            index += 1;
-            continue;
-        };
-
-        if keyword.eq_ignore_ascii_case("Object") {
-            if let Some(name) = tokens.get(1) {
-                let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
-                let existing = factory.find_template(name, false);
-                let should_fill = existing
-                    .as_ref()
-                    .map(|tmpl| template_missing_object_fields(tmpl))
-                    .unwrap_or(true);
-                if should_fill {
-                    let mut tmpl = existing.unwrap_or_else(|| factory.new_template(name));
-                    {
-                        let tmpl_ref = Arc::make_mut(&mut tmpl);
-                        if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
-                            warn!("Skipping object '{}': {}", name, err);
-                            index = end_idx;
-                            continue;
-                        }
-                    }
-                    factory
-                        .template_hash_map
-                        .insert(AsciiString::from(*name), tmpl);
-                    loaded += 1;
-                }
-                index = end_idx;
+        while index < lines.len() {
+            let line = strip_ini_comment(lines[index]).trim();
+            if line.is_empty() {
+                index += 1;
                 continue;
             }
-            index = skip_ini_block(&lines, index + 1);
-            continue;
-        }
 
-        if keyword.eq_ignore_ascii_case("ObjectReskin") {
-            if let Some(name) = tokens.get(1) {
-                let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
-                if factory.find_template(name, false).is_none() {
-                    let mut tmpl = factory.new_template(name);
-                    if let Some(source) = tokens.get(2) {
-                        if let Some(parent) = factory.find_template(source, false) {
+            let tokens: Vec<&str> = line.split_whitespace().filter(|t| *t != "=").collect();
+            let Some(keyword) = tokens.first().copied() else {
+                index += 1;
+                continue;
+            };
+
+            if keyword.eq_ignore_ascii_case("Object") {
+                if let Some(name) = tokens.get(1) {
+                    let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
+                    let existing = factory.find_template(name, false);
+                    let should_fill = existing
+                        .as_ref()
+                        .map(|tmpl| template_missing_object_fields(tmpl))
+                        .unwrap_or(true);
+                    if should_fill {
+                        let mut tmpl = existing.unwrap_or_else(|| factory.new_template(name));
+                        {
                             let tmpl_ref = Arc::make_mut(&mut tmpl);
-                            tmpl_ref.copy_from(&parent);
-                            tmpl_ref.set_copied_from_default();
+                            if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
+                                warn!("Skipping object '{}': {}", name, err);
+                                index = end_idx;
+                                continue;
+                            }
                         }
+                        factory
+                            .template_hash_map
+                            .insert(AsciiString::from(*name), tmpl);
+                        loaded += 1;
                     }
-                    {
-                        let tmpl_ref = Arc::make_mut(&mut tmpl);
-                        if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
-                            warn!("Skipping object reskin '{}': {}", name, err);
-                            index = end_idx;
-                            continue;
-                        }
-                    }
-                    factory
-                        .template_hash_map
-                        .insert(AsciiString::from(*name), tmpl);
-                    loaded += 1;
+                    index = end_idx;
+                    continue;
                 }
-                index = end_idx;
+                index = skip_ini_block(&lines, index + 1);
                 continue;
             }
-            index = skip_ini_block(&lines, index + 1);
-            continue;
+
+            if keyword.eq_ignore_ascii_case("ObjectReskin") {
+                if let Some(name) = tokens.get(1) {
+                    let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
+                    if factory.find_template(name, false).is_none() {
+                        let mut tmpl = factory.new_template(name);
+                        if let Some(source) = tokens.get(2) {
+                            if let Some(parent) = factory.find_template(source, false) {
+                                let tmpl_ref = Arc::make_mut(&mut tmpl);
+                                tmpl_ref.copy_from(&parent);
+                                tmpl_ref.set_copied_from_default();
+                            }
+                        }
+                        {
+                            let tmpl_ref = Arc::make_mut(&mut tmpl);
+                            if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
+                                warn!("Skipping object reskin '{}': {}", name, err);
+                                index = end_idx;
+                                continue;
+                            }
+                        }
+                        factory
+                            .template_hash_map
+                            .insert(AsciiString::from(*name), tmpl);
+                        loaded += 1;
+                    }
+                    index = end_idx;
+                    continue;
+                }
+                index = skip_ini_block(&lines, index + 1);
+                continue;
+            }
+
+            index += 1;
         }
 
-        index += 1;
-    }
-
-    if loaded > 0 {
-        info!(
-            "ThingFactory loaded {} object templates from INI text",
-            loaded
-        );
-    }
-    loaded
+        if loaded > 0 {
+            info!(
+                "ThingFactory loaded {} object templates from INI text",
+                loaded
+            );
+        }
+        loaded
     }
 }
 
@@ -1043,7 +1067,11 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
         }
 
         if let Some((key, _value)) = split_ini_assignment(line) {
-            if object_field_starts_subblock(key) {
+            // W3D draw modules contain nested, End-terminated condition and
+            // transition blocks whose declaration itself uses `=`.  Missing
+            // this extra depth closes the Draw block at the first condition's
+            // End and leaks Model/Animation/etc. into the Object field table.
+            if object_field_starts_subblock(key) || object_module_assignment_starts_subblock(key) {
                 depth += 1;
             } else if let Some(ref prefix) = block_key_prefix {
                 let value = split_ini_assignment(line)
@@ -1056,7 +1084,7 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
                 );
             }
         } else if object_field_starts_subblock(first_token)
-            || !object_line_is_plain_field_without_assignment(first_token)
+            || object_module_field_starts_subblock(first_token)
         {
             depth += 1;
         }
@@ -1308,11 +1336,10 @@ fn skip_ini_block(lines: &[&str], mut index: usize) -> usize {
                 nested_depth += 1;
             }
         } else if let Some((key, _value)) = split_ini_assignment(line) {
-            if object_field_starts_subblock(key) {
+            if object_field_starts_subblock(key) || object_module_assignment_starts_subblock(key) {
                 nested_depth += 1;
             }
-        } else if object_field_starts_subblock(first)
-            || !object_line_is_plain_field_without_assignment(first)
+        } else if object_field_starts_subblock(first) || object_module_field_starts_subblock(first)
         {
             nested_depth += 1;
         }
@@ -1434,6 +1461,88 @@ mod tests {
         );
         assert!(!properties.contains_key("GrantUpgrade"));
         assert!(end_idx > start);
+    }
+
+    #[test]
+    fn parse_object_block_properties_keeps_w3d_condition_state_fields_nested() {
+        let contents = r#"
+            Object RetailDrawObject
+              Draw = W3DModelDraw ModuleTag_01
+                ConditionState = NONE
+                  Model = TestModel
+                  Animation = TestModel.TestModel
+                End
+                TransitionState = DOWN_DEFAULT UP_DAY
+                  Model = TestTransition
+                End
+              End
+              BuildCost = 900
+            End
+        "#;
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object RetailDrawObject"))
+            .expect("object declaration")
+            + 1;
+
+        let (properties, _) = parse_object_block_properties(&lines, start);
+        assert_eq!(properties.get("BuildCost").map(String::as_str), Some("900"));
+        assert!(properties.contains_key("Draw"));
+        assert!(!properties.contains_key("ConditionState"));
+        assert!(!properties.contains_key("Model"));
+        assert!(!properties.contains_key("Animation"));
+    }
+
+    #[test]
+    fn retail_gla_hijacker_block_stops_before_worker() {
+        let source = std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+                "../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/GLAInfantry.ini",
+            ),
+        )
+        .expect("read retail GLAInfantry.ini");
+        let lines: Vec<&str> = source.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object GLAInfantryHijacker"))
+            .expect("hijacker declaration")
+            + 1;
+
+        let (_, end_idx) = parse_object_block_properties(&lines, start);
+        let next = lines[end_idx..]
+            .iter()
+            .map(|line| super::strip_ini_comment(line).trim())
+            .find(|line| !line.is_empty())
+            .unwrap_or("<eof>");
+        assert_eq!(next, "Object GLAInfantryWorker", "ended at line {end_idx}");
+    }
+
+    #[test]
+    fn retail_america_crusader_block_stops_before_dozer() {
+        let source = std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+                "../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaVehicle.ini",
+            ),
+        )
+        .expect("read retail AmericaVehicle.ini");
+        let lines: Vec<&str> = source.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object AmericaTankCrusader"))
+            .expect("crusader declaration")
+            + 1;
+
+        let (_, end_idx) = parse_object_block_properties(&lines, start);
+        let next = lines[end_idx..]
+            .iter()
+            .map(|line| super::strip_ini_comment(line).trim())
+            .find(|line| !line.is_empty())
+            .unwrap_or("<eof>");
+        assert_eq!(
+            next, "Object AmericaVehicleDozer",
+            "ended at line {end_idx}"
+        );
     }
 
     #[test]

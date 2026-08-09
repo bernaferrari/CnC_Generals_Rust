@@ -19,6 +19,7 @@
 
 pub mod app;
 pub mod asset_browser;
+pub mod chrome;
 pub mod dialogs;
 pub mod hot_reload;
 pub mod panels;
@@ -27,7 +28,11 @@ pub mod utils;
 pub mod viewport;
 pub mod widgets;
 
+#[cfg(feature = "gpui")]
+pub mod gpui_chrome;
+
 pub use app::*;
+pub use chrome::*;
 pub use panels::*;
 pub use themes::*;
 pub use viewport::*;

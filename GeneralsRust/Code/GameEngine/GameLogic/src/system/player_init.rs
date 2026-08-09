@@ -87,6 +87,9 @@ pub fn make_player_template(name: &str, side: &str) -> PlayerTemplate {
     template.display_name = name.to_string();
     template.side = side.to_string();
     template.base_side = side.to_string();
+    // C++ PlayerTemplate.ini sets PlayableSide = Yes for faction templates.
+    // Common default is false to match PlayerTemplate::PlayerTemplate().
+    template.playable = true;
     template.preferred_color = DEFAULT_PLAYER_COLORS[0];
     template.starting_money = Money::new_with_amount(DEFAULT_STARTING_MONEY);
     template
@@ -591,6 +594,25 @@ mod tests {
         assert!(!player.is_ai);
         assert_eq!(player.current_money, DEFAULT_STARTING_MONEY);
         assert!(!player.is_defeated);
+    }
+
+    #[test]
+    fn make_player_template_sets_playable_side_yes_for_factions() {
+        // Common `PlayerTemplate::new` defaults playable=false (C++ ctor).
+        // Faction helpers must still seed PlayableSide=Yes like PlayerTemplate.ini.
+        let usa = make_player_template("Player 1", "USA");
+        assert!(usa.playable, "make_player_template must set PlayableSide=Yes");
+        assert!(usa.is_playable_side());
+        assert_eq!(usa.side, "USA");
+
+        let china = make_player_template("Player 2", "China");
+        assert!(china.playable);
+        assert!(china.is_playable_side());
+
+        let observer = make_observer_template();
+        assert!(!observer.playable);
+        assert!(!observer.is_playable_side());
+        assert!(observer.is_observer);
     }
 
     #[test]

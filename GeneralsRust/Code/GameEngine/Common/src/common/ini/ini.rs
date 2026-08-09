@@ -431,9 +431,61 @@ fn parse_unnamed_property_block(ini: &mut INI) -> INIResult<HashMap<String, Stri
 }
 
 fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
-    let (name, properties) = parse_named_property_block(ini)?;
-    let fx_list = super::ini_fx_list::parse_fx_list_definition(&name, &properties)
-        .map_err(|_| INIError::InvalidData)?;
+    let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
+    let mut fx_list = super::ini_fx_list::FXList::new(AsciiString::from(name.as_str()));
+
+    loop {
+        ini.read_line()?;
+        if ini.end_of_file {
+            return Err(INIError::MissingEndToken);
+        }
+
+        let nugget_kind = ini.buffer.trim();
+        if nugget_kind.is_empty() {
+            continue;
+        }
+        if nugget_kind.eq_ignore_ascii_case("End") {
+            break;
+        }
+
+        let nugget_kind = nugget_kind.to_string();
+        let mut properties = HashMap::new();
+        loop {
+            ini.read_line()?;
+            if ini.end_of_file {
+                return Err(INIError::MissingEndToken);
+            }
+            if ini.buffer.is_empty() {
+                continue;
+            }
+            if ini.buffer.eq_ignore_ascii_case("End") {
+                break;
+            }
+            let (key, value) = parse_key_value_line(&ini.buffer).ok_or(INIError::InvalidData)?;
+            properties.insert(key, value);
+        }
+
+        let nugget = super::ini_fx_list::parse_fx_nugget_definition(&nugget_kind, &properties)
+            .map_err(|error| {
+                eprintln!(
+                    "FXList '{}' nugget '{}' failed near line {}: {}",
+                    name,
+                    nugget_kind,
+                    ini.get_line_num(),
+                    error
+                );
+                log::warn!(
+                    "FXList '{}' nugget '{}' failed near line {}: {}",
+                    name,
+                    nugget_kind,
+                    ini.get_line_num(),
+                    error
+                );
+                INIError::InvalidData
+            })?;
+        fx_list.add_nugget(nugget);
+    }
+
     let mut store = super::ini_fx_list::get_fx_list_store_mut();
     store.add_fx_list(fx_list);
     Ok(())
@@ -561,7 +613,21 @@ fn parse_weapon_block(ini: &mut INI) -> INIResult<()> {
         properties,
         ini.get_load_type(),
     )
-    .map_err(|_| INIError::InvalidData)?;
+    .map_err(|error| {
+        eprintln!(
+            "Weapon '{}' failed near line {}: {}",
+            name,
+            ini.get_line_num(),
+            error
+        );
+        log::warn!(
+            "Weapon '{}' failed near line {}: {}",
+            name,
+            ini.get_line_num(),
+            error
+        );
+        INIError::InvalidData
+    })?;
     Ok(())
 }
 

@@ -1,5 +1,9 @@
 //! Core Particle Editor implementation
 
+use crate::chrome::{
+    show_center_panel, show_menu_bar, show_properties_panel, show_status_bar, show_system_list,
+    ChromeAction, ChromeViewState, SystemListCommand,
+};
 use crate::export::ParticleExporter;
 use crate::particles::{ParticleSystem, ParticleSystemTemplate};
 use crate::preview::ParticlePreview;
@@ -19,14 +23,16 @@ pub struct ParticleEditorTool {
     id: Uuid,
     config: ToolConfig,
 
-    // Core components
-    current_system: Option<ParticleSystem>,
+    // Core components — list + selection (C++ m_listOfParticleSystems)
+    systems: Vec<ParticleSystem>,
+    selected_index: Option<usize>,
     system_templates: HashMap<String, ParticleSystemTemplate>,
 
     // Editor components
     timeline: Timeline,
     preview: ParticlePreview,
     ui: ParticleEditorUI,
+    chrome: ChromeViewState,
     exporter: ParticleExporter,
 
     // State
@@ -52,16 +58,18 @@ impl ParticleEditorTool {
         config.window_size = [1200.0, 800.0];
         config.theme = ThemeType::Dark;
 
-        Ok(Self {
+        let mut tool = Self {
             id,
             config,
 
-            current_system: None,
+            systems: Vec::new(),
+            selected_index: None,
             system_templates: HashMap::new(),
 
             timeline: Timeline::new(),
             preview: ParticlePreview::new(),
             ui: ParticleEditorUI::new(),
+            chrome: ChromeViewState::new(),
             exporter: ParticleExporter::new(),
 
             is_initialized: false,
@@ -74,14 +82,16 @@ impl ParticleEditorTool {
             frame_count: 0,
             last_fps_update: std::time::Instant::now(),
             current_fps: 0.0,
-        })
+        };
+        tool.load_templates()?;
+        Ok(tool)
     }
 
-    /// Create a new particle system
+    /// Create a new particle system and select it.
     pub fn new_system(&mut self, template: Option<&str>) -> Result<()> {
-        let system = if let Some(template_name) = template {
-            if let Some(template) = self.system_templates.get(template_name) {
-                ParticleSystem::from_template(template)?
+        let mut system = if let Some(template_name) = template {
+            if let Some(template) = self.system_templates.get(template_name).cloned() {
+                ParticleSystem::from_template(&template)?
             } else {
                 ParticleSystem::new("New System".to_string())?
             }
@@ -89,32 +99,30 @@ impl ParticleEditorTool {
             ParticleSystem::new("New System".to_string())?
         };
 
-        self.current_system = Some(system);
-        self.timeline.set_system(self.current_system.as_ref())?;
-        self.preview.set_system(self.current_system.as_ref())?;
-
-        self.current_time = 0.0;
-        self.is_playing = false;
-        self.dirty = true;
-        self.last_save_path = None;
-
+        system.info.name = self.unique_name(&system.info.name);
+        self.add_and_select(system);
         log::info!("Created new particle system");
         Ok(())
     }
 
-    /// Load a particle system from file
+    /// Create a named system (chrome / tests). Returns the new index.
+    pub fn create_system(&mut self, name: &str) -> Result<usize> {
+        let name = self.unique_name(name);
+        let system = ParticleSystem::new(name)?;
+        Ok(self.add_and_select(system))
+    }
+
+    /// Load a particle system from JSON or C++ INI and select it.
     pub fn load_system(&mut self, path: PathBuf) -> Result<()> {
         log::info!("Loading particle system from: {}", path.display());
 
-        let system = ParticleSystem::load(&path)?;
-        self.current_system = Some(system);
-
-        self.timeline.set_system(self.current_system.as_ref())?;
-        self.preview.set_system(self.current_system.as_ref())?;
+        let system = match path.extension().and_then(|s| s.to_str()) {
+            Some("ini") | Some("INI") => self.exporter.import_particle_system(&path)?,
+            _ => ParticleSystem::load(&path)?,
+        };
+        self.add_and_select(system);
 
         self.last_save_path = Some(path.clone());
-        self.current_time = 0.0;
-        self.is_playing = false;
         self.dirty = false;
 
         log::info!("Successfully loaded particle system: {}", path.display());
@@ -126,16 +134,22 @@ impl ParticleEditorTool {
         if let Some(ref path) = self.last_save_path.clone() {
             self.save_system_as(path.clone())
         } else {
-            // TODO: Implement file dialog for save
-            log::warn!("No save path set, please use Save As");
-            Ok(())
+            self.pick_save_path()
         }
     }
 
     /// Save the particle system to a specific path
     pub fn save_system_as(&mut self, path: PathBuf) -> Result<()> {
-        if let Some(ref system) = self.current_system {
-            system.save(&path)?;
+        if let Some(system) = self.selected_system() {
+            if path
+                .extension()
+                .and_then(|s| s.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"))
+            {
+                self.exporter.export_for_game_engine(system, &path)?;
+            } else {
+                system.save(&path)?;
+            }
 
             self.last_save_path = Some(path.clone());
             self.dirty = false;
@@ -146,11 +160,176 @@ impl ParticleEditorTool {
         Ok(())
     }
 
-    /// Export the particle system for the game engine
+    /// Export the selected particle system as C++ `_writeSingleParticleSystem` INI.
     pub fn export_system(&mut self, path: PathBuf) -> Result<()> {
-        if let Some(ref system) = self.current_system {
+        if let Some(system) = self.selected_system() {
             self.exporter.export_for_game_engine(system, &path)?;
             log::info!("Exported particle system to: {}", path.display());
+        }
+        Ok(())
+    }
+
+    /// Shipped INI text for the selected system (chrome / tests).
+    pub fn export_selected_ini(&self) -> Option<String> {
+        self.selected_system()
+            .map(|system| self.exporter.generate_ini_content(system))
+    }
+
+    pub fn system_count(&self) -> usize {
+        self.systems.len()
+    }
+
+    pub fn systems(&self) -> &[ParticleSystem] {
+        &self.systems
+    }
+
+    pub fn system_names(&self) -> Vec<String> {
+        self.systems.iter().map(|s| s.info.name.clone()).collect()
+    }
+
+    pub fn selected_index(&self) -> Option<usize> {
+        self.selected_index
+    }
+
+    pub fn selected_system(&self) -> Option<&ParticleSystem> {
+        self.selected_index.and_then(|i| self.systems.get(i))
+    }
+
+    pub fn selected_system_mut(&mut self) -> Option<&mut ParticleSystem> {
+        self.selected_index.and_then(|i| self.systems.get_mut(i))
+    }
+
+    pub fn selected_name(&self) -> Option<String> {
+        self.selected_system().map(|s| s.info.name.clone())
+    }
+
+    pub fn chrome(&self) -> &ChromeViewState {
+        &self.chrome
+    }
+
+    pub fn chrome_mut(&mut self) -> &mut ChromeViewState {
+        &mut self.chrome
+    }
+
+    /// Select a system by index (left-list click).
+    pub fn select_system(&mut self, index: usize) -> Result<()> {
+        if index >= self.systems.len() {
+            anyhow::bail!("invalid particle system index {index}");
+        }
+        self.selected_index = Some(index);
+        let system = self.systems.get(index);
+        self.timeline.set_system(system)?;
+        self.preview.set_system(system)?;
+        self.current_time = 0.0;
+        self.is_playing = false;
+        Ok(())
+    }
+
+    /// Dispatch a chrome File/Edit action.
+    pub fn apply_chrome_action(&mut self, action: ChromeAction) -> Result<()> {
+        match action {
+            ChromeAction::NewSystem => self.new_system(None),
+            ChromeAction::Open => self.pick_open_path(),
+            ChromeAction::Save => self.save_system(),
+            ChromeAction::ExportIni => self.pick_export_path(),
+            ChromeAction::Exit => {
+                self.chrome.exit_requested = true;
+                Ok(())
+            }
+            ChromeAction::ResetSystem => {
+                if let Some(system) = self.selected_system_mut() {
+                    system.reset();
+                }
+                self.current_time = 0.0;
+                Ok(())
+            }
+            ChromeAction::DuplicateSystem => self.duplicate_selected(),
+            ChromeAction::DeleteSystem => self.delete_selected(),
+        }
+    }
+
+    fn add_and_select(&mut self, system: ParticleSystem) -> usize {
+        let idx = self.systems.len();
+        self.systems.push(system);
+        if let Err(e) = self.select_system(idx) {
+            log::error!("Failed to select new system: {e}");
+        }
+        self.dirty = true;
+        idx
+    }
+
+    fn unique_name(&self, base: &str) -> String {
+        if !self.systems.iter().any(|s| s.info.name == base) {
+            return base.to_string();
+        }
+        let mut i = 2;
+        loop {
+            let candidate = format!("{base} {i}");
+            if !self.systems.iter().any(|s| s.info.name == candidate) {
+                return candidate;
+            }
+            i += 1;
+        }
+    }
+
+    fn duplicate_selected(&mut self) -> Result<()> {
+        let Some(mut copy) = self.selected_system().cloned() else {
+            return Ok(());
+        };
+        copy.info.name = self.unique_name(&format!("{} Copy", copy.info.name));
+        copy.reset();
+        self.add_and_select(copy);
+        Ok(())
+    }
+
+    fn delete_selected(&mut self) -> Result<()> {
+        let Some(i) = self.selected_index else {
+            return Ok(());
+        };
+        if i >= self.systems.len() {
+            return Ok(());
+        }
+        self.systems.remove(i);
+        self.dirty = true;
+        if self.systems.is_empty() {
+            self.selected_index = None;
+            self.timeline.set_system(None)?;
+            self.preview.set_system(None)?;
+        } else {
+            self.select_system(i.min(self.systems.len() - 1))?;
+        }
+        Ok(())
+    }
+
+    fn pick_open_path(&mut self) -> Result<()> {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Particle", &["ini", "json"])
+            .pick_file()
+        {
+            self.load_system(path)?;
+        }
+        Ok(())
+    }
+
+    fn pick_save_path(&mut self) -> Result<()> {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Particle JSON", &["json"])
+            .add_filter("Particle INI", &["ini"])
+            .save_file()
+        {
+            self.save_system_as(path)?;
+        } else {
+            log::warn!("No save path set, please use Save As");
+        }
+        Ok(())
+    }
+
+    fn pick_export_path(&mut self) -> Result<()> {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Particle INI", &["ini"])
+            .save_file()
+        {
+            self.export_system(path)?;
         }
         Ok(())
     }
@@ -171,7 +350,7 @@ impl ParticleEditorTool {
         self.is_playing = false;
         self.current_time = 0.0;
 
-        if let Some(ref mut system) = self.current_system {
+        if let Some(system) = self.selected_system_mut() {
             system.reset();
         }
 
@@ -182,8 +361,9 @@ impl ParticleEditorTool {
     pub fn seek_to(&mut self, time: f32) {
         self.current_time = time.max(0.0);
 
-        if let Some(ref mut system) = self.current_system {
-            system.seek_to(self.current_time);
+        let time = self.current_time;
+        if let Some(system) = self.selected_system_mut() {
+            system.seek_to(time);
         }
 
         self.timeline.set_current_time(self.current_time);
@@ -191,11 +371,8 @@ impl ParticleEditorTool {
 
     /// Get the current system name
     pub fn current_system_name(&self) -> String {
-        if let Some(ref system) = self.current_system {
-            system.name().to_string()
-        } else {
-            "No System Loaded".to_string()
-        }
+        self.selected_name()
+            .unwrap_or_else(|| "No System Loaded".to_string())
     }
 
     /// Check if there are unsaved changes
@@ -220,19 +397,24 @@ impl ParticleEditorTool {
     /// Update particle system simulation
     fn update_simulation(&mut self, dt: f32) -> Result<()> {
         if self.is_playing {
-            self.current_time += dt * self.playback_speed;
+            let step = dt * self.playback_speed;
+            let time = self.current_time + step;
+            self.current_time = time;
+            let duration = self.timeline.duration();
+            let looping = self.timeline.is_looping();
+            let reached_end = time >= duration;
 
-            if let Some(ref mut system) = self.current_system {
-                system.update(dt * self.playback_speed)?;
-
-                // Check if we've reached the end of the timeline
-                if self.current_time >= self.timeline.duration() {
-                    if self.timeline.is_looping() {
-                        self.current_time = 0.0;
-                        system.reset();
-                    } else {
-                        self.is_playing = false;
-                    }
+            if let Some(system) = self.selected_system_mut() {
+                system.update(step)?;
+                if reached_end && looping {
+                    system.reset();
+                }
+            }
+            if reached_end {
+                if looping {
+                    self.current_time = 0.0;
+                } else {
+                    self.is_playing = false;
                 }
             }
 
@@ -297,7 +479,7 @@ impl GameTool for ParticleEditorTool {
         Ok(())
     }
 
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) -> Result<()> {
+    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) -> Result<()> {
         self.update_fps();
 
         // Calculate delta time
@@ -306,105 +488,123 @@ impl GameTool for ParticleEditorTool {
         // Update simulation
         self.update_simulation(dt)?;
 
-        // Main editor layout
-        egui::SidePanel::left("properties_panel")
-            .resizable(true)
-            .default_width(300.0)
-            .show(ctx, |ui| {
-                self.ui.show_properties_panel(ui, &mut self.current_system);
-            });
-
-        // Handle template selection separately to avoid borrow checker issues
-        let mut selected_template: Option<String> = None;
-
-        egui::SidePanel::right("templates_panel")
-            .resizable(true)
-            .default_width(200.0)
-            .show(ctx, |ui| {
-                ui.group(|ui| {
-                    ui.heading("Templates");
-                    ui.label("Select a template to create a new particle system:");
-                    ui.separator();
-
-                    for (name, _template) in &self.system_templates {
-                        if ui.button(name).clicked() {
-                            selected_template = Some(name.clone());
-                        }
-                    }
-                });
-            });
-
-        // Apply template selection after the closure
-        if let Some(template) = selected_template {
-            if let Err(e) = self.new_system(Some(&template)) {
-                log::error!("Failed to create system from template: {}", e);
-            }
+        if self.chrome.exit_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
-        egui::TopBottomPanel::bottom("timeline_panel")
-            .resizable(true)
-            .default_height(200.0)
-            .show(ctx, |ui| {
-                self.timeline
-                    .show(ui, &mut self.current_time, &mut self.is_playing);
-
-                // Playback controls
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button(if self.is_playing { "⏸" } else { "▶" }).clicked() {
-                        self.toggle_playback();
-                    }
-
-                    if ui.button("⏹").clicked() {
-                        self.stop_playback();
-                    }
-
-                    ui.separator();
-
-                    ui.label("Speed:");
-                    ui.add(egui::Slider::new(&mut self.playback_speed, 0.1..=5.0));
-
-                    ui.separator();
-
-                    ui.label(format!("Time: {:.2}s", self.current_time));
-
-                    if self.current_system.is_some() {
-                        ui.label(format!(
-                            "Particles: {}",
-                            self.current_system.as_ref().unwrap().particle_count()
-                        ));
-                    }
-                });
-            });
-
-        egui::TopBottomPanel::bottom("status_bar")
+        // Status first so it sits on the outer bottom edge.
+        let status_name = self.current_system_name();
+        let system_count = self.systems.len();
+        let dirty = self.dirty;
+        let fps = self.current_fps;
+        egui::TopBottomPanel::bottom("particle_editor_status")
             .resizable(false)
             .default_height(25.0)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(format!("System: {}", self.current_system_name()));
-
-                    ui.separator();
-
-                    if self.has_unsaved_changes() {
-                        ui.colored_label(egui::Color32::YELLOW, "Unsaved Changes");
-                    } else {
-                        ui.label("Saved");
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(format!("FPS: {:.0}", self.current_fps));
-                    });
-                });
+                show_status_bar(ui, system_count, &status_name, dirty, fps);
             });
 
-        // Main preview area
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.preview
-                .show(ui, self.current_system.as_ref(), self.current_time);
-        });
+        if self.chrome.show_timeline {
+            egui::TopBottomPanel::bottom("timeline_panel")
+                .resizable(true)
+                .default_height(200.0)
+                .show(ctx, |ui| {
+                    self.timeline
+                        .show(ui, &mut self.current_time, &mut self.is_playing);
 
-        // Update components
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button(if self.is_playing { "⏸" } else { "▶" }).clicked() {
+                            self.toggle_playback();
+                        }
+
+                        if ui.button("⏹").clicked() {
+                            self.stop_playback();
+                        }
+
+                        ui.separator();
+
+                        ui.label("Speed:");
+                        ui.add(egui::Slider::new(&mut self.playback_speed, 0.1..=5.0));
+
+                        ui.separator();
+
+                        ui.label(format!("Time: {:.2}s", self.current_time));
+
+                        if let Some(system) = self.selected_system() {
+                            ui.label(format!("Particles: {}", system.particle_count()));
+                        }
+                    });
+                });
+        }
+
+        let mut list_cmd = SystemListCommand::None;
+        egui::SidePanel::left("systems_list")
+            .resizable(true)
+            .default_width(220.0)
+            .show(ctx, |ui| {
+                list_cmd = show_system_list(
+                    ui,
+                    &self.systems,
+                    self.selected_index,
+                    &self.system_templates,
+                );
+            });
+
+        match list_cmd {
+            SystemListCommand::None => {}
+            SystemListCommand::Select(i) => {
+                if let Err(e) = self.select_system(i) {
+                    log::error!("Failed to select system: {e}");
+                }
+            }
+            SystemListCommand::NewBlank => {
+                if let Err(e) = self.new_system(None) {
+                    log::error!("Failed to create system: {e}");
+                }
+            }
+            SystemListCommand::NewFromTemplate(name) => {
+                if let Err(e) = self.new_system(Some(&name)) {
+                    log::error!("Failed to create system from template: {e}");
+                }
+            }
+        }
+
+        let mut properties_changed = false;
+        if self.chrome.show_properties {
+            egui::SidePanel::right("properties_panel")
+                .resizable(true)
+                .default_width(320.0)
+                .show(ctx, |ui| {
+                    let selected = self
+                        .selected_index
+                        .and_then(|i| self.systems.get_mut(i));
+                    properties_changed = show_properties_panel(ui, selected);
+                });
+        }
+        if properties_changed {
+            self.dirty = true;
+        }
+
+        let show_preview = self.chrome.show_preview;
+        let current_time = self.current_time;
+        let mut center_changed = false;
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let selected = self
+                .selected_index
+                .and_then(|i| self.systems.get_mut(i));
+            center_changed = show_center_panel(
+                ui,
+                selected,
+                &mut self.preview,
+                current_time,
+                show_preview,
+            );
+        });
+        if center_changed {
+            self.dirty = true;
+        }
+
         self.timeline.update(dt)?;
         self.preview.update(dt)?;
 
@@ -412,57 +612,12 @@ impl GameTool for ParticleEditorTool {
     }
 
     fn menu_bar(&mut self, ui: &mut eframe::egui::Ui) -> Result<()> {
-        // File menu (additional items)
-        ui.menu_button("System", |ui| {
-            if ui.button("New System").clicked() {
-                if let Err(e) = self.new_system(None) {
-                    log::error!("Failed to create new system: {}", e);
-                }
+        if let Some(action) = show_menu_bar(ui, &mut self.chrome) {
+            if let Err(e) = self.apply_chrome_action(action) {
+                log::error!("Chrome menu action failed: {e}");
             }
+        }
 
-            if ui.button("Load System...").clicked() {
-                // TODO: Implement file dialog for load
-                log::info!("Load system requested");
-            }
-
-            ui.separator();
-
-            if ui.button("Save System").clicked() {
-                if let Err(e) = self.save_system() {
-                    log::error!("Failed to save system: {}", e);
-                }
-            }
-
-            if ui.button("Save System As...").clicked() {
-                // TODO: Implement file dialog for save as
-                log::info!("Save system as requested");
-            }
-
-            ui.separator();
-
-            if ui.button("Export for Game...").clicked() {
-                // TODO: Implement file dialog for export
-                log::info!("Export system requested");
-            }
-        });
-
-        // Edit menu
-        ui.menu_button("Edit", |ui| {
-            if ui.button("Reset System").clicked() {
-                if let Some(ref mut system) = self.current_system {
-                    system.reset();
-                    self.current_time = 0.0;
-                }
-            }
-
-            ui.separator();
-
-            if ui.button("Duplicate System").clicked() {
-                // Duplicate current system
-            }
-        });
-
-        // Playback menu
         ui.menu_button("Playback", |ui| {
             if ui
                 .button(if self.is_playing { "Pause" } else { "Play" })

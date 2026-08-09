@@ -677,3 +677,106 @@ pub fn parse_player_template_definition(ini: &mut INI) -> INIResult<()> {
         Err(INIError::InvalidData)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::rts::player_template::{
+        get_player_template_store, get_player_template_store_mut,
+    };
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset_player_template_test_state() {
+        get_player_template_store_mut().clear();
+    }
+
+    fn parse_player_templates(source: &str) {
+        let mut ini = INI::new();
+        ini.with_inline_source(source, |ini| {
+            ini.parse_current_file()?;
+            Ok(())
+        })
+        .expect("PlayerTemplate INI should parse via registered block");
+    }
+
+    #[test]
+    fn player_template_reparse_same_name_updates_existing_store_len_stays_one() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        reset_player_template_test_state();
+
+        parse_player_templates(
+            r#"
+PlayerTemplate FactionAmerica
+  Side = America
+  PlayableSide = Yes
+  StartMoney = 1000
+  StartingBuilding = AmericaCommandCenter
+  StartingUnit0 = AmericaVehicleDozer
+End
+
+PlayerTemplate FactionAmerica
+  StartMoney = 5000
+  StartingUnit0 = AmericaInfantryRanger
+End
+"#,
+        );
+
+        {
+            let store = get_player_template_store();
+            assert_eq!(
+                store.len(),
+                1,
+                "C++ findPlayerTemplate + initFromINI must not push a second template"
+            );
+            let template = store
+                .find_template("FactionAmerica")
+                .expect("re-parsed template should still be stored under the same name");
+            assert_eq!(template.starting_money.count_money(), 5000);
+            assert_eq!(template.starting_units[0], "AmericaInfantryRanger");
+            // Fields omitted from the second block stay from the first (in-place initFromINI).
+            assert_eq!(template.starting_building, "AmericaCommandCenter");
+            assert_eq!(template.side, "America");
+            assert!(template.playable);
+        }
+
+        reset_player_template_test_state();
+    }
+
+    #[test]
+    fn player_template_faction_america_like_fields_round_trip_from_store() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        reset_player_template_test_state();
+
+        parse_player_templates(
+            r#"
+PlayerTemplate FactionAmerica
+  Side              = America
+  BaseSide          = USA
+  PlayableSide      = Yes
+  StartMoney        = 0
+  StartingBuilding  = AmericaCommandCenter
+  StartingUnit0     = AmericaVehicleDozer
+End
+"#,
+        );
+
+        {
+            let store = get_player_template_store();
+            assert_eq!(store.len(), 1);
+            let template = store
+                .find_template("FactionAmerica")
+                .expect("FactionAmerica should be registered by parse_current_file");
+            assert_eq!(template.side, "America");
+            assert_eq!(template.base_side, "USA");
+            assert!(template.playable);
+            assert!(template.is_playable_side());
+            assert_eq!(template.starting_money.count_money(), 0);
+            assert_eq!(template.starting_building, "AmericaCommandCenter");
+            assert_eq!(template.starting_units[0], "AmericaVehicleDozer");
+        }
+
+        reset_player_template_test_state();
+    }
+}

@@ -1,0 +1,26 @@
+# GameLogic is a 1:1 C++ port. Keep noisy style lints from drowning correctness.
+avoid-breaking-exported-api = false
+too-many-arguments-threshold = 20
+type-complexity-threshold = 500
+cognitive-complexity-threshold = 100
+trivial-copy-size-limit = 16
+pass-by-value-size-limit = 256
+enum-variant-name-threshold = 5
+enum-variant-size-threshold = 400
+too-large-for-stack = 512
+large-error-threshold = 256
+array-size-threshold = 512_000
+vec-box-size-threshold = 4096
+excessive-nesting-threshold = 16
+future-size-threshold = 16_384
+stack-size-threshold = 512_000
+literal-representation-threshold = 16
+single-char-binding-names-threshold = 5
+max-suggested-slice-pattern-length = 8
+check-private-items = false
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+allow-panic-in-tests = true
+disallowed-names = []

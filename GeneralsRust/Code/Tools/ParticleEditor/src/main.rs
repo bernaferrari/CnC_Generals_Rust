@@ -15,15 +15,8 @@
 //! A modern particle system editor with real-time preview, timeline-based editing,
 //! GPU acceleration, and advanced physics simulation for Command & Conquer.
 
-mod editor;
-mod export;
-mod particles;
-mod preview;
-mod timeline;
-mod ui;
-
 use anyhow::Result;
-use editor::ParticleEditorTool;
+use particle_editor::editor::ParticleEditorTool;
 use ui_framework::{GameTool, ToolApp};
 
 fn main() -> Result<()> {

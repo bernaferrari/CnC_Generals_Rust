@@ -58,21 +58,49 @@ fn es_source() -> &'static str {
 fn cnc_source() -> &'static str {
     include_str!("../cnc_game_engine.rs")
 }
+fn pf_source() -> &'static str {
+    include_str!("../presentation_frame.rs")
+}
 
 pub fn honesty_host_construct_dead_combat_latch_method_names_residual_wave1115() -> bool {
-    let names = LIVE_HOST_CONSTRUCT_DEAD_COMBAT_LATCH_METHOD_NAMES_WAVE1115;
-    let ok = residual_name_index(names, "draw_construct_percent").is_some()
-        && residual_name_index(names, "first_enemy_attack_command_id").is_some()
-        && residual_name_index(names, "Wave 1115").is_some();
+    // Self-table membership is inflation (host_wave_inflation). Scan shipped fns.
+    debug_assert!(super::host_wave_inflation::self_table_honesty_is_inflation());
+    let dr = dr_source();
+    let pf = pf_source();
+    let cnc = cnc_source();
+    let ok = super::host_wave_inflation::shipped_fn_contains(
+        dr,
+        "fn draw_construct_percent",
+        &[
+            "presentation_sold",
+            "ObjectStatusTypes::Sold",
+            "isEffectivelyDead check is commented out",
+        ],
+    ) && super::host_wave_inflation::shipped_fn_contains(
+        pf,
+        "pub fn first_enemy_attack_command_id",
+        &["first_enemy_attackable_id", "first_enemy_force_attack_id"],
+    ) && super::host_wave_inflation::shipped_fn_exists(pf, "first_enemy_attackable_id")
+        && super::host_wave_inflation::shipped_fn_exists(pf, "first_enemy_force_attack_id")
+        && super::host_wave_inflation::shipped_fn_exists(dr, "set_presentation_sold")
+        && cnc.contains("first_enemy_attack_command_id");
     residual_action_store(ResidualHostConstructDeadCombatLatchAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
 pub fn honesty_host_construct_dead_combat_latch_nav_commands_residual_wave1115() -> bool {
-    let steps = LIVE_HOST_CONSTRUCT_DEAD_COMBAT_LATCH_NAV_STEPS_WAVE1115;
-    let ok = residual_name_index(steps, "LIVE_HOST_CONSTRUCT_DEAD_COMBAT_LATCH").is_some()
-        && residual_name_index(steps, "CONSTRUCT_SOLD_FAIL_CLOSED").is_some();
+    // Nav honesty must scan real smoke/combat latch + attack command path.
+    debug_assert!(super::host_wave_inflation::self_table_honesty_is_inflation());
+    let es = es_source();
+    let cnc = cnc_source();
+    let ok = es.contains("Duration::from_secs(12)")
+        && es.contains("!saw_combat_damage")
+        && es.contains("Duration::from_secs(4)")
+        && es.contains("Duration::from_secs(5)")
+        && es.contains("attack_nearest_enemy|auto_target=1")
+        && cnc.contains("first_enemy_attack_command_id")
+        && cnc.contains("host_command_attack");
     residual_action_store(ResidualHostConstructDeadCombatLatchAction::NavCommands);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

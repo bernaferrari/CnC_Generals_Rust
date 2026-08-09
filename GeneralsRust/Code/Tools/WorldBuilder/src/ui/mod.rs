@@ -1,5 +1,10 @@
 //! User interface for World Builder
 
+pub use world_builder::chrome::{
+    command_for_menu_item, world_to_cell, ChromeCommand, ChromeMenuItem, EditorChrome, StatusBarState,
+    ViewToggle, WbToolId,
+};
+
 use crate::map::MapSettings;
 use crate::objects::ObjectManager;
 use crate::terrain::TerrainEditor;
@@ -10,6 +15,7 @@ use ui_framework::{
     widgets::{CollapsibleSection, ToolButton, ToolbarWidget},
     Viewport3D,
 };
+use world_builder::chrome;
 
 /// Main UI controller for World Builder
 pub struct WorldBuilderUI {
@@ -67,18 +73,120 @@ impl WorldBuilderUI {
         Ok(())
     }
 
+    /// C++ `IDR_MAPDOC` menu bar: File / Edit / View / Tools / Help.
+    pub fn show_main_menu(&mut self, ui: &mut egui::Ui, chrome: &mut EditorChrome) {
+        for menu in chrome.menus().to_vec() {
+            ui.menu_button(menu.label.replace('&', ""), |ui| {
+                for item in &menu.items {
+                    if item.separator {
+                        ui.separator();
+                        continue;
+                    }
+                    let selected = item
+                        .tool
+                        .map(|tool| tool == chrome.selected_tool())
+                        .unwrap_or(false);
+                    let label = item.display_label().replace('&', "");
+                    let clicked = if item.tool.is_some() {
+                        ui.selectable_label(selected, label).clicked()
+                    } else {
+                        ui.button(label).clicked()
+                    };
+                    if clicked {
+                        if let Some(command) = command_for_menu_item(item) {
+                            chrome.queue_command(command);
+                        }
+                        ui.close();
+                    }
+                }
+            });
+        }
+    }
+
+    /// C++ `IDR_MAINFRAME` tool palette; clicking sets chrome + ToolManager.
+    pub fn show_tool_palette(
+        &mut self,
+        ui: &mut egui::Ui,
+        chrome: &mut EditorChrome,
+        tool_manager: &mut ToolManager,
+    ) {
+        ui.heading("Tools");
+        ui.separator();
+        ui.label("WorldBuilder tools");
+
+        let selected = chrome.selected_tool();
+        egui::ScrollArea::vertical()
+            .id_salt("wb_tool_palette")
+            .show(ui, |ui| {
+                for tool in chrome.palette_tools() {
+                    let is_selected = *tool == selected;
+                    if ui
+                        .selectable_label(is_selected, tool.display_name())
+                        .clicked()
+                    {
+                        chrome.select_tool(*tool);
+                        tool_manager.set_active_tool(tool.as_str());
+                    }
+                }
+            });
+
+        ui.separator();
+        ui.label(format!("Selected: {}", chrome.selected_tool_name()));
+    }
+
+    /// Status bar: map name, cell/world coords, current tool.
+    pub fn show_status_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        chrome: &EditorChrome,
+        fps: f64,
+        map_size: Option<(u32, u32)>,
+    ) {
+        ui.horizontal(|ui| {
+            ui.label(format!("Map: {}", chrome.status().map_name));
+            ui.separator();
+            match chrome.status().cell {
+                Some((x, y)) => ui.label(format!("Cell: ({x}, {y})")),
+                None => ui.label("Cell: --"),
+            };
+            ui.separator();
+            match chrome.status().world {
+                Some((x, y, z)) => ui.label(format!("World: ({x:.2}, {y:.2}, {z:.2})")),
+                None => ui.label("World: --"),
+            };
+            ui.separator();
+            ui.label(format!("Tool: {}", chrome.selected_tool_name()));
+            if chrome.status().unsaved {
+                ui.separator();
+                ui.colored_label(egui::Color32::YELLOW, "Unsaved Changes");
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(format!("FPS: {fps:.0}"));
+                if let Some((w, h)) = map_size {
+                    ui.label(format!("Size: {w}x{h}"));
+                }
+            });
+        });
+    }
+
     /// Show the tool panel
     pub fn show_tool_panel(
         &mut self,
         ui: &mut egui::Ui,
+        chrome: &mut EditorChrome,
         tool_manager: &mut ToolManager,
         terrain_editor: &mut TerrainEditor,
         object_manager: &mut ObjectManager,
     ) {
-        ui.heading("Tools");
+        if chrome.show_toolbar {
+            self.show_tool_palette(ui, chrome, tool_manager);
+            ui.separator();
+        }
+
+        // Legacy category tools (camera / sculpt / gizmo) sit below the C++ palette.
+        ui.heading("Categories");
         ui.separator();
 
-        // Main tool categories
         if let Some(clicked_tool) = self.main_toolbar.show(ui) {
             match clicked_tool.as_str() {
                 "camera" => tool_manager.set_active_tool("camera"),
@@ -90,7 +198,6 @@ impl WorldBuilderUI {
 
         ui.separator();
 
-        // Category-specific tools
         if let Some(active_tool) = tool_manager.active_tool() {
             match active_tool.category() {
                 ToolCategory::Terrain => {
@@ -153,26 +260,51 @@ impl WorldBuilderUI {
         ui: &mut egui::Ui,
         viewport: &mut Viewport3D,
         tool_manager: &mut ToolManager,
+        chrome: &mut EditorChrome,
     ) {
         ui.horizontal(|ui| {
-            // Viewport controls
             if ui.button("Reset View").clicked() {
                 viewport.set_camera(glam::Vec3::new(0.0, 50.0, 100.0), glam::Vec3::ZERO);
             }
 
             ui.separator();
 
-            // Grid controls
             ui.label("Grid:");
-            ui.checkbox(&mut true, "Show"); // TODO: Connect to actual grid visibility
+            ui.checkbox(&mut chrome.show_grid, "Show");
 
             ui.separator();
 
-            // Active tool display
+            ui.label(format!("Active: {}", chrome.selected_tool_name()));
             if let Some(active_tool) = tool_manager.active_tool() {
-                ui.label(format!("Active: {}", active_tool.name()));
+                if active_tool.name() != chrome.selected_tool_name() {
+                    ui.label(format!("({})", active_tool.name()));
+                }
             }
         });
+    }
+
+    pub fn show_about_dialog(&mut self, ctx: &egui::Context, chrome: &mut EditorChrome) {
+        if !chrome.show_about {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("About World Builder")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("Command & Conquer: Generals – Zero Hour");
+                ui.label("World Builder");
+                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                ui.separator();
+                ui.label("Port of GeneralsMD WorldBuilder chrome (File/Edit/View/Tools/Help).");
+                if ui.button("OK").clicked() {
+                    chrome.show_about = false;
+                }
+            });
+        if !open {
+            chrome.show_about = false;
+        }
     }
 
     /// Show new map dialog
@@ -261,7 +393,6 @@ impl TerrainPanel {
     }
 
     fn show(&mut self, ui: &mut egui::Ui, terrain_editor: &mut TerrainEditor) {
-        // Brush settings
         CollapsibleSection::show(ui, "Brush Settings", &mut self.brush_section_open, |ui| {
             let brush = terrain_editor.brush_mut();
 
@@ -289,11 +420,10 @@ impl TerrainPanel {
             });
         });
 
-        // Texture settings
         CollapsibleSection::show(ui, "Textures", &mut self.texture_section_open, |ui| {
             ui.label("Available Textures:");
 
-            for (i, texture) in terrain_editor.textures().iter().enumerate() {
+            for (_i, texture) in terrain_editor.textures().iter().enumerate() {
                 if ui.selectable_label(false, &texture.name).clicked() {
                     // Select texture
                 }
@@ -304,7 +434,6 @@ impl TerrainPanel {
             }
         });
 
-        // Undo/Redo
         ui.separator();
         ui.horizontal(|ui| {
             ui.add_enabled(terrain_editor.can_undo(), egui::Button::new("Undo"));
@@ -328,7 +457,6 @@ impl ObjectPanel {
     }
 
     fn show(&mut self, ui: &mut egui::Ui, object_manager: &mut ObjectManager) {
-        // Object categories
         CollapsibleSection::show(
             ui,
             "Object Library",
@@ -352,7 +480,6 @@ impl ObjectPanel {
             },
         );
 
-        // Placement settings
         CollapsibleSection::show(ui, "Placement", &mut self.placement_section_open, |ui| {
             ui.checkbox(object_manager.snap_to_grid_mut(), "Snap to Grid");
             if object_manager.snap_to_grid() {
@@ -383,7 +510,6 @@ impl ObjectPanel {
             });
         });
 
-        // Selection info
         ui.separator();
         let selected_count = object_manager.selected_objects().len();
         if selected_count > 0 {
@@ -420,7 +546,7 @@ impl PropertiesPanel {
         &mut self,
         ui: &mut egui::Ui,
         object_manager: &ObjectManager,
-        tool_manager: &ToolManager,
+        _tool_manager: &ToolManager,
     ) {
         ui.heading("Properties");
         ui.separator();
@@ -432,7 +558,6 @@ impl PropertiesPanel {
         } else if selected_count == 1 {
             ui.label("Single Object Selected");
 
-            // Show properties for single object
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.label("Transform:");
                 ui.indent("transform", |ui| {
@@ -462,7 +587,6 @@ impl PropertiesPanel {
 
                 ui.label("Object Properties:");
                 ui.indent("properties", |ui| {
-                    // Show object-specific properties
                     ui.label("Name:");
                     ui.text_edit_singleline(&mut String::from("Object"));
 
@@ -475,7 +599,6 @@ impl PropertiesPanel {
         } else {
             ui.label(format!("Multiple Objects Selected ({})", selected_count));
 
-            // Show common properties for multiple objects
             ui.label("Common Properties:");
             ui.indent("common", |ui| {
                 ui.checkbox(&mut true, "Enabled");
@@ -487,3 +610,24 @@ impl PropertiesPanel {
         }
     }
 }
+
+/// Dispatch a chrome command that only mutates chrome (view toggles / about).
+pub fn apply_chrome_view_command(chrome: &mut EditorChrome, command: &ChromeCommand) {
+    match command {
+        ChromeCommand::ViewToggle(toggle) => chrome.apply_view_toggle(*toggle),
+        ChromeCommand::HelpAbout => chrome.show_about = true,
+        _ => {}
+    }
+}
+
+/// Shared helper so tests and the editor use the same palette → tool-id path.
+pub fn activate_palette_tool(chrome: &mut EditorChrome, tool_manager: &mut ToolManager, id: &str) -> bool {
+    if !chrome.select_tool_id(id) {
+        return false;
+    }
+    tool_manager.set_active_tool(id);
+    chrome.take_command();
+    tool_manager.active_tool_id() == Some(id)
+}
+
+pub use chrome::ID_SCORCH_TOOL;

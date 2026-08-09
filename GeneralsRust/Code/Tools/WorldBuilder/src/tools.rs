@@ -85,8 +85,29 @@ impl ToolManager {
         self.tools
             .insert("camera".to_string(), Box::new(CameraTool::new()));
 
-        // Set default active tool
-        self.active_tool = Some("camera".to_string());
+        // C++ WorldBuilder view tools (MainFrm toolbar / CWorldBuilderApp::m_tools).
+        for tool in world_builder::chrome::WbToolId::toolbar_order()
+            .iter()
+            .copied()
+            .chain(std::iter::once(world_builder::chrome::WbToolId::HandScroll))
+        {
+            self.tools
+                .insert(tool.as_str().to_string(), Box::new(WbNamedTool::new(tool)));
+        }
+
+        // C++ default after InitInstance is the pointer tool.
+        self.active_tool = Some("pointer".to_string());
+        if let Some(tool) = self.tools.get_mut("pointer") {
+            tool.activate();
+        }
+    }
+
+    pub fn has_tool(&self, tool_id: &str) -> bool {
+        self.tools.contains_key(tool_id)
+    }
+
+    pub fn active_tool_id(&self) -> Option<&str> {
+        self.active_tool.as_deref()
     }
 
     /// Set active tool
@@ -611,6 +632,46 @@ impl Tool for ObjectScaleTool {
         Some("icons/object_scale.png")
     }
 
+    fn activate(&mut self) {
+        self.active = true;
+    }
+    fn deactivate(&mut self) {
+        self.active = false;
+    }
+    fn is_active(&self) -> bool {
+        self.active
+    }
+}
+
+/// C++ WorldBuilder named view tool (pointer/brush/scorch/…).
+struct WbNamedTool {
+    id: world_builder::chrome::WbToolId,
+    active: bool,
+}
+
+impl WbNamedTool {
+    fn new(id: world_builder::chrome::WbToolId) -> Self {
+        Self { id, active: false }
+    }
+}
+
+impl Tool for WbNamedTool {
+    fn name(&self) -> &str {
+        self.id.display_name()
+    }
+    fn description(&self) -> &str {
+        self.id.as_str()
+    }
+    fn category(&self) -> ToolCategory {
+        use world_builder::chrome::WbToolId::*;
+        match self.id {
+            Brush | BrushAdd | BrushSubtract | Feather | Tile | BigTile | Eyedropper
+            | FloodFill | AutoEdgeOut | BlendEdge | MeshMold | Ramp | Border => ToolCategory::Terrain,
+            Pointer | Object | Grove | Fence | BuildList | Road | Waypoint | Polygon | Water
+            | Scorch => ToolCategory::Objects,
+            Ruler | HandScroll => ToolCategory::Camera,
+        }
+    }
     fn activate(&mut self) {
         self.active = true;
     }

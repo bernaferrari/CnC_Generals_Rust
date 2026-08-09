@@ -415,6 +415,41 @@ pub fn clear_water_transparency_overrides() {
 
 /// Parse RGBA color from string (format: R G B A or R,G,B,A)
 pub fn parse_color_rgba(value: &str) -> Result<(f32, f32, f32, f32), String> {
+    // Retail Water.ini uses the engine's labelled color syntax
+    // (`R:200 G:200 B:200 A:255`), while a few tools/tests use plain numeric
+    // components. Accept both forms rather than treating the first labelled
+    // component as an invalid float.
+    if value.split_whitespace().any(|part| part.contains(':')) {
+        let mut red = None;
+        let mut green = None;
+        let mut blue = None;
+        let mut alpha = None;
+
+        for component in value.split_whitespace() {
+            let Some((label, raw)) = component.split_once(':') else {
+                return Err(format!("Invalid labelled color component: {}", component));
+            };
+            let parsed = raw
+                .trim_end_matches(',')
+                .parse::<f32>()
+                .map_err(|_| format!("Invalid color component: {}", component))?;
+            match label.to_ascii_uppercase().as_str() {
+                "R" => red = Some(parsed),
+                "G" => green = Some(parsed),
+                "B" => blue = Some(parsed),
+                "A" => alpha = Some(parsed),
+                _ => return Err(format!("Unknown color component: {}", label)),
+            }
+        }
+
+        return Ok((
+            red.ok_or_else(|| format!("Missing red component: {}", value))?,
+            green.ok_or_else(|| format!("Missing green component: {}", value))?,
+            blue.ok_or_else(|| format!("Missing blue component: {}", value))?,
+            alpha.unwrap_or(255.0),
+        ));
+    }
+
     let parts: Vec<&str> = if value.contains(',') {
         value.split(',').collect()
     } else {

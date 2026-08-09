@@ -37,12 +37,12 @@ mod image_packer_proc;
 mod page_error_proc;
 #[path = "Window Procedures/preview_proc.rs"]
 mod preview_proc;
-mod texture_page;
 mod win_main;
 mod window_proc;
 
 use atlas::AtlasResult;
 use formats::{FormatHandler, OutputFormat};
+use image_packer::ImagePackerChrome;
 use uuid::Uuid;
 
 const DEFAULT_TARGET_SIZE: u32 = 512;
@@ -91,6 +91,7 @@ struct PackedPage {
 }
 
 struct ImagePackerGpuiApp {
+    chrome: ImagePackerChrome,
     input_dirs: Vec<PathBuf>,
     selected_dir: Option<usize>,
     use_sub_folders: bool,
@@ -116,6 +117,7 @@ struct ImagePackerGpuiApp {
 impl ImagePackerGpuiApp {
     fn new() -> Self {
         Self {
+            chrome: ImagePackerChrome::new(),
             input_dirs: Vec::new(),
             selected_dir: None,
             use_sub_folders: true,
@@ -131,11 +133,38 @@ impl ImagePackerGpuiApp {
             gap_gutter: false,
             gutter_size: 1,
             processing: false,
-            status: "Select options and click Start.".to_string(),
+            status: "Select options and click Pack.".to_string(),
             logs: vec!["ImagePacker initialized".to_string()],
             atlas_results: Vec::new(),
             last_output_directory: None,
             interactive_prompt: true,
+        }
+    }
+
+    fn sync_chrome_settings(&mut self) {
+        self.chrome.input_dirs = self.input_dirs.clone();
+        self.chrome.selected_dir = self.selected_dir;
+        self.chrome.use_sub_folders = self.use_sub_folders;
+        self.chrome.output_file = self.output_file.clone();
+        self.chrome.target_size = self.current_target_size();
+        self.chrome.gutter_size = self.gutter_size;
+        self.chrome.gap_extend_rgb = self.gap_extend_rgb;
+        self.chrome.gap_gutter = self.gap_gutter;
+        self.chrome.create_ini = self.create_ini;
+        if let Some(path) = &self.last_output_directory {
+            self.chrome.set_output_path(path.clone());
+        }
+    }
+
+    fn pull_chrome_status(&mut self) {
+        self.status = self.chrome.status.clone();
+        if let Some(err) = &self.chrome.last_error {
+            self.push_log(format!("Error: {err}"));
+        }
+        if let Some(last) = self.chrome.logs().last() {
+            if self.logs.last().map(|s| s.as_str()) != Some(last.as_str()) {
+                self.push_log(last.clone());
+            }
         }
     }
 
@@ -191,6 +220,9 @@ impl ImagePackerGpuiApp {
         let mut value = self.custom_target_size as i32 + delta;
         value = value.clamp(2, 16_384);
         self.custom_target_size = value as u32;
+        if self.target_mode == TargetSizeMode::Custom {
+            self.chrome.target_size = self.custom_target_size;
+        }
         cx.notify();
     }
 
@@ -263,12 +295,11 @@ impl ImagePackerGpuiApp {
             self.write_ini_file(&pages, &output_directory)?;
         }
 
-        let mut summary = String::new();
-        let _ = write!(
-            &mut summary,
+        let packed_images = pages.iter().map(|page| page.frames.len()).sum::<usize>();
+        let summary = format!(
             "Image packing complete: {} page(s) from {} image(s) in {} folder(s)",
             pages.len(),
-            pages.iter().map(|page| page.frames.len()).sum::<usize>(),
+            packed_images,
             self.input_dirs.len()
         );
         self.status = summary.clone();
@@ -434,12 +465,13 @@ impl ImagePackerGpuiApp {
                 )
             })
             .collect();
-        let packed = texture_page::pack_named_images_to_pages(
-            &named,
-            target_size,
-            self.gap_extend_rgb,
-        );
-        if packed.is_empty() && !images.is_empty() {
+        // Bind Pack to lib chrome → `pack_named_images_to_pages` (not a stub).
+        self.sync_chrome_settings();
+        self.chrome
+            .pack_named_rgba(&named)
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
+        self.pull_chrome_status();
+        if self.chrome.packed_pages().is_empty() && !images.is_empty() {
             anyhow::bail!(
                 "unable to fit '{}' ({}, {}bpp) in a TexturePage",
                 images[0].path.display(),
@@ -448,15 +480,14 @@ impl ImagePackerGpuiApp {
             );
         }
         let mut pages = Vec::new();
-        for page in packed {
-            let atlas = RgbaImage::from_raw(page.width, page.height, page.rgba).ok_or_else(|| {
-                anyhow::anyhow!("failed building atlas RGBA for page {}", page.id)
-            })?;
+        for page in self.chrome.packed_pages() {
+            let atlas = RgbaImage::from_raw(page.width, page.height, page.rgba.clone())
+                .ok_or_else(|| anyhow::anyhow!("failed building atlas RGBA for page {}", page.id))?;
             let mut frames: Vec<PackedSpriteFrame> = page
                 .sprites
-                .into_iter()
+                .iter()
                 .map(|s| PackedSpriteFrame {
-                    key: s.key,
+                    key: s.key.clone(),
                     x: s.left,
                     y: s.top,
                     w: s.right.saturating_sub(s.left),
@@ -473,6 +504,7 @@ impl ImagePackerGpuiApp {
                 frames,
             });
         }
+        let _ = target_size;
         self.push_log(format!("Packed into {} texture page(s)", pages.len()));
         Ok(pages)
     }
@@ -514,31 +546,12 @@ impl ImagePackerGpuiApp {
     }
 
     fn write_ini_file(&mut self, pages: &[PackedPage], output_dir: &Path) -> Result<()> {
+        let _ = pages;
         let ini_path = output_dir.join(format!("{}.INI", self.output_file));
-        let ini_pages: Vec<texture_page::MappedImageIniPage> = pages
-            .iter()
-            .map(|page| texture_page::MappedImageIniPage {
-                id: page.id,
-                width: page.atlas_width,
-                height: page.atlas_height,
-                status: texture_page::PageStatus::READY,
-                images: page
-                    .frames
-                    .iter()
-                    .map(|sprite| texture_page::MappedImageIniEntry {
-                        name: sprite.key.clone(),
-                        left: sprite.x,
-                        top: sprite.y,
-                        right: sprite.x + sprite.w,
-                        bottom: sprite.y + sprite.h,
-                        rotated_90_cw: sprite.rotated,
-                    })
-                    .collect(),
-            })
-            .collect();
-        let ini = texture_page::generate_mapped_image_ini(&self.output_file, &ini_pages);
-        fs::write(&ini_path, ini)
-            .with_context(|| format!("failed writing '{}'", ini_path.display()))?;
+        // Bind Save INI to lib chrome → `generate_mapped_image_ini` (C++ generateINIFile).
+        self.sync_chrome_settings();
+        self.chrome.save_ini(&ini_path)?;
+        self.pull_chrome_status();
         self.push_log(format!("Wrote {}", ini_path.display()));
         Ok(())
     }
@@ -608,6 +621,33 @@ impl ImagePackerGpuiApp {
             Err(err) => {
                 self.processing = false;
                 self.status = format!("Error: {err}");
+                self.chrome.last_error = Some(err.to_string());
+                error!("{}", self.status);
+                self.push_log(self.status.clone());
+            }
+        }
+        cx.notify();
+    }
+
+    fn run_save_ini_click(&mut self, cx: &mut Context<Self>) {
+        self.sync_chrome_settings();
+        let ini_path = if let Some(dir) = &self.last_output_directory {
+            dir.join(format!("{}.INI", self.output_file))
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join("ImagePackerOutput")
+                .join(&self.output_file)
+                .join(format!("{}.INI", self.output_file))
+        };
+        match self.chrome.save_ini(&ini_path) {
+            Ok(_) => {
+                self.last_output_directory = ini_path.parent().map(|p| p.to_path_buf());
+                self.pull_chrome_status();
+                info!("{}", self.status);
+            }
+            Err(err) => {
+                self.status = format!("Error: {err}");
                 error!("{}", self.status);
                 self.push_log(self.status.clone());
             }
@@ -652,6 +692,29 @@ impl ImagePackerGpuiApp {
 impl Render for ImagePackerGpuiApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let target_size = self.current_target_size();
+        let last_error = self
+            .chrome
+            .last_error
+            .clone()
+            .unwrap_or_else(|| "none".to_string());
+        let output_path = self
+            .chrome
+            .output_path
+            .as_ref()
+            .or(self.last_output_directory.as_ref())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "(unset)".to_string());
+        let image_count = if self.chrome.image_count > 0 {
+            self.chrome.image_count
+        } else {
+            self.atlas_results.iter().map(|r| r.sprite_count).sum()
+        };
+        let page_count = if self.chrome.page_count > 0 {
+            self.chrome.page_count
+        } else {
+            self.atlas_results.len()
+        };
+        let preview_label = self.chrome.preview_label();
 
         div()
             .size_full()
@@ -675,10 +738,114 @@ impl Render for ImagePackerGpuiApp {
                         ),
                     )
                     .child(div().flex().gap_2().children([
-                        metric_box("Folders", self.input_dirs.len().to_string()),
+                        metric_box("Images", image_count.to_string()),
+                        metric_box("Pages", page_count.to_string()),
                         metric_box("Target", format!("{target_size}x{target_size}")),
-                        metric_box("Pages", self.atlas_results.len().to_string()),
                     ])),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(0x1b2733))
+                    .bg(rgb(0x101821))
+                    .child(section_title("Menu / Tool bar"))
+                    .child(action_chip("Add Directory", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.pick_input_directory(cx);
+                        },
+                    )))
+                    .child(action_chip("Pack", false).on_click(cx.listener(
+                        |this, _, _, cx| this.run_process_click(cx),
+                    )))
+                    .child(action_chip("Save INI", false).on_click(cx.listener(
+                        |this, _, _, cx| this.run_save_ini_click(cx),
+                    )))
+                    .child(action_chip(
+                        "Size 128",
+                        self.target_mode == TargetSizeMode::Size128,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.target_mode = TargetSizeMode::Size128;
+                        let _ = this.chrome.set_target_size(128);
+                        cx.notify();
+                    })))
+                    .child(action_chip(
+                        "Size 256",
+                        self.target_mode == TargetSizeMode::Size256,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.target_mode = TargetSizeMode::Size256;
+                        let _ = this.chrome.set_target_size(256);
+                        cx.notify();
+                    })))
+                    .child(action_chip(
+                        "Size 512",
+                        self.target_mode == TargetSizeMode::Size512,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.target_mode = TargetSizeMode::Size512;
+                        let _ = this.chrome.set_target_size(512);
+                        cx.notify();
+                    })))
+                    .child(action_chip(
+                        "Size Custom",
+                        self.target_mode == TargetSizeMode::Custom,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.target_mode = TargetSizeMode::Custom;
+                        this.chrome.target_size = this.custom_target_size.max(1);
+                        cx.notify();
+                    })))
+                    .child(action_chip("- Gutter", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.gutter_size = this.gutter_size.saturating_sub(1);
+                            this.chrome.nudge_gutter(-1);
+                            this.gap_gutter = this.gutter_size > 0;
+                            cx.notify();
+                        },
+                    )))
+                    .child(metric_box("Gutter/padding", self.gutter_size.to_string()))
+                    .child(action_chip("+ Gutter", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.gutter_size = (this.gutter_size + 1).min(64);
+                            this.chrome.nudge_gutter(1);
+                            this.gap_gutter = true;
+                            cx.notify();
+                        },
+                    )))
+                    .child(action_chip("◀ Preview", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.chrome.preview_prev();
+                            cx.notify();
+                        },
+                    )))
+                    .child(metric_box("Preview pages", preview_label))
+                    .child(action_chip("Preview ▶", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.chrome.preview_next();
+                            cx.notify();
+                        },
+                    ))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(0x1b2733))
+                    .child(metric_box("Image count", image_count.to_string()))
+                    .child(metric_box("Page count", page_count.to_string()))
+                    .child(metric_box("Last error", last_error))
+                    .child(metric_box("Output path", output_path)),
             )
             .child(
                 div()
@@ -908,9 +1075,6 @@ impl Render for ImagePackerGpuiApp {
                             )
                             .child(section_title("Actions"))
                             .child(div().flex().gap_2().children([
-                                action_chip("Start", false).on_click(
-                                    cx.listener(|this, _, _, cx| this.run_process_click(cx)),
-                                ),
                                 action_chip("Open Output Folder", false).on_click(
                                     cx.listener(|this, _, _, cx| this.open_output_directory(cx)),
                                 ),

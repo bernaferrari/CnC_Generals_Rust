@@ -132,19 +132,24 @@ impl GridCoord {
     }
 }
 
+/// Internal A* key: C++ keeps a distinct PathfindCell per (x, y, layer).
+/// Public GridCoord stays (x, y); layer is search-only.
+type SearchKey = (GridCoord, PathfindLayerEnum);
+
 /// A* node for priority queue
 /// Matches C++ PathfindCell structure at AIPathfind.cpp:6137-6357
 #[derive(Debug, Clone)]
 struct AStarNode {
     coord: GridCoord,
+    layer: PathfindLayerEnum,
     g_score: u32, // Cost from start
     f_score: u32, // g_score + h_score
-    parent: Option<GridCoord>,
+    parent: Option<SearchKey>,
 }
 
 impl PartialEq for AStarNode {
     fn eq(&self, other: &Self) -> bool {
-        self.coord == other.coord
+        self.coord == other.coord && self.layer == other.layer
     }
 }
 
@@ -167,6 +172,7 @@ impl Ord for AStarNode {
             .then_with(|| other.g_score.cmp(&self.g_score))
             .then_with(|| other.coord.x.cmp(&self.coord.x))
             .then_with(|| other.coord.y.cmp(&self.coord.y))
+            .then_with(|| (other.layer as u8).cmp(&(self.layer as u8)))
     }
 }
 
@@ -251,15 +257,21 @@ impl PathfindCell {
 /// A* pathfinding algorithm implementation
 /// Matches C++ Pathfinder::internalFindPath() at AIPathfind.cpp:6438-6694
 pub struct AStarPathfinder {
+    /// C++ `Pathfinder::m_map` — LAYER_GROUND cells.
     grid: Vec<Vec<PathfindCell>>,
+    /// C++ `Pathfinder::m_layers[layer]` — elevated layer cells, lazy-allocated.
+    /// Missing slot / CELL_IMPASSABLE → C++ `PathfindLayer::getCell` returns NULL
+    /// and `Pathfinder::getCell` falls back to `m_map` (ground).
+    layer_grids: HashMap<PathfindLayerEnum, Vec<Vec<Option<PathfindCell>>>>,
     width: usize,
     height: usize,
     /// Cell -> owning obstacle object id (C++ PathfindCellInfo::obstacleID).
-    obstacle_owners: HashMap<(i32, i32), u32>,
+    /// Keyed by (x, y, layer) so Top/Ground obstacles are independent.
+    obstacle_owners: HashMap<(i32, i32, u8), u32>,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
-    obstacle_fence: HashSet<(i32, i32)>,
+    obstacle_fence: HashSet<(i32, i32, u8)>,
     /// C++ PathfindCellInfo::m_obstacleIsTransparent (KINDOF_CAN_SEE_THROUGH).
-    obstacle_transparent: HashSet<(i32, i32)>,
+    obstacle_transparent: HashSet<(i32, i32, u8)>,
     /// C++ PathfindZoneManager block passable (blockX, blockY).
     /// Only false entries stored; missing = true (default passable).
     zone_impassable_blocks: HashSet<(i32, i32)>,
@@ -270,6 +282,7 @@ impl AStarPathfinder {
         let grid = vec![vec![PathfindCell::new(); height]; width];
         Self {
             grid,
+            layer_grids: HashMap::new(),
             width,
             height,
             obstacle_owners: HashMap::new(),
@@ -285,41 +298,134 @@ impl AStarPathfinder {
                 *cell = PathfindCell::new();
             }
         }
+        self.layer_grids.clear();
         self.obstacle_owners.clear();
         self.obstacle_fence.clear();
         self.obstacle_transparent.clear();
         self.zone_impassable_blocks.clear();
     }
 
-    /// Get cell at grid coordinates
-    fn get_cell(&self, coord: GridCoord) -> Option<&PathfindCell> {
-        if coord.x >= 0
+    #[inline]
+    fn in_bounds(&self, coord: GridCoord) -> bool {
+        coord.x >= 0
             && coord.x < self.width as i32
             && coord.y >= 0
             && coord.y < self.height as i32
-        {
+    }
+
+    #[inline]
+    fn is_elevated_layer(layer: PathfindLayerEnum) -> bool {
+        (layer as u8) > (PathfindLayerEnum::Ground as u8)
+    }
+
+    #[inline]
+    fn obstacle_key(coord: GridCoord, layer: PathfindLayerEnum) -> (i32, i32, u8) {
+        (coord.x, coord.y, layer as u8)
+    }
+
+    /// C++ `Pathfinder::m_map[x][y]` — ground only, no layer fallback.
+    fn get_ground_cell(&self, coord: GridCoord) -> Option<&PathfindCell> {
+        if self.in_bounds(coord) {
             Some(&self.grid[coord.x as usize][coord.y as usize])
         } else {
             None
         }
     }
 
-    /// Get mutable cell at grid coordinates
-    fn get_cell_mut(&mut self, coord: GridCoord) -> Option<&mut PathfindCell> {
-        if coord.x >= 0
-            && coord.x < self.width as i32
-            && coord.y >= 0
-            && coord.y < self.height as i32
-        {
+    fn get_ground_cell_mut(&mut self, coord: GridCoord) -> Option<&mut PathfindCell> {
+        if self.in_bounds(coord) {
             Some(&mut self.grid[coord.x as usize][coord.y as usize])
         } else {
             None
         }
     }
 
+    /// Ground-only cell (public helpers / existing GROUND APIs).
+    fn get_cell(&self, coord: GridCoord) -> Option<&PathfindCell> {
+        self.get_ground_cell(coord)
+    }
+
+    fn get_cell_mut(&mut self, coord: GridCoord) -> Option<&mut PathfindCell> {
+        self.get_ground_cell_mut(coord)
+    }
+
+    fn layer_cell(&self, coord: GridCoord, layer: PathfindLayerEnum) -> Option<&PathfindCell> {
+        if !self.in_bounds(coord) || !Self::is_elevated_layer(layer) {
+            return None;
+        }
+        self.layer_grids
+            .get(&layer)?
+            .get(coord.x as usize)?
+            .get(coord.y as usize)?
+            .as_ref()
+    }
+
+    fn ensure_layer_grid(&mut self, layer: PathfindLayerEnum) {
+        if !Self::is_elevated_layer(layer) {
+            return;
+        }
+        let w = self.width;
+        let h = self.height;
+        self.layer_grids
+            .entry(layer)
+            .or_insert_with(|| vec![vec![None; h]; w]);
+    }
+
+    /// Allocate / write a cell on `layer` (no C++ getCell fallback).
+    fn get_cell_mut_on_layer(
+        &mut self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> Option<&mut PathfindCell> {
+        if !self.in_bounds(coord) {
+            return None;
+        }
+        if !Self::is_elevated_layer(layer) {
+            return self.get_ground_cell_mut(coord);
+        }
+        self.ensure_layer_grid(layer);
+        let slot = self
+            .layer_grids
+            .get_mut(&layer)?
+            .get_mut(coord.x as usize)?
+            .get_mut(coord.y as usize)?;
+        if slot.is_none() {
+            let mut cell = PathfindCell::new();
+            cell.set_layer(layer);
+            *slot = Some(cell);
+        }
+        slot.as_mut()
+    }
+
+    /// C++ `Pathfinder::getCell(layer, x, y)` at AIPathfind.h:899-917.
+    ///
+    /// Elevated: `m_layers[layer].getCell` — NULL when the layer grid is
+    /// unused, the (x,y) slot was never written, **or** the layer cell is
+    /// `CELL_IMPASSABLE` (AIPathfind.cpp:3636-3638). NULL falls back to
+    /// `m_map[x][y]` (ground). Off-map → None.
+    fn get_cell_on_layer(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> Option<&PathfindCell> {
+        if !self.in_bounds(coord) {
+            return None;
+        }
+        if Self::is_elevated_layer(layer) {
+            if let Some(cell) = self.layer_cell(coord, layer) {
+                if cell.get_type() != PathfindCellType::Impassable {
+                    return Some(cell);
+                }
+                // C++ PathfindLayer::getCell: Impassable cells are ignored.
+            }
+        }
+        Some(&self.grid[coord.x as usize][coord.y as usize])
+    }
+
     fn is_ignored_obstacle(
         &self,
         coord: GridCoord,
+        layer: PathfindLayerEnum,
         ignore_cells: Option<&HashSet<GridCoord>>,
     ) -> bool {
         let Some(ignore_cells) = ignore_cells else {
@@ -329,15 +435,32 @@ impl AStarPathfinder {
             return false;
         }
         matches!(
-            self.get_cell(coord).map(|cell| cell.get_type()),
+            self.get_cell_on_layer(coord, layer)
+                .map(|cell| cell.get_type()),
             Some(PathfindCellType::Obstacle)
         )
+    }
+
+    /// C++ `Pathfinder::validLocomotorSurfacesForCellType` (AIPathfind.cpp:4734-4758).
+    ///
+    /// OBSTACLE / IMPASSABLE / BRIDGE_IMPASSABLE are AIR-only; every other type
+    /// includes AIR as well so aircraft can overfly terrain.
+    pub fn valid_locomotor_surfaces_for_cell_type(cell_type: PathfindCellType) -> u32 {
+        match cell_type {
+            PathfindCellType::Obstacle
+            | PathfindCellType::Impassable
+            | PathfindCellType::BridgeImpassable => SURFACE_AIR,
+            PathfindCellType::Clear => SURFACE_GROUND | SURFACE_AIR,
+            PathfindCellType::Water => SURFACE_WATER | SURFACE_AIR,
+            PathfindCellType::Rubble => SURFACE_RUBBLE | SURFACE_AIR,
+            PathfindCellType::Cliff => SURFACE_CLIFF | SURFACE_AIR,
+        }
     }
 
     /// Check if a cell is passable for the given movement type
     /// Matches C++ validMovementPosition() logic
     pub fn is_passable(&self, coord: GridCoord, surfaces: u32, is_crusher: bool) -> bool {
-        self.is_passable_with_ignore(coord, surfaces, is_crusher, None)
+        self.is_passable_on_layer(coord, PathfindLayerEnum::Ground, surfaces, is_crusher)
     }
 
     pub fn is_passable_with_ignore(
@@ -347,35 +470,62 @@ impl AStarPathfinder {
         is_crusher: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
     ) -> bool {
-        let Some(cell) = self.get_cell(coord) else {
+        self.is_passable_on_layer_with_ignore(
+            coord,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+            ignore_cells,
+        )
+    }
+
+    /// Layered passability — C++ `validMovementPosition(..., layer, ...)`.
+    pub fn is_passable_on_layer(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+    ) -> bool {
+        self.is_passable_on_layer_with_ignore(coord, layer, surfaces, is_crusher, None)
+    }
+
+    pub fn is_passable_on_layer_with_ignore(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+    ) -> bool {
+        let Some(cell) = self.get_cell_on_layer(coord, layer) else {
             return false;
         };
 
-        if self.is_ignored_obstacle(coord, ignore_cells) {
+        if self.is_ignored_obstacle(coord, layer, ignore_cells) {
             return true;
         }
 
-        // Impassable cells
-        if cell.is_impassable() {
-            if cell.get_type() == PathfindCellType::Obstacle && is_crusher {
-                // Crushers can go through obstacles
-                return true;
-            }
-            return false;
+        // C++ Pathfinder::validMovementPosition (AIPathfind.cpp:4840-4842):
+        //   if (isCrusher && toCell->isObstacleFence()) return true;
+        // Solid CELL_OBSTACLE buildings stay blocked for ground crushers.
+        // AIR locomotor still passes via validLocomotorSurfacesForCellType.
+        if cell.get_type() == PathfindCellType::Obstacle
+            && self.crusher_may_cross_obstacle(coord, cell.get_layer(), is_crusher)
+        {
+            return true;
         }
 
         // Note: Pinched cells are passable but have higher cost in movement_cost_with_ignore
         // This matches C++ behavior where pinched cells add COST_DIAGONAL but are not blocked
 
-        // Check surface compatibility
-        match cell.get_type() {
-            // C++ validLocomotorSurfacesForCellType: clear -> ground|air.
-            PathfindCellType::Clear => (surfaces & (SURFACE_GROUND | SURFACE_AIR)) != 0,
-            PathfindCellType::Water => (surfaces & SURFACE_WATER) != 0,
-            PathfindCellType::Cliff => (surfaces & SURFACE_CLIFF) != 0,
-            PathfindCellType::Rubble => (surfaces & SURFACE_RUBBLE) != 0 || is_crusher,
-            _ => false,
+        let cell_surfaces = Self::valid_locomotor_surfaces_for_cell_type(cell.get_type());
+        if (cell_surfaces & surfaces) != 0 {
+            return true;
         }
+
+        // Crushers may still enter rubble without a RUBBLE locomotor bit.
+        cell.get_type() == PathfindCellType::Rubble && is_crusher
     }
 
     pub fn is_impassable_cell(&self, coord: GridCoord) -> bool {
@@ -399,11 +549,13 @@ impl AStarPathfinder {
         &self,
         from: GridCoord,
         to: GridCoord,
+        from_layer: PathfindLayerEnum,
+        surfaces: u32,
         is_crusher: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
-        came_from: &HashMap<GridCoord, GridCoord>,
+        came_from: &HashMap<SearchKey, SearchKey>,
     ) -> u32 {
-        let Some(to_cell) = self.get_cell(to) else {
+        let Some(to_cell) = self.get_cell_on_layer(to, from_layer) else {
             return u32::MAX;
         };
 
@@ -433,17 +585,23 @@ impl AStarPathfinder {
                 }
             }
             PathfindCellType::Obstacle => {
-                if self.is_ignored_obstacle(to, ignore_cells) {
+                if self.is_ignored_obstacle(to, from_layer, ignore_cells) {
                     // Treat ignored obstacles as clear.
-                } else if is_crusher {
-                    // Crushers can go through but it's expensive
+                } else if self.crusher_may_cross_obstacle(to, to_cell.get_layer(), is_crusher)
+                    || (surfaces & SURFACE_AIR) != 0
+                {
+                    // C++ examineNeighboringCells: CELL_OBSTACLE += 100*COST_ORTHOGONAL
+                    // for crushers through fences and AIR over solid buildings.
                     cost += 100 * COST_ORTHOGONAL;
                 } else {
-                    return u32::MAX; // Impassable
+                    return u32::MAX; // Impassable solid building
                 }
             }
             PathfindCellType::BridgeImpassable | PathfindCellType::Impassable => {
-                return u32::MAX; // Impassable
+                // C++ validLocomotorSurfacesForCellType: AIR only.
+                if (surfaces & SURFACE_AIR) == 0 {
+                    return u32::MAX;
+                }
             }
         }
 
@@ -455,8 +613,9 @@ impl AStarPathfinder {
 
         // Apply turn cost penalty (AIPathfind.cpp:1705-1720)
         // This adds extra cost for turns in the path
-        if let Some(&parent_coord) = came_from.get(&from) {
+        if let Some(&parent_key) = came_from.get(&(from, from_layer)) {
             // Calculate direction vectors
+            let parent_coord = parent_key.0;
             let prev_dir_x = from.x - parent_coord.x;
             let prev_dir_y = from.y - parent_coord.y;
             let curr_dir_x = to.x - from.x;
@@ -657,19 +816,149 @@ impl AStarPathfinder {
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
     ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_ex6(
+            start,
+            goal,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            line_cell_ok,
+            seed_line_to_goal,
+            starts_tunneling,
+            cell_allowed,
+            None,
+        )
+    }
+
+    /// Like find_path_ex5 plus C++ dozerHack (AIPathfind.cpp:6207-6226).
+    ///
+    /// `dozer_obstacle_ok(cell)` is true when the unit is a dozer and the cell's
+    /// obstacle is a non-enemy (KINDOF_DOZER + !ENEMIES). That cell is treated as
+    /// passable for this step but does **not** set neighborFlags (no diagonal squeeze).
+    pub fn find_path_ex6(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        seed_line_to_goal: bool,
+        starts_tunneling: bool,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
+        dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
+    ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_with_start_layer(
+            start,
+            goal,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            line_cell_ok,
+            seed_line_to_goal,
+            starts_tunneling,
+            cell_allowed,
+            dozer_obstacle_ok,
+        )
+    }
+
+    /// A* starting on `start_layer` (C++ `obj->getLayer()` / `getClippedCell(layer, from)`).
+    pub fn find_path_on_layer(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+    ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_with_start_layer(
+            start,
+            goal,
+            layer,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            None,
+            false,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+        )
+    }
+
+    fn find_path_with_start_layer(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        start_layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        seed_line_to_goal: bool,
+        starts_tunneling: bool,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
+        dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
+    ) -> Option<(Vec<GridCoord>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = BinaryHeap::new();
-        let mut closed_set = HashSet::new();
-        let mut came_from: HashMap<GridCoord, GridCoord> = HashMap::new();
-        let mut g_scores: HashMap<GridCoord, u32> = HashMap::new();
+        let mut open_members: HashSet<SearchKey> = HashSet::new();
+        let mut closed_set: HashSet<SearchKey> = HashSet::new();
+        let mut came_from: HashMap<SearchKey, SearchKey> = HashMap::new();
+        let mut g_scores: HashMap<SearchKey, u32> = HashMap::new();
 
-        let mut best_coord = start;
+        let start_layer = match start_layer {
+            PathfindLayerEnum::Invalid => PathfindLayerEnum::Ground,
+            layer => layer,
+        };
+        let start_key: SearchKey = (start, start_layer);
+        let mut best_key = start_key;
         let mut best_dist = start.diagonal_distance(&goal);
 
         // Validate start and goal (tunneling may force start passable).
         let pass = |c: GridCoord| -> bool {
-            if self.is_passable_with_ignore(c, surfaces, is_crusher, ignore_cells) {
+            if self.is_passable_on_layer_with_ignore(
+                c,
+                start_layer,
+                surfaces,
+                is_crusher,
+                ignore_cells,
+            ) {
                 return true;
             }
             force_passable.map(|f| f(c)).unwrap_or(false)
@@ -695,13 +984,15 @@ impl AStarPathfinder {
         let h_score = start.diagonal_distance(&goal);
         let start_node = AStarNode {
             coord: start,
+            layer: start_layer,
             g_score: 0,
             f_score: h_score,
             parent: None,
         };
 
         open_set.push(start_node);
-        g_scores.insert(start, 0);
+        open_members.insert(start_key);
+        g_scores.insert(start_key, 0);
 
         // C++ m_isTunneling — clear once we expand into valid non-pinched cell.
         let mut is_tunneling = starts_tunneling;
@@ -711,30 +1002,57 @@ impl AStarPathfinder {
         // Main A* loop
         // Matches C++ while loop at AIPathfind.cpp:6589-6633
         while let Some(current) = open_set.pop() {
+            let current_key: SearchKey = (current.coord, current.layer);
+            // Stale BinaryHeap entry after examine_cells_toward_goal reopen.
+            if !open_members.contains(&current_key) {
+                continue;
+            }
+            if let Some(&best_g) = g_scores.get(&current_key) {
+                if current.g_score > best_g {
+                    continue;
+                }
+            }
+
             iterations += 1;
             if iterations > max_iterations {
                 // Prevent infinite loops
                 if allow_partial {
-                    return Some((self.reconstruct_path(&came_from, best_coord), iterations));
+                    return Some((self.reconstruct_path(&came_from, best_key), iterations));
                 }
                 return None;
             }
 
+            // Popped from open (C++ removeFromOpenList).
+            open_members.remove(&current_key);
+
             // Goal reached!
             // Matches C++ at AIPathfind.cpp:6595-6622
             if current.coord == goal {
-                return Some((self.reconstruct_path(&came_from, current.coord), iterations));
+                return Some((self.reconstruct_path(&came_from, current_key), iterations));
             }
 
             let current_dist = current.coord.diagonal_distance(&goal);
             if current_dist < best_dist {
                 best_dist = current_dist;
-                best_coord = current.coord;
+                best_key = current_key;
             }
 
             // Move current to closed set
             // Matches C++ at AIPathfind.cpp:6626
-            closed_set.insert(current.coord);
+            closed_set.insert(current_key);
+
+            // C++ checkChangeLayers(parent) before examineNeighboringCells.
+            self.check_change_layers(
+                current.coord,
+                current.layer,
+                current.g_score,
+                current.f_score,
+                &mut open_set,
+                &mut open_members,
+                &closed_set,
+                &mut came_from,
+                &mut g_scores,
+            );
 
             // C++ examineNeighboringCells: examineCellsCallback along parent→goal
             // when NO_ATTACK && !tunneling && !downhillOnly && goalCell.
@@ -742,6 +1060,7 @@ impl AStarPathfinder {
             if seed_line_to_goal && !downhill_only && !is_tunneling {
                 self.examine_cells_toward_goal(
                     current.coord,
+                    current.layer,
                     current.g_score,
                     goal,
                     surfaces,
@@ -751,6 +1070,7 @@ impl AStarPathfinder {
                     line_cell_ok,
                     cell_allowed,
                     &mut open_set,
+                    &mut open_members,
                     &mut closed_set,
                     &mut came_from,
                     &mut g_scores,
@@ -758,17 +1078,18 @@ impl AStarPathfinder {
             }
 
             // Examine all neighbors
-            // Matches C++ examineNeighboringCells() at AIPathfind.cpp:6631
-            // C++ checkChangeLayers(parent): also examine connect-layer link at same x,y.
-            let mut neighbor_iter: Vec<GridCoord> = current.coord.neighbors().to_vec();
-            if let Some(link) = self.connect_layer_transition_coord(current.coord) {
-                if !neighbor_iter.contains(&link) {
-                    neighbor_iter.push(link);
-                }
-            }
-            for neighbor_coord in neighbor_iter {
-                // Skip if already evaluated
-                if closed_set.contains(&neighbor_coord) {
+            // Matches C++ examineNeighboringCells() at AIPathfind.cpp:6125-6226
+            // Neighbors stay on the CURRENT node's layer (C++ getCell(parent->getLayer())).
+            let neighbors = current.coord.neighbors();
+            // C++: firstDiagonal=4, adjacent={0,1,2,3,0}, neighborFlags[8]={false...}
+            let mut neighbor_flags = [false; 8];
+            const FIRST_DIAGONAL: usize = 4;
+            const ADJACENT: [usize; 5] = [0, 1, 2, 3, 0];
+            for (i, neighbor_coord) in neighbors.iter().copied().enumerate() {
+                let neighbor_key: SearchKey = (neighbor_coord, current.layer);
+                // C++ AIPathfind.cpp:6167-6180: onList = getOpen() || getClosed(); skip.
+                // Never update g / never reopen from examineNeighboringCells.
+                if open_members.contains(&neighbor_key) || closed_set.contains(&neighbor_key) {
                     continue;
                 }
 
@@ -779,30 +1100,38 @@ impl AStarPathfinder {
                     }
                 }
 
-                // Prevent diagonal corner-cutting through blocked orthogonal neighbors.
-                if current.coord.is_diagonal(&neighbor_coord) {
-                    let step_x = neighbor_coord.x - current.coord.x;
-                    let step_y = neighbor_coord.y - current.coord.y;
-                    let ortho_a = GridCoord::new(current.coord.x + step_x, current.coord.y);
-                    let ortho_b = GridCoord::new(current.coord.x, current.coord.y + step_y);
-                    let ortho_ok = |c: GridCoord| {
-                        self.is_passable_with_ignore(c, surfaces, is_crusher, ignore_cells)
-                            || force_passable.map(|f| f(c)).unwrap_or(false)
-                    };
-                    if !ortho_ok(ortho_a) || !ortho_ok(ortho_b) {
-                        continue;
-                    }
+                // C++ examineNeighboringCells ~6181-6185:
+                // if (i>=firstDiagonal) skip when BOTH adjacent orthogonal
+                // neighborFlags are false. One open orthogonal is enough.
+                if i >= FIRST_DIAGONAL
+                    && !neighbor_flags[ADJACENT[i - 4]]
+                    && !neighbor_flags[ADJACENT[i - 3]]
+                {
+                    continue;
                 }
 
-                let naturally_passable = self.is_passable_with_ignore(
+                let naturally_passable = self.is_passable_on_layer_with_ignore(
                     neighbor_coord,
+                    current.layer,
                     surfaces,
                     is_crusher,
                     ignore_cells,
                 );
                 let force_ok = force_passable.map(|f| f(neighbor_coord)).unwrap_or(false);
+                // C++ dozerHack: KINDOF_DOZER + CELL_OBSTACLE + non-enemy obstacle.
+                let dozer_hack = if !naturally_passable && !force_ok {
+                    matches!(
+                        self.get_cell_on_layer(neighbor_coord, current.layer)
+                            .map(|c| c.get_type()),
+                        Some(PathfindCellType::Obstacle)
+                    ) && dozer_obstacle_ok
+                        .map(|f| f(neighbor_coord))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
                 // C++: invalid movement only expands while m_isTunneling (or dozerHack).
-                if !naturally_passable && !force_ok && !is_tunneling {
+                if !naturally_passable && !force_ok && !dozer_hack && !is_tunneling {
                     continue;
                 }
 
@@ -817,18 +1146,25 @@ impl AStarPathfinder {
                     }
                 }
 
+                // C++: if (!dozerHack) neighborFlags[i] = true;
+                if !dozer_hack {
+                    neighbor_flags[i] = true;
+                }
+
                 // Calculate tentative g_score
                 // Matches C++ at AIPathfind.cpp:6259 + 6277-6333
                 let mut movement_cost = self.movement_cost_with_ignore(
                     current.coord,
                     neighbor_coord,
+                    current.layer,
+                    surfaces,
                     is_crusher,
                     ignore_cells,
                     &came_from,
                 );
                 if movement_cost == u32::MAX {
-                    // Tunneling / force: still expand with base ortho/diag step.
-                    if is_tunneling || force_ok {
+                    // Tunneling / force / dozerHack: still expand with base ortho/diag step.
+                    if is_tunneling || force_ok || dozer_hack {
                         movement_cost = if current.coord.is_diagonal(&neighbor_coord) {
                             COST_DIAGONAL
                         } else {
@@ -844,25 +1180,33 @@ impl AStarPathfinder {
                 }
                 // C++ examineNeighboringCells: pinched gets EXTRA COST_ORTHOGONAL
                 // on top of costSoFar's COST_DIAGONAL pinched surcharge.
-                if self.is_pinched(neighbor_coord).unwrap_or(false) {
+                let neighbor_cell = self.get_cell_on_layer(neighbor_coord, current.layer);
+                if neighbor_cell.map(|c| c.is_pinched()).unwrap_or(false) {
                     movement_cost = movement_cost.saturating_add(COST_ORTHOGONAL);
                 }
                 // C++ CELL_OBSTACLE: +100*COST_ORTHOGONAL when expanding through obstacle.
-                if let Some(cell) = self.get_cell(neighbor_coord) {
+                // Crusher fences and AIR already paid 100*ORTHO in movement_cost_with_ignore.
+                if let Some(cell) = neighbor_cell {
                     if cell.get_type() == PathfindCellType::Obstacle
-                        && !self.is_ignored_obstacle(neighbor_coord, ignore_cells)
+                        && !self.is_ignored_obstacle(neighbor_coord, current.layer, ignore_cells)
                     {
-                        // Crusher already paid 100*ORTHO in movement_cost_with_ignore.
-                        if !(naturally_passable && is_crusher) {
-                            if !naturally_passable || is_tunneling || force_ok {
-                                movement_cost = movement_cost.saturating_add(100 * COST_ORTHOGONAL);
-                            }
+                        let paid_in_cost = (naturally_passable && is_crusher)
+                            || (naturally_passable && (surfaces & SURFACE_AIR) != 0);
+                        if !paid_in_cost
+                            && (!naturally_passable || is_tunneling || force_ok || dozer_hack)
+                        {
+                            movement_cost = movement_cost.saturating_add(100 * COST_ORTHOGONAL);
                         }
                     }
                 }
                 // C++ notZonePassable: ground hierarchical block not yet expanded →
                 // heavy cost (100 * COST_ORTHOGONAL), not hard reject in this path.
-                if !self.is_zone_passable(neighbor_coord) {
+                // Only applies when the resolved cell is LAYER_GROUND (AIPathfind.cpp:6156).
+                if neighbor_cell
+                    .map(|c| c.get_layer() == PathfindLayerEnum::Ground)
+                    .unwrap_or(true)
+                    && !self.is_zone_passable(neighbor_coord)
+                {
                     movement_cost = movement_cost.saturating_add(ZONE_IMPASSABLE_COST);
                 }
                 // C++ allyFixedCount > 0 → +3*COST_DIAGONAL (and setBlockedByAlly).
@@ -873,7 +1217,7 @@ impl AStarPathfinder {
                 // base cliff cost in movement_cost; when |dz| >= cell size, remove the
                 // flat-cliff surcharge (movement_cost always adds 7*DIAG for cliffs).
                 if let Some(h) = ground_height {
-                    if let Some(cell) = self.get_cell(neighbor_coord) {
+                    if let Some(cell) = neighbor_cell {
                         if cell.get_type() == PathfindCellType::Cliff && !cell.is_pinched() {
                             let dz = (h(current.coord) - h(neighbor_coord)).abs();
                             if dz >= PATHFIND_CELL_SIZE_F {
@@ -885,24 +1229,18 @@ impl AStarPathfinder {
                 }
 
                 // C++: if (movementValid && !pinched) m_isTunneling = false;
-                let neighbor_pinched = self.is_pinched(neighbor_coord).unwrap_or(false);
-                if naturally_passable && !neighbor_pinched {
+                let neighbor_pinched = neighbor_cell.map(|c| c.is_pinched()).unwrap_or(false);
+                if (naturally_passable || dozer_hack) && !neighbor_pinched {
                     is_tunneling = false;
                 }
 
                 let tentative_g = current.g_score.saturating_add(movement_cost);
 
-                // Check if this path is better
-                // Matches C++ at AIPathfind.cpp:6321-6327
-                if let Some(&existing_g) = g_scores.get(&neighbor_coord) {
-                    if tentative_g >= existing_g {
-                        continue; // Not a better path
-                    }
-                }
-
-                // This is the best path so far
-                came_from.insert(neighbor_coord, current.coord);
-                g_scores.insert(neighbor_coord, tentative_g);
+                // First visit only (onList already skipped). C++ 6321-6327 is unreachable
+                // after the 6177-6180 continue.
+                came_from.insert(neighbor_key, current_key);
+                g_scores.insert(neighbor_key, tentative_g);
+                open_members.insert(neighbor_key);
 
                 // Calculate h_score and f_score
                 // C++: if m_isTunneling, costRemaining = 0 (closest valid cell).
@@ -917,9 +1255,10 @@ impl AStarPathfinder {
                 // Matches C++ at AIPathfind.cpp:6354
                 let neighbor_node = AStarNode {
                     coord: neighbor_coord,
+                    layer: current.layer,
                     g_score: tentative_g,
                     f_score,
-                    parent: Some(current.coord),
+                    parent: Some(current_key),
                 };
 
                 open_set.push(neighbor_node);
@@ -929,7 +1268,7 @@ impl AStarPathfinder {
         // No path found
         // Matches C++ at AIPathfind.cpp:6635-6693
         if allow_partial {
-            Some((self.reconstruct_path(&came_from, best_coord), iterations))
+            Some((self.reconstruct_path(&came_from, best_key), iterations))
         } else {
             None
         }
@@ -937,9 +1276,11 @@ impl AStarPathfinder {
 
     /// C++ Pathfinder::examineCellsCallback line seed (AIPathfind.cpp:5996-6093).
     /// Walks Bresenham from parent toward goal; inserts clear cells at half ortho cost.
+    /// Unlike examineNeighboringCells, this CAN reopen if the new g is better (C++ 6063-6088).
     fn examine_cells_toward_goal(
         &self,
         parent: GridCoord,
+        layer: PathfindLayerEnum,
         parent_g: u32,
         goal: GridCoord,
         surfaces: u32,
@@ -949,9 +1290,10 @@ impl AStarPathfinder {
         line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         open_set: &mut BinaryHeap<AStarNode>,
-        closed_set: &mut HashSet<GridCoord>,
-        came_from: &mut HashMap<GridCoord, GridCoord>,
-        g_scores: &mut HashMap<GridCoord, u32>,
+        open_members: &mut HashSet<SearchKey>,
+        closed_set: &mut HashSet<SearchKey>,
+        came_from: &mut HashMap<SearchKey, SearchKey>,
+        g_scores: &mut HashMap<SearchKey, u32>,
     ) {
         if parent == goal {
             return;
@@ -1004,9 +1346,12 @@ impl AStarPathfinder {
             if to == parent {
                 continue;
             }
-            if self.get_cell(to).is_none() {
+            let Some(to_cell) = self.get_cell_on_layer(to, layer) else {
                 break;
-            }
+            };
+            let to_resolved_layer = to_cell.get_layer();
+            let to_pinched = to_cell.is_pinched();
+            let to_type = to_cell.get_type();
             if let Some(ok) = cell_allowed {
                 if !ok(to) {
                     break;
@@ -1014,21 +1359,20 @@ impl AStarPathfinder {
             }
 
             // Abort line (return 1) conditions from examineCellsCallback.
-            if !self.is_passable_with_ignore(to, surfaces, is_crusher, ignore_cells)
+            if !self.is_passable_on_layer_with_ignore(to, layer, surfaces, is_crusher, ignore_cells)
                 && !force_passable.map(|f| f(to)).unwrap_or(false)
             {
                 break;
             }
-            if !self.is_zone_passable(to) {
+            // C++: only ground cells consult the zone manager (AIPathfind.cpp:6005).
+            if to_resolved_layer == PathfindLayerEnum::Ground && !self.is_zone_passable(to) {
                 break;
             }
-            if self.is_pinched(to).unwrap_or(false) {
+            if to_pinched {
                 break;
             }
-            if let Some(cell) = self.get_cell(to) {
-                if cell.get_type() == PathfindCellType::Cliff {
-                    break;
-                }
+            if to_type == PathfindCellType::Cliff {
+                break;
             }
             if let Some(ok) = line_cell_ok {
                 if !ok(to) {
@@ -1038,7 +1382,8 @@ impl AStarPathfinder {
 
             // newCostSoFar = from->getCostSoFar() + 0.5f*COST_ORTHOGONAL
             let new_g = from_g.saturating_add(COST_ORTHOGONAL / 2);
-            if let Some(&existing_g) = g_scores.get(&to) {
+            let to_key: SearchKey = (to, layer);
+            if let Some(&existing_g) = g_scores.get(&to_key) {
                 if existing_g <= new_g {
                     // Keep going along the line without updating.
                     from = to;
@@ -1050,16 +1395,18 @@ impl AStarPathfinder {
                 }
             }
 
-            // Better path — reopen if closed.
-            closed_set.remove(&to);
-            came_from.insert(to, from);
-            g_scores.insert(to, new_g);
+            // Better path — reopen if closed (C++ 6063-6088).
+            closed_set.remove(&to_key);
+            open_members.insert(to_key);
+            came_from.insert(to_key, (from, layer));
+            g_scores.insert(to_key, new_g);
             let h_score = to.diagonal_distance(&goal);
             open_set.push(AStarNode {
                 coord: to,
+                layer,
                 g_score: new_g,
                 f_score: new_g.saturating_add(h_score),
-                parent: Some(from),
+                parent: Some((from, layer)),
             });
 
             from = to;
@@ -1072,15 +1419,18 @@ impl AStarPathfinder {
 
     /// Reconstruct path from came_from map
     /// Matches C++ buildActualPath() at AIPathfind.cpp:8954-9071
+    /// Layer transitions stay at the same xy; collapse those duplicates.
     fn reconstruct_path(
         &self,
-        came_from: &HashMap<GridCoord, GridCoord>,
-        mut current: GridCoord,
+        came_from: &HashMap<SearchKey, SearchKey>,
+        mut current: SearchKey,
     ) -> Vec<GridCoord> {
-        let mut path = vec![current];
+        let mut path = vec![current.0];
 
         while let Some(&parent) = came_from.get(&current) {
-            path.push(parent);
+            if parent.0 != current.0 {
+                path.push(parent.0);
+            }
             current = parent;
         }
 
@@ -1088,11 +1438,85 @@ impl AStarPathfinder {
         path
     }
 
-    /// Set cell type at coordinates
+    /// C++ Pathfinder::checkChangeLayers (AIPathfind.cpp:5942-5981).
+    ///
+    /// If `connectLayer != LAYER_INVALID`, enqueue the same (x,y) on that layer
+    /// with the parent's costSoFar and totalCost (0 extra), unless already on open/closed.
+    /// Returns true when a new same-xy layered node was inserted.
+    fn check_change_layers(
+        &self,
+        coord: GridCoord,
+        current_layer: PathfindLayerEnum,
+        parent_g: u32,
+        parent_f: u32,
+        open_set: &mut BinaryHeap<AStarNode>,
+        open_members: &mut HashSet<SearchKey>,
+        closed_set: &HashSet<SearchKey>,
+        came_from: &mut HashMap<SearchKey, SearchKey>,
+        g_scores: &mut HashMap<SearchKey, u32>,
+    ) -> bool {
+        let Some(cell) = self.get_cell_on_layer(coord, current_layer) else {
+            return false;
+        };
+        let connect = cell.get_connect_layer();
+        if connect == PathfindLayerEnum::Invalid || connect == current_layer {
+            return false;
+        }
+        let key: SearchKey = (coord, connect);
+        if open_members.contains(&key) || closed_set.contains(&key) {
+            return false;
+        }
+        let parent_key: SearchKey = (coord, current_layer);
+        came_from.insert(key, parent_key);
+        g_scores.insert(key, parent_g);
+        open_members.insert(key);
+        open_set.push(AStarNode {
+            coord,
+            layer: connect,
+            g_score: parent_g,
+            f_score: parent_f,
+            parent: Some(parent_key),
+        });
+        true
+    }
+
+    /// Set cell type at coordinates (LAYER_GROUND / C++ `m_map`).
     pub fn set_cell_type(&mut self, coord: GridCoord, cell_type: PathfindCellType) {
         if let Some(cell) = self.get_cell_mut(coord) {
             cell.set_type(cell_type);
         }
+    }
+
+    /// Write `ty` on `layer`. Ground goes to `m_map`; Top/other lazily allocates
+    /// that layer's grid (C++ `m_layers[layer]`).
+    pub fn set_cell_type_on_layer(
+        &mut self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        ty: PathfindCellType,
+    ) {
+        if let Some(cell) = self.get_cell_mut_on_layer(coord, layer) {
+            cell.set_type(ty);
+            if Self::is_elevated_layer(layer) {
+                cell.set_layer(layer);
+            }
+        }
+    }
+
+    /// Stored type on `layer` with **no** C++ getCell fallback.
+    ///
+    /// Ground → `get_cell_type`. Elevated missing/OOB → `None`. Search still
+    /// uses `get_cell_on_layer`, which falls back to ground when the elevated
+    /// cell is missing or CELL_IMPASSABLE (AIPathfind.h:899-917).
+    pub fn get_cell_type_on_layer(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> Option<PathfindCellType> {
+        if !Self::is_elevated_layer(layer) {
+            return self.get_cell_type(coord);
+        }
+        self.layer_cell(coord, layer).map(|c| c.get_type())
     }
 
     /// Stamp obstacle object id / fence flag on a cell (C++ setTypeAsObstacle).
@@ -1146,12 +1570,33 @@ impl AStarPathfinder {
     }
 
     pub fn set_cell_connect_layer(&mut self, coord: GridCoord, layer: PathfindLayerEnum) {
-        if let Some(cell) = self.get_cell_mut(coord) {
-            cell.set_connect_layer(layer);
-        }
+        self.set_cell_connect_layer_on_layer(coord, PathfindLayerEnum::Ground, layer);
     }
 
     pub fn get_cell_connect_layer(&self, coord: GridCoord) -> Option<PathfindLayerEnum> {
+        self.get_cell_connect_layer_on_layer(coord, PathfindLayerEnum::Ground)
+    }
+
+    pub fn set_cell_connect_layer_on_layer(
+        &mut self,
+        coord: GridCoord,
+        on_layer: PathfindLayerEnum,
+        connect: PathfindLayerEnum,
+    ) {
+        if let Some(cell) = self.get_cell_mut_on_layer(coord, on_layer) {
+            cell.set_connect_layer(connect);
+        }
+    }
+
+    pub fn get_cell_connect_layer_on_layer(
+        &self,
+        coord: GridCoord,
+        on_layer: PathfindLayerEnum,
+    ) -> Option<PathfindLayerEnum> {
+        // Stored connect_layer only — no getCell fallback (missing elevated → None).
+        if Self::is_elevated_layer(on_layer) {
+            return self.layer_cell(coord, on_layer).map(|c| c.get_connect_layer());
+        }
         self.get_cell(coord).map(|c| c.get_connect_layer())
     }
 
@@ -1171,7 +1616,9 @@ impl AStarPathfinder {
 
     /// C++ PathfindCell::getObstacleID.
     pub fn get_cell_obstacle_id(&self, coord: GridCoord) -> Option<u32> {
-        self.obstacle_owners.get(&(coord.x, coord.y)).copied()
+        self.obstacle_owners
+            .get(&Self::obstacle_key(coord, PathfindLayerEnum::Ground))
+            .copied()
     }
 
     pub fn set_cell_obstacle_id(
@@ -1181,34 +1628,71 @@ impl AStarPathfinder {
         is_fence: bool,
         is_transparent: bool,
     ) {
-        if let Some(cell) = self.get_cell_mut(coord) {
+        self.set_cell_obstacle_id_on_layer(
+            coord,
+            PathfindLayerEnum::Ground,
+            obj_id,
+            is_fence,
+            is_transparent,
+        );
+    }
+
+    pub fn set_cell_obstacle_id_on_layer(
+        &mut self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        obj_id: u32,
+        is_fence: bool,
+        is_transparent: bool,
+    ) {
+        if let Some(cell) = self.get_cell_mut_on_layer(coord, layer) {
             cell.set_type(PathfindCellType::Obstacle);
+            if Self::is_elevated_layer(layer) {
+                cell.set_layer(layer);
+            }
         }
-        self.obstacle_owners.insert((coord.x, coord.y), obj_id);
+        let key = Self::obstacle_key(coord, layer);
+        self.obstacle_owners.insert(key, obj_id);
         if is_fence {
-            self.obstacle_fence.insert((coord.x, coord.y));
+            self.obstacle_fence.insert(key);
         } else {
-            self.obstacle_fence.remove(&(coord.x, coord.y));
+            self.obstacle_fence.remove(&key);
         }
         if is_transparent {
-            self.obstacle_transparent.insert((coord.x, coord.y));
+            self.obstacle_transparent.insert(key);
         } else {
-            self.obstacle_transparent.remove(&(coord.x, coord.y));
+            self.obstacle_transparent.remove(&key);
         }
     }
 
     /// C++ PathfindCell::isObstacleTransparent.
     pub fn is_obstacle_transparent(&self, coord: GridCoord) -> bool {
-        self.obstacle_transparent.contains(&(coord.x, coord.y))
+        self.obstacle_transparent
+            .contains(&Self::obstacle_key(coord, PathfindLayerEnum::Ground))
     }
 
     pub fn is_obstacle_fence(&self, coord: GridCoord) -> bool {
-        self.obstacle_fence.contains(&(coord.x, coord.y))
+        self.obstacle_fence
+            .contains(&Self::obstacle_key(coord, PathfindLayerEnum::Ground))
+    }
+
+    /// C++ `isCrusher && toCell->isObstacleFence()` in validMovementPosition.
+    #[inline]
+    fn crusher_may_cross_obstacle(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        is_crusher: bool,
+    ) -> bool {
+        is_crusher
+            && self
+                .obstacle_fence
+                .contains(&Self::obstacle_key(coord, layer))
     }
 
     /// Clear obstacle if it matches obj_id (C++ removeObstacle).
     pub fn clear_cell_obstacle_id(&mut self, coord: GridCoord, obj_id: u32) -> bool {
-        let key = (coord.x, coord.y);
+        let key = Self::obstacle_key(coord, PathfindLayerEnum::Ground);
         match self.obstacle_owners.get(&key).copied() {
             Some(owner) if owner == obj_id => {
                 self.obstacle_owners.remove(&key);
@@ -1230,13 +1714,34 @@ impl AStarPathfinder {
 
     /// Mark a cell as pinched (surrounded by obstacles)
     pub fn set_pinched(&mut self, coord: GridCoord, pinched: bool) {
-        if let Some(cell) = self.get_cell_mut(coord) {
-            cell.set_pinched(pinched);
-        }
+        self.set_pinched_on_layer(coord, PathfindLayerEnum::Ground, pinched);
     }
 
     /// Get whether a cell is pinched.
     pub fn is_pinched(&self, coord: GridCoord) -> Option<bool> {
+        self.is_pinched_on_layer(coord, PathfindLayerEnum::Ground)
+    }
+
+    pub fn set_pinched_on_layer(
+        &mut self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        pinched: bool,
+    ) {
+        if let Some(cell) = self.get_cell_mut_on_layer(coord, layer) {
+            cell.set_pinched(pinched);
+            if Self::is_elevated_layer(layer) {
+                cell.set_layer(layer);
+            }
+        }
+    }
+
+    /// Stored pinch flag on `layer` (no getCell fallback). Search uses the
+    /// resolved cell from `get_cell_on_layer` instead.
+    pub fn is_pinched_on_layer(&self, coord: GridCoord, layer: PathfindLayerEnum) -> Option<bool> {
+        if Self::is_elevated_layer(layer) {
+            return self.layer_cell(coord, layer).map(|c| c.is_pinched());
+        }
         self.get_cell(coord).map(|cell| cell.is_pinched())
     }
 
@@ -1408,8 +1913,21 @@ mod tests {
         assert!(path.is_some());
 
         let path = path.unwrap();
-        // Path should go around the wall
-        assert!(path.len() > 10); // More than straight line
+        assert_eq!(path.first().copied(), Some(start));
+        assert_eq!(path.last().copied(), Some(goal));
+        // C++ one-open-orthogonal squeeze lets the path cut the wall end at (5,9)/(5,0).
+        // Chebyshev around that gap can match the 10-cell straight-line hop count.
+        assert!(
+            path.iter().any(|c| c.x == 5 && (c.y == 0 || c.y == 9)),
+            "ground path must detour through the wall gap, got {:?}",
+            path
+        );
+        assert!(
+            path.iter()
+                .all(|c| { pathfinder.get_cell_type(*c) != Some(PathfindCellType::Obstacle) }),
+            "ground path must not step on the obstacle column: {:?}",
+            path
+        );
     }
 
     #[test]
@@ -1432,28 +1950,176 @@ mod tests {
 
     #[test]
     fn test_crusher_pathfinding() {
+        // C++ validMovementPosition: crushers only enter isObstacleFence cells.
         let mut pathfinder = AStarPathfinder::new(10, 10);
-
-        // Create obstacles
-        pathfinder.set_cell_type(GridCoord::new(5, 5), PathfindCellType::Obstacle);
+        let obstacle = GridCoord::new(5, 5);
+        pathfinder.set_cell_obstacle_id(obstacle, 7, false, false);
 
         let start = GridCoord::new(0, 5);
         let goal = GridCoord::new(9, 5);
 
-        // Non-crusher should path around
+        // Solid building: both crushers and non-crushers path around.
         let path_normal = pathfinder
-            .find_path(start, goal, 0x01, false, 1000, false, None)
+            .find_path(start, goal, SURFACE_GROUND, false, 1000, false, None)
             .map(|(p, _)| p);
         assert!(path_normal.is_some());
-
-        // Crusher should be able to go through
         let path_crusher = pathfinder
-            .find_path(start, goal, 0x01, true, 1000, false, None)
+            .find_path(start, goal, SURFACE_GROUND, true, 1000, false, None)
             .map(|(p, _)| p);
         assert!(path_crusher.is_some());
+        assert_eq!(path_crusher.unwrap().len(), path_normal.unwrap().len());
+        assert!(!pathfinder.is_passable(obstacle, SURFACE_GROUND, true));
+    }
 
-        // Crusher path might be shorter (going through obstacles)
-        assert!(path_crusher.unwrap().len() <= path_normal.unwrap().len());
+    #[test]
+    fn crusher_find_path_only_crosses_fence_obstacles_like_cpp() {
+        // Tiny grid, full-height wall so the only route is through x=4.
+        // C++ AIPathfind.cpp:4840-4842 + 6316-6318.
+        let mut pf = AStarPathfinder::new(9, 5);
+        for y in 0..5 {
+            pf.set_cell_obstacle_id(GridCoord::new(4, y), 1, false, false);
+        }
+        let start = GridCoord::new(0, 2);
+        let goal = GridCoord::new(8, 2);
+
+        assert!(
+            pf.find_path(start, goal, SURFACE_GROUND, true, 2000, false, None)
+                .is_none(),
+            "crusher must not path through solid CELL_OBSTACLE buildings"
+        );
+        assert!(pf
+            .find_path(start, goal, SURFACE_GROUND, false, 2000, false, None)
+            .is_none());
+        assert!(!pf.is_passable(GridCoord::new(4, 2), SURFACE_GROUND, true));
+
+        for y in 0..5 {
+            pf.set_cell_obstacle_id(GridCoord::new(4, y), 2, true, false);
+        }
+        assert!(
+            pf.is_obstacle_fence(GridCoord::new(4, 2)),
+            "wall must be stamped as fence"
+        );
+        assert!(
+            !pf.is_passable(GridCoord::new(4, 2), SURFACE_GROUND, false),
+            "non-crusher still blocked by fence"
+        );
+        assert!(
+            pf.is_passable(GridCoord::new(4, 2), SURFACE_GROUND, true),
+            "crusher may enter fence cells"
+        );
+        assert!(
+            pf.find_path(start, goal, SURFACE_GROUND, false, 2000, false, None)
+                .is_none(),
+            "non-crusher must not path through a fence wall"
+        );
+        let (path, iters) = pf
+            .find_path(start, goal, SURFACE_GROUND, true, 2000, false, None)
+            .expect("crusher must path through a fence wall");
+        assert!(iters >= 1);
+        assert_eq!(path.first().copied(), Some(start));
+        assert_eq!(path.last().copied(), Some(goal));
+        assert!(
+            path.iter().any(|c| c.x == 4),
+            "crusher path must cross fence column: {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn diagonal_squeeze_one_orthogonal_open_allows_path() {
+        // C++ examineNeighboringCells AIPathfind.cpp:6181-6185:
+        // skip diagonal only if BOTH adjacent neighborFlags are false.
+        // 2x2 crack: S X / . G — one ortho open, A* prefers S→G (cost 14).
+        let mut pf = AStarPathfinder::new(2, 2);
+        pf.set_cell_type(GridCoord::new(1, 0), PathfindCellType::Impassable);
+        let start = GridCoord::new(0, 0);
+        let goal = GridCoord::new(1, 1);
+        let (path, iters) = pf
+            .find_path(start, goal, SURFACE_GROUND, false, 200, false, None)
+            .expect("diagonal crack must be usable when one orthogonal is open");
+        assert!(iters >= 1);
+        assert_eq!(
+            path,
+            vec![start, goal],
+            "expected direct diagonal: {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn diagonal_squeeze_both_orthogonals_blocked_no_path() {
+        // Both adjacent orthogonals blocked → C++ neighborFlags both false → no diagonal.
+        let mut pf = AStarPathfinder::new(2, 2);
+        pf.set_cell_type(GridCoord::new(1, 0), PathfindCellType::Impassable);
+        pf.set_cell_type(GridCoord::new(0, 1), PathfindCellType::Impassable);
+        let start = GridCoord::new(0, 0);
+        let goal = GridCoord::new(1, 1);
+        assert!(
+            pf.find_path(start, goal, SURFACE_GROUND, false, 200, false, None)
+                .is_none(),
+            "must not squeeze a diagonal when both orthogonals are blocked"
+        );
+    }
+
+    #[test]
+    fn air_paths_over_solid_obstacle_ground_does_not() {
+        // C++ validLocomotorSurfacesForCellType(CELL_OBSTACLE) = AIR.
+        // Full-height solid building wall: ground cannot go around.
+        let mut pf = AStarPathfinder::new(9, 5);
+        for y in 0..5 {
+            pf.set_cell_obstacle_id(GridCoord::new(4, y), 1, false, false);
+        }
+        let start = GridCoord::new(0, 2);
+        let goal = GridCoord::new(8, 2);
+
+        assert!(
+            !pf.is_passable(GridCoord::new(4, 2), SURFACE_GROUND, false),
+            "ground blocked by solid building"
+        );
+        assert!(
+            !pf.is_passable(GridCoord::new(4, 2), SURFACE_GROUND, true),
+            "ground crusher still blocked by non-fence building"
+        );
+        assert!(
+            pf.is_passable(GridCoord::new(4, 2), SURFACE_AIR, false),
+            "AIR locomotor must enter CELL_OBSTACLE"
+        );
+        assert!(
+            pf.find_path(start, goal, SURFACE_GROUND, false, 2000, false, None)
+                .is_none(),
+            "ground unit must not path through a solid building wall"
+        );
+        let (path, iters) = pf
+            .find_path(start, goal, SURFACE_AIR, false, 2000, false, None)
+            .expect("AIR locomotor must path over solid building obstacle");
+        assert!(iters >= 1);
+        assert_eq!(path.first().copied(), Some(start));
+        assert_eq!(path.last().copied(), Some(goal));
+        assert!(
+            path.iter().any(|c| c.x == 4),
+            "AIR path must cross obstacle column: {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn air_paths_over_impassable_cells_ground_does_not() {
+        // C++ validLocomotorSurfacesForCellType(CELL_IMPASSABLE) = AIR.
+        let mut pf = AStarPathfinder::new(9, 5);
+        for y in 0..5 {
+            pf.set_cell_type(GridCoord::new(4, y), PathfindCellType::Impassable);
+        }
+        let start = GridCoord::new(0, 2);
+        let goal = GridCoord::new(8, 2);
+        assert!(!pf.is_passable(GridCoord::new(4, 2), SURFACE_GROUND, false));
+        assert!(pf.is_passable(GridCoord::new(4, 2), SURFACE_AIR, false));
+        assert!(pf
+            .find_path(start, goal, SURFACE_GROUND, false, 2000, false, None)
+            .is_none());
+        let (path, _) = pf
+            .find_path(start, goal, SURFACE_AIR, false, 2000, false, None)
+            .expect("AIR locomotor must path over CELL_IMPASSABLE");
+        assert!(path.iter().any(|c| c.x == 4), "AIR path: {:?}", path);
     }
 
     #[test]
@@ -1550,12 +2216,13 @@ mod tests {
         let start = GridCoord::new(3, 5);
         let goal = GridCoord::new(8, 5);
         // force_passable allows start/goal validation for obstacle start.
+        // Ground-only: 0xFFFF includes AIR, which can overfly CELL_OBSTACLE.
         let force = |c: GridCoord| c == start;
         assert!(pf
             .find_path_ex5(
                 start,
                 goal,
-                0xFFFF,
+                SURFACE_GROUND,
                 false,
                 5000,
                 false,
@@ -1574,7 +2241,7 @@ mod tests {
             .find_path_ex5(
                 start,
                 goal,
-                0xFFFF,
+                SURFACE_GROUND,
                 false,
                 5000,
                 false,
@@ -1604,6 +2271,470 @@ mod tests {
                 && src.contains("10 * COST_ORTHOGONAL")
                 && src.contains("is_tunneling = false"),
             "expand must clear tunneling and apply C++ tunnel surcharge"
+        );
+    }
+
+    #[test]
+    fn examine_neighbors_on_list_never_reopens_or_recosts() {
+        // C++ examineNeighboringCells AIPathfind.cpp:6167-6180:
+        // if (getOpen() || getClosed()) continue; — never update g, never reopen.
+        // extra_cost is applied only after that skip, so each cell is recosted once.
+        let pf = AStarPathfinder::new(5, 5);
+        let start = GridCoord::new(0, 0);
+        let goal = GridCoord::new(4, 4);
+        let counts = std::cell::RefCell::new(HashMap::<GridCoord, u32>::new());
+        let extra = |c: GridCoord| {
+            *counts.borrow_mut().entry(c).or_insert(0) += 1;
+            0u32
+        };
+        let (path, iters) = pf
+            .find_path_ex(
+                start,
+                goal,
+                SURFACE_GROUND,
+                false,
+                2000,
+                false,
+                None,
+                Some(&extra as &dyn Fn(GridCoord) -> u32),
+            )
+            .expect("open 5x5 must path");
+        assert!(iters >= 1);
+        assert_eq!(path.first().copied(), Some(start));
+        assert_eq!(path.last().copied(), Some(goal));
+        let counts = counts.into_inner();
+        assert!(
+            counts.len() > 1,
+            "extra_cost must run on neighbor expansion"
+        );
+        for (c, n) in counts.iter() {
+            assert_eq!(
+                *n, 1,
+                "cell {:?} recosted {} times; onList must skip before cost update",
+                c, n
+            );
+        }
+        // First-visit parent is kept: straight-ish first expansion from start
+        // claims (1,0) via ortho; a later cheaper reopen would not replace it.
+        assert!(
+            path.contains(&GridCoord::new(1, 0))
+                || path.contains(&GridCoord::new(0, 1))
+                || path.contains(&GridCoord::new(1, 1)),
+            "first-visit neighbors from start stay on the reconstructed path: {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn dozer_hack_obstacle_and_no_diagonal_squeeze() {
+        // C++ AIPathfind.cpp:6207-6226:
+        // dozerHack lets dozers step on non-enemy CELL_OBSTACLE;
+        // neighborFlags is NOT set, so diagonals cannot squeeze through.
+        let mut pf = AStarPathfinder::new(2, 2);
+        let start = GridCoord::new(0, 0);
+        let goal = GridCoord::new(1, 1);
+        let dozer_cell = GridCoord::new(1, 0);
+        pf.set_cell_type(dozer_cell, PathfindCellType::Obstacle);
+        pf.set_cell_type(GridCoord::new(0, 1), PathfindCellType::Impassable);
+
+        assert!(
+            pf.find_path(start, goal, SURFACE_GROUND, false, 200, false, None)
+                .is_none(),
+            "non-dozer cannot cross non-fence Obstacle or squeeze the diagonal"
+        );
+        assert!(
+            pf.find_path_ex6(
+                start,
+                goal,
+                SURFACE_GROUND,
+                false,
+                200,
+                false,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+                None,
+            )
+            .is_none(),
+            "find_path_ex6 with dozer_obstacle_ok=None matches non-dozer"
+        );
+
+        let ok = |c: GridCoord| c == dozer_cell;
+        let (path, _) = pf
+            .find_path_ex6(
+                start,
+                goal,
+                SURFACE_GROUND,
+                false,
+                200,
+                false,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+                Some(&ok as &dyn Fn(GridCoord) -> bool),
+            )
+            .expect("dozer_obstacle_ok must allow stepping on CELL_OBSTACLE");
+        assert_eq!(
+            path,
+            vec![start, dozer_cell, goal],
+            "dozer must step on the obstacle; must not diagonal-squeeze (neighborFlags false): {:?}",
+            path
+        );
+
+        // Callback true on Impassable still must NOT dozerHack (C++ requires CELL_OBSTACLE).
+        let always = |_c: GridCoord| true;
+        let (path2, _) = pf
+            .find_path_ex6(
+                start,
+                goal,
+                SURFACE_GROUND,
+                false,
+                200,
+                false,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+                Some(&always as &dyn Fn(GridCoord) -> bool),
+            )
+            .expect("dozer still paths via the obstacle cell");
+        assert_eq!(path2, vec![start, dozer_cell, goal]);
+        assert!(
+            !pf.is_passable(GridCoord::new(0, 1), SURFACE_GROUND, false),
+            "Impassable cell is not a dozerHack target"
+        );
+    }
+
+    #[test]
+    fn check_change_layers_enqueues_same_xy_at_parent_cost() {
+        // C++ checkChangeLayers AIPathfind.cpp:5942-5981:
+        // connectLayer cell at same x,y, not on open/closed, same costSoFar/totalCost.
+        let mut pf = AStarPathfinder::new(4, 4);
+        let start = GridCoord::new(1, 1);
+        pf.set_cell_connect_layer(start, PathfindLayerEnum::Top);
+
+        let mut open_set = BinaryHeap::new();
+        let mut open_members = HashSet::new();
+        let closed_set = HashSet::new();
+        let mut came_from = HashMap::new();
+        let mut g_scores = HashMap::new();
+        let enqueued = pf.check_change_layers(
+            start,
+            PathfindLayerEnum::Ground,
+            40,
+            99,
+            &mut open_set,
+            &mut open_members,
+            &closed_set,
+            &mut came_from,
+            &mut g_scores,
+        );
+        assert!(enqueued, "checkChangeLayers must enqueue same-xy connect layer");
+        let key = (start, PathfindLayerEnum::Top);
+        assert!(open_members.contains(&key));
+        assert_eq!(g_scores.get(&key).copied(), Some(40));
+        let node = open_set.pop().expect("layered node on open heap");
+        assert_eq!(node.coord, start);
+        assert_eq!(node.layer, PathfindLayerEnum::Top);
+        assert_eq!(node.g_score, 40);
+        assert_eq!(node.f_score, 99);
+        assert_eq!(node.parent, Some((start, PathfindLayerEnum::Ground)));
+
+        // Already on open: do not re-enqueue.
+        open_members.insert(key);
+        assert!(
+            !pf.check_change_layers(
+                start,
+                PathfindLayerEnum::Ground,
+                40,
+                99,
+                &mut open_set,
+                &mut open_members,
+                &closed_set,
+                &mut came_from,
+                &mut g_scores,
+            ),
+            "already on open list must not re-enqueue"
+        );
+
+        // find_path still succeeds; extra same-xy expand is not a silent no-op.
+        let goal = GridCoord::new(3, 1);
+        let (path_layered, iters_layered) = pf
+            .find_path(start, goal, SURFACE_GROUND, false, 500, false, None)
+            .expect("path with connect_layer must succeed");
+        assert_eq!(path_layered.first().copied(), Some(start));
+        assert_eq!(path_layered.last().copied(), Some(goal));
+
+        pf.set_cell_connect_layer(start, PathfindLayerEnum::Invalid);
+        let (_, iters_plain) = pf
+            .find_path(start, goal, SURFACE_GROUND, false, 500, false, None)
+            .expect("plain path");
+        assert!(
+            iters_layered > iters_plain,
+            "checkChangeLayers must expand an extra same-xy layer node (layered={}, plain={})",
+            iters_layered,
+            iters_plain
+        );
+        assert_eq!(
+            pf.connect_layer_transition_coord(start),
+            None,
+            "invalid connect layer has no transition coord"
+        );
+        pf.set_cell_connect_layer(start, PathfindLayerEnum::Top);
+        assert_eq!(
+            pf.connect_layer_transition_coord(start),
+            Some(start),
+            "public GridCoord API stays same-xy"
+        );
+    }
+
+    #[test]
+    fn ground_impassable_does_not_block_top_when_top_is_clear_and_vice_versa() {
+        // Independent per-layer grids: C++ m_map vs m_layers[LAYER_TOP].
+        let mut pf = AStarPathfinder::new(9, 5);
+        let wall_x = 4;
+        for y in 0..5 {
+            let c = GridCoord::new(wall_x, y);
+            pf.set_cell_type(c, PathfindCellType::Impassable);
+            pf.set_cell_type_on_layer(c, PathfindLayerEnum::Top, PathfindCellType::Clear);
+        }
+        let blocked = GridCoord::new(wall_x, 2);
+        assert_eq!(
+            pf.get_cell_type(blocked),
+            Some(PathfindCellType::Impassable)
+        );
+        assert_eq!(
+            pf.get_cell_type_on_layer(blocked, PathfindLayerEnum::Top),
+            Some(PathfindCellType::Clear)
+        );
+        assert!(!pf.is_passable(blocked, SURFACE_GROUND, false));
+        assert!(pf.is_passable_on_layer(blocked, PathfindLayerEnum::Top, SURFACE_GROUND, false));
+
+        let start = GridCoord::new(0, 2);
+        let goal = GridCoord::new(8, 2);
+        assert!(
+            pf.find_path(start, goal, SURFACE_GROUND, false, 2000, false, None)
+                .is_none(),
+            "ground Impassable wall must block LAYER_GROUND search"
+        );
+        let (top_path, _) = pf
+            .find_path_on_layer(
+                start,
+                goal,
+                PathfindLayerEnum::Top,
+                SURFACE_GROUND,
+                false,
+                2000,
+                false,
+                None,
+            )
+            .expect("Top Clear cells must ignore ground Impassable");
+        assert!(
+            top_path.iter().any(|c| c.x == wall_x),
+            "Top path must cross the ground wall: {:?}",
+            top_path
+        );
+
+        // Vice versa: Top Impassable/Obstacle does not block Ground Clear.
+        let mut pf2 = AStarPathfinder::new(9, 5);
+        for y in 0..5 {
+            let c = GridCoord::new(wall_x, y);
+            pf2.set_cell_type(c, PathfindCellType::Clear);
+            pf2.set_cell_type_on_layer(c, PathfindLayerEnum::Top, PathfindCellType::Impassable);
+        }
+        assert_eq!(
+            pf2.get_cell_type(blocked),
+            Some(PathfindCellType::Clear)
+        );
+        assert_eq!(
+            pf2.get_cell_type_on_layer(blocked, PathfindLayerEnum::Top),
+            Some(PathfindCellType::Impassable)
+        );
+        assert!(pf2.is_passable(blocked, SURFACE_GROUND, false));
+        let (ground_path, _) = pf2
+            .find_path(start, goal, SURFACE_GROUND, false, 2000, false, None)
+            .expect("ground Clear must ignore Top Impassable");
+        assert!(
+            ground_path.iter().any(|c| c.x == wall_x),
+            "ground path must cross the Top-only wall: {:?}",
+            ground_path
+        );
+    }
+
+    #[test]
+    fn top_obstacle_blocks_top_search_not_ground() {
+        let mut pf = AStarPathfinder::new(9, 5);
+        let mid = GridCoord::new(4, 2);
+        pf.set_cell_type(mid, PathfindCellType::Clear);
+        pf.set_cell_type_on_layer(mid, PathfindLayerEnum::Top, PathfindCellType::Obstacle);
+
+        assert_eq!(pf.get_cell_type(mid), Some(PathfindCellType::Clear));
+        assert_eq!(
+            pf.get_cell_type_on_layer(mid, PathfindLayerEnum::Top),
+            Some(PathfindCellType::Obstacle)
+        );
+        assert!(pf.is_passable(mid, SURFACE_GROUND, false));
+        assert!(!pf.is_passable_on_layer(mid, PathfindLayerEnum::Top, SURFACE_GROUND, false));
+
+        let start = GridCoord::new(0, 2);
+        let goal = GridCoord::new(8, 2);
+        let (ground_path, _) = pf
+            .find_path(start, goal, SURFACE_GROUND, false, 2000, false, None)
+            .expect("ground Clear at mid remains walkable");
+        assert!(
+            ground_path.contains(&mid),
+            "ground path may step Clear mid: {:?}",
+            ground_path
+        );
+
+        let (top_path, _) = pf
+            .find_path_on_layer(
+                start,
+                goal,
+                PathfindLayerEnum::Top,
+                SURFACE_GROUND,
+                false,
+                2000,
+                false,
+                None,
+            )
+            .expect("Top search can go around a single Obstacle");
+        assert!(
+            !top_path.contains(&mid),
+            "Top path must not step Top Obstacle: {:?}",
+            top_path
+        );
+        assert_eq!(top_path.first().copied(), Some(start));
+        assert_eq!(top_path.last().copied(), Some(goal));
+    }
+
+    #[test]
+    fn reset_clears_layer_grids() {
+        let mut pf = AStarPathfinder::new(4, 4);
+        let c = GridCoord::new(2, 2);
+        pf.set_cell_type(c, PathfindCellType::Water);
+        pf.set_cell_type_on_layer(c, PathfindLayerEnum::Top, PathfindCellType::Obstacle);
+        pf.set_pinched_on_layer(c, PathfindLayerEnum::Top, true);
+        assert_eq!(
+            pf.get_cell_type_on_layer(c, PathfindLayerEnum::Top),
+            Some(PathfindCellType::Obstacle)
+        );
+        pf.reset();
+        assert_eq!(pf.get_cell_type(c), Some(PathfindCellType::Clear));
+        assert_eq!(
+            pf.get_cell_type_on_layer(c, PathfindLayerEnum::Top),
+            None,
+            "reset() must drop elevated layer grids"
+        );
+        assert_eq!(pf.is_pinched_on_layer(c, PathfindLayerEnum::Top), None);
+    }
+
+    #[test]
+    fn missing_elevated_cell_falls_back_to_ground_like_cpp_get_cell() {
+        // C++ Pathfinder::getCell(layer, x, y) (AIPathfind.h:899-917):
+        //   if layer > GROUND, try m_layers[layer].getCell; if NULL, return &m_map[x][y].
+        // PathfindLayer::getCell also returns NULL for CELL_IMPASSABLE (cpp:3636-3638).
+        //
+        // Public get_cell_type_on_layer reports the *stored* elevated type (None if
+        // missing) so callers can distinguish "no Top cell" from "Top == ground".
+        // Search / is_passable_on_layer use get_cell_on_layer → ground fallback.
+        let mut pf = AStarPathfinder::new(5, 3);
+        let c = GridCoord::new(2, 1);
+        pf.set_cell_type(c, PathfindCellType::Impassable);
+
+        assert_eq!(
+            pf.get_cell_type_on_layer(c, PathfindLayerEnum::Top),
+            None,
+            "no Top slot written → stored type is None"
+        );
+        assert!(
+            !pf.is_passable_on_layer(c, PathfindLayerEnum::Top, SURFACE_GROUND, false),
+            "C++ getCell fallback: missing Top cell uses ground Impassable"
+        );
+
+        let start = GridCoord::new(0, 1);
+        let goal = GridCoord::new(4, 1);
+        // Full-height ground Impassable would block; here only one cell is Impassable
+        // so both searches can detour. Stamp a full wall, then only one Top Clear.
+        for y in 0..3 {
+            pf.set_cell_type(GridCoord::new(2, y), PathfindCellType::Impassable);
+        }
+        assert!(
+            pf.find_path(start, goal, SURFACE_GROUND, false, 500, false, None)
+                .is_none()
+        );
+        assert!(
+            pf.find_path_on_layer(
+                start,
+                goal,
+                PathfindLayerEnum::Top,
+                SURFACE_GROUND,
+                false,
+                500,
+                false,
+                None,
+            )
+            .is_none(),
+            "missing Top cells fall back to ground Impassable wall"
+        );
+
+        // Writing Top Clear at the wall opens only the Top layer (no fallback).
+        for y in 0..3 {
+            pf.set_cell_type_on_layer(
+                GridCoord::new(2, y),
+                PathfindLayerEnum::Top,
+                PathfindCellType::Clear,
+            );
+        }
+        assert_eq!(
+            pf.get_cell_type_on_layer(c, PathfindLayerEnum::Top),
+            Some(PathfindCellType::Clear)
+        );
+        assert!(
+            pf.find_path_on_layer(
+                start,
+                goal,
+                PathfindLayerEnum::Top,
+                SURFACE_GROUND,
+                false,
+                500,
+                false,
+                None,
+            )
+            .is_some()
+        );
+        assert!(pf
+            .find_path(start, goal, SURFACE_GROUND, false, 500, false, None)
+            .is_none());
+
+        // C++ PathfindLayer::getCell: CELL_IMPASSABLE on the layer is treated as
+        // NULL, so getCell falls back to ground (still Impassable here).
+        pf.set_cell_type_on_layer(c, PathfindLayerEnum::Top, PathfindCellType::Impassable);
+        assert_eq!(
+            pf.get_cell_type_on_layer(c, PathfindLayerEnum::Top),
+            Some(PathfindCellType::Impassable),
+            "stored type remains Impassable"
+        );
+        assert!(
+            !pf.is_passable_on_layer(c, PathfindLayerEnum::Top, SURFACE_GROUND, false),
+            "Impassable Top cell → getCell NULL → fall back to ground Impassable"
         );
     }
 }

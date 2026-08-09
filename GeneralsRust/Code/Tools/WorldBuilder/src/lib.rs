@@ -1,8 +1,14 @@
 //! WorldBuilder library surface for C++-matching core transforms.
 
+#[path = "ui/chrome.rs"]
+pub mod chrome;
 pub mod save_map;
 pub mod scorch_tool;
 
+pub use chrome::{
+    command_for_menu_item, world_to_cell, ChromeCommand, EditorChrome, StatusBarState, ViewToggle,
+    WbToolId,
+};
 pub use save_map::{
     BlendTileDataEdit, BlendedTileEdit, BuildListItemEdit, CliffInfoEdit, GlobalLightEdit,
     GlobalLightingEdit, HeightMapEdit, MapDocument, MapObjectEdit, PolygonTriggerEdit, SaveMap,

@@ -7112,6 +7112,10 @@ mod tests {
             "LeftDown/Up must be consumed by the WND widget tree"
         );
         assert!(
+            crate::gui::shell::main_menu::os_wnd_widget_tree_nav_ok(),
+            "named dispatch must latch sticky wnd_widget_tree_nav"
+        );
+        assert!(
             selected.load(Ordering::SeqCst),
             "owner must receive GBM_SELECTED without simulate_*"
         );

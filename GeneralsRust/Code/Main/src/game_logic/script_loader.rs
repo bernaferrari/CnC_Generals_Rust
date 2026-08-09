@@ -248,27 +248,33 @@ fn resolve_runtime_ini_path(requested: &Path) -> Option<PathBuf> {
 }
 
 fn ensure_terrain_roads_loaded() {
-    let result = TERRAIN_ROADS_LOAD_RESULT.get_or_init(|| {
-        let mut ini = INI::new();
+    TERRAIN_ROADS_LOAD_RESULT.get_or_init(|| {
+        let result = (|| {
+            let mut ini = INI::new();
 
-        if let Some(default_path) =
-            resolve_runtime_ini_path(Path::new("Data/INI/Default/Roads.ini"))
-        {
-            ini.load(&default_path, INILoadType::Overwrite)
-                .map_err(|err| format!("failed loading '{}': {}", default_path.display(), err))?;
+            if let Some(default_path) =
+                resolve_runtime_ini_path(Path::new("Data/INI/Default/Roads.ini"))
+            {
+                ini.load(&default_path, INILoadType::Overwrite).map_err(|err| {
+                    format!("failed loading '{}': {}", default_path.display(), err)
+                })?;
+            }
+
+            if let Some(override_path) = resolve_runtime_ini_path(Path::new("Data/INI/Roads.ini")) {
+                ini.load(&override_path, INILoadType::MultiFile).map_err(|err| {
+                    format!("failed loading '{}': {}", override_path.display(), err)
+                })?;
+            }
+
+            Ok(())
+        })();
+        if let Err(err) = &result {
+        // The result is cached for the process lifetime; report a failure once
+        // rather than once per object placement that asks whether it is a road.
+            warn!("Terrain roads registry unavailable: {}", err);
         }
-
-        if let Some(override_path) = resolve_runtime_ini_path(Path::new("Data/INI/Roads.ini")) {
-            ini.load(&override_path, INILoadType::MultiFile)
-                .map_err(|err| format!("failed loading '{}': {}", override_path.display(), err))?;
-        }
-
-        Ok(())
+        result
     });
-
-    if let Err(err) = result {
-        warn!("Terrain roads registry unavailable: {}", err);
-    }
 }
 
 fn is_terrain_road_name(name: &str) -> bool {
@@ -2972,6 +2978,30 @@ fn push_unique(vec: &mut Vec<PathBuf>, candidate: PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retail_shell_map_terrain_chunks_decode_when_present() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../windows_game/extracted_big_files_v2/MapsZH/Maps/ShellMapMD/ShellMapMD.map",
+        );
+        let Ok(raw) = std::fs::read(&path) else {
+            return;
+        };
+        let bytes = decompress_map_bytes(&raw).expect("retail shell map decompression");
+        let (toc, body_offset) = parse_chunk_toc(&bytes).expect("retail shell map TOC");
+        let chunky = ChunkyMap {
+            source: path,
+            toc,
+            body_offset,
+            bytes,
+        };
+        let heightmap = parse_heightmap_data_from_chunky(&chunky)
+            .expect("retail shell map heightmap parse")
+            .expect("retail shell map embeds HeightMapData");
+        assert_eq!((heightmap.width, heightmap.height), (315, 315));
+        assert_eq!(heightmap.border_size, 70);
+        assert_eq!(heightmap.data.len(), 315 * 315);
+    }
 
     fn chunk(id: u32, version: u16, payload: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();

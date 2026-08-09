@@ -1,7 +1,9 @@
-#![allow(clippy::all)]
 #![allow(clippy::pedantic)]
 #![allow(clippy::nursery)]
 #![allow(clippy::cargo)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::module_inception)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
@@ -9,7 +11,6 @@
 #![allow(unused_assignments)]
 #![allow(deprecated)]
 #![allow(nonstandard_style)]
-#![allow(unconditional_recursion)]
 #![allow(mismatched_lifetime_syntaxes)]
 #![allow(unexpected_cfgs)]
 #![allow(private_interfaces)]
@@ -31,15 +32,6 @@
 //! - Behavior and update systems
 //! - Scripting engine integration
 //! - Object management and lifecycle
-
-#![allow(missing_docs)]
-#![allow(unused_parens)]
-#![allow(unused_must_use)]
-#![allow(unreachable_patterns)]
-#![allow(noop_method_call)]
-#![allow(rust_2018_idioms)]
-#![allow(unused_imports)]
-#![allow(dead_code)]
 
 // Public modules
 pub mod action_manager;
@@ -179,7 +171,10 @@ pub use scripting::{
 pub use team::get_team_factory;
 
 // Re-export singleton stubs from helpers for gameplay systems
-pub use helpers::{TheInGameUI, ThePartitionManager, TheRadar};
+pub use helpers::{
+    attach_particle_system_to_object, TheInGameUI, ThePartitionManager, TheParticleSystemManager,
+    TheRadar,
+};
 
 // Re-export ModuleFactory from game_engine for convenient access
 pub use game_engine::common::thing::module_factory::get_module_factory;
