@@ -2084,9 +2084,6 @@ impl EngineModule for BridgeBehaviorModule {
     fn on_delete(&mut self) {}
 }
 
-unsafe impl Send for BridgeBehavior {}
-unsafe impl Sync for BridgeBehavior {}
-
 /// Helper function: Determine if old state is worse than new state (i.e., got repaired)
 /// Matches C++ macro IS_CONDITION_WORSE from BridgeBehavior.cpp:637
 fn is_condition_worse(old_state: BodyDamageType, new_state: BodyDamageType) -> bool {

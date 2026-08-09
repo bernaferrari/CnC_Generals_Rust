@@ -275,9 +275,6 @@ pub struct Color {
     pub a: u8,
 }
 
-unsafe impl Send for Color {}
-unsafe impl Sync for Color {}
-
 impl Color {
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
@@ -4627,22 +4624,6 @@ pub struct Area {
     pub boundary: Region3D,
     pub properties: HashMap<String, String>,
 }
-
-// Send + Sync implementations for structs that need thread safety
-unsafe impl Send for GeometryInfo {}
-unsafe impl Sync for GeometryInfo {}
-
-unsafe impl Send for AABox {}
-unsafe impl Sync for AABox {}
-
-unsafe impl Send for DefaultThingTemplate {}
-unsafe impl Sync for DefaultThingTemplate {}
-
-unsafe impl Send for FindPositionOptions {}
-unsafe impl Sync for FindPositionOptions {}
-
-unsafe impl Send for Area {}
-unsafe impl Sync for Area {}
 
 impl Area {
     pub fn new(name: String, boundary: Region3D) -> Self {

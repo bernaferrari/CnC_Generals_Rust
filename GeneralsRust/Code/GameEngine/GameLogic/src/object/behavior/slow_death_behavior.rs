@@ -1203,10 +1203,6 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
     }
 }
 
-// Thread safety
-unsafe impl Send for SlowDeathBehavior {}
-unsafe impl Sync for SlowDeathBehavior {}
-
 impl Module for SlowDeathBehavior {
     fn get_module_name_key(&self) -> NameKeyType {
         NameKeyGenerator::name_to_key("SlowDeathBehavior")

@@ -1244,8 +1244,7 @@ pub fn drive_os_wnd_in_game_chat_prepare_submit_like_cpp(message: &str) -> bool 
         crate::gui::dispatch_os_click_named_window("InGameChat.wnd:ParentInGameChat");
     let clicked_type =
         crate::gui::dispatch_os_click_named_window("InGameChat.wnd:StaticTextChatType");
-    let clicked_entry =
-        crate::gui::dispatch_os_click_named_window("InGameChat.wnd:TextEntryChat");
+    let clicked_entry = crate::gui::dispatch_os_click_named_window("InGameChat.wnd:TextEntryChat");
     if !clicked_parent && !clicked_type && !clicked_entry {
         return false;
     }

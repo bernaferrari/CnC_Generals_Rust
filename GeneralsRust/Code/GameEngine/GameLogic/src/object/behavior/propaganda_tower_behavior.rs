@@ -746,10 +746,6 @@ impl Module for PropagandaTowerBehaviorModule {
     }
 }
 
-// Thread safety
-unsafe impl Send for PropagandaTowerBehavior {}
-unsafe impl Sync for PropagandaTowerBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

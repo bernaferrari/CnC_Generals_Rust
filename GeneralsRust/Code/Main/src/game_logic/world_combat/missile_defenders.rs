@@ -1,0 +1,1817 @@
+//! Host combat `impl GameLogic` — `missile_defenders`.
+//! Child of `world_combat` (itself a child of `game_logic.rs`).
+#![allow(unused_imports, non_snake_case)]
+use super::super::*;
+
+impl GameLogic {
+
+    /// C++ SpecialAbilityUpdate SpecialObject = LaserBeam residual for MD laser lock.
+    pub fn spawn_missile_defender_laser_beam(
+        &mut self,
+        shooter_id: ObjectId,
+        target_id: ObjectId,
+        from: glam::Vec3,
+        to: glam::Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_missile_defender::{
+            LASER_GUIDED_ATTACH_BONE, LASER_GUIDED_BEAM_LIFETIME_FRAMES,
+            LASER_GUIDED_BEAM_MAX_HEALTH, LASER_GUIDED_SPECIAL_OBJECT,
+        };
+        use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        // One active LaserBeam special object per shooter residual.
+        let stale: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.missile_defender_laser_beam && o.producer_id == Some(shooter_id) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for sid in stale {
+            if let Some(o) = self.objects.get_mut(&sid) {
+                // Wave 752: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.missile_defender_laser_beam = false;
+            }
+            self.mark_object_for_destruction(sid, None);
+        }
+
+        let beam_name = LASER_GUIDED_SPECIAL_OBJECT;
+        if !self.templates.contains_key(beam_name) {
+            let mut t = ThingTemplate::new(beam_name);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(LASER_GUIDED_BEAM_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(beam_name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&shooter_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        // Place near muzzle / shooter; presentation freezes full segment via weapon_lasers.
+        let place = glam::Vec3::new(from.x, from.y + 8.0, from.z);
+        let bid = self.create_object(beam_name, team, place)?;
+        let expires = self
+            .frame
+            .saturating_add(LASER_GUIDED_BEAM_LIFETIME_FRAMES.max(1));
+        if let Some(o) = self.objects.get_mut(&bid) {
+            o.missile_defender_laser_beam = true;
+            o.producer_id = Some(shooter_id);
+            o.missile_defender_laser_beam_expires_frame = Some(expires);
+            o.health.maximum = LASER_GUIDED_BEAM_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, LASER_GUIDED_BEAM_MAX_HEALTH);
+        }
+        self.weapon_lasers.push(ResidualWeaponLaser::with_bone(
+            beam_name,
+            LASER_GUIDED_ATTACH_BONE,
+            shooter_id,
+            Some(target_id),
+            (from.x, from.y, from.z),
+            (to.x, to.y, to.z),
+            self.frame,
+        ));
+        self.missile_defender_laser_beams_spawned =
+            self.missile_defender_laser_beams_spawned.saturating_add(1);
+        Some(bid)
+    }
+
+    pub fn update_missile_defender_laser_beam_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.missile_defender_laser_beam {
+                    return None;
+                }
+                // Expire on prep window end or dead producer.
+                if let Some(exp) = o.missile_defender_laser_beam_expires_frame {
+                    if exp <= frame {
+                        return Some(*id);
+                    }
+                }
+                if let Some(pid) = o.producer_id {
+                    let producer_dead = self
+                        .objects
+                        .get(&pid)
+                        .map(|p| !p.is_alive() || p.status.destroyed)
+                        .unwrap_or(true);
+                    if producer_dead {
+                        return Some(*id);
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                // Wave 752: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.missile_defender_laser_beam = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_missile_defender_laser_beam_ok(&self) -> bool {
+        self.missile_defender_laser_beams_spawned > 0
+    }
+
+    pub fn activate_missile_defender_laser_guided(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        use crate::game_logic::host_missile_defender::{
+            can_activate_laser_guided, is_missile_defender_template, laser_guided_in_start_range,
+            LASER_GUIDED_INITIATE_AUDIO,
+        };
+
+        let Some(obj) = self.objects.get(&object_id) else {
+            return false;
+        };
+        if !can_activate_laser_guided(
+            is_missile_defender_template(&obj.template_name),
+            obj.is_alive(),
+        ) {
+            return false;
+        }
+        if obj.secondary_weapon.is_none() {
+            return false;
+        }
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        if !target.is_alive() {
+            return false;
+        }
+        let src_pos = obj.get_position();
+        let tgt_pos = target.get_position();
+        let dist = {
+            let dx = src_pos.x - tgt_pos.x;
+            let dz = src_pos.z - tgt_pos.z;
+            (dx * dx + dz * dz).sqrt()
+        };
+        // Retail StartAbilityRange = 200 residual.
+        if !laser_guided_in_start_range(dist) {
+            return false;
+        }
+
+        let src_pos = src_pos;
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.set_active_weapon_slot(1);
+        }
+        // Laser-guided special: engage secondary-slot target.
+        // Under AI decision authority, log-only for GameWorld writeback.
+        self.engage_target_decision_aware(object_id, target_id);
+        self.missile_defender_residual_laser_specials = self
+            .missile_defender_residual_laser_specials
+            .saturating_add(1);
+        // C++ SpecialAbilityUpdate SpecialObject = LaserBeam (Muzzle01 attach residual).
+        let _ = self.spawn_missile_defender_laser_beam(object_id, target_id, src_pos, tgt_pos);
+        self.queue_audio_event(
+            AudioEventRequest::new(LASER_GUIDED_INITIATE_AUDIO)
+                .with_object(object_id)
+                .with_position(src_pos)
+                .with_priority(160),
+        );
+        true
+    }
+
+    #[cfg(test)]
+    pub fn activate_missile_defender_laser_guided_for_test(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        self.activate_missile_defender_laser_guided(object_id, target_id)
+    }
+
+    /// Record Combat Cycle residual rider load honesty.
+    pub fn record_combat_cycle_residual_load(&mut self) {
+        self.combat_cycle_residual_loads = self.combat_cycle_residual_loads.saturating_add(1);
+    }
+
+    /// Apply residual rider weapon switch to a Combat Cycle (RiderChangeContain residual).
+    ///
+    /// Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.
+    pub fn apply_combat_cycle_rider(
+        &mut self,
+        object_id: ObjectId,
+        rider: crate::game_logic::host_combat_cycle::CombatCycleRider,
+    ) -> bool {
+        use crate::game_logic::host_combat_cycle::{
+            combat_cycle_weapon_for_rider, is_combat_cycle_template,
+        };
+        use crate::game_logic::thing::ThingTemplate;
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_combat_cycle_template(&obj.template_name) {
+            return false;
+        }
+        if !obj.is_combat_cycle_style_container() {
+            obj.install_combat_cycle_transport();
+        }
+
+        obj.combat_cycle_rider = rider.as_u8();
+        if let Some(name) =
+            crate::game_logic::host_combat_cycle::combat_cycle_weapon_name_for_rider(rider)
+        {
+            let mut weapon = ThingTemplate::weapon_from_store(name)
+                .or_else(|| combat_cycle_weapon_for_rider(rider));
+            if let Some(ref mut w) = weapon {
+                // Force residual stats from host residual table.
+                if let Some(stats) = combat_cycle_weapon_for_rider(rider) {
+                    w.damage = stats.damage;
+                    w.range = stats.range;
+                    w.min_range = stats.min_range;
+                    w.reload_time = stats.reload_time;
+                    w.can_target_air = stats.can_target_air;
+                    w.can_target_ground = stats.can_target_ground;
+                    w.projectile_speed = stats.projectile_speed;
+                    w.ammo = stats.ammo;
+                }
+            }
+            obj.weapon = weapon;
+            obj.record_host_weapon_stats();
+        } else {
+            obj.weapon = None;
+            obj.record_host_weapon_stats();
+            obj.secondary_weapon = None;
+            obj.record_host_weapon_stats();
+        }
+
+        self.combat_cycle_residual_rider_switches =
+            self.combat_cycle_residual_rider_switches.saturating_add(1);
+        true
+    }
+
+    /// Refresh Combat Cycle weapon from current occupant residual.
+    ///
+    /// Empty bike → PRIMARY NONE; single rider → rider weapon residual.
+    pub fn refresh_combat_cycle_rider_weapon(&mut self, container_id: ObjectId) {
+        use crate::game_logic::host_combat_cycle::{
+            combat_cycle_weapon_for_rider, is_combat_cycle_template, rider_from_template_name,
+            CombatCycleRider,
+        };
+
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        if !is_combat_cycle_template(&container.template_name)
+            && !container.is_combat_cycle_style_container()
+        {
+            return;
+        }
+        let occupants = container.contained_units();
+        let rider = if let Some(first) = occupants.first() {
+            self.objects
+                .get(first)
+                .map(|o| rider_from_template_name(&o.template_name))
+                .unwrap_or(CombatCycleRider::None)
+        } else if container.combat_cycle_rider > 0 {
+            // Spawn InitialPayload residual without a live occupant object:
+            // keep current rider class when no occupants tracked yet.
+            CombatCycleRider::from_u8(container.combat_cycle_rider)
+        } else {
+            CombatCycleRider::None
+        };
+
+        // When occupants present, force rider from them; when empty and no
+        // spawn residual, clear weapon.
+        let rider = if occupants.is_empty() && container.combat_cycle_rider == 0 {
+            CombatCycleRider::None
+        } else if !occupants.is_empty() {
+            rider
+        } else {
+            // Occupants empty but spawn rider still set: keep spawn residual.
+            CombatCycleRider::from_u8(container.combat_cycle_rider)
+        };
+
+        let _ = combat_cycle_weapon_for_rider(rider);
+        let _ = self.apply_combat_cycle_rider(container_id, rider);
+    }
+
+    /// Apply Combat Cycle residual fire (rider weapon or suicide area).
+    pub(in super::super) fn apply_combat_cycle_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_combat_cycle::{
+            combat_cycle_audio_for_rider, is_legal_combat_cycle_target, is_terrorist_suicide_rider,
+            rpg_splash_damage_at, suicide_bike_damage_at, CombatCycleRider, RPG_DAMAGE, RPG_SPLASH,
+            SUICIDE_SECONDARY_RADIUS,
+        };
+
+        let (source_team, rider, bike_pos) = source
+            .and_then(|sid| {
+                self.objects.get(&sid).map(|o| {
+                    (
+                        o.team,
+                        CombatCycleRider::from_u8(o.combat_cycle_rider),
+                        o.get_position(),
+                    )
+                })
+            })
+            .unwrap_or((Team::Neutral, CombatCycleRider::None, impact));
+
+        // Infer rebel when rider unset but weapon residual looks like MG.
+        let rider = if matches!(rider, CombatCycleRider::None) {
+            if let Some(sid) = source {
+                if let Some(o) = self.objects.get(&sid) {
+                    if let Some(w) = o.weapon.as_ref() {
+                        if (w.damage - 8.0).abs() < 0.5 {
+                            CombatCycleRider::Rebel
+                        } else if (w.damage - 40.0).abs() < 0.5 {
+                            CombatCycleRider::TunnelDefender
+                        } else if (w.damage - 180.0).abs() < 1.0 {
+                            CombatCycleRider::JarmenKell
+                        } else if w.damage >= 500.0 {
+                            CombatCycleRider::Terrorist
+                        } else {
+                            rider
+                        }
+                    } else {
+                        rider
+                    }
+                } else {
+                    rider
+                }
+            } else {
+                rider
+            }
+        } else {
+            rider
+        };
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut destroy_self = false;
+
+        if is_terrorist_suicide_rider(rider) {
+            // SuicideBikeBomb residual around bike position.
+            let center = bike_pos;
+            let candidates: Vec<(ObjectId, f32)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if source == Some(*id) {
+                        return None;
+                    }
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    if !is_legal_combat_cycle_target(
+                        obj.is_alive(),
+                        false,
+                        obj.status.under_construction,
+                        combat_kind,
+                    ) {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    let dist = {
+                        let dx = center.x - pos.x;
+                        let dz = center.z - pos.z;
+                        (dx * dx + dz * dz).sqrt()
+                    };
+                    if dist <= SUICIDE_SECONDARY_RADIUS {
+                        Some((*id, dist))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            for (id, dist) in candidates {
+                let dmg = suicide_bike_damage_at(dist);
+                if dmg <= 0.0 {
+                    continue;
+                }
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    let destroyed = obj.take_damage_from(dmg, source);
+                    hits = hits.saturating_add(1);
+                    if destroyed {
+                        any_destroyed = true;
+                        destroy_ids.push((id, Some(source_team)));
+                    }
+                }
+            }
+            destroy_self = true;
+            self.combat_cycle_residual_suicides =
+                self.combat_cycle_residual_suicides.saturating_add(1);
+        } else if matches!(rider, CombatCycleRider::TunnelDefender) {
+            // RPG splash residual.
+            let impact_xz = (impact.x, impact.z);
+            let candidates: Vec<(ObjectId, f32, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if source == Some(*id) {
+                        return None;
+                    }
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    if !is_legal_combat_cycle_target(
+                        obj.is_alive(),
+                        false,
+                        obj.status.under_construction,
+                        combat_kind,
+                    ) {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    let dist = {
+                        let dx = impact_xz.0 - pos.x;
+                        let dz = impact_xz.1 - pos.z;
+                        (dx * dx + dz * dz).sqrt()
+                    };
+                    let is_intended = intended_target == Some(*id);
+                    if is_intended || dist <= RPG_SPLASH {
+                        Some((*id, dist, is_intended))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            for (id, dist, is_intended) in candidates {
+                let dmg = rpg_splash_damage_at(is_intended, dist);
+                if dmg <= 0.0 {
+                    continue;
+                }
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    let destroyed = obj.take_damage_from(dmg, source);
+                    hits = hits.saturating_add(1);
+                    if destroyed {
+                        any_destroyed = true;
+                        destroy_ids.push((id, Some(source_team)));
+                    }
+                }
+            }
+            let _ = RPG_DAMAGE;
+        } else {
+            // Direct residual hit (Rebel MG / Kell sniper).
+            if let Some(tid) = intended_target {
+                let dmg = source
+                    .and_then(|sid| self.objects.get(&sid))
+                    .and_then(|o| o.weapon.as_ref())
+                    .map(|w| w.damage)
+                    .unwrap_or(0.0);
+                if dmg > 0.0 {
+                    if let Some(obj) = self.objects.get_mut(&tid) {
+                        if is_legal_combat_cycle_target(
+                            obj.is_alive(),
+                            false,
+                            obj.status.under_construction,
+                            true,
+                        ) {
+                            let destroyed = obj.take_damage_from(dmg, source);
+                            hits = hits.saturating_add(1);
+                            if destroyed {
+                                any_destroyed = true;
+                                destroy_ids.push((tid, Some(source_team)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+        if destroy_self {
+            if let Some(sid) = source {
+                self.mark_object_for_destruction(sid, Some(source_team));
+            }
+        }
+
+        self.combat_cycle_residual_fires = self.combat_cycle_residual_fires.saturating_add(1);
+        self.combat_cycle_residual_units_hit =
+            self.combat_cycle_residual_units_hit.saturating_add(hits);
+
+        if let Some(audio) = combat_cycle_audio_for_rider(rider) {
+            self.queue_audio_event(
+                AudioEventRequest::new(audio)
+                    .with_position(impact)
+                    .with_priority(150),
+            );
+        }
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Toxin Tractor primary stream residual (poison damage radius).
+    pub(crate) fn apply_toxin_tractor_stream_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        source_team: Team,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_toxin_tractor::{
+            anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
+            toxin_stream_damage, toxin_stream_damage_at, AnthraxResidualTier,
+            ToxinTractorSalvageTier, TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS,
+            UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+        };
+
+        let (anthrax, tier) = source
+            .and_then(|sid| self.objects.get(&sid))
+            .map(|a| {
+                let has_gamma = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                    || a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                    || a.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                    || a.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+                let has_beta = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                    || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                let anthrax = anthrax_tier_from_flags(
+                    has_gamma,
+                    has_beta,
+                    is_chem_general_template(&a.template_name),
+                );
+                let tier = if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO") {
+                    ToxinTractorSalvageTier::Two
+                } else if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE") {
+                    ToxinTractorSalvageTier::One
+                } else {
+                    ToxinTractorSalvageTier::Base
+                };
+                (anthrax, tier)
+            })
+            .unwrap_or((AnthraxResidualTier::None, ToxinTractorSalvageTier::Base));
+        let base_dmg = toxin_stream_damage(tier, anthrax);
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle);
+                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                if !is_legal_toxin_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                    airborne,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                // Stream residual: intended always; others within PrimaryDamageRadius.
+                if is_intended || dist <= TOXIN_STREAM_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = if is_intended {
+                base_dmg
+            } else {
+                toxin_stream_damage_at(dist, base_dmg)
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage_from(dmg, source);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.toxin_tractor.record_stream_fire(hits);
+        if anthrax.is_gamma() {
+            self.toxin_tractor.record_gamma_stream_fire();
+        }
+        self.queue_audio_event(
+            AudioEventRequest::new(TOXIN_STREAM_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Toxin Tractor contaminate spray residual + MediumPoisonField spawn.
+    pub(in super::super) fn apply_toxin_tractor_spray_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        source_team: Team,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_toxin_tractor::{
+            anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
+            toxin_spray_damage, toxin_spray_damage_at, AnthraxResidualTier, TOXIN_POISON_AUDIO,
+            TOXIN_SPRAY_AUDIO, TOXIN_SPRAY_RADIUS, UPGRADE_GLA_ANTHRAX_BETA,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+        };
+
+        let anthrax = source
+            .and_then(|sid| {
+                self.objects.get(&sid).map(|a| {
+                    let has_gamma = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                        || a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                        || a.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                        || a.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+                    let has_beta = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                        || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                    anthrax_tier_from_flags(
+                        has_gamma,
+                        has_beta,
+                        is_chem_general_template(&a.template_name),
+                    )
+                })
+            })
+            .unwrap_or(AnthraxResidualTier::None);
+        let spray_dmg = toxin_spray_damage(anthrax);
+        // Spray residual originates at the tractor; impact is attack target.
+        // Fail-closed residual: use impact as field center (contaminate puddle).
+        let center = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.get_position()))
+            .unwrap_or(impact);
+        let center_xz = (center.x, center.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle);
+                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                if !is_legal_toxin_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                    airborne,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = center_xz.0 - pos.x;
+                    let dz = center_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist <= TOXIN_SPRAY_RADIUS {
+                    Some((*id, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = toxin_spray_damage_at(dist, spray_dmg);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage_from(dmg, source);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        // C++ FireOCLAfterWeaponCooldown: count secondary shots; field on cooldown.
+        if let Some(sid) = source {
+            if let Some(obj) = self.objects.get_mut(&sid) {
+                let data = obj.fire_ocl_after_cooldown.get_or_insert_with(
+                    crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData::new,
+                );
+                data.record_shot(self.frame);
+            }
+        }
+        self.toxin_tractor.record_spray_fire(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(TOXIN_SPRAY_AUDIO)
+                .with_position(center)
+                .with_priority(150),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(TOXIN_POISON_AUDIO)
+                .with_position(center)
+                .with_priority(140),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                center,
+                Some(impact),
+                self.frame,
+                sid,
+                None,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// C++ FireOCLAfterWeaponCooldownUpdate residual (toxin spray secondary).
+    ///
+    /// When secondary spray has fired ≥ MinShots and has been idle past
+    /// ContinuousFireCoast, spawn MediumPoisonField with OCL lifetime peel.
+    pub fn tick_fire_ocl_after_weapon_cooldown(&mut self) {
+        use crate::game_logic::host_toxin_tractor::{
+            anthrax_tier_from_flags, is_chem_general_template, is_toxin_tractor_template,
+            TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, UPGRADE_GLA_ANTHRAX_BETA,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+        };
+
+        let frame = self.frame;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.fire_ocl_after_cooldown
+                    .as_ref()
+                    .map(|d| d.valid && d.consecutive_shots > 0)
+                    .unwrap_or(false)
+                    && is_toxin_tractor_template(&o.template_name)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in ids {
+            // Idle residual: not currently firing secondary (ai not attacking with spray).
+            let (idle, pos, anthrax) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let last = o
+                    .fire_ocl_after_cooldown
+                    .as_ref()
+                    .map(|d| d.last_shot_frame)
+                    .unwrap_or(0);
+                // C++: could have shot but didn't (coast idle after last secondary).
+                let coasted = frame.saturating_sub(last)
+                    >= TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES
+                    && last > 0;
+                let has_gamma = o.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                    || o.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                    || o.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma");
+                let has_beta = o.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                    || o.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                let anthrax = anthrax_tier_from_flags(
+                    has_gamma,
+                    has_beta,
+                    is_chem_general_template(&o.template_name),
+                );
+                (coasted, o.get_position(), anthrax)
+            };
+            if !idle {
+                continue;
+            }
+            let lifetime = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let Some(d) = o.fire_ocl_after_cooldown.as_mut() else {
+                    continue;
+                };
+                d.try_fire_ocl_on_cooldown(frame)
+            };
+            let Some(life) = lifetime else {
+                continue;
+            };
+            let team = self
+                .objects
+                .get(&id)
+                .map(|o| o.team)
+                .unwrap_or(Team::Neutral);
+            let _ = self
+                .toxin_tractor
+                .spawn_medium_field_lifetime(id, team, pos, frame, anthrax, life);
+            self.toxin_tractor.record_fire_ocl_spawn();
+            if let Some(o) = self.objects.get_mut(&id) {
+                if let Some(d) = o.fire_ocl_after_cooldown.as_mut() {
+                    d.ocl_spawns = d.ocl_spawns.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    /// Advance Toxin Tractor poison field residual zones (medium spray + small death).
+    pub(in super::super) fn update_toxin_tractor_poison_zones(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| {
+                (
+                    *id,
+                    obj.get_position(),
+                    obj.team,
+                    obj.is_alive(),
+                    obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                )
+            })
+            .collect();
+
+        let plans = self
+            .toxin_tractor
+            .plan_due_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.toxin_tractor.record_tick_complete(
+                plan.zone_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.toxin_tractor.prune_expired(frame);
+    }
+
+    /// Apply ComancheRocketPodWeapon area residual at impact.
+    ///
+    /// Returns (units_hit, any_destroyed).
+    /// Fail-closed: not full ScatterTarget clip pattern / projectile flight.
+    /// C++ ComancheRocketPodWeapon ProjectileObject + ScatterTarget residual.
+    pub fn spawn_comanche_rocket_pod_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        shot_index: u32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            COMANCHE_ROCKET_POD_PROJECTILE, COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES,
+            COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(COMANCHE_ROCKET_POD_PROJECTILE) {
+            let mut t = ThingTemplate::new(COMANCHE_ROCKET_POD_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(COMANCHE_ROCKET_POD_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let pid = self.create_object(COMANCHE_ROCKET_POD_PROJECTILE, team, from)?;
+        let expires = self
+            .frame
+            .saturating_add(COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES.max(1));
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.comanche_rocket_pod_projectile = true;
+            o.comanche_rocket_pod_projectile_expires_frame = Some(expires);
+            o.producer_id = Some(source_id);
+            o.health.maximum = COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH);
+            let dir = to - from;
+            let dist = dir.length().max(0.001);
+            let life = COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES.max(1) as f32;
+            o.movement.velocity = dir * (dist / life);
+            o.set_orientation(dir.z.atan2(dir.x));
+        }
+        let _ = shot_index;
+        self.comanche_rocket_pod_projectiles_spawned = self
+            .comanche_rocket_pod_projectiles_spawned
+            .saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_comanche_rocket_pod_projectiles(&mut self) {
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.comanche_rocket_pod_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in flying {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let p = o.get_position();
+                let v = o.movement.velocity;
+                o.set_position(p + v);
+            }
+        }
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.comanche_rocket_pod_projectile {
+                    if let Some(exp) = o.comanche_rocket_pod_projectile_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                // Wave 752: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.comanche_rocket_pod_projectile = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_comanche_rocket_pod_projectile_ok(&self) -> bool {
+        self.comanche_rocket_pod_projectiles_spawned > 0
+    }
+
+    pub fn apply_comanche_rocket_pod_area_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            is_legal_rocket_pod_splash_target, rocket_pod_damage_at_distance, ROCKET_POD_AUDIO,
+            ROCKET_POD_SECONDARY_RADIUS,
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_rocket_pod_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist <= ROCKET_POD_SECONDARY_RADIUS {
+                    Some((*id, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = rocket_pod_damage_at_distance(dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage_from(dmg, source);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, source_team));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.comanche_rocket_pod_residual_area_attacks = self
+            .comanche_rocket_pod_residual_area_attacks
+            .saturating_add(1);
+        self.comanche_rocket_pod_residual_units_hit = self
+            .comanche_rocket_pod_residual_units_hit
+            .saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(ROCKET_POD_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                None,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Residual Sentry Drone auto-fire: gun-equipped Sentry acquires nearest enemy
+    /// in weapon range and deals damage without a manual AttackObject order.
+    /// Fail-closed: not full DeployStyleAIUpdate pack/unpack / LOS matrix.
+    pub(in super::super) fn try_sentry_drone_residual_fire(&mut self, sentry_id: ObjectId) {
+        use crate::game_logic::host_sentry_drone::{
+            is_legal_sentry_auto_fire_target, SENTRY_GUN_AUDIO,
+        };
+
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&sentry_id) else {
+            return;
+        };
+        if !attacker.is_alive() || attacker.weapon.is_none() || !attacker.can_attack() {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let team = attacker.team;
+        let range = weapon.range;
+        let damage = weapon.damage;
+        let fire_pos = attacker.get_position();
+
+        // Pure residual acquire query (fire decision choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            sentry_id,
+            team,
+            fire_pos,
+            candidates,
+            |_| range,
+            |c| {
+                let stealthed_hidden = c.effectively_stealthed && c.team != team;
+                is_legal_sentry_auto_fire_target(
+                    c.is_alive,
+                    c.team == team,
+                    c.is_neutral,
+                    c.under_construction,
+                    c.combat_kind,
+                    stealthed_hidden,
+                )
+            },
+        );
+
+        let Some((target_id, _, _)) = best else {
+            return;
+        };
+
+        let weapon_snap = self.objects.get(&sentry_id).and_then(|a| a.weapon.clone());
+        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
+            sentry_id,
+            target_id,
+            damage,
+            fire_pos,
+            weapon_snap.as_ref(),
+            0,
+        );
+
+        if let Some(attacker) = self.objects.get_mut(&sentry_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
+            }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
+                let (dmg, rng) = attacker
+                    .weapon
+                    .as_ref()
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    0,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
+            }
+            attacker.set_target(Some(target_id));
+            attacker.set_ai_state(AIState::Attacking);
+            attacker.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
+            }
+            // STEALTH_NOT_WHILE_ATTACKING residual.
+            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
+                attacker.break_stealth();
+            }
+            if destroyed {
+                attacker.gain_experience(kill_xp);
+                self.stop_attack_decision_aware(sentry_id);
+            }
+        }
+
+        if destroyed {
+            self.mark_object_for_destruction(target_id, Some(team));
+        }
+
+        let muzzle_pos = self
+            .objects
+            .get(&sentry_id)
+            .map(|a| a.get_position())
+            .unwrap_or(fire_pos);
+        let impact_pos = self.objects.get(&target_id).map(|t| t.get_position());
+        let _ = self.combat_particles.spawn_weapon_fire_fx(
+            muzzle_pos,
+            impact_pos,
+            self.frame,
+            sentry_id,
+            Some(target_id),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(SENTRY_GUN_AUDIO)
+                .with_object(sentry_id)
+                .with_position(muzzle_pos)
+                .with_priority(160),
+        );
+
+        self.sentry_drone_residual_auto_fires =
+            self.sentry_drone_residual_auto_fires.saturating_add(1);
+    }
+
+    /// Residual Hellfire Drone auto-fire: acquires nearest enemy in weapon range
+    /// and deals damage without a manual AttackObject order.
+    /// Fail-closed: not full SlavedUpdate / LOS / projectile flight matrix.
+    pub(in super::super) fn try_hellfire_drone_residual_fire(&mut self, hellfire_id: ObjectId) {
+        use crate::game_logic::host_slave_drones::{
+            is_legal_hellfire_auto_fire_target, HELLFIRE_FIRE_AUDIO,
+        };
+
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&hellfire_id) else {
+            return;
+        };
+        if !attacker.is_alive() || attacker.weapon.is_none() || !attacker.can_attack() {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let team = attacker.team;
+        let range = weapon.range;
+        let damage = weapon.damage;
+        let fire_pos = attacker.get_position();
+
+        // Pure residual acquire query (fire decision choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            hellfire_id,
+            team,
+            fire_pos,
+            candidates,
+            |_| range,
+            |c| {
+                let stealthed_hidden = c.effectively_stealthed && c.team != team;
+                is_legal_hellfire_auto_fire_target(
+                    c.is_alive,
+                    c.team == team,
+                    c.is_neutral,
+                    c.under_construction,
+                    c.combat_kind,
+                    stealthed_hidden,
+                )
+            },
+        );
+
+        let Some((target_id, _, _)) = best else {
+            return;
+        };
+
+        let weapon_snap = self
+            .objects
+            .get(&hellfire_id)
+            .and_then(|a| a.weapon.clone());
+        // C++ Hellfire ScatterRadiusVsInfantry residual: vs infantry may miss.
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        let target_is_infantry = self
+            .objects
+            .get(&target_id)
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let mut skip_damage = false;
+        if target_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                hellfire_id.0,
+                target_id.0,
+                self.frame,
+            );
+            let hit_r = self
+                .objects
+                .get(&target_id)
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            self.hellfire_scatter_applied = self.hellfire_scatter_applied.saturating_add(1);
+            if crate::game_logic::host_slave_drones::hellfire_scatter_misses_infantry(
+                true, seed, hit_r,
+            ) {
+                self.hellfire_scatter_misses = self.hellfire_scatter_misses.saturating_add(1);
+                skip_damage = true;
+            }
+        }
+        if !skip_damage {
+            let (d, xp) = self.residual_auto_fire_apply_damage(
+                hellfire_id,
+                target_id,
+                damage,
+                fire_pos,
+                weapon_snap.as_ref(),
+                0,
+            );
+            destroyed = d;
+            kill_xp = xp;
+        }
+
+        if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
+            }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
+                let (dmg, rng) = attacker
+                    .weapon
+                    .as_ref()
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    0,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
+            }
+            attacker.set_target(Some(target_id));
+            attacker.set_ai_state(AIState::Attacking);
+            attacker.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_attack(hellfire_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(hellfire_id, 2);
+            }
+            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
+                attacker.break_stealth();
+            }
+            if destroyed {
+                attacker.gain_experience(kill_xp);
+                self.stop_attack_decision_aware(hellfire_id);
+            }
+        }
+
+        if destroyed {
+            self.mark_object_for_destruction(target_id, Some(team));
+        }
+
+        let muzzle_pos = self
+            .objects
+            .get(&hellfire_id)
+            .map(|a| a.get_position())
+            .unwrap_or(fire_pos);
+        let impact_pos = self.objects.get(&target_id).map(|t| t.get_position());
+        let _ = self.combat_particles.spawn_weapon_fire_fx(
+            muzzle_pos,
+            impact_pos,
+            self.frame,
+            hellfire_id,
+            Some(target_id),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(HELLFIRE_FIRE_AUDIO)
+                .with_object(hellfire_id)
+                .with_position(muzzle_pos)
+                .with_priority(160),
+        );
+
+        self.hellfire_drone_residual_auto_fires =
+            self.hellfire_drone_residual_auto_fires.saturating_add(1);
+    }
+
+    /// Residual: attach Scout or Hellfire drone to a master vehicle (Humvee residual).
+    ///
+    /// Spawns the drone near the master, tags the master with the object-upgrade
+    /// residual name, and records attach honesty.
+    /// Fail-closed: not full ObjectCreationUpgrade ConflictsWith / ProductionUpdate.
+    pub fn residual_attach_slave_drone(
+        &mut self,
+        master_id: ObjectId,
+        kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_slave_drones::{
+            drone_spawn_offset_from_master, is_slave_drone_master_template, SlaveDroneKind,
+        };
+
+        let (team, master_pos, master_name) = {
+            let master = self.objects.get(&master_id)?;
+            if !master.is_alive() || master.status.under_construction {
+                return None;
+            }
+            if !is_slave_drone_master_template(&master.template_name) {
+                return None;
+            }
+            (
+                master.team,
+                master.get_position(),
+                master.template_name.clone(),
+            )
+        };
+        let _ = master_name;
+
+        // Ensure drone templates exist with residual kinds.
+        let drone_tpl_name = kind.template_name();
+        if !self.templates.contains_key(drone_tpl_name) {
+            let mut tpl = crate::game_logic::ThingTemplate::new(drone_tpl_name);
+            tpl.add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(100.0);
+            if matches!(kind, SlaveDroneKind::Hellfire) {
+                tpl.set_primary_weapon_name(
+                    crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON,
+                );
+            }
+            if matches!(kind, SlaveDroneKind::Battle) {
+                tpl.set_primary_weapon_name(
+                    crate::game_logic::host_slave_drones::BATTLE_DRONE_MACHINE_GUN,
+                );
+            }
+            // Scout: no primary.
+            self.templates.insert(drone_tpl_name.to_string(), tpl);
+        }
+        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+
+        let (ox, oz) = drone_spawn_offset_from_master(kind);
+        let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
+        let drone_id = self.create_object(drone_tpl_name, team, spawn_pos)?;
+
+        // C++ Object::setProducer + UpgradeDie producer link residual.
+        if let Some(drone) = self.objects.get_mut(&drone_id) {
+            drone.producer_id = Some(master_id);
+            if drone.upgrade_die.is_none() {
+                drone.install_upgrade_die(kind.upgrade_name());
+            }
+        }
+
+        if let Some(master) = self.objects.get_mut(&master_id) {
+            master.apply_upgrade_tag(kind.upgrade_name());
+        }
+
+        match kind {
+            SlaveDroneKind::Scout => {
+                self.scout_drone_residual_attaches =
+                    self.scout_drone_residual_attaches.saturating_add(1);
+            }
+            SlaveDroneKind::Hellfire => {
+                self.hellfire_drone_residual_attaches =
+                    self.hellfire_drone_residual_attaches.saturating_add(1);
+            }
+            SlaveDroneKind::Battle => {
+                self.battle_drone_residual_attaches =
+                    self.battle_drone_residual_attaches.saturating_add(1);
+            }
+        }
+
+        Some(drone_id)
+    }
+
+    /// Residual honesty: bunker-buster blast + garrison kill or bunker damage.
+    pub fn honesty_bunker_buster_ok(&self) -> bool {
+        self.bunker_buster.honesty_host_path_ok()
+    }
+
+    /// Residual honesty: at least one garrison occupant killed by bunker residual.
+    pub fn honesty_bunker_buster_garrison_kill_ok(&self) -> bool {
+        self.bunker_buster.honesty_garrison_kill_ok()
+    }
+
+    /// Residual honesty: amplified bunker structure damage residual applied.
+    pub fn honesty_bunker_buster_damage_ok(&self) -> bool {
+        self.bunker_buster.honesty_bunker_damage_ok()
+    }
+
+    /// Residual honesty: KILL_GARRISONED microwave-style clearer residual.
+    pub fn honesty_kill_garrisoned_ok(&self) -> bool {
+        self.bunker_buster.honesty_kill_garrisoned_ok()
+    }
+
+    /// Host bunker-buster residual registry (tests / HUD honesty).
+    pub fn bunker_buster_residual(
+        &self,
+    ) -> &crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry {
+        &self.bunker_buster
+    }
+
+    /// Apply BunkerBuster residual to a structure target:
+    /// kill all garrisoned occupants + amplified structure damage vs bunkers.
+    ///
+    /// Returns (occupants_killed, structure_damage_applied, structure_destroyed).
+    /// Fail-closed: not full BunkerBusterBehavior FX / seismic / temp shockwave weapon.
+    pub(in super::super) fn apply_bunker_buster_to_target(
+        &mut self,
+        target_id: ObjectId,
+        attacker_team: Team,
+        base_weapon_damage: f32,
+        attacker_id: Option<ObjectId>,
+    ) -> (u32, f32, bool) {
+        use crate::game_logic::host_bunker_buster::{
+            bunker_buster_structure_damage, is_bunker_structure_name, BUNKER_BUSTER_AUDIO,
+            BUNKER_BUSTER_OCCUPANT_DAMAGE,
+        };
+
+        let (occupants, is_bunker, target_pos) = {
+            let Some(target) = self.objects.get(&target_id) else {
+                return (0, 0.0, false);
+            };
+            let occ = target.contained_units();
+            let bunker = is_bunker_structure_name(&target.template_name)
+                || target
+                    .building_data
+                    .as_ref()
+                    .map(|b| {
+                        matches!(
+                            b.building_type,
+                            crate::game_logic::buildings::BuildingType::Bunker
+                        ) || b.max_garrison > 0
+                    })
+                    .unwrap_or(false);
+            (occ, bunker, target.get_position())
+        };
+        let had_occupants = !occupants.is_empty();
+        let mut kills = 0u32;
+        let mut destroy_ids: Vec<ObjectId> = Vec::new();
+
+        // Remove occupants from container bookkeeping first.
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            for &occ_id in &occupants {
+                target.remove_occupant(occ_id);
+            }
+        }
+
+        for occ_id in occupants {
+            let Some(occ) = self.objects.get_mut(&occ_id) else {
+                continue;
+            };
+            if !occ.is_alive() {
+                continue;
+            }
+            occ.set_contained_by(None);
+            occ.set_ai_state(AIState::Idle);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
+            }
+            // Residual occupant damage (BunkerBusterAntiTunnel ~400) — lethal for infantry.
+            let _ = occ.take_damage_from(
+                BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
+                attacker_id,
+            );
+            if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            } else {
+                let _ = occ.take_damage_from(999_999.0, attacker_id);
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            }
+        }
+
+        for id in destroy_ids {
+            self.mark_object_for_destruction(id, Some(attacker_team));
+        }
+
+        let structure_dmg =
+            bunker_buster_structure_damage(base_weapon_damage, is_bunker, had_occupants);
+        let mut destroyed = false;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            destroyed = target.take_damage_from(structure_dmg, attacker_id);
+            if destroyed {
+                self.mark_object_for_destruction(target_id, Some(attacker_team));
+            }
+        }
+
+        self.bunker_buster.record_bunker_buster_blast(
+            kills,
+            structure_dmg,
+            is_bunker && structure_dmg > base_weapon_damage + 0.01,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(BUNKER_BUSTER_AUDIO)
+                .with_position(target_pos)
+                .with_priority(160),
+        );
+
+        (kills, structure_dmg, destroyed)
+    }
+
+    /// Apply KILL_GARRISONED residual: kill `floor(damage)` garrisoned occupants.
+
+    /// Consume object-level DAMAGE_KILL_GARRISONED pending count into contain kills.
+    pub(in super::super) fn flush_pending_kill_garrisoned(
+        &mut self,
+        target_id: ObjectId,
+        attacker_id: Option<ObjectId>,
+        attacker_team: Team,
+    ) -> u32 {
+        let pending = self
+            .objects
+            .get_mut(&target_id)
+            .map(|o| o.take_pending_kill_garrisoned())
+            .unwrap_or(0);
+        if pending == 0 {
+            return 0;
+        }
+        self.apply_kill_garrisoned_to_target(target_id, attacker_team, pending as f32, attacker_id)
+    }
+
+    /// Fail-closed: no structure HP damage (C++ ActiveBody KillGarrisoned path).
+    pub(in super::super) fn apply_kill_garrisoned_to_target(
+        &mut self,
+        target_id: ObjectId,
+        attacker_team: Team,
+        damage_amount: f32,
+        attacker_id: Option<ObjectId>,
+    ) -> u32 {
+        use crate::game_logic::host_bunker_buster::{
+            kill_garrisoned_count, BUNKER_BUSTER_OCCUPANT_DAMAGE,
+        };
+
+        let occupants = self
+            .objects
+            .get(&target_id)
+            .map(|t| t.contained_units())
+            .unwrap_or_default();
+        let kill_n = kill_garrisoned_count(damage_amount, occupants.len());
+        if kill_n == 0 {
+            return 0;
+        }
+
+        let to_kill: Vec<ObjectId> = occupants.into_iter().take(kill_n).collect();
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            for &occ_id in &to_kill {
+                target.remove_occupant(occ_id);
+            }
+        }
+
+        let mut kills = 0u32;
+        let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        for occ_id in to_kill {
+            let Some(occ) = self.objects.get_mut(&occ_id) else {
+                continue;
+            };
+            if !occ.is_alive() {
+                continue;
+            }
+            occ.set_contained_by(None);
+            occ.set_ai_state(AIState::Idle);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
+            }
+            let _ = occ.take_damage_from(
+                BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
+                attacker_id,
+            );
+            if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            } else {
+                let _ = occ.take_damage_from(999_999.0, attacker_id);
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            }
+        }
+        for id in destroy_ids {
+            self.mark_object_for_destruction(id, Some(attacker_team));
+        }
+
+        self.bunker_buster.record_kill_garrisoned(kills);
+        kills
+    }
+}

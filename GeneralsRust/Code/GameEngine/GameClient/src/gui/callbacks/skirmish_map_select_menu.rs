@@ -813,9 +813,8 @@ pub fn drive_os_wnd_skirmish_map_select_like_cpp(map: impl Into<String>) -> bool
     if map.trim().is_empty() {
         return false;
     }
-    let clicked_select = crate::gui::dispatch_os_click_named_window(
-        "SkirmishGameOptionsMenu.wnd:ButtonSelectMap",
-    );
+    let clicked_select =
+        crate::gui::dispatch_os_click_named_window("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
     let clicked_ok =
         crate::gui::dispatch_os_click_named_window("SkirmishMapSelectMenu.wnd:ButtonOK");
     if !clicked_select && !clicked_ok {

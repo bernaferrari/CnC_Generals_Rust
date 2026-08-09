@@ -147,6 +147,18 @@ impl ObjectRegistry {
         }
     }
 
+    /// True when the factory registry **store** has no handles.
+    ///
+    /// Unlike [`is_empty`], this does **not** consult GameLogic and does **not**
+    /// fail-open when the GameLogic mutex is already held. Used only by the
+    /// full `GameLogic::update()` empty-noop path. Do **not** use this as a
+    /// blanket skip on terrain/pathfind APIs (`dual_world_registry_unavailable`
+    /// / [`is_empty`] stay fail-open under lock for those).
+    #[inline]
+    pub fn store_is_empty(&self) -> bool {
+        self.live_count.load(Ordering::Acquire) == 0
+    }
+
     /// Retrieve all registered objects.
     pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
         // Wave 247: host path short-circuit when both registry and GameLogic empty.

@@ -988,10 +988,6 @@ impl FireWeaponWhenDamagedBehaviorFactory {
     }
 }
 
-// Thread safety
-unsafe impl Send for FireWeaponWhenDamagedBehavior {}
-unsafe impl Sync for FireWeaponWhenDamagedBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

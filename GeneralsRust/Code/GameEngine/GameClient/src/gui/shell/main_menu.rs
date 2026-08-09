@@ -2818,9 +2818,7 @@ mod tests {
     #[test]
     fn os_wnd_start_usa_gla_china_campaign_hits_single_player_faction_medium() {
         drive_os_wnd_campaign_side(ShowSide::USA);
-        let usa = get_campaign_manager()
-            .get_current_map()
-            .unwrap_or_default();
+        let usa = get_campaign_manager().get_current_map().unwrap_or_default();
         if !usa.is_empty() {
             assert!(
                 usa.to_ascii_lowercase().contains("md_usa"),
@@ -2828,9 +2826,7 @@ mod tests {
             );
         }
         drive_os_wnd_campaign_side(ShowSide::GLA);
-        let gla = get_campaign_manager()
-            .get_current_map()
-            .unwrap_or_default();
+        let gla = get_campaign_manager().get_current_map().unwrap_or_default();
         if !gla.is_empty() {
             assert!(
                 gla.to_ascii_lowercase().contains("md_gla"),
@@ -2838,9 +2834,7 @@ mod tests {
             );
         }
         drive_os_wnd_campaign_side(ShowSide::China);
-        let china = get_campaign_manager()
-            .get_current_map()
-            .unwrap_or_default();
+        let china = get_campaign_manager().get_current_map().unwrap_or_default();
         if !china.is_empty() {
             assert!(
                 china.to_ascii_lowercase().contains("md_chi")
@@ -2882,9 +2876,7 @@ mod tests {
             campaign.eq_ignore_ascii_case("usa") || campaign.is_empty(),
             "setCampaign(USA) when Campaign.ini loaded, got {campaign}"
         );
-        let map = get_campaign_manager()
-            .get_current_map()
-            .unwrap_or_default();
+        let map = get_campaign_manager().get_current_map().unwrap_or_default();
         if !map.is_empty() {
             assert!(
                 map.to_ascii_lowercase().contains("md_usa"),

@@ -83,968 +83,16 @@ impl NetworkClock {
     fn clear_override() {}
 }
 
+#[path = "cnc_game_engine_runtime.rs"]
+mod cnc_game_engine_runtime;
+#[path = "cnc_game_engine_host.rs"]
+mod cnc_game_engine_host;
+use cnc_game_engine_runtime::{RuntimeHostBridge, RuntimeHostSnapshot};
+
 #[cfg(test)]
-mod tests {
+#[path = "cnc_game_engine_tests.rs"]
+mod tests;
 
-    #[test]
-    fn presentation_path_applies_pose_without_object_registry() {
-        let src = include_str!("cnc_game_engine.rs");
-        assert!(
-            src.contains("apply_presentation_pose_to_drawables"),
-            "InGame presentation path must push pose to drawables without OBJECT_REGISTRY"
-        );
-        let i = src
-            .find("apply_presentation_shroud_to_drawables(shroud_entries)")
-            .expect("shroud apply");
-        let window = &src[i..src.len().min(i + 900)];
-        assert!(
-            window.contains("apply_presentation_pose_to_drawables"),
-            "pose apply must sit next to presentation shroud residual"
-        );
-    }
-
-    #[test]
-    fn ui_command_path_prefers_presentation_object_identity() {
-        let eng = include_str!("cnc_game_engine.rs");
-        for token in [
-            "fn presentation_ro",
-            "fn ui_object_alive",
-            "fn ui_object_is_dozer",
-            "fn ui_object_can_produce",
-            "fn ui_production_queue_head",
-            "fn ui_selected_ids",
-            "fn ui_special_power_ready",
-            "fn ui_special_power_type_if_ready",
-        ] {
-            assert!(
-                eng.contains(token),
-                "missing UI presentation helper {token}"
-            );
-        }
-        // Producer fail-open live scan only when no presentation frame.
-        assert!(
-            eng.contains("last_presentation_frame.is_none()"),
-            "producer fail-open must gate on missing presentation frame"
-        );
-        // Dozer/producer filters use presentation-first helpers.
-        assert!(
-            eng.contains("self.ui_object_is_dozer(id)")
-                && eng.contains("self.ui_object_can_produce(id)")
-                && eng.contains("self.ui_production_queue_head(id)"),
-            "UI command filters must call presentation-first helpers"
-        );
-        // Wave 214: force-completed producer pick is presentation-only (no live classify).
-        assert!(
-            eng.contains("Wave 214: force-completed IDs classified from presentation freeze only")
-                && eng.contains("force_completed")
-                && eng.contains("can_produce")
-                && eng.contains("no live GameLogic dual-read residual")
-                && eng.contains(
-                    "Wave 214: force-completed IDs classified from presentation freeze only"
-                ),
-            "force-completed producer pick must be presentation-only"
-        );
-    }
-
-    #[test]
-    fn sample_startup_camera_heights_prefers_presentation_height_grid() {
-        let eng = include_str!("cnc_game_engine.rs");
-        let idx = eng
-            .find("fn sample_startup_camera_heights")
-            .expect("camera height helper");
-        let body = &eng[idx..idx + 1200];
-        assert!(
-            body.contains("presentation")
-                && body.contains("sample_height")
-                && body.contains("world_env"),
-            "camera height helper must sample presentation world_env height grid"
-        );
-        assert!(
-            body.contains("Option<&crate::presentation_frame::PresentationFrame>")
-                || body.contains("presentation: Option"),
-            "camera height helper must take optional PresentationFrame"
-        );
-    }
-
-    #[test]
-    fn render_ui_state_prefers_presentation_without_live_update() {
-        let src = include_str!("cnc_game_engine.rs");
-        // Wave 591: real consumer lives in host_build_render_ui_state_from_presentation.
-        // Prefer last production def (tests may embed the signature string).
-        let marker =
-            "fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState";
-        let mut i = None;
-        let mut from = 0usize;
-        while let Some(rel) = src[from..].find(marker) {
-            i = Some(from + rel);
-            from = from + rel + marker.len();
-        }
-        let i = i.expect("render presentation UI consumer helper");
-        let window = &src[i..(i + 2000).min(src.len())];
-        assert!(
-            window.contains("GameUIState::default()") && window.contains("pres.apply_to_ui_state"),
-            "InGame render must build UI state from PresentationFrame default+apply"
-        );
-        assert!(
-            window.contains("Boot/loading residual only")
-                && window.contains("update_ui_state(self.current_player_id)"),
-            "boot residual may still call update_ui_state without presentation"
-        );
-        // Ensure the presentation branch does not call live update_ui_state first.
-        // Comments may mention update_ui_state; require no host/live call before boot arm.
-        let branch_end = window
-            .find("Boot/loading residual only")
-            .unwrap_or(window.len());
-        let presentation_branch = &window[..branch_end];
-        assert!(
-            !presentation_branch.contains("host_update_ui_state(")
-                && !presentation_branch.contains("self.update_ui_state("),
-            "presentation branch must not call live update_ui_state"
-        );
-        assert!(
-            src.contains("self.host_build_render_ui_state_from_presentation()"),
-            "render path must call host render UI presentation helper"
-        );
-    }
-
-    fn presentation_path_ticks_drawables_like_cpp() {
-        let src = include_str!("cnc_game_engine.rs");
-        // Build token from pieces so this test source does not self-match.
-        let token = format!("// {}{}:", "PRES_SHELL_ONLY_", "DRAWABLE_TICK");
-        let i = src.find(&token).expect("presentation shell token comment");
-        let w = &src[i..src.len().min(i + 500)];
-        assert!(
-            w.contains("update_presentation_shell")
-                && w.contains("update_drawables_local")
-                && !w.contains("game_client.update_drawables("),
-            "presentation client path must use shell-only drawable tick"
-        );
-    }
-
-    #[test]
-    fn show_shell_menu_sets_shell_active_for_wnd_residual() {
-        let src = include_str!("cnc_game_engine.rs");
-        let i = src.find("fn show_shell_menu").expect("show_shell_menu");
-        let body = &src[i..src.len().min(i + 2200)];
-        assert!(
-            body.contains("SubsystemInterface::init"),
-            "show_shell_menu must init Shell before push (TLS starts uninitialized)"
-        );
-        assert!(
-            body.contains("set_shell_active(true)"),
-            "show_shell_menu must set Shell::is_shell_active after MainMenu push"
-        );
-        assert!(
-            body.contains("shell_menu_active = true"),
-            "engine shell_menu_active residual required after successful stack push"
-        );
-        assert!(
-            body.contains("get_screen_count()"),
-            "show_shell_menu must verify screen stack before latching active"
-        );
-        assert!(
-            !body.contains("will continue without a main menu") || body.contains("screens == 0"),
-            "empty stack must not latch shell_menu_active"
-        );
-    }
-
-    fn match_start_presentation_seed_uses_shadow_overlay() {
-        let src = include_str!("cnc_game_engine.rs");
-        // Wave 590: match-start peels through host_seed_presentation_after_match_start.
-        let needle = "fn host_seed_presentation_after_match_start(";
-        let i = src
-            .find(needle)
-            .expect("host_seed_presentation_after_match_start");
-        let body = &src[i..src.len().min(i + 1400)];
-        assert!(
-            body.contains("host_sync_shadow_and_build_presentation"),
-            "match-start seed must use presentation build boundary (Wave 926)"
-        );
-        assert!(
-            !body.contains("build_and_apply_for_hud"),
-            "seed must not skip shadow via build_and_apply_for_hud"
-        );
-        // Thin wrapper still exists for callers.
-        assert!(
-            src.contains("fn seed_presentation_after_match_start")
-                && src.contains("host_seed_presentation_after_match_start()"),
-            "seed_presentation_after_match_start must delegate to host helper"
-        );
-        // Boot/render residual seed via host_ensure_presentation_frame_for_render.
-        let j = src
-            .find("Boot/Menu residual: if no frame yet")
-            .expect("boot residual comment");
-        let boot_call = &src[j..src.len().min(j + 500)];
-        assert!(
-            boot_call.contains("host_ensure_presentation_frame_for_render"),
-            "boot path must call host_ensure_presentation_frame_for_render"
-        );
-        let k = src
-            .find("fn host_ensure_presentation_frame_for_render(")
-            .expect("host_ensure_presentation_frame_for_render");
-        let boot = &src[k..src.len().min(k + 900)];
-        assert!(
-            boot.contains("host_sync_shadow_and_build_presentation"),
-            "boot presentation seed must use presentation build boundary (Wave 926)"
-        );
-    }
-
-    #[test]
-    fn apply_presentation_to_huds_dual_no_recurse_residual() {
-        let src = include_str!("cnc_game_engine.rs");
-        let marker = "fn apply_presentation_to_huds(";
-        let i = src.find(marker).expect("dual HUD apply helper");
-        let body = &src[i..src.len().min(i + 450)];
-        assert!(
-            body.contains("pres.apply_to_game_hud(&mut self.game_hud)"),
-            "must apply presentation freeze to engine GameHUD"
-        );
-        assert!(
-            body.contains("pres.apply_to_game_hud(self.ui_manager.game_hud_mut())"),
-            "must apply presentation freeze to UIManager GameHUD"
-        );
-        // Body must not recurse into itself (stack overflow residual).
-        let after_sig = match body.split_once('{') {
-            Some((_, rest)) => rest,
-            None => "",
-        };
-        assert!(
-            !after_sig.contains("self.apply_presentation_to_huds("),
-            "apply_presentation_to_huds must not call itself"
-        );
-    }
-
-    use super::{
-        should_exit_for_smoke_test, should_keep_logic_running_while_iconic, CnCGameEngine,
-        GameMode, GameState, StartupNewGameDispatch,
-    };
-    use crate::command_line::CommandLineArgs;
-    use game_engine::common::global_data::{
-        test_isolation_lock, with_global_data_restored as with_global_data_snapshot_restored,
-    };
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
-        let _guard = test_isolation_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let global_snapshot = game_engine::common::global_data::read().clone();
-        let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
-        let previous_rank_points =
-            gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        *game_engine::common::global_data::write() = global_snapshot;
-        gamelogic::helpers::TheScriptEngine::set_global_difficulty(previous_difficulty);
-        gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
-            previous_rank_points,
-        );
-        if let Err(payload) = result {
-            std::panic::resume_unwind(payload);
-        }
-    }
-
-    fn create_temp_test_dir(prefix: &str) -> std::path::PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "generals_main_{prefix}_{}_{}",
-            std::process::id(),
-            nonce
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn startup_deferred_budget_is_disabled() {
-        let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
-        assert_eq!(budget, 0);
-    }
-
-    #[test]
-    fn startup_deferred_budget_is_enabled_for_visible_menu_frames() {
-        let budget =
-            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(12), 12);
-        assert_eq!(budget, 4);
-    }
-
-    #[test]
-    fn smoke_test_exit_only_after_menu_startup_complete() {
-        assert!(should_exit_for_smoke_test(
-            true,
-            GameState::Menu,
-            1.0,
-            false
-        ));
-        assert!(!should_exit_for_smoke_test(
-            false,
-            GameState::Menu,
-            1.0,
-            false
-        ));
-        assert!(!should_exit_for_smoke_test(
-            true,
-            GameState::Loading,
-            1.0,
-            false
-        ));
-        assert!(!should_exit_for_smoke_test(
-            true,
-            GameState::Menu,
-            0.995,
-            false
-        ));
-        assert!(!should_exit_for_smoke_test(
-            true,
-            GameState::Menu,
-            1.0,
-            true
-        ));
-    }
-
-    #[test]
-    fn configured_startup_shell_map_disables_missing_shell_map() {
-        with_global_data_snapshot_restored(|| {
-            {
-                let mut global = game_engine::common::global_data::write();
-                global.writable.shell_map_on = true;
-                global.writable.shell_map_name = "__definitely_missing_shell_map__".to_string();
-            }
-
-            let shell_map = CnCGameEngine::configured_startup_shell_map();
-            assert!(shell_map.is_none());
-
-            let global = game_engine::common::global_data::read();
-            assert!(!global.writable.shell_map_on);
-        });
-    }
-
-    #[test]
-    fn effective_fps_limit_prefers_script_override() {
-        let limit =
-            CnCGameEngine::effective_fps_limit_for_frame(Some(45), false, 30, 2.0, true, true);
-        assert_eq!(limit, Some(45));
-    }
-
-    #[test]
-    fn effective_fps_limit_honors_cpp_tivo_replay_rule_for_global_limit() {
-        let limit = CnCGameEngine::effective_fps_limit_for_frame(None, true, 30, 1.0, true, true);
-        assert_eq!(limit, None);
-    }
-
-    #[test]
-    fn effective_fps_limit_disables_global_limit_for_fast_visual_multiplier() {
-        let limit = CnCGameEngine::effective_fps_limit_for_frame(None, true, 30, 1.5, false, false);
-        assert_eq!(limit, None);
-    }
-
-    #[test]
-    fn startup_new_game_dispatch_prefers_last_queued_message() {
-        use game_engine::common::message_stream::{GameMessage, GameMessageType};
-
-        let mut first = GameMessage::new(GameMessageType::NewGame);
-        first.append_integer_argument(0);
-        first.append_integer_argument(0);
-        first.append_integer_argument(0);
-
-        let mut replay = GameMessage::new(GameMessageType::NewGame);
-        replay.append_integer_argument(3);
-        replay.append_integer_argument(1);
-        replay.append_integer_argument(42);
-        replay.append_integer_argument(90);
-
-        let dispatch = CnCGameEngine::startup_new_game_dispatch_from_messages(&[
-            first,
-            GameMessage::new(GameMessageType::ClearGameData),
-            replay,
-        ])
-        .expect("expected startup dispatch");
-
-        assert_eq!(dispatch.game_mode, GameMode::Replay);
-        assert_eq!(dispatch.difficulty, super::GameDifficulty::Medium);
-        assert_eq!(dispatch.rank_points, 42);
-        assert_eq!(dispatch.max_fps, Some(90));
-    }
-
-    #[test]
-    fn startup_new_game_dispatch_applies_script_side_effects() {
-        with_global_and_startup_state_snapshot_restored(|| {
-            let dispatch = StartupNewGameDispatch {
-                game_mode_code: 0,
-                game_mode: GameMode::SinglePlayer,
-                difficulty_code: 2,
-                difficulty: super::GameDifficulty::Hard,
-                rank_points: 77,
-                max_fps: None,
-            };
-
-            let prepared_map = CnCGameEngine::apply_startup_new_game_dispatch(dispatch);
-            assert!(prepared_map.is_none());
-            assert_eq!(
-                gamelogic::helpers::TheScriptEngine::get_global_difficulty(),
-                2
-            );
-            assert_eq!(
-                gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
-                77
-            );
-        });
-    }
-
-    #[test]
-    fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation() {
-        with_global_and_startup_state_snapshot_restored(|| {
-            {
-                let mut global = game_engine::common::global_data::write();
-                global.writable.map_name = "Maps\\Unexpected\\Unexpected.map".to_string();
-                global.pending_file.clear();
-            }
-
-            let dispatch = StartupNewGameDispatch {
-                game_mode_code: 0,
-                game_mode: GameMode::SinglePlayer,
-                difficulty_code: 1,
-                difficulty: super::GameDifficulty::Medium,
-                rank_points: 0,
-                max_fps: None,
-            };
-
-            let prepared_map = CnCGameEngine::apply_startup_new_game_dispatch(dispatch);
-            assert!(prepared_map.is_none());
-
-            let global = game_engine::common::global_data::read();
-            assert_eq!(global.writable.map_name, "Maps\\Unexpected\\Unexpected.map");
-            assert!(global.pending_file.is_empty());
-        });
-    }
-
-    #[test]
-    fn startup_new_game_dispatch_ignores_unrelated_messages() {
-        use game_engine::common::message_stream::{GameMessage, GameMessageType};
-
-        let dispatch = CnCGameEngine::startup_new_game_dispatch_from_messages(&[
-            GameMessage::new(GameMessageType::Invalid),
-            GameMessage::new(GameMessageType::ClearGameData),
-        ]);
-
-        assert!(dispatch.is_none());
-    }
-
-    #[test]
-    fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
-        use game_engine::common::message_stream::{
-            get_message_stream, GameMessage, GameMessageType,
-        };
-
-        let stream = get_message_stream();
-        {
-            let mut g = stream.write().unwrap_or_else(|e| e.into_inner());
-            g.clear_messages();
-            g.append_message(GameMessageType::ClearGameData);
-            let ng = g.append_message(GameMessageType::NewGame);
-            ng.append_integer_argument(2); // GAME_SKIRMISH
-            ng.append_integer_argument(1);
-            ng.append_integer_argument(0);
-            ng.append_integer_argument(30);
-            g.append_message(GameMessageType::Invalid);
-        }
-
-        let dispatch = CnCGameEngine::take_new_game_dispatch_from_common_stream()
-            .expect("NewGame must be drained");
-        assert_eq!(dispatch.game_mode, GameMode::Skirmish);
-        assert_eq!(dispatch.max_fps, Some(30));
-
-        let g = stream.read().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(g.message_count(), 2, "non-NewGame messages must remain");
-        let types: Vec<_> = g
-            .get_messages()
-            .iter()
-            .map(|m| m.get_type().clone())
-            .collect();
-        assert!(types
-            .iter()
-            .any(|t| matches!(t, GameMessageType::ClearGameData)));
-        assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
-        assert!(!types.iter().any(|t| matches!(t, GameMessageType::NewGame)));
-        // silence unused import if GameMessage only used above via type
-        let _ = GameMessage::new(GameMessageType::Invalid);
-    }
-
-    #[test]
-    fn startup_camera_focus_prefers_shell_metadata_before_default_seed() {
-        let focus = CnCGameEngine::select_startup_camera_focus(
-            true,
-            Some(glam::Vec2::new(12.0, 34.0)),
-            Some(glam::Vec2::new(56.0, 78.0)),
-            glam::Vec2::new(90.0, 91.0),
-        );
-
-        assert_eq!(focus, glam::Vec2::new(12.0, 34.0));
-    }
-
-    #[test]
-    fn startup_camera_focus_falls_back_to_shell_seed_without_metadata() {
-        let focus = CnCGameEngine::select_startup_camera_focus(
-            true,
-            None,
-            Some(glam::Vec2::new(56.0, 78.0)),
-            glam::Vec2::new(90.0, 91.0),
-        );
-
-        assert_eq!(
-            focus,
-            glam::Vec2::new(
-                87.0 * gamelogic::common::MAP_XY_FACTOR,
-                77.0 * gamelogic::common::MAP_XY_FACTOR,
-            )
-        );
-    }
-
-    #[test]
-    fn startup_camera_focus_keeps_non_shell_fallback_order() {
-        let focus = CnCGameEngine::select_startup_camera_focus(
-            false,
-            None,
-            Some(glam::Vec2::new(56.0, 78.0)),
-            glam::Vec2::new(90.0, 91.0),
-        );
-
-        assert_eq!(focus, glam::Vec2::new(56.0, 78.0));
-    }
-
-    #[test]
-    fn startup_mode_requires_new_game_dispatch_for_non_menu_startup() {
-        let mut start_in_menu = false;
-        let mut map_to_load = Some("Maps\\ShellMapMD\\ShellMapMD.map".to_string());
-
-        let mode = CnCGameEngine::resolve_startup_mode_from_dispatch(
-            &mut start_in_menu,
-            &mut map_to_load,
-            None,
-            false,
-        );
-
-        assert_eq!(mode, GameMode::Shell);
-        assert!(start_in_menu);
-        assert!(map_to_load.is_none());
-    }
-
-    #[test]
-    fn startup_initial_file_helper_matches_cpp_table_and_gating() {
-        with_global_data_snapshot_restored(|| {
-            {
-                let mut global = game_engine::common::global_data::write();
-                global.writable.initial_file.clear();
-            }
-
-            let replay_args = vec![
-                "generals".to_string(),
-                "-file".to_string(),
-                "Replays\\demo.rep".to_string(),
-            ];
-            let replay_parsed = CommandLineArgs::parse_from_args(replay_args).unwrap();
-            assert_eq!(
-                CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, true),
-                Some("Replays\\demo.rep".to_string())
-            );
-            assert_eq!(
-                CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, false),
-                None
-            );
-
-            let replay_alias_args = vec![
-                "generals".to_string(),
-                "-replay".to_string(),
-                "Replays\\demo.rep".to_string(),
-            ];
-            let replay_alias_parsed = CommandLineArgs::parse_from_args(replay_alias_args).unwrap();
-            assert_eq!(
-                CnCGameEngine::startup_initial_file_from_command_line(&replay_alias_parsed, true),
-                None
-            );
-        });
-    }
-
-    #[test]
-    fn startup_initial_file_helper_prefers_runtime_initial_file_state() {
-        with_global_data_snapshot_restored(|| {
-            {
-                let mut global = game_engine::common::global_data::write();
-                global.writable.initial_file = "Replays\\runtime.rep".to_string();
-            }
-
-            let cli_args = vec![
-                "generals".to_string(),
-                "-file".to_string(),
-                "Maps\\cli\\cli.map".to_string(),
-            ];
-            let parsed = CommandLineArgs::parse_from_args(cli_args).unwrap();
-
-            assert_eq!(
-                CnCGameEngine::startup_initial_file_from_command_line(&parsed, true),
-                Some("Replays\\runtime.rep".to_string())
-            );
-        });
-    }
-
-    #[test]
-    fn startup_initial_file_split_matches_cpp_suffix_rules() {
-        let (map_file, replay_file) =
-            CnCGameEngine::split_startup_initial_file(Some("Maps\\Test\\Test.map".to_string()));
-        assert_eq!(map_file, Some("Maps\\Test\\Test.map".to_string()));
-        assert!(replay_file.is_none());
-
-        let (map_file, replay_file) =
-            CnCGameEngine::split_startup_initial_file(Some("Replays\\demo.rep".to_string()));
-        assert!(map_file.is_none());
-        assert_eq!(replay_file, Some("Replays\\demo.rep".to_string()));
-    }
-
-    #[test]
-    fn apply_command_line_overrides_keeps_initial_map_side_effects_until_startup_handling() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec![
-                "generals".to_string(),
-                "-file".to_string(),
-                "Maps\\Test\\Test.map".to_string(),
-            ];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert_eq!(global.writable.initial_file, "Maps\\Test\\Test.map");
-            assert!(global.pending_file.is_empty());
-            assert!(global.writable.shell_map_on);
-            assert!(global.writable.play_intro);
-            assert!(!global.writable.after_intro);
-        });
-    }
-
-    #[test]
-    fn sync_after_intro_when_intro_disabled_marks_after_intro() {
-        with_global_data_snapshot_restored(|| {
-            {
-                let mut global = game_engine::common::global_data::write();
-                global.writable.play_intro = false;
-                global.writable.after_intro = false;
-            }
-
-            CnCGameEngine::sync_after_intro_when_intro_disabled();
-
-            let global = game_engine::common::global_data::read();
-            assert!(!global.writable.play_intro);
-            assert!(global.writable.after_intro);
-        });
-    }
-
-    #[test]
-    fn game_logic_gate_without_network_matches_cpp_pause_behavior() {
-        assert!(CnCGameEngine::should_update_game_logic_frame(false, None));
-        assert!(!CnCGameEngine::should_update_game_logic_frame(true, None));
-    }
-
-    #[test]
-    fn game_logic_gate_with_network_uses_frame_ready_only() {
-        assert!(CnCGameEngine::should_update_game_logic_frame(
-            false,
-            Some(true)
-        ));
-        assert!(CnCGameEngine::should_update_game_logic_frame(
-            true,
-            Some(true)
-        ));
-        assert!(!CnCGameEngine::should_update_game_logic_frame(
-            false,
-            Some(false)
-        ));
-        assert!(!CnCGameEngine::should_update_game_logic_frame(
-            true,
-            Some(false)
-        ));
-    }
-
-    #[test]
-    fn network_gate_skips_runtime_network_lookup_until_multiplayer_exists() {
-        assert_eq!(CnCGameEngine::network_frame_data_ready_gate(false), None);
-    }
-
-    #[test]
-    fn iconic_minimized_mode_keeps_network_sessions_running() {
-        assert!(should_keep_logic_running_while_iconic(
-            GameMode::Multiplayer
-        ));
-        assert!(should_keep_logic_running_while_iconic(GameMode::Lan));
-        assert!(should_keep_logic_running_while_iconic(GameMode::Internet));
-        assert!(!should_keep_logic_running_while_iconic(
-            GameMode::SinglePlayer
-        ));
-        assert!(!should_keep_logic_running_while_iconic(GameMode::Skirmish));
-        assert!(!should_keep_logic_running_while_iconic(GameMode::Shell));
-    }
-
-    #[test]
-    fn command_line_fps_order_matches_cpp_fps_then_nofpslimit() {
-        let args = vec![
-            "generals".to_string(),
-            "-fps".to_string(),
-            "60".to_string(),
-            "-nofpslimit".to_string(),
-        ];
-        let mut writable = game_engine::common::command_line::WritableGlobalData::default();
-        CnCGameEngine::apply_fps_limit_overrides_from_raw_args(&args, &mut writable);
-        assert!(!writable.use_fps_limit);
-        assert_eq!(writable.frames_per_second_limit, 30000);
-    }
-
-    #[test]
-    fn command_line_fps_order_matches_cpp_nofpslimit_then_fps() {
-        let args = vec![
-            "generals".to_string(),
-            "-nofpslimit".to_string(),
-            "-fps".to_string(),
-            "60".to_string(),
-        ];
-        let mut writable = game_engine::common::command_line::WritableGlobalData::default();
-        CnCGameEngine::apply_fps_limit_overrides_from_raw_args(&args, &mut writable);
-        assert!(!writable.use_fps_limit);
-        assert_eq!(writable.frames_per_second_limit, 60);
-    }
-
-    #[test]
-    fn command_line_window_resolution_overrides_sync_to_writable_globals() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec![
-                "generals".to_string(),
-                "-win".to_string(),
-                "-xres".to_string(),
-                "1280".to_string(),
-                "-yres".to_string(),
-                "720".to_string(),
-            ];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert!(global.writable.windowed);
-            assert_eq!(global.writable.x_resolution, 1280);
-            assert_eq!(global.writable.y_resolution, 720);
-        });
-    }
-
-    #[test]
-    fn command_line_noaudio_overrides_sync_to_writable_globals() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec!["generals".to_string(), "-noaudio".to_string()];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert!(!global.writable.audio_on);
-            assert!(!global.writable.speech_on);
-            assert!(!global.writable.sounds_on);
-            assert!(!global.writable.music_on);
-        });
-    }
-
-    #[test]
-    fn command_line_startup_parity_flags_apply_in_argv_order() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec![
-                "generals".to_string(),
-                "-particleEdit".to_string(),
-                "-fullscreen".to_string(),
-                "-benchmark".to_string(),
-                "9".to_string(),
-                "-playStats".to_string(),
-                "4".to_string(),
-                "-seed".to_string(),
-                "-1".to_string(),
-                "-netMinPlayers".to_string(),
-                "3".to_string(),
-                "-forceBenchmark".to_string(),
-                "-nomusic".to_string(),
-                "-noshaders".to_string(),
-                "-scriptDebug".to_string(),
-                "-winCursors".to_string(),
-                "-constantDebug".to_string(),
-                "-showTeamDot".to_string(),
-                "-nomovecamera".to_string(),
-                "-NoShellAnim".to_string(),
-            ];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert!(!global.writable.windowed);
-            assert!(global.writable.particle_edit);
-            assert!(global.writable.script_debug);
-            assert!(global.writable.win_cursors);
-            assert!(!global.writable.animate_windows);
-            assert!(!global.writable.music_on);
-            assert!(global.writable.play_sizzle);
-            assert_eq!(global.writable.chip_set_type, 1);
-            assert!(global.writable.force_benchmark);
-            assert!(global.writable.constant_debug_update);
-            assert!(global.writable.show_team_dot);
-            assert!(global.writable.disable_camera_movement);
-            assert_eq!(global.writable.fixed_seed, -1);
-            assert_eq!(global.writable.net_min_players, 3);
-            assert_eq!(global.writable.benchmark_timer, 9);
-            assert_eq!(global.writable.play_stats, 4);
-        });
-    }
-
-    #[test]
-    fn command_line_standalone_nosizzle_is_ignored_during_startup_overrides() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec!["generals".to_string(), "-nosizzle".to_string()];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert!(global.writable.play_sizzle);
-        });
-    }
-
-    #[test]
-    fn command_line_jump_to_frame_matches_cpp_no_draw_behavior() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec![
-                "generals".to_string(),
-                "-jumpToFrame".to_string(),
-                "240".to_string(),
-            ];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            let debug_gated = CnCGameEngine::allow_debug_startup_flags();
-            assert_eq!(global.writable.no_draw, debug_gated);
-            if debug_gated {
-                assert!(!global.writable.use_fps_limit);
-                assert_eq!(global.writable.frames_per_second_limit, 30000);
-            }
-        });
-    }
-
-    #[test]
-    fn startup_water_weather_preload_paths_match_cpp_order() {
-        assert_eq!(
-            CnCGameEngine::startup_water_weather_ini_paths(),
-            [
-                "Data/INI/Default/Water.ini",
-                "Data/INI/Water.ini",
-                "Data/INI/Default/Weather.ini",
-                "Data/INI/Weather.ini",
-            ]
-        );
-    }
-
-    #[test]
-    fn startup_ai_data_preload_paths_match_cpp_order() {
-        assert_eq!(
-            CnCGameEngine::startup_ai_data_ini_paths(),
-            ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini",]
-        );
-    }
-
-    #[test]
-    fn startup_audio_failure_quits_only_when_audio_is_enabled() {
-        assert!(CnCGameEngine::startup_audio_should_quit(false, false));
-        assert!(!CnCGameEngine::startup_audio_should_quit(true, false));
-        assert!(!CnCGameEngine::startup_audio_should_quit(false, true));
-    }
-
-    #[test]
-    fn debug_startup_flag_gating_matches_build_mode() {
-        assert_eq!(
-            CnCGameEngine::allow_debug_startup_flags(),
-            cfg!(any(debug_assertions, feature = "internal"))
-        );
-    }
-
-    #[test]
-    fn command_line_map_override_syncs_to_writable_globals() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec![
-                "generals".to_string(),
-                "-map".to_string(),
-                "Maps\\ShellMap1.map".to_string(),
-            ];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert_eq!(global.writable.map_name, "Maps\\ShellMap1\\ShellMap1.map");
-        });
-    }
-
-    #[test]
-    fn command_line_mod_override_updates_active_mod_and_loads_best_effort() {
-        with_global_data_snapshot_restored(|| {
-            let temp_root = create_temp_test_dir("mod_override");
-            let user_data_dir = temp_root.join("UserData");
-            let mod_dir = user_data_dir.join("Mods").join("TestMod");
-            std::fs::create_dir_all(&mod_dir).unwrap();
-
-            {
-                let mut global = game_engine::common::global_data::write();
-                global.set_user_data_dir(user_data_dir.to_string_lossy().into_owned());
-            }
-
-            let args = vec![
-                "generals".to_string(),
-                "-mod".to_string(),
-                std::path::Path::new("Mods")
-                    .join("TestMod")
-                    .to_string_lossy()
-                    .into_owned(),
-            ];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let expected = format!("{}{}", mod_dir.to_string_lossy(), std::path::MAIN_SEPARATOR);
-            let global = game_engine::common::global_data::read();
-            assert_eq!(global.writable.mod_dir, expected);
-            assert!(global.writable.mod_big.is_empty());
-            assert_eq!(
-                global
-                    .get_override("active_mod")
-                    .and_then(|value| value.as_str()),
-                Some(expected.as_str())
-            );
-
-            let _ = fs::remove_dir_all(temp_root);
-        });
-    }
-
-    #[test]
-    fn command_line_update_images_sets_writable_flag() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec!["generals".to_string(), "-updateimages".to_string()];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert!(global.writable.should_update_tga_to_dds);
-        });
-    }
-
-    #[test]
-    fn command_line_update_images_alias_is_case_insensitive() {
-        with_global_data_snapshot_restored(|| {
-            let args = vec!["generals".to_string(), "-UpDaTeDdS".to_string()];
-            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-            CnCGameEngine::apply_command_line_overrides(&parsed);
-
-            let global = game_engine::common::global_data::read();
-            assert!(global.writable.should_update_tga_to_dds);
-        });
-    }
-}
 const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
 const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
 const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
@@ -1446,42 +494,8 @@ impl InteractivePlayabilityEvidence {
 }
 
 #[cfg(test)]
-mod interactive_playability_evidence_tests {
-    use super::InteractivePlayabilityEvidence;
-
-    #[test]
-    fn scripted_or_hover_only_input_cannot_claim_retail_navigation() {
-        let mut evidence = InteractivePlayabilityEvidence::default();
-        evidence.note_menu_wnd_click(true, true, false);
-        evidence.note_offline_match_started(true, true);
-        evidence.note_gameplay_order(true, true);
-
-        assert!(!evidence.wnd_menu_to_match_complete());
-        assert!(!evidence.gameplay_complete());
-    }
-
-    #[test]
-    fn physical_offline_menu_to_match_and_order_completes_evidence() {
-        let mut evidence = InteractivePlayabilityEvidence::default();
-        evidence.note_menu_wnd_click(true, true, true);
-        evidence.note_offline_match_started(true, true);
-        evidence.note_gameplay_order(true, true);
-
-        assert!(evidence.wnd_menu_to_match_complete());
-        assert!(evidence.gameplay_complete());
-    }
-
-    #[test]
-    fn network_or_headless_paths_do_not_complete_retail_evidence() {
-        let mut evidence = InteractivePlayabilityEvidence::default();
-        evidence.note_menu_wnd_click(false, true, true);
-        evidence.note_offline_match_started(true, false);
-        evidence.note_gameplay_order(false, true);
-
-        assert!(!evidence.wnd_menu_to_match_complete());
-        assert!(!evidence.gameplay_complete());
-    }
-}
+#[path = "cnc_game_engine_evidence_tests.rs"]
+mod interactive_playability_evidence_tests;
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
@@ -2478,6 +1492,13 @@ impl CnCGameEngine {
         }
     }
 
+    /// Unknown residual-audit host actions fail closed.
+    /// Default production builds do not compile residual packs; callers pass `false`.
+    #[inline]
+    fn host_unknown_action_fail_closed(&self, residual_pack_ok: bool) -> bool {
+        residual_pack_ok
+    }
+
     fn parse_runtime_host_mode(mode: Option<&str>) -> GameMode {
         match mode
             .unwrap_or("skirmish")
@@ -3050,7 +2071,7 @@ impl CnCGameEngine {
                                 .shell_residual_ok()
                         }
                         "load" | "materialise" => {
-                            crate::game_logic::simulate_control_bar_materialise_honesty_wave165()
+                            false
                         }
                         _ => simulate_control_bar_options_button_gadget_selected(),
                     };
@@ -4535,7 +3556,7 @@ impl CnCGameEngine {
                     }
                     "skybox" => crate::game_logic::simulate_terrain_env_boundary_skybox_source(),
                     "sync" => crate::game_logic::simulate_terrain_env_boundary_sync_source(),
-                    _ => crate::game_logic::simulate_terrain_env_boundary_prepare_honesty(),
+                    _ => false,
                 };
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     format!("click_terrain_env_boundary_ok_wnd_{action}")
@@ -4559,7 +3580,7 @@ impl CnCGameEngine {
                     }
                     "load" => crate::gameplay_layout::simulate_main_menu_wnd_prepare_load_honesty(),
                     "materialise" => {
-                        crate::game_logic::simulate_main_menu_wnd_materialise_honesty()
+                        false
                     }
                     _ => crate::gameplay_layout::simulate_main_menu_wnd_prepare_honesty(),
                 };
@@ -4579,8 +3600,8 @@ impl CnCGameEngine {
                     "snapshot" => {
                         crate::game_logic::honesty_shell_snapshot_no_invented_stack_source()
                     }
-                    "push" | "prepare" => crate::game_logic::simulate_shell_stack_push_honesty(),
-                    _ => crate::game_logic::honesty_shell_stack_push_residual_pack_wave163(),
+                    "push" | "prepare" => false,
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_shell_stack_ok_wnd_{action}")
@@ -4597,7 +3618,7 @@ impl CnCGameEngine {
                     "windows" => {
                         #[cfg(feature = "game_client")]
                         {
-                            crate::game_logic::simulate_shell_stack_push_honesty()
+                            false
                                 && game_client::gui::with_window_manager_ref(|wm| {
                                     wm.window_count() > 0
                                 })
@@ -4608,9 +3629,9 @@ impl CnCGameEngine {
                         }
                     }
                     "push" | "prepare" | "skirmish" => {
-                        crate::game_logic::simulate_shell_skirmish_nav_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_shell_skirmish_nav_residual_pack_wave164(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_shell_skirmish_nav_ok_wnd_{action}")
@@ -5016,9 +4037,9 @@ impl CnCGameEngine {
                         crate::gameplay_layout::simulate_skirmish_options_wnd_prepare_honesty()
                     }
                     "start" | "button_start" => {
-                        crate::game_logic::simulate_skirmish_options_wnd_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_skirmish_options_wnd_residual_pack_wave166(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_skirmish_options_wnd_ok_{action}")
@@ -5268,9 +4289,9 @@ impl CnCGameEngine {
                 let ok = match action.as_str() {
                     "source" => crate::game_logic::honesty_new_game_stream_source(),
                     "queue" | "drain" | "prepare" => {
-                        crate::game_logic::simulate_new_game_stream_post_drain_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_new_game_stream_residual_pack_wave167(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_new_game_stream_ok_{action}")
@@ -5289,8 +4310,8 @@ impl CnCGameEngine {
                         crate::game_logic::honesty_w3d_main_menu_init_bind_source()
                             && crate::game_logic::honesty_w3d_main_menu_init_wrapper_source()
                     }
-                    "prepare" | "init" => crate::game_logic::simulate_w3d_main_menu_init_honesty(),
-                    _ => crate::game_logic::honesty_w3d_main_menu_init_residual_pack_wave168(),
+                    "prepare" | "init" => false,
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_w3d_main_menu_init_ok_{action}")
@@ -5310,9 +4331,9 @@ impl CnCGameEngine {
                             && crate::game_logic::honesty_lone_eagle_map_resolves()
                     }
                     "prepare" | "loading" => {
-                        crate::game_logic::simulate_start_game_loading_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_start_game_loading_residual_pack_wave169(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_start_game_loading_ok_{action}")
@@ -5327,9 +4348,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "defcon" | "lone_eagle" | "prepare" | "load" => {
-                        crate::game_logic::simulate_live_map_load_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_map_load_residual_pack_wave170(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_map_load_ok_{action}")
@@ -5348,9 +4369,9 @@ impl CnCGameEngine {
                             && crate::game_logic::honesty_render_execute_presentation_only_source()
                     }
                     "build" | "prepare" | "seed" => {
-                        crate::game_logic::simulate_live_presentation_seed_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_seed_residual_pack_wave171(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_seed_ok_{action}")
@@ -5368,9 +4389,9 @@ impl CnCGameEngine {
                         crate::game_logic::honesty_seed_presentation_shadow_overlay_source()
                     }
                     "sync" | "overlay" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_shadow_overlay_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_shadow_overlay_residual_pack_wave172(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_shadow_ok_{action}")
@@ -5385,9 +4406,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "policy" | "teleport" | "prepare" => {
-                        crate::game_logic::simulate_single_authority_combat_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_single_authority_combat_residual_pack_wave173(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_single_authority_ok_{action}")
@@ -5402,9 +4423,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "execute" | "client" | "prepare" => {
-                        crate::game_logic::simulate_presentation_client_boundary_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_presentation_client_boundary_residual_pack_wave174(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_presentation_client_boundary_ok_{action}")
@@ -5419,9 +4440,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "clear" | "formula" | "prepare" => {
-                        crate::game_logic::simulate_golden_map_host_victory_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_golden_map_host_victory_residual_pack_wave175(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_golden_map_host_victory_ok_{action}")
@@ -5436,9 +4457,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "vertical" | "fallback" | "prepare" => {
-                        crate::game_logic::simulate_executable_presentation_boundary_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_executable_presentation_boundary_residual_pack_wave176(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_executable_presentation_boundary_ok_{action}")
@@ -5453,9 +4474,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "enabled" | "sole" | "prepare" => {
-                        crate::game_logic::simulate_gameworld_production_authority_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_gameworld_production_authority_residual_pack_wave177(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_gameworld_production_authority_ok_{action}")
@@ -5470,9 +4491,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "couple" | "uncouple" | "prepare" => {
-                        crate::game_logic::simulate_gameworld_sole_tick_coupling_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_gameworld_sole_tick_coupling_residual_pack_wave178(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_gameworld_sole_tick_coupling_ok_{action}")
@@ -5487,11 +4508,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "all" | "couple" | "prepare" => {
-                        crate::game_logic::simulate_gameworld_authority_matrix_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_gameworld_authority_matrix_residual_pack_wave179(
-                        )
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -5507,9 +4527,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "progress" | "writeback" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_production_writeback_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_production_writeback_residual_pack_wave180(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_production_writeback_ok_{action}")
@@ -5524,9 +4544,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "progress" | "sole" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_construction_writeback_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_construction_writeback_residual_pack_wave181(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_construction_writeback_ok_{action}")
@@ -5541,9 +4561,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "log" | "parity" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_damage_channel_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_damage_channel_residual_pack_wave182(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_damage_channel_ok_{action}")
@@ -5558,9 +4578,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "economy" | "movement" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_economy_movement_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_economy_movement_residual_pack_wave183(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_economy_movement_ok_{action}")
@@ -5575,9 +4595,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "projectile" | "ai" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_projectile_ai_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_projectile_ai_residual_pack_wave184(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_projectile_ai_ok_{action}")
@@ -5592,9 +4612,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "special" | "fire" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_fire_special_power_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_fire_special_power_residual_pack_wave185(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_fire_special_power_ok_{action}")
@@ -5609,9 +4629,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "view" | "engine" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_presentation_view_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_presentation_view_residual_pack_wave186(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_presentation_view_ok_{action}")
@@ -5626,9 +4646,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "overlay" | "stamp" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_gameworld_overlay_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_gameworld_overlay_residual_pack_wave187(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_gameworld_overlay_ok_{action}")
@@ -5643,9 +4663,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "status" | "vertical" | "prepare" => {
-                        crate::game_logic::simulate_executable_gameworld_presentation_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_executable_gameworld_presentation_residual_pack_wave188(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_executable_gameworld_presentation_ok_{action}")
@@ -5660,9 +4680,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "velocity" | "selection" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_overlay_deepen_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_overlay_deepen_residual_pack_wave189(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_overlay_deepen_ok_{action}")
@@ -5677,9 +4697,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "field" | "status" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_overlay_stamp_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_overlay_stamp_residual_pack_wave190(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_overlay_stamp_ok_{action}")
@@ -5694,9 +4714,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "view" | "exec" | "prepare" => {
-                        crate::game_logic::simulate_live_gameworld_entity_view_deepen_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_gameworld_entity_view_deepen_residual_pack_wave191(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_gameworld_entity_view_deepen_ok_{action}")
@@ -5711,9 +4731,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_append_missing_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_append_missing_residual_pack_wave192(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_append_missing_ok_{action}")
@@ -5728,9 +4748,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_build_from_gameworld_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_build_from_gameworld_residual_pack_wave193(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_build_from_gameworld_ok_{action}")
@@ -5745,9 +4765,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_from_gameworld_default_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_from_gameworld_default_residual_pack_wave194(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_from_gameworld_default_ok_{action}")
@@ -5762,9 +4782,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_build_for_engine_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_build_for_engine_residual_pack_wave195(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_build_for_engine_ok_{action}")
@@ -5779,9 +4799,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_rebuilt_vertical_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_rebuilt_vertical_gate_residual_pack_wave196(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_rebuilt_vertical_gate_ok_{action}")
@@ -5796,9 +4816,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_attack_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_attack_log_residual_pack_wave197(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_attack_log_ok_{action}")
@@ -5813,9 +4833,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_guard_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_guard_log_residual_pack_wave198(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_guard_log_ok_{action}")
@@ -5830,9 +4850,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_production_construction_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_production_construction_log_residual_pack_wave199(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_production_construction_log_ok_{action}")
@@ -5847,9 +4867,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_rally_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_rally_log_residual_pack_wave200(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_rally_log_ok_{action}")
@@ -5864,10 +4884,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_evacuate_contain_log_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_evacuate_contain_log_residual_pack_wave201()
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -5883,9 +4903,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_cheer_science_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_cheer_science_log_residual_pack_wave202(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_cheer_science_log_ok_{action}")
@@ -5900,9 +4920,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_deploy_status_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_deploy_status_log_residual_pack_wave203(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_deploy_status_log_ok_{action}")
@@ -5917,11 +4937,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_formation_log_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_command_formation_log_residual_pack_wave204(
-                        )
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -5937,9 +4956,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_order_target_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_order_target_log_residual_pack_wave205(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_order_target_log_ok_{action}")
@@ -5954,11 +4973,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_selection_log_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_command_selection_log_residual_pack_wave206(
-                        )
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -5974,9 +4992,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_non_attack_order_target_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_non_attack_order_target_residual_pack_wave207(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_non_attack_order_target_ok_{action}")
@@ -5991,10 +5009,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_golden_mopup_default_off_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_golden_mopup_honesty_residual_pack_wave208()
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6010,9 +5028,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_die_command_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_die_command_dual_world_empty_gate_residual_pack_wave452(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_die_command_dual_world_empty_gate_ok_{action}")
@@ -6027,9 +5045,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_upgrade_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_upgrade_behavior_dual_world_empty_gate_residual_pack_wave453(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_upgrade_behavior_dual_world_empty_gate_ok_{action}")
@@ -6044,9 +5062,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_construction_placement_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_construction_placement_dual_world_empty_gate_residual_pack_wave454(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_construction_placement_dual_world_empty_gate_ok_{action}")
@@ -6061,11 +5079,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_env_only_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_presentation_env_only_residual_pack_wave455(
-                        )
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6081,11 +5098,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_os_input_command_path_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_os_input_command_path_residual_pack_wave209(
-                        )
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6101,10 +5117,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_beacon_note_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_command_beacon_note_residual_pack_wave210()
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6120,9 +5136,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_host_beacon_presentation_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_host_beacon_presentation_residual_pack_wave211(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_host_beacon_presentation_ok_{action}")
@@ -6137,9 +5153,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_sell_deselect_log_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_sell_deselect_log_residual_pack_wave212(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_sell_deselect_log_ok_{action}")
@@ -6154,11 +5170,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_fow_only_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_presentation_fow_only_residual_pack_wave213(
-                        )
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6174,9 +5189,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ui_producer_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ui_producer_presentation_only_residual_pack_wave214(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ui_producer_presentation_only_ok_{action}")
@@ -6191,9 +5206,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ui_helpers_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ui_helpers_presentation_only_residual_pack_wave215(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ui_helpers_presentation_only_ok_{action}")
@@ -6208,9 +5223,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_control_group_camera_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_control_group_camera_presentation_only_residual_pack_wave216(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_control_group_camera_presentation_only_ok_{action}")
@@ -6225,9 +5240,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_cmd_filter_env_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_cmd_filter_env_presentation_only_residual_pack_wave217(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_cmd_filter_env_presentation_only_ok_{action}")
@@ -6242,9 +5257,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_selection_commands_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_selection_commands_presentation_only_residual_pack_wave218(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_selection_commands_presentation_only_ok_{action}")
@@ -6259,9 +5274,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ui_command_selection_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ui_command_selection_presentation_only_residual_pack_wave219(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ui_command_selection_presentation_only_ok_{action}")
@@ -6276,9 +5291,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_local_team_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_local_team_presentation_only_residual_pack_wave220(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_local_team_presentation_only_ok_{action}")
@@ -6293,9 +5308,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_hotkey_move_attack_selection_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_hotkey_move_attack_selection_presentation_only_residual_pack_wave221(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_hotkey_move_attack_selection_presentation_only_ok_{action}")
@@ -6312,9 +5327,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_pick_object_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_pick_object_presentation_only_residual_pack_wave222(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_pick_object_presentation_only_ok_{action}")
@@ -6329,9 +5344,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_bootstrap_camera_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_bootstrap_camera_presentation_only_residual_pack_wave223(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_bootstrap_camera_presentation_only_ok_{action}")
@@ -6346,9 +5361,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_force_complete_authority_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_force_complete_authority_api_residual_pack_wave224(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_force_complete_authority_api_ok_{action}")
@@ -6363,9 +5378,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_path_guard_authority_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_path_guard_authority_api_residual_pack_wave225(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_path_guard_authority_api_ok_{action}")
@@ -6380,9 +5395,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_hotkey_selection_camera_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_hotkey_selection_camera_presentation_only_residual_pack_wave226(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_hotkey_selection_camera_presentation_only_ok_{action}")
@@ -6397,9 +5412,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_construct_spawn_pose_authority_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_construct_spawn_pose_authority_api_residual_pack_wave227(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_construct_spawn_pose_authority_api_ok_{action}")
@@ -6414,9 +5429,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_rmb_target_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_rmb_target_presentation_only_residual_pack_wave228(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_rmb_target_presentation_only_ok_{action}")
@@ -6431,9 +5446,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_rmb_selected_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_rmb_selected_presentation_only_residual_pack_wave229(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_rmb_selected_presentation_only_ok_{action}")
@@ -6448,9 +5463,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_unit_authority_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_unit_authority_api_residual_pack_wave230(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_unit_authority_api_ok_{action}")
@@ -6465,9 +5480,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_unit_more_authority_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_unit_more_authority_api_residual_pack_wave231(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_unit_more_authority_api_ok_{action}")
@@ -6482,9 +5497,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_executor_authority_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_executor_authority_api_residual_pack_wave232(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_executor_authority_api_ok_{action}")
@@ -6499,9 +5514,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_executor_more_authority_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_executor_more_authority_api_residual_pack_wave233(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_executor_more_authority_api_ok_{action}")
@@ -6516,9 +5531,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_engine_presentation_player_ui_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_engine_presentation_player_ui_residual_pack_wave234(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_engine_presentation_player_ui_ok_{action}")
@@ -6533,9 +5548,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_rmb_presentation_full_classify_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_rmb_presentation_full_classify_residual_pack_wave235(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_rmb_presentation_full_classify_ok_{action}")
@@ -6550,9 +5565,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_mouse_input_presentation_only_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_mouse_input_presentation_only_residual_pack_wave236(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_mouse_input_presentation_only_ok_{action}")
@@ -6567,9 +5582,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_engine_player_ui_boot_peel_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_engine_player_ui_boot_peel_residual_pack_wave237(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_engine_player_ui_boot_peel_ok_{action}")
@@ -6584,9 +5599,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_player_probe_api_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_player_probe_api_residual_pack_wave238(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_player_probe_api_ok_{action}")
@@ -6601,9 +5616,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_player_team_probe_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_player_team_probe_residual_pack_wave239(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_player_team_probe_ok_{action}")
@@ -6618,9 +5633,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_player_field_probe_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_player_field_probe_residual_pack_wave240(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_player_field_probe_ok_{action}")
@@ -6635,10 +5650,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_camera_height_probe_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_camera_height_probe_residual_pack_wave241()
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6654,10 +5669,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_player_probe_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_command_player_probe_residual_pack_wave242()
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6673,10 +5688,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_construct_economy_probe_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_construct_economy_probe_residual_pack_wave243()
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6692,9 +5707,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_unit_probe_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_unit_probe_residual_pack_wave244(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_unit_probe_ok_{action}")
@@ -6709,11 +5724,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_selection_query_probe_honesty()
+                        false
                     }
                     _ => {
-                        crate::game_logic::honesty_live_selection_query_probe_residual_pack_wave245(
-                        )
+                        false
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
@@ -6729,9 +5743,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_world_pick_probe_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_world_pick_probe_residual_pack_wave246(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_world_pick_probe_ok_{action}")
@@ -6746,9 +5760,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_object_registry_empty_fastpath_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_object_registry_empty_fastpath_residual_pack_wave247(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_object_registry_empty_fastpath_ok_{action}")
@@ -6763,9 +5777,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_legacy_object_registry_fastpath_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_legacy_object_registry_fastpath_residual_pack_wave248(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_legacy_object_registry_fastpath_ok_{action}")
@@ -6780,9 +5794,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_client_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_client_dual_world_empty_gate_residual_pack_wave249(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_client_dual_world_empty_gate_ok_{action}")
@@ -6797,9 +5811,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_time_frozen_probe_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_time_frozen_probe_residual_pack_wave250(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_time_frozen_probe_ok_{action}")
@@ -6814,9 +5828,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_visual_speed_probe_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_visual_speed_probe_residual_pack_wave251(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_visual_speed_probe_ok_{action}")
@@ -6831,9 +5845,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_presentation_script_camera_probe_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_presentation_script_camera_probe_residual_pack_wave252(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_presentation_script_camera_probe_ok_{action}")
@@ -6848,9 +5862,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_group_core_dual_world_empty_gate_honesty_wave401()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_group_dual_world_empty_gate_residual_pack_wave253(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_group_dual_world_empty_gate_ok_{action}")
@@ -6865,9 +5879,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_slaved_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_slaved_update_dual_world_empty_gate_residual_pack_wave402(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_slaved_update_dual_world_empty_gate_ok_{action}")
@@ -6882,9 +5896,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_demoralize_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_demoralize_power_dual_world_empty_gate_residual_pack_wave403(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_demoralize_power_dual_world_empty_gate_ok_{action}")
@@ -6899,9 +5913,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_bone_fx_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_bone_fx_update_dual_world_empty_gate_residual_pack_wave404(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_bone_fx_update_dual_world_empty_gate_ok_{action}")
@@ -6916,9 +5930,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_supply_warehouse_dock_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_supply_warehouse_dock_dual_world_empty_gate_residual_pack_wave405(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_supply_warehouse_dock_dual_world_empty_gate_ok_{action}")
@@ -6933,9 +5947,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ocl_special_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ocl_special_power_dual_world_empty_gate_residual_pack_wave406(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ocl_special_power_dual_world_empty_gate_ok_{action}")
@@ -6950,9 +5964,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_railed_transport_ai_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_railed_transport_ai_update_dual_world_empty_gate_residual_pack_wave407(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -6971,9 +5985,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_squish_collide_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_squish_collide_dual_world_empty_gate_residual_pack_wave408(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_squish_collide_dual_world_empty_gate_ok_{action}")
@@ -6988,9 +6002,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_weapon_bonus_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_weapon_bonus_update_dual_world_empty_gate_residual_pack_wave409(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_weapon_bonus_update_dual_world_empty_gate_ok_{action}")
@@ -7005,9 +6019,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_minefield_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_minefield_behavior_dual_world_empty_gate_residual_pack_wave410(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_minefield_behavior_dual_world_empty_gate_ok_{action}")
@@ -7022,9 +6036,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_point_defense_laser_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_point_defense_laser_update_dual_world_empty_gate_residual_pack_wave411(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -7043,9 +6057,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_lifetime_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_lifetime_update_dual_world_empty_gate_residual_pack_wave412(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_lifetime_update_dual_world_empty_gate_ok_{action}")
@@ -7060,9 +6074,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_slow_death_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_slow_death_behavior_dual_world_empty_gate_residual_pack_wave413(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_slow_death_behavior_dual_world_empty_gate_ok_{action}")
@@ -7077,9 +6091,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_battle_bus_slow_death_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_battle_bus_slow_death_behavior_dual_world_empty_gate_residual_pack_wave414(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_battle_bus_slow_death_behavior_dual_world_empty_gate_ok_{action}")
@@ -7094,9 +6108,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_damage_module_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_damage_module_dual_world_empty_gate_residual_pack_wave415(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_damage_module_dual_world_empty_gate_ok_{action}")
@@ -7111,9 +6125,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_transition_damage_fx_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_transition_damage_fx_dual_world_empty_gate_residual_pack_wave416(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_transition_damage_fx_dual_world_empty_gate_ok_{action}")
@@ -7128,9 +6142,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_spawn_point_production_exit_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_residual_pack_wave417(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_spawn_point_production_exit_behavior_dual_world_empty_gate_ok_{action}")
@@ -7145,9 +6159,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_build_placement_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_build_placement_dual_world_empty_gate_residual_pack_wave418(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_build_placement_dual_world_empty_gate_ok_{action}")
@@ -7162,9 +6176,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_weapon_set_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_weapon_set_dual_world_empty_gate_residual_pack_wave419(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_weapon_set_dual_world_empty_gate_ok_{action}")
@@ -7179,9 +6193,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_experience_tracker_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_experience_tracker_dual_world_empty_gate_residual_pack_wave420(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_experience_tracker_dual_world_empty_gate_ok_{action}")
@@ -7196,9 +6210,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_targeting_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_targeting_dual_world_empty_gate_residual_pack_wave421(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_targeting_dual_world_empty_gate_ok_{action}")
@@ -7213,9 +6227,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_move_to_state_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_move_to_state_dual_world_empty_gate_residual_pack_wave422(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_move_to_state_dual_world_empty_gate_ok_{action}")
@@ -7230,9 +6244,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_locomotor_core_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_locomotor_core_dual_world_empty_gate_residual_pack_wave423(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_locomotor_core_dual_world_empty_gate_ok_{action}")
@@ -7247,9 +6261,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_path_following_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_path_following_dual_world_empty_gate_residual_pack_wave424(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_path_following_dual_world_empty_gate_ok_{action}")
@@ -7264,9 +6278,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_manager_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_manager_dual_world_empty_gate_residual_pack_wave425(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_manager_dual_world_empty_gate_ok_{action}")
@@ -7281,9 +6295,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_states_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_states_dual_world_empty_gate_residual_pack_wave254(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_states_dual_world_empty_gate_ok_{action}")
@@ -7298,9 +6312,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_player_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_player_dual_world_empty_gate_residual_pack_wave255(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_player_dual_world_empty_gate_ok_{action}")
@@ -7315,9 +6329,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_team_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_team_dual_world_empty_gate_residual_pack_wave256(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_team_dual_world_empty_gate_ok_{action}")
@@ -7332,9 +6346,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_legacy_states_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_legacy_states_dual_world_empty_gate_residual_pack_wave257(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_legacy_states_dual_world_empty_gate_ok_{action}")
@@ -7349,9 +6363,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_unit_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_unit_dual_world_empty_gate_residual_pack_wave258(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_unit_dual_world_empty_gate_ok_{action}")
@@ -7366,9 +6380,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_dual_world_empty_gate_residual_pack_wave259(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_dual_world_empty_gate_ok_{action}")
@@ -7383,9 +6397,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_garrison_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_garrison_dual_world_empty_gate_residual_pack_wave260(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_garrison_dual_world_empty_gate_ok_{action}")
@@ -7400,9 +6414,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_open_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_open_contain_dual_world_empty_gate_residual_pack_wave261(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_open_contain_dual_world_empty_gate_ok_{action}")
@@ -7417,9 +6431,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_pathfind_dual_world_empty_gate_honesty_wave426()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_pathfind_dual_world_empty_gate_residual_pack_wave426(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_pathfind_dual_world_empty_gate_ok_{action}")
@@ -7434,9 +6448,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_residual_pack_wave427(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_ok_{action}")
@@ -7451,9 +6465,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_guard_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_guard_dual_world_empty_gate_residual_pack_wave428(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_guard_dual_world_empty_gate_ok_{action}")
@@ -7468,9 +6482,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_guard_retaliate_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_guard_retaliate_dual_world_empty_gate_residual_pack_wave429(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_guard_retaliate_dual_world_empty_gate_ok_{action}")
@@ -7485,9 +6499,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_wander_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_wander_ai_dual_world_empty_gate_residual_pack_wave430(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_wander_ai_dual_world_empty_gate_ok_{action}")
@@ -7502,9 +6516,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_subobjects_upgrade_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_subobjects_upgrade_dual_world_empty_gate_residual_pack_wave431(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_subobjects_upgrade_dual_world_empty_gate_ok_{action}")
@@ -7519,9 +6533,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_unit_exit_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_unit_exit_dual_world_empty_gate_residual_pack_wave432(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_unit_exit_dual_world_empty_gate_ok_{action}")
@@ -7536,9 +6550,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_owner_resolve_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_owner_resolve_dual_world_empty_gate_residual_pack_wave433(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_owner_resolve_dual_world_empty_gate_ok_{action}")
@@ -7553,9 +6567,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_spy_vision_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_spy_vision_update_dual_world_empty_gate_residual_pack_wave434(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_spy_vision_update_dual_world_empty_gate_ok_{action}")
@@ -7570,9 +6584,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_overcharge_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_overcharge_behavior_dual_world_empty_gate_residual_pack_wave435(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_overcharge_behavior_dual_world_empty_gate_ok_{action}")
@@ -7587,9 +6601,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_tech_building_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_tech_building_behavior_dual_world_empty_gate_residual_pack_wave436(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_tech_building_behavior_dual_world_empty_gate_ok_{action}")
@@ -7604,9 +6618,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_power_plant_upgrade_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_power_plant_upgrade_dual_world_empty_gate_residual_pack_wave437(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_power_plant_upgrade_dual_world_empty_gate_ok_{action}")
@@ -7621,9 +6635,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_upgrade_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_upgrade_dual_world_empty_gate_residual_pack_wave438(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_upgrade_dual_world_empty_gate_ok_{action}")
@@ -7638,9 +6652,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_aurora_strike_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_aurora_strike_power_dual_world_empty_gate_residual_pack_wave439(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_aurora_strike_power_dual_world_empty_gate_ok_{action}")
@@ -7655,9 +6669,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_carpet_bomb_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_carpet_bomb_power_dual_world_empty_gate_residual_pack_wave440(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_carpet_bomb_power_dual_world_empty_gate_ok_{action}")
@@ -7672,9 +6686,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_nuclear_missile_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_nuclear_missile_power_dual_world_empty_gate_residual_pack_wave441(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_nuclear_missile_power_dual_world_empty_gate_ok_{action}")
@@ -7689,9 +6703,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_overlord_draw_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_overlord_draw_dual_world_empty_gate_residual_pack_wave442(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_overlord_draw_dual_world_empty_gate_ok_{action}")
@@ -7706,9 +6720,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_integration_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_integration_dual_world_empty_gate_residual_pack_wave443(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_integration_dual_world_empty_gate_ok_{action}")
@@ -7723,9 +6737,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_player_upgrade_manager_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_player_upgrade_manager_dual_world_empty_gate_residual_pack_wave444(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_player_upgrade_manager_dual_world_empty_gate_ok_{action}")
@@ -7740,9 +6754,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_advanced_nuggets_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_advanced_nuggets_dual_world_empty_gate_residual_pack_wave445(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_advanced_nuggets_dual_world_empty_gate_ok_{action}")
@@ -7757,9 +6771,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_replace_object_upgrade_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_replace_object_upgrade_dual_world_empty_gate_residual_pack_wave446(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_replace_object_upgrade_dual_world_empty_gate_ok_{action}")
@@ -7774,9 +6788,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_fire_spread_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_fire_spread_update_dual_world_empty_gate_residual_pack_wave447(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_fire_spread_update_dual_world_empty_gate_ok_{action}")
@@ -7791,9 +6805,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_object_upgrade_batch_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_object_upgrade_batch_dual_world_empty_gate_residual_pack_wave448(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_object_upgrade_batch_dual_world_empty_gate_ok_{action}")
@@ -7808,9 +6822,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_contain_module_overrides_fail_closed_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_contain_module_overrides_fail_closed_residual_pack_wave449(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_contain_module_overrides_fail_closed_ok_{action}")
@@ -7825,9 +6839,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_core_sim_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_core_sim_dual_world_empty_gate_residual_pack_wave450(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_core_sim_dual_world_empty_gate_ok_{action}")
@@ -7842,9 +6856,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_mod_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_mod_dual_world_empty_gate_residual_pack_wave263(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_mod_dual_world_empty_gate_ok_{action}")
@@ -7859,9 +6873,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_object_mod_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_object_mod_dual_world_empty_gate_residual_pack_wave264(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_object_mod_dual_world_empty_gate_ok_{action}")
@@ -7876,9 +6890,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_weapon_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_weapon_dual_world_empty_gate_residual_pack_wave265(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_weapon_dual_world_empty_gate_ok_{action}")
@@ -7893,9 +6907,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_partition_filters_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_partition_filters_dual_world_empty_gate_residual_pack_wave266(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_partition_filters_dual_world_empty_gate_ok_{action}")
@@ -7910,9 +6924,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_state_machine_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_state_machine_dual_world_empty_gate_residual_pack_wave267(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_state_machine_dual_world_empty_gate_ok_{action}")
@@ -7927,9 +6941,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_player_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_player_dual_world_empty_gate_residual_pack_wave268(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_player_dual_world_empty_gate_ok_{action}")
@@ -7944,9 +6958,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_game_client_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_game_client_dual_world_empty_gate_residual_pack_wave269(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_game_client_dual_world_empty_gate_ok_{action}")
@@ -7961,9 +6975,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_drawable_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_drawable_dual_world_empty_gate_residual_pack_wave270(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_drawable_dual_world_empty_gate_ok_{action}")
@@ -7978,9 +6992,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_script_conditions_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_script_conditions_dual_world_empty_gate_residual_pack_wave271(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_script_conditions_dual_world_empty_gate_ok_{action}")
@@ -7995,9 +7009,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_transport_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_transport_contain_dual_world_empty_gate_residual_pack_wave272(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_transport_contain_dual_world_empty_gate_ok_{action}")
@@ -8012,9 +7026,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ingame_ui_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ingame_ui_dual_world_empty_gate_residual_pack_wave273(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ingame_ui_dual_world_empty_gate_ok_{action}")
@@ -8029,9 +7043,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_helix_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_helix_contain_dual_world_empty_gate_residual_pack_wave274(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_helix_contain_dual_world_empty_gate_ok_{action}")
@@ -8046,9 +7060,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_processor_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_processor_dual_world_empty_gate_residual_pack_wave275(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_command_processor_dual_world_empty_gate_ok_{action}")
@@ -8063,9 +7077,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_turret_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_turret_dual_world_empty_gate_residual_pack_wave276(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_turret_dual_world_empty_gate_ok_{action}")
@@ -8080,9 +7094,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_rider_change_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_rider_change_contain_dual_world_empty_gate_residual_pack_wave277(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_rider_change_contain_dual_world_empty_gate_ok_{action}")
@@ -8097,9 +7111,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_selection_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_selection_dual_world_empty_gate_residual_pack_wave278(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_selection_dual_world_empty_gate_ok_{action}")
@@ -8114,9 +7128,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_cave_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_cave_contain_dual_world_empty_gate_residual_pack_wave279(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_cave_contain_dual_world_empty_gate_ok_{action}")
@@ -8131,9 +7145,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_tunnel_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_tunnel_contain_dual_world_empty_gate_residual_pack_wave280(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_tunnel_contain_dual_world_empty_gate_ok_{action}")
@@ -8148,9 +7162,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_helpers_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_helpers_dual_world_empty_gate_residual_pack_wave281(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_helpers_dual_world_empty_gate_ok_{action}")
@@ -8165,9 +7179,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_update_interface_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_update_interface_dual_world_empty_gate_residual_pack_wave282(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_update_interface_dual_world_empty_gate_ok_{action}")
@@ -8182,9 +7196,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_update_dual_world_empty_gate_residual_pack_wave283(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_update_dual_world_empty_gate_ok_{action}")
@@ -8199,9 +7213,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_script_executor_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_script_executor_dual_world_empty_gate_residual_pack_wave284(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_script_executor_dual_world_empty_gate_ok_{action}")
@@ -8216,9 +7230,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_integration_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_integration_dual_world_empty_gate_residual_pack_wave285(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_integration_dual_world_empty_gate_ok_{action}")
@@ -8233,9 +7247,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_dumb_projectile_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_dumb_projectile_dual_world_empty_gate_residual_pack_wave286(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_dumb_projectile_dual_world_empty_gate_ok_{action}")
@@ -8250,9 +7264,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_enhanced_player_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_enhanced_player_dual_world_empty_gate_residual_pack_wave287(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_enhanced_player_dual_world_empty_gate_ok_{action}")
@@ -8267,9 +7281,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_hijacker_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_hijacker_update_dual_world_empty_gate_residual_pack_wave288(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_hijacker_update_dual_world_empty_gate_ok_{action}")
@@ -8284,9 +7298,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_weapon_impl_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_weapon_impl_dual_world_empty_gate_residual_pack_wave289(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_weapon_impl_dual_world_empty_gate_ok_{action}")
@@ -8301,9 +7315,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_async_player_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_async_player_dual_world_empty_gate_residual_pack_wave290(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_async_player_dual_world_empty_gate_ok_{action}")
@@ -8318,9 +7332,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_active_body_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_active_body_dual_world_empty_gate_residual_pack_wave291(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_active_body_dual_world_empty_gate_ok_{action}")
@@ -8335,9 +7349,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_skirmish_conditions_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_skirmish_conditions_dual_world_empty_gate_residual_pack_wave292(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_skirmish_conditions_dual_world_empty_gate_ok_{action}")
@@ -8352,9 +7366,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_build_list_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_build_list_dual_world_empty_gate_residual_pack_wave293(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_build_list_dual_world_empty_gate_ok_{action}")
@@ -8369,9 +7383,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_victory_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_victory_dual_world_empty_gate_residual_pack_wave294(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_victory_dual_world_empty_gate_ok_{action}")
@@ -8386,9 +7400,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_script_actions_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_script_actions_dual_world_empty_gate_residual_pack_wave295(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_script_actions_dual_world_empty_gate_ok_{action}")
@@ -8403,9 +7417,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_special_ability_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_special_ability_dual_world_empty_gate_residual_pack_wave296(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_special_ability_dual_world_empty_gate_ok_{action}")
@@ -8420,9 +7434,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_detector_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_detector_dual_world_empty_gate_residual_pack_wave297(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_detector_dual_world_empty_gate_ok_{action}")
@@ -8437,9 +7451,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_supply_system_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_supply_system_dual_world_empty_gate_residual_pack_wave298(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_supply_system_dual_world_empty_gate_ok_{action}")
@@ -8454,9 +7468,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_particle_uplink_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_particle_uplink_dual_world_empty_gate_residual_pack_wave299(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_particle_uplink_dual_world_empty_gate_ok_{action}")
@@ -8471,9 +7485,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_overlord_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_overlord_contain_dual_world_empty_gate_residual_pack_wave300(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_overlord_contain_dual_world_empty_gate_ok_{action}")
@@ -8488,9 +7502,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_bridge_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_bridge_behavior_dual_world_empty_gate_residual_pack_wave301(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_bridge_behavior_dual_world_empty_gate_ok_{action}")
@@ -8505,9 +7519,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_behavior_dual_world_empty_gate_residual_pack_wave302(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_behavior_dual_world_empty_gate_ok_{action}")
@@ -8522,9 +7536,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_crate_collide_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_crate_collide_dual_world_empty_gate_residual_pack_wave303(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_crate_collide_dual_world_empty_gate_ok_{action}")
@@ -8539,9 +7553,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_object_manager_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_object_manager_dual_world_empty_gate_residual_pack_wave304(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_object_manager_dual_world_empty_gate_ok_{action}")
@@ -8556,9 +7570,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_sticky_bomb_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_sticky_bomb_dual_world_empty_gate_residual_pack_wave305(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_sticky_bomb_dual_world_empty_gate_ok_{action}")
@@ -8573,9 +7587,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_auto_heal_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_auto_heal_dual_world_empty_gate_residual_pack_wave306(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_auto_heal_dual_world_empty_gate_ok_{action}")
@@ -8590,9 +7604,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_grant_stealth_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_grant_stealth_dual_world_empty_gate_residual_pack_wave307(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_grant_stealth_dual_world_empty_gate_ok_{action}")
@@ -8607,9 +7621,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_status_bits_upgrade_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_status_bits_upgrade_dual_world_empty_gate_residual_pack_wave308(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_status_bits_upgrade_dual_world_empty_gate_ok_{action}")
@@ -8624,9 +7638,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_jet_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_jet_ai_dual_world_empty_gate_residual_pack_wave309(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_jet_ai_dual_world_empty_gate_ok_{action}")
@@ -8641,9 +7655,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_parking_place_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_parking_place_dual_world_empty_gate_residual_pack_wave310(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_parking_place_dual_world_empty_gate_ok_{action}")
@@ -8658,9 +7672,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_flight_deck_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_flight_deck_dual_world_empty_gate_residual_pack_wave311(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_flight_deck_dual_world_empty_gate_ok_{action}")
@@ -8675,9 +7689,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_exit_strategies_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_exit_strategies_dual_world_empty_gate_residual_pack_wave312(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_exit_strategies_dual_world_empty_gate_ok_{action}")
@@ -8692,9 +7706,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_collision_system_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_collision_system_dual_world_empty_gate_residual_pack_wave313(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_collision_system_dual_world_empty_gate_ok_{action}")
@@ -8709,9 +7723,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_max_health_upgrade_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_max_health_upgrade_dual_world_empty_gate_residual_pack_wave314(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_max_health_upgrade_dual_world_empty_gate_ok_{action}")
@@ -8726,9 +7740,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_structure_topple_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_structure_topple_dual_world_empty_gate_residual_pack_wave315(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_structure_topple_dual_world_empty_gate_ok_{action}")
@@ -8743,9 +7757,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_physics_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_physics_update_dual_world_empty_gate_residual_pack_wave316(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_physics_update_dual_world_empty_gate_ok_{action}")
@@ -8760,9 +7774,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_cleanup_hazard_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_cleanup_hazard_dual_world_empty_gate_residual_pack_wave317(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_cleanup_hazard_dual_world_empty_gate_ok_{action}")
@@ -8777,9 +7791,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_bridge_tower_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_bridge_tower_dual_world_empty_gate_residual_pack_wave318(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_bridge_tower_dual_world_empty_gate_ok_{action}")
@@ -8794,9 +7808,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_armor_upgrade_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_armor_upgrade_dual_world_empty_gate_residual_pack_wave319(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_armor_upgrade_dual_world_empty_gate_ok_{action}")
@@ -8811,9 +7825,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_paradrop_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_paradrop_power_dual_world_empty_gate_residual_pack_wave320(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_paradrop_power_dual_world_empty_gate_ok_{action}")
@@ -8828,9 +7842,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_fuel_air_bomb_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_fuel_air_bomb_dual_world_empty_gate_residual_pack_wave321(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_fuel_air_bomb_dual_world_empty_gate_ok_{action}")
@@ -8845,9 +7859,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_tensile_formation_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_tensile_formation_dual_world_empty_gate_residual_pack_wave322(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_tensile_formation_dual_world_empty_gate_ok_{action}")
@@ -8862,9 +7876,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_die_mod_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_die_mod_dual_world_empty_gate_residual_pack_wave323(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_die_mod_dual_world_empty_gate_ok_{action}")
@@ -8879,9 +7893,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_partition_manager_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_partition_manager_dual_world_empty_gate_residual_pack_wave324(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_partition_manager_dual_world_empty_gate_ok_{action}")
@@ -8896,9 +7910,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_spectre_gunship_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_spectre_gunship_dual_world_empty_gate_residual_pack_wave325(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_spectre_gunship_dual_world_empty_gate_ok_{action}")
@@ -8913,9 +7927,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_production_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_production_update_dual_world_empty_gate_residual_pack_wave326(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_production_update_dual_world_empty_gate_ok_{action}")
@@ -8930,9 +7944,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_neutron_blast_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_neutron_blast_dual_world_empty_gate_residual_pack_wave327(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_neutron_blast_dual_world_empty_gate_ok_{action}")
@@ -8947,9 +7961,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_countermeasures_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_countermeasures_dual_world_empty_gate_residual_pack_wave328(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_countermeasures_dual_world_empty_gate_ok_{action}")
@@ -8964,9 +7978,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_skirmish_player_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_skirmish_player_dual_world_empty_gate_residual_pack_wave329(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_skirmish_player_dual_world_empty_gate_ok_{action}")
@@ -8981,9 +7995,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_a10_strike_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_a10_strike_dual_world_empty_gate_residual_pack_wave330(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_a10_strike_dual_world_empty_gate_ok_{action}")
@@ -8998,9 +8012,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_rebuild_hole_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_rebuild_hole_dual_world_empty_gate_residual_pack_wave331(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_rebuild_hole_dual_world_empty_gate_ok_{action}")
@@ -9015,9 +8029,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_wave_guide_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_wave_guide_dual_world_empty_gate_residual_pack_wave332(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_wave_guide_dual_world_empty_gate_ok_{action}")
@@ -9032,9 +8046,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_emp_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_emp_update_dual_world_empty_gate_residual_pack_wave333(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_emp_update_dual_world_empty_gate_ok_{action}")
@@ -9049,9 +8063,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_bunker_buster_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_bunker_buster_dual_world_empty_gate_residual_pack_wave334(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_bunker_buster_dual_world_empty_gate_ok_{action}")
@@ -9066,9 +8080,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_bridge_scaffold_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_bridge_scaffold_dual_world_empty_gate_residual_pack_wave335(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_bridge_scaffold_dual_world_empty_gate_ok_{action}")
@@ -9083,9 +8097,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_assisted_targeting_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_assisted_targeting_dual_world_empty_gate_residual_pack_wave336(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_assisted_targeting_dual_world_empty_gate_ok_{action}")
@@ -9100,9 +8114,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_economy_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_economy_dual_world_empty_gate_residual_pack_wave337(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_economy_dual_world_empty_gate_ok_{action}")
@@ -9117,9 +8131,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_turret_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_turret_ai_dual_world_empty_gate_residual_pack_wave338(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_turret_ai_dual_world_empty_gate_ok_{action}")
@@ -9134,9 +8148,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_detector_module_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_detector_module_dual_world_empty_gate_residual_pack_wave339(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_detector_module_dual_world_empty_gate_ok_{action}")
@@ -9153,9 +8167,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_modules_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_modules_dual_world_empty_gate_residual_pack_wave340(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_modules_dual_world_empty_gate_ok_{action}")
@@ -9170,9 +8184,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_terrain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_terrain_dual_world_empty_gate_residual_pack_wave341(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_terrain_dual_world_empty_gate_ok_{action}")
@@ -9187,9 +8201,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_special_power_template_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_special_power_template_dual_world_empty_gate_residual_pack_wave342(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_special_power_template_dual_world_empty_gate_ok_{action}")
@@ -9204,9 +8218,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_script_evaluator_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_script_evaluator_dual_world_empty_gate_residual_pack_wave343(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_script_evaluator_dual_world_empty_gate_ok_{action}")
@@ -9221,9 +8235,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_system_game_logic_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_system_game_logic_dual_world_empty_gate_residual_pack_wave344(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_system_game_logic_dual_world_empty_gate_ok_{action}")
@@ -9238,9 +8252,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_meta_event_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_meta_event_dual_world_empty_gate_residual_pack_wave345(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_meta_event_dual_world_empty_gate_ok_{action}")
@@ -9255,9 +8269,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_spawn_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_spawn_behavior_dual_world_empty_gate_residual_pack_wave346(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_spawn_behavior_dual_world_empty_gate_ok_{action}")
@@ -9272,9 +8286,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_action_manager_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_action_manager_dual_world_empty_gate_residual_pack_wave347(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_action_manager_dual_world_empty_gate_ok_{action}")
@@ -9289,9 +8303,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_script_engine_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_script_engine_dual_world_empty_gate_residual_pack_wave348(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_script_engine_dual_world_empty_gate_ok_{action}")
@@ -9306,9 +8320,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_chinook_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_chinook_ai_dual_world_empty_gate_residual_pack_wave349(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_chinook_ai_dual_world_empty_gate_ok_{action}")
@@ -9323,9 +8337,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_missile_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_missile_ai_dual_world_empty_gate_residual_pack_wave350(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_missile_ai_dual_world_empty_gate_ok_{action}")
@@ -9340,9 +8354,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_dozer_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_dozer_ai_dual_world_empty_gate_residual_pack_wave351(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_dozer_ai_dual_world_empty_gate_ok_{action}")
@@ -9357,9 +8371,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_deliver_payload_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_deliver_payload_ai_dual_world_empty_gate_residual_pack_wave352(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_deliver_payload_ai_dual_world_empty_gate_ok_{action}")
@@ -9374,9 +8388,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_special_power_module_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_special_power_module_dual_world_empty_gate_residual_pack_wave353(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_special_power_module_dual_world_empty_gate_ok_{action}")
@@ -9391,9 +8405,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_pow_truck_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_pow_truck_ai_dual_world_empty_gate_residual_pack_wave354(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_pow_truck_ai_dual_world_empty_gate_ok_{action}")
@@ -9408,9 +8422,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_dock_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_dock_update_dual_world_empty_gate_residual_pack_wave355(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_dock_update_dual_world_empty_gate_ok_{action}")
@@ -9425,9 +8439,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_weapon_template_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_weapon_template_dual_world_empty_gate_residual_pack_wave356(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_weapon_template_dual_world_empty_gate_ok_{action}")
@@ -9442,9 +8456,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_railroad_guide_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_railroad_guide_ai_dual_world_empty_gate_residual_pack_wave357(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_railroad_guide_ai_dual_world_empty_gate_ok_{action}")
@@ -9459,9 +8473,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_hack_internet_ai_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_hack_internet_ai_dual_world_empty_gate_residual_pack_wave358(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_hack_internet_ai_dual_world_empty_gate_ok_{action}")
@@ -9476,9 +8490,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_spectre_gunship_deployment_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_spectre_gunship_deployment_dual_world_empty_gate_residual_pack_wave359(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9497,9 +8511,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_radius_decal_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_radius_decal_update_dual_world_empty_gate_residual_pack_wave360(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_radius_decal_update_dual_world_empty_gate_ok_{action}")
@@ -9514,9 +8528,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_railed_transport_dock_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_railed_transport_dock_dual_world_empty_gate_residual_pack_wave361(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_railed_transport_dock_dual_world_empty_gate_ok_{action}")
@@ -9531,9 +8545,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_structure_collapse_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_structure_collapse_update_dual_world_empty_gate_residual_pack_wave362(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9552,9 +8566,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_propaganda_tower_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_propaganda_tower_behavior_dual_world_empty_gate_residual_pack_wave363(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9573,9 +8587,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_propaganda_center_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_propaganda_center_behavior_dual_world_empty_gate_residual_pack_wave364(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9594,9 +8608,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_production_update_complete_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_production_update_complete_dual_world_empty_gate_residual_pack_wave365(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9615,9 +8629,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_pow_truck_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_pow_truck_behavior_dual_world_empty_gate_residual_pack_wave366(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_pow_truck_behavior_dual_world_empty_gate_ok_{action}")
@@ -9632,9 +8646,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_fire_weapon_when_damaged_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_fire_weapon_when_damaged_behavior_dual_world_empty_gate_residual_pack_wave367(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_fire_weapon_when_damaged_behavior_dual_world_empty_gate_ok_{action}")
@@ -9649,9 +8663,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_veterancy_crate_collide_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_veterancy_crate_collide_dual_world_empty_gate_residual_pack_wave368(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_veterancy_crate_collide_dual_world_empty_gate_ok_{action}")
@@ -9668,9 +8682,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_assault_transport_ai_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_assault_transport_ai_update_dual_world_empty_gate_residual_pack_wave369(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9687,9 +8701,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_heal_contain_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_heal_contain_dual_world_empty_gate_residual_pack_wave370(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_heal_contain_dual_world_empty_gate_ok_{action}")
@@ -9704,9 +8718,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_topple_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_topple_update_dual_world_empty_gate_residual_pack_wave371(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_topple_update_dual_world_empty_gate_ok_{action}")
@@ -9721,9 +8735,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_projectile_stream_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_projectile_stream_update_dual_world_empty_gate_residual_pack_wave372(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_projectile_stream_update_dual_world_empty_gate_ok_{action}")
@@ -9740,9 +8754,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_demo_trap_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_demo_trap_update_dual_world_empty_gate_residual_pack_wave373(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_demo_trap_update_dual_world_empty_gate_ok_{action}")
@@ -9757,9 +8771,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_mob_member_slaved_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_mob_member_slaved_update_dual_world_empty_gate_residual_pack_wave374(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_mob_member_slaved_update_dual_world_empty_gate_ok_{action}")
@@ -9776,9 +8790,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_tn_guard_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_tn_guard_dual_world_empty_gate_residual_pack_wave375(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_tn_guard_dual_world_empty_gate_ok_{action}")
@@ -9793,9 +8807,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_production_update_dual_world_empty_gate_honesty_wave376()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_production_update_dual_world_empty_gate_residual_pack_wave376(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9814,9 +8828,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_poisoned_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_poisoned_behavior_dual_world_empty_gate_residual_pack_wave377(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_poisoned_behavior_dual_world_empty_gate_ok_{action}")
@@ -9831,9 +8845,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_horde_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_horde_update_dual_world_empty_gate_residual_pack_wave378(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_horde_update_dual_world_empty_gate_ok_{action}")
@@ -9848,9 +8862,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_flammable_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_flammable_update_dual_world_empty_gate_residual_pack_wave379(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_flammable_update_dual_world_empty_gate_ok_{action}")
@@ -9865,9 +8879,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_base_regenerate_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_base_regenerate_update_dual_world_empty_gate_residual_pack_wave380(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_base_regenerate_update_dual_world_empty_gate_ok_{action}")
@@ -9882,9 +8896,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_queue_production_exit_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_queue_production_exit_behavior_dual_world_empty_gate_residual_pack_wave381(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_queue_production_exit_behavior_dual_world_empty_gate_ok_{action}")
@@ -9899,9 +8913,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_missile_launcher_building_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_missile_launcher_building_update_dual_world_empty_gate_residual_pack_wave382(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_missile_launcher_building_update_dual_world_empty_gate_ok_{action}")
@@ -9916,9 +8930,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_residual_pack_wave383(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_ok_{action}")
@@ -9933,9 +8947,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_command_button_hunt_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_command_button_hunt_update_dual_world_empty_gate_residual_pack_wave384(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9954,9 +8968,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_prison_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_prison_behavior_dual_world_empty_gate_residual_pack_wave385(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_prison_behavior_dual_world_empty_gate_ok_{action}")
@@ -9971,9 +8985,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_generate_minefield_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_generate_minefield_behavior_dual_world_empty_gate_residual_pack_wave386(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!(
@@ -9990,9 +9004,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_demoralize_special_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_demoralize_special_power_dual_world_empty_gate_residual_pack_wave387(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_demoralize_special_power_dual_world_empty_gate_ok_{action}")
@@ -10009,9 +9023,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_stealth_detector_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_stealth_detector_update_dual_world_empty_gate_residual_pack_wave388(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_stealth_detector_update_dual_world_empty_gate_ok_{action}")
@@ -10028,9 +9042,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_hive_structure_body_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_hive_structure_body_dual_world_empty_gate_residual_pack_wave389(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_hive_structure_body_dual_world_empty_gate_ok_{action}")
@@ -10045,9 +9059,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_salvage_crate_collide_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_salvage_crate_collide_dual_world_empty_gate_residual_pack_wave390(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_salvage_crate_collide_dual_world_empty_gate_ok_{action}")
@@ -10062,9 +9076,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_residual_pack_wave391(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_ok_{action}")
@@ -10079,9 +9093,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_power_plant_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_power_plant_update_dual_world_empty_gate_residual_pack_wave392(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_power_plant_update_dual_world_empty_gate_ok_{action}")
@@ -10096,9 +9110,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_leaflet_drop_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_leaflet_drop_behavior_dual_world_empty_gate_residual_pack_wave393(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_leaflet_drop_behavior_dual_world_empty_gate_ok_{action}")
@@ -10113,9 +9127,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_auto_deposit_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_auto_deposit_update_dual_world_empty_gate_residual_pack_wave394(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_auto_deposit_update_dual_world_empty_gate_ok_{action}")
@@ -10130,9 +9144,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_residual_pack_wave395(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_ok_{action}")
@@ -10147,9 +9161,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_neutron_missile_slow_death_update_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_residual_pack_wave396(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_neutron_missile_slow_death_update_dual_world_empty_gate_ok_{action}")
@@ -10164,9 +9178,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_dock_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_dock_dual_world_empty_gate_residual_pack_wave397(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_dock_dual_world_empty_gate_ok_{action}")
@@ -10181,9 +9195,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_groups_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_ai_groups_dual_world_empty_gate_residual_pack_wave398(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_ai_groups_dual_world_empty_gate_ok_{action}")
@@ -10198,9 +9212,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_artillery_barrage_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_artillery_barrage_power_dual_world_empty_gate_residual_pack_wave399(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_artillery_barrage_power_dual_world_empty_gate_ok_{action}")
@@ -10217,9 +9231,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_baikonur_launch_power_dual_world_empty_gate_honesty()
+                        false
                     }
-                    _ => crate::game_logic::honesty_live_baikonur_launch_power_dual_world_empty_gate_residual_pack_wave400(),
+                    _ => self.host_unknown_action_fail_closed(false),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_baikonur_launch_power_dual_world_empty_gate_ok_{action}")
@@ -19256,6 +18270,7 @@ impl CnCGameEngine {
         // Dual-tick of the ported gamelogic crate is opt-in (GENERALS_ALLOW_DUAL_TICK)
         // and is fatal under GENERALS_VERIFY_SINGLE_AUTHORITY verification builds.
         // Wave 916: AuthorityOnly (default) never touches the dual crate tick residual.
+        // Dual-tick crate Ok(()) may still be an empty-world no-op; see tick_gamelogic_crate.
         let policy = crate::authoritative_world::dual_tick_policy();
         if !matches!(
             policy,
@@ -27888,655 +26903,6 @@ impl Wake for NoopWake {
     fn wake(self: Arc<Self>) {}
 }
 
-#[derive(Debug, Clone)]
-struct RuntimeHostSnapshot {
-    state: String,
-    ui_screen: String,
-    /// Sticky skirmish menu residual (survives InGame ui_screen clear).
-    skirmish_menu_ok: bool,
-    paused: bool,
-    fps: f32,
-    startup_progress: f32,
-    startup_phase: String,
-    map: String,
-    frame: u32,
-    /// Host GameLogic fixed-step frame counter (30 Hz residual).
-    logic_frame: u32,
-    /// Last step_simulation steps_run (catch-up residual).
-    logic_steps: u32,
-    /// Friendly under-construction structures (local player team).
-    under_construction: u32,
-    /// Match damage applied residual (host combat honesty).
-    match_damage_applied: f32,
-    /// Match kill events residual (host combat honesty).
-    match_kills: u32,
-    selected_count: u32,
-    local_mobile_units: u32,
-    last_gameplay_cmd: String,
-    match_over: bool,
-    victory_label: String,
-    /// PresentationFrame installed for client/render residual.
-    presentation_frame_ok: bool,
-    /// GameWorld observe-path presentation entity count (after coupled shadow tick).
-    gameworld_presentation_entities: u32,
-    /// PresentationFrame.gameworld_overlay_stamped after last overlay call.
-    gameworld_overlay_stamped: u32,
-    /// PresentationFrame.gameworld_appended after last append_missing_from_gameworld.
-    gameworld_appended: u32,
-    /// PresentationFrame.gameworld_rebuilt after last rebuild_objects_from_gameworld.
-    gameworld_rebuilt: u32,
-    /// PresentationFrame.gameworld_primary_objects residual.
-    gameworld_primary_objects: bool,
-    /// Shell screen stack depth residual (retail WND push honesty).
-    shell_screen_count: u32,
-    /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
-    shell_top_wnd: String,
-    /// Shell::is_shell_active residual.
-    shell_active: bool,
-    /// Live GameLogic dual-reads during last presentation-owned collect (must be 0 in-game).
-    presentation_live_fallback_reads: u32,
-    /// Sticky waypoint mode residual.
-    waypoint_mode: bool,
-    /// Live GPU/screenshot frame published (not shell fallback only).
-    live_frame_ok: bool,
-    /// winit window is visible and host is not headless.
-    window_visible: bool,
-    /// Physical WND menu click completed an offline menu-to-match transition.
-    wnd_widget_tree_nav: bool,
-    /// Physical in-game command after a physical WND menu→match transition.
-    interactive_gameplay: bool,
-    /// Host requested capture this frame (bridge should force screenshot).
-    pending_capture: bool,
-    /// Last unit-pass collect honesty (presentation residual).
-    render_alive_objects: u32,
-    render_fow_filtered: u32,
-    render_item_count: u32,
-    render_model_missing: u32,
-    render_frustum_culled: u32,
-    camera_pos: String,
-    camera_target: String,
-    sample_unit_pos: String,
-}
-
-#[derive(Debug)]
-struct RuntimeHostBridge {
-    control_path: PathBuf,
-    status_path: PathBuf,
-    frame_path: PathBuf,
-    capture_path: PathBuf,
-    frame_meta_path: PathBuf,
-    fallback_frame_png: Option<Vec<u8>>,
-    fallback_frame_luma: f32,
-    last_published_frame: u32,
-    last_capture_request_at: Option<Instant>,
-    capture_request_in_flight: bool,
-    capture_request_started_at: Option<Instant>,
-    screenshot_enqueue_failed: bool,
-    has_published_live_frame: bool,
-    created_at: Instant,
-    last_capture_health_log_at: Option<Instant>,
-}
-
-impl RuntimeHostBridge {
-    const CAPTURE_REQUEST_INTERVAL_LOADING: Duration = Duration::from_millis(120);
-    const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(40);
-    const CAPTURE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
-
-    fn force_capture_request(&mut self) {
-        // Drop interval gate so next publish_frame requests a screenshot immediately.
-        self.last_capture_request_at = None;
-        self.capture_request_in_flight = false;
-        self.capture_request_started_at = None;
-        // Best-effort immediate request.
-        match ww3d_engine::make_screenshot(&self.capture_path) {
-            Ok(()) => {
-                self.last_capture_request_at = Some(Instant::now());
-                self.capture_request_in_flight = true;
-                self.capture_request_started_at = Some(Instant::now());
-            }
-            Err(err) => {
-                log::trace!("force_capture_request screenshot failed: {err:?}");
-            }
-        }
-    }
-
-    fn capture_interval_for_state(state: &str) -> Duration {
-        match state {
-            "Menu" | "InGame" | "Paused" => Self::CAPTURE_REQUEST_INTERVAL_INTERACTIVE,
-            _ => Self::CAPTURE_REQUEST_INTERVAL_LOADING,
-        }
-    }
-
-    fn is_headless_mode(args: &CommandLineArgs) -> bool {
-        args.get_option_value("runtime_host")
-            .map(|mode| mode.trim().eq_ignore_ascii_case("headless"))
-            .unwrap_or(false)
-    }
-
-    /// Any non-empty `--runtime_host` (headless or windowed) with GPUI paths.
-    fn is_runtime_host_requested(args: &CommandLineArgs) -> bool {
-        args.get_option_value("runtime_host")
-            .map(|mode| !mode.trim().is_empty())
-            .unwrap_or(false)
-    }
-
-    fn from_command_line(args: &CommandLineArgs) -> Option<Self> {
-        if !Self::is_runtime_host_requested(args) {
-            return None;
-        }
-        let control_path = PathBuf::from(args.get_option_value("gpui_control")?);
-        let status_path = PathBuf::from(args.get_option_value("gpui_status")?);
-        let frame_path = PathBuf::from(args.get_option_value("gpui_frame")?);
-        let capture_path = frame_path.with_extension("png.capture");
-        let frame_meta_path = frame_path.with_extension("png.meta");
-
-        let _ = fs::remove_file(&control_path);
-        let _ = fs::remove_file(&status_path);
-        let _ = fs::remove_file(&frame_path);
-        let _ = fs::remove_file(&capture_path);
-        let _ = fs::remove_file(&frame_meta_path);
-
-        let (fallback_frame_png, fallback_frame_luma) = Self::load_fallback_frame_png();
-        Some(Self {
-            control_path,
-            status_path,
-            frame_path,
-            capture_path,
-            frame_meta_path,
-            fallback_frame_png,
-            fallback_frame_luma,
-            last_published_frame: 0,
-            last_capture_request_at: None,
-            capture_request_in_flight: false,
-            capture_request_started_at: None,
-            screenshot_enqueue_failed: false,
-            has_published_live_frame: false,
-            created_at: Instant::now(),
-            last_capture_health_log_at: None,
-        })
-    }
-
-    fn drain_commands(&mut self) -> Vec<String> {
-        // Wave 833: read via fs::read_to_string + atomic clear. OpenOptions
-        // read/write without an explicit seek(0) can miss peer writes on some
-        // platforms; empty drains left smoke stuck at MainMenu forever.
-        let payload = match fs::read_to_string(&self.control_path) {
-            Ok(text) => text,
-            Err(_) => return Vec::new(),
-        };
-        if payload.trim().is_empty() {
-            return Vec::new();
-        }
-        // Clear after successful read so each command is consumed once.
-        if let Err(err) = fs::write(&self.control_path, b"") {
-            warn!(
-                "Runtime host failed clearing control file {}: {err}",
-                self.control_path.display()
-            );
-        }
-        let cmds: Vec<String> = payload
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(|line| line.to_string())
-            .collect();
-        if !cmds.is_empty() {
-            info!(
-                "Runtime host drained {} control command(s): {:?}",
-                cmds.len(),
-                cmds.iter().take(4).collect::<Vec<_>>()
-            );
-        }
-        cmds
-    }
-
-    fn publish_booting(&mut self) {
-        let snapshot = RuntimeHostSnapshot {
-            state: "Booting".to_string(),
-            ui_screen: "None".to_string(),
-            skirmish_menu_ok: false,
-            paused: false,
-            fps: 0.0,
-            startup_progress: 0.0,
-            startup_phase: "Booting runtime".to_string(),
-            map: "-".to_string(),
-            frame: self.last_published_frame,
-            logic_frame: 0,
-            logic_steps: 0,
-            under_construction: 0,
-            match_damage_applied: 0.0,
-            match_kills: 0,
-            selected_count: 0,
-            local_mobile_units: 0,
-            last_gameplay_cmd: String::new(),
-            match_over: false,
-            victory_label: String::new(),
-            presentation_frame_ok: false,
-            gameworld_presentation_entities: 0,
-            gameworld_overlay_stamped: 0,
-            gameworld_appended: 0,
-            gameworld_rebuilt: 0,
-            gameworld_primary_objects: false,
-            shell_screen_count: 0,
-            shell_top_wnd: String::new(),
-            shell_active: false,
-            presentation_live_fallback_reads: 0,
-            waypoint_mode: false,
-            live_frame_ok: false,
-            window_visible: false,
-            wnd_widget_tree_nav: false,
-            interactive_gameplay: false,
-            pending_capture: false,
-            render_alive_objects: 0,
-            render_fow_filtered: 0,
-            render_item_count: 0,
-            render_model_missing: 0,
-            render_frustum_culled: 0,
-            camera_pos: String::new(),
-            camera_target: String::new(),
-            sample_unit_pos: String::new(),
-        };
-        self.publish_status(&snapshot);
-    }
-
-    fn publish_runtime(&mut self, snapshot: &RuntimeHostSnapshot) {
-        // Promote capture before status so live_frame_ok reflects this frame.
-        self.publish_frame(snapshot.frame, &snapshot.state);
-        self.publish_status(snapshot);
-    }
-
-    fn publish_status(&mut self, snapshot: &RuntimeHostSnapshot) {
-        let mut payload = String::new();
-        payload.push_str(&format!("state={}\n", snapshot.state));
-        payload.push_str(&format!("ui_screen={}\n", snapshot.ui_screen));
-        payload.push_str(&format!("skirmish_menu_ok={}\n", snapshot.skirmish_menu_ok));
-        payload.push_str(&format!("paused={}\n", snapshot.paused));
-        payload.push_str(&format!("fps={:.3}\n", snapshot.fps.max(0.0)));
-        payload.push_str(&format!(
-            "startup_progress={:.4}\n",
-            snapshot.startup_progress.clamp(0.0, 1.0)
-        ));
-        payload.push_str(&format!("startup_phase={}\n", snapshot.startup_phase));
-        payload.push_str(&format!("map={}\n", snapshot.map));
-        payload.push_str(&format!("frame={}\n", snapshot.frame));
-        payload.push_str(&format!("logic_frame={}\n", snapshot.logic_frame));
-        payload.push_str(&format!("logic_steps={}\n", snapshot.logic_steps));
-        payload.push_str(&format!(
-            "under_construction={}\n",
-            snapshot.under_construction
-        ));
-        payload.push_str(&format!(
-            "match_damage_applied={:.3}\n",
-            snapshot.match_damage_applied
-        ));
-        payload.push_str(&format!("match_kills={}\n", snapshot.match_kills));
-        payload.push_str(&format!("selected_count={}\n", snapshot.selected_count));
-        payload.push_str(&format!(
-            "local_mobile_units={}\n",
-            snapshot.local_mobile_units
-        ));
-        payload.push_str(&format!(
-            "last_gameplay_cmd={}\n",
-            snapshot.last_gameplay_cmd
-        ));
-        payload.push_str(&format!("match_over={}\n", snapshot.match_over));
-        payload.push_str(&format!("victory_label={}\n", snapshot.victory_label));
-        payload.push_str(&format!(
-            "presentation_frame_ok={}\n",
-            snapshot.presentation_frame_ok
-        ));
-        payload.push_str(&format!(
-            "gameworld_presentation_entities={}\n",
-            snapshot.gameworld_presentation_entities
-        ));
-        payload.push_str(&format!(
-            "gameworld_overlay_stamped={}\n",
-            snapshot.gameworld_overlay_stamped
-        ));
-        payload.push_str(&format!(
-            "gameworld_appended={}\n",
-            snapshot.gameworld_appended
-        ));
-        payload.push_str(&format!(
-            "gameworld_rebuilt={}\n",
-            snapshot.gameworld_rebuilt
-        ));
-        payload.push_str(&format!(
-            "gameworld_primary_objects={}\n",
-            snapshot.gameworld_primary_objects
-        ));
-        payload.push_str(&format!(
-            "shell_screen_count={}\n",
-            snapshot.shell_screen_count
-        ));
-        payload.push_str(&format!("shell_top_wnd={}\n", snapshot.shell_top_wnd));
-        payload.push_str(&format!("shell_active={}\n", snapshot.shell_active));
-        payload.push_str(&format!(
-            "presentation_live_fallback_reads={}\n",
-            snapshot.presentation_live_fallback_reads
-        ));
-        payload.push_str(&format!("waypoint_mode={}\n", snapshot.waypoint_mode));
-        // Honest: only a promoted GPU/screenshot capture (or an explicit snapshot
-        // flag). Fallback PNGs written to frame_path must not flip live_frame_ok.
-        payload.push_str(&format!(
-            "live_frame_ok={}\n",
-            snapshot.live_frame_ok || self.has_published_live_frame
-        ));
-        payload.push_str(&format!("window_visible={}\n", snapshot.window_visible));
-        payload.push_str(&format!(
-            "wnd_widget_tree_nav={}\n",
-            snapshot.wnd_widget_tree_nav
-        ));
-        // Five-flag sit-through diagnostic. `live_frame_ok` above is
-        // capture-promoted only; gameplay is physical input evidence, never a
-        // runtime-host command string.
-        let live_frame_ok = snapshot.live_frame_ok || self.has_published_live_frame;
-        let ingame = matches!(snapshot.state.as_str(), "InGame" | "Paused");
-        let gameplay = snapshot.interactive_gameplay;
-        let sit_through_missing =
-            crate::executable_smoke::ExecutableSmokeResult::retail_sit_through_missing_flags(
-                snapshot.window_visible,
-                snapshot.wnd_widget_tree_nav,
-                live_frame_ok,
-                ingame,
-                gameplay,
-            );
-        payload.push_str(&format!("ingame={ingame}\n"));
-        payload.push_str(&format!("gameplay={gameplay}\n"));
-        payload.push_str(&format!(
-            "interactive_menu_wnd_match={}\n",
-            snapshot.wnd_widget_tree_nav
-        ));
-        payload.push_str(&format!(
-            "retail_sit_through_missing={sit_through_missing}\n"
-        ));
-        payload.push_str(&format!(
-            "render_alive_objects={}\n",
-            snapshot.render_alive_objects
-        ));
-        payload.push_str(&format!(
-            "render_fow_filtered={}\n",
-            snapshot.render_fow_filtered
-        ));
-        payload.push_str(&format!(
-            "render_item_count={}\n",
-            snapshot.render_item_count
-        ));
-        payload.push_str(&format!(
-            "render_model_missing={}\n",
-            snapshot.render_model_missing
-        ));
-        payload.push_str(&format!(
-            "render_frustum_culled={}\n",
-            snapshot.render_frustum_culled
-        ));
-        payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
-        payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
-        payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));
-        payload.push_str(&format!("pending_capture={}\n", snapshot.pending_capture));
-        payload.push_str(&format!(
-            "frame_path={}\n",
-            self.frame_path.to_string_lossy()
-        ));
-        let _ = fs::write(&self.status_path, payload);
-    }
-
-    fn publish_frame(&mut self, frame: u32, state: &str) {
-        if frame <= self.last_published_frame {
-            return;
-        }
-        self.last_published_frame = frame;
-
-        self.promote_capture_frame_if_ready();
-
-        if self.capture_request_in_flight {
-            let timed_out = self
-                .capture_request_started_at
-                .map(|started| started.elapsed() >= Self::CAPTURE_REQUEST_TIMEOUT)
-                .unwrap_or(false);
-            if timed_out {
-                warn!(
-                    "Runtime host capture request timed out after {:?} (frame={}, in_flight={})",
-                    Self::CAPTURE_REQUEST_TIMEOUT,
-                    frame,
-                    self.capture_request_in_flight
-                );
-                self.capture_request_in_flight = false;
-                self.capture_request_started_at = None;
-            }
-        }
-
-        let capture_interval = Self::capture_interval_for_state(state);
-        let should_request_capture = !self.capture_request_in_flight
-            && self
-                .last_capture_request_at
-                .map(|last| last.elapsed() >= capture_interval)
-                .unwrap_or(true);
-        if should_request_capture {
-            let requested_at = Instant::now();
-            match ww3d_engine::make_screenshot(&self.capture_path) {
-                Ok(()) => {
-                    self.last_capture_request_at = Some(requested_at);
-                    self.capture_request_in_flight = true;
-                    self.capture_request_started_at = Some(requested_at);
-                    self.screenshot_enqueue_failed = false;
-                }
-                Err(err) => {
-                    if !self.screenshot_enqueue_failed {
-                        warn!(
-                            "Runtime host frame capture unavailable ({err:?}); falling back to static frame"
-                        );
-                        self.screenshot_enqueue_failed = true;
-                    }
-                }
-            }
-        }
-
-        self.promote_capture_frame_if_ready();
-
-        if Self::png_file_looks_usable(&self.frame_path) {
-            // Keep an already-written PNG (live capture or previous fallback) so
-            // we do not clobber it. Do not treat fallback bytes as live_frame_ok;
-            // only promote_capture_frame_if_ready latches has_published_live_frame.
-            return;
-        }
-        if self.has_published_live_frame {
-            // Keep the most recent live frame while a newer capture is pending.
-            return;
-        }
-
-        let should_log_capture_health = self
-            .last_capture_health_log_at
-            .map(|last| last.elapsed() >= Duration::from_secs(2))
-            .unwrap_or_else(|| self.created_at.elapsed() >= Duration::from_secs(2));
-        if should_log_capture_health {
-            warn!(
-                "Runtime host awaiting first live frame: frame={} in_flight={} enqueue_failed={} capture_path={}",
-                frame,
-                self.capture_request_in_flight,
-                self.screenshot_enqueue_failed,
-                self.capture_path.display()
-            );
-            self.last_capture_health_log_at = Some(Instant::now());
-        }
-
-        let fallback_bytes = if let Some(bytes) = self.fallback_frame_png.as_ref() {
-            bytes.clone()
-        } else {
-            let (generated, generated_luma) = Self::build_procedural_fallback_png();
-            self.fallback_frame_luma = generated_luma;
-            let generated = generated.unwrap_or_else(|| {
-                // 1x1 opaque black PNG
-                vec![
-                    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0,
-                    0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156,
-                    99, 96, 96, 96, 248, 15, 0, 1, 4, 1, 0, 95, 161, 122, 86, 0, 0, 0, 0, 73, 69,
-                    78, 68, 174, 66, 96, 130,
-                ]
-            });
-            self.fallback_frame_png = Some(generated.clone());
-            generated
-        };
-        if let Err(err) = fs::write(&self.frame_path, &fallback_bytes) {
-            warn!(
-                "Failed writing GPUI runtime fallback frame {:?}: {err}",
-                self.frame_path
-            );
-        } else {
-            let _ = fs::write(
-                &self.frame_meta_path,
-                format!("luma={:.3}\n", self.fallback_frame_luma),
-            );
-        }
-    }
-
-    fn promote_capture_frame_if_ready(&mut self) {
-        if !Self::png_file_looks_usable(&self.capture_path) {
-            return;
-        }
-        if let Err(err) = fs::rename(&self.capture_path, &self.frame_path) {
-            warn!(
-                "Failed to promote GPUI runtime capture {:?} -> {:?}: {err}",
-                self.capture_path, self.frame_path
-            );
-            self.capture_request_in_flight = false;
-            self.capture_request_started_at = None;
-            return;
-        }
-        self.capture_request_in_flight = false;
-        self.capture_request_started_at = None;
-        if !self.has_published_live_frame {
-            info!(
-                "Runtime host promoted first live frame from capture (frame={})",
-                self.last_published_frame
-            );
-        }
-        self.has_published_live_frame = true;
-        let _ = fs::write(&self.frame_meta_path, "luma=0.0\n");
-    }
-
-    fn png_file_looks_usable(path: &Path) -> bool {
-        let Ok(metadata) = fs::metadata(path) else {
-            return false;
-        };
-        if metadata.len() < 128 {
-            return false;
-        }
-        let mut signature = [0u8; 8];
-        let Ok(mut file) = fs::File::open(path) else {
-            return false;
-        };
-        if file.read_exact(&mut signature).is_err() {
-            return false;
-        }
-        signature == [137, 80, 78, 71, 13, 10, 26, 10]
-    }
-
-    fn load_fallback_frame_png() -> (Option<Vec<u8>>, f32) {
-        let candidates = [
-            "Data/English/Art/Textures/loadpageuserinterface.tga",
-            "Data/English/Art/Textures/TitleScreenuserinterface.tga",
-            "MapsZH/Maps/ShellMapMD/ShellMapMD.tga",
-        ];
-
-        // Use the mounted game file system first (C++ W3DFileSystem semantics).
-        {
-            let fs = game_engine::common::system::file_system::get_file_system();
-            let fs_guard_result = fs.lock();
-            if let Ok(mut fs_guard) = fs_guard_result {
-                for candidate in candidates {
-                    if let Some(mut file) = fs_guard.open_file(
-                        candidate,
-                        game_engine::common::system::file::FileAccess::READ
-                            .combine(game_engine::common::system::file::FileAccess::BINARY),
-                    ) {
-                        let Ok(bytes) = file.read_entire_and_close() else {
-                            continue;
-                        };
-                        let Ok(image) = image::load_from_memory(&bytes) else {
-                            continue;
-                        };
-                        let rgba = image.to_rgba8();
-                        let luma = if rgba.is_empty() {
-                            0.0
-                        } else {
-                            let sum = rgba
-                                .chunks_exact(4)
-                                .map(|px| {
-                                    0.2126 * px[0] as f32 / 255.0
-                                        + 0.7152 * px[1] as f32 / 255.0
-                                        + 0.0722 * px[2] as f32 / 255.0
-                                })
-                                .sum::<f32>();
-                            (sum / (rgba.len() as f32 / 4.0)).clamp(0.0, 1.0) * 255.0
-                        };
-                        let mut png_bytes = Vec::new();
-                        let mut cursor = std::io::Cursor::new(&mut png_bytes);
-                        if image.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
-                            return (Some(png_bytes), luma);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Final local fallback: try plain filesystem copies.
-        for candidate in candidates {
-            let Ok(bytes) = fs::read(candidate) else {
-                continue;
-            };
-            let Ok(image) = image::load_from_memory(&bytes) else {
-                continue;
-            };
-            let rgba = image.to_rgba8();
-            let luma = if rgba.is_empty() {
-                0.0
-            } else {
-                let sum = rgba
-                    .chunks_exact(4)
-                    .map(|px| {
-                        0.2126 * px[0] as f32 / 255.0
-                            + 0.7152 * px[1] as f32 / 255.0
-                            + 0.0722 * px[2] as f32 / 255.0
-                    })
-                    .sum::<f32>();
-                (sum / (rgba.len() as f32 / 4.0)).clamp(0.0, 1.0) * 255.0
-            };
-            let mut png_bytes = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut png_bytes);
-            if image.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
-                return (Some(png_bytes), luma);
-            }
-        }
-        Self::build_procedural_fallback_png()
-    }
-
-    fn build_procedural_fallback_png() -> (Option<Vec<u8>>, f32) {
-        let width = 1280u32;
-        let height = 720u32;
-        let mut rgba = image::RgbaImage::new(width, height);
-        for y in 0..height {
-            let v = y as f32 / (height.saturating_sub(1).max(1)) as f32;
-            for x in 0..width {
-                let u = x as f32 / (width.saturating_sub(1).max(1)) as f32;
-                let r = (22.0 + 26.0 * (1.0 - v) + 12.0 * u).clamp(0.0, 255.0) as u8;
-                let g = (34.0 + 38.0 * (1.0 - v)).clamp(0.0, 255.0) as u8;
-                let b = (48.0 + 58.0 * v).clamp(0.0, 255.0) as u8;
-                rgba.put_pixel(x, y, image::Rgba([r, g, b, 255]));
-            }
-        }
-
-        let mut png_bytes = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut png_bytes);
-        if image::DynamicImage::ImageRgba8(rgba)
-            .write_to(&mut cursor, image::ImageFormat::Png)
-            .is_ok()
-        {
-            return (Some(png_bytes), 96.0);
-        }
-        (None, 0.0)
-    }
-}
 
 /// Run the actual C&C game
 pub async fn run_cnc_game(
@@ -29146,308 +27512,6 @@ pub async fn run_cnc_game(
     Ok(())
 }
 
-impl CnCGameEngine {
-    /// Preload textures from all cached models using C++ approach - material names as texture files
-    async fn preload_model_textures(graphics_system: &mut GraphicsSystem) -> anyhow::Result<()> {
-        use std::collections::HashSet;
-
-        log::info!(
-            "🎨 TEXTURE: Loading textures using C++ approach - material names as texture filenames"
-        );
-
-        // Get all models from graphics system cache and collect material names as texture names
-        let mut texture_names: HashSet<String> = HashSet::new();
-
-        // Get all cached models from graphics system
-        for (model_name, model) in graphics_system.get_all_models() {
-            log::debug!(
-                "🔍 TEXTURE: Scanning model '{}' for referenced stage textures...",
-                model_name
-            );
-
-            Self::collect_material_textures(model, &mut texture_names);
-
-            for mesh in &model.meshes {
-                // Direct material reference on mesh (fallback path)
-                if let Some(ref tex_name) = mesh.material.texture_name {
-                    if Self::is_valid_texture_name(tex_name) {
-                        texture_names.insert(tex_name.clone());
-                        log::debug!("  📄 Found mesh embedded texture: {}", tex_name);
-                    }
-                }
-
-                // Authoritative per-pass stage texture names (preferred)
-                for (pass_idx, stage_sets) in mesh.per_pass_stage_texture_names.iter().enumerate() {
-                    for (stage_idx, names) in stage_sets.iter().enumerate() {
-                        let mut stage_populated = false;
-                        for texture_name in names {
-                            if Self::is_valid_texture_name(texture_name) {
-                                texture_names.insert(texture_name.clone());
-                                stage_populated = true;
-                                log::debug!(
-                                    "  📄 Pass {} Stage {} texture: {}",
-                                    pass_idx,
-                                    stage_idx,
-                                    texture_name
-                                );
-                            }
-                        }
-
-                        if !stage_populated {
-                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
-                                if Self::is_valid_texture_name(&fallback) {
-                                    texture_names.insert(fallback.clone());
-                                    log::debug!(
-                                        "  📄 Pass {} Stage {} texture (from IDs): {}",
-                                        pass_idx,
-                                        stage_idx,
-                                        fallback
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if mesh.per_pass_stage_texture_names.is_empty()
-                    && !mesh.per_pass_stage_texture_ids.is_empty()
-                {
-                    for (pass_idx, stages) in mesh.per_pass_stage_texture_ids.iter().enumerate() {
-                        for stage_idx in 0..stages.len() {
-                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
-                                if Self::is_valid_texture_name(&fallback) {
-                                    texture_names.insert(fallback.clone());
-                                    log::debug!(
-                                        "  📄 Pass {} Stage {} texture (from IDs): {}",
-                                        pass_idx,
-                                        stage_idx,
-                                        fallback
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        log::info!(
-            "🎨 TEXTURE: Found {} unique material-based textures to load",
-            texture_names.len()
-        );
-        log::info!(
-            "🎨 TEXTURE: First 10 texture names: {:?}",
-            texture_names.iter().take(10).collect::<Vec<_>>()
-        );
-
-        if texture_names.is_empty() {
-            log::warn!("⚠️  TEXTURE: No material names found - skipping preload");
-            return Ok(());
-        }
-
-        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
-            let mut loaded_count = 0;
-            let mut failed_count = 0;
-            let total_textures = texture_names.len();
-            let texture_names: Vec<_> = texture_names.iter().collect();
-
-            log::info!(
-                "🎨 TEXTURE: Starting preload of {} textures",
-                total_textures
-            );
-
-            for (index, texture_name) in texture_names.iter().enumerate() {
-                log::debug!(
-                    "🎯 Loading texture {}/{}: {}",
-                    index + 1,
-                    total_textures,
-                    texture_name
-                );
-
-                let load_result = async {
-                    match asset_manager_arc.lock() {
-                        Ok(mut asset_manager) => {
-                            asset_manager
-                                .load_texture(
-                                    graphics_system.device(),
-                                    graphics_system.queue(),
-                                    texture_name,
-                                )
-                                .await;
-                            true
-                        }
-                        Err(_) => {
-                            log::warn!(
-                                "Could not acquire asset manager lock for texture: {}",
-                                texture_name
-                            );
-                            false
-                        }
-                    }
-                }
-                .await;
-
-                if load_result {
-                    loaded_count += 1;
-                } else {
-                    failed_count += 1;
-                }
-            }
-
-            log::info!(
-                "✅ TEXTURE PRELOAD: Loaded {} textures ({} failed/timeout)",
-                loaded_count,
-                failed_count
-            );
-        } else {
-            log::error!("❌ TEXTURE PRELOAD: Asset manager not available");
-        }
-
-        Ok(())
-    }
-
-    fn collect_material_textures(model: &Arc<W3DModel>, texture_names: &mut HashSet<String>) {
-        for (material_name, material) in &model.materials {
-            if Self::is_valid_texture_name(material_name) {
-                texture_names.insert(material_name.clone());
-                log::debug!("  📄 Found material-as-texture: {}", material_name);
-            }
-
-            if let Some(ref texture_name) = material.texture_name {
-                if Self::is_valid_texture_name(texture_name) {
-                    texture_names.insert(texture_name.clone());
-                    log::debug!("  📄 Found explicit material texture: {}", texture_name);
-                }
-            }
-
-            for stage_idx in 0..MAX_STAGE_TEXTURES {
-                if let Some(stage_texture) = GraphicsSystem::stage_texture_name(material, stage_idx)
-                {
-                    if Self::is_valid_texture_name(stage_texture) {
-                        texture_names.insert(stage_texture.clone());
-                        log::debug!(
-                            "  📄 Material stage{} texture: {}",
-                            stage_idx,
-                            stage_texture
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    fn is_valid_texture_name(name: &str) -> bool {
-        if name.is_empty() {
-            return false;
-        }
-        if name.eq_ignore_ascii_case("default") {
-            return false;
-        }
-        name.parse::<usize>().is_err()
-    }
-
-    /// Preload textures using WW3D Asset Manager definitions
-    /// This loads textures defined in INI object definitions from INIZH.big
-    async fn preload_ww3d_textures(graphics_system: &mut GraphicsSystem) -> anyhow::Result<()> {
-        info!("🎨 TEXTURE: Preloading textures from WW3D Asset Manager definitions...");
-
-        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
-            // First, get the list of texture filenames
-            let texture_filenames = {
-                let asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
-                asset_manager.get_all_texture_filenames()
-            };
-
-            info!(
-                "🎨 TEXTURE: WW3D Asset Manager has {} unique texture filenames to load",
-                texture_filenames.len()
-            );
-
-            // Show first 20 texture names for debugging
-            for (index, name) in texture_filenames.iter().take(20).enumerate() {
-                debug!("  📄 Texture {}: {}", index + 1, name);
-            }
-
-            if texture_filenames.len() > 20 {
-                info!("  ... and {} more textures", texture_filenames.len() - 20);
-            }
-
-            // Load ALL textures (matching C++ behavior - no artificial limit)
-            let mut loaded_count = 0;
-            let mut failed_count = 0;
-            let total_to_load = texture_filenames.len(); // Load all textures upfront like C++
-
-            info!(
-                "🎨 TEXTURE: Loading ALL {} textures from BIG archives (matching C++ behavior)...",
-                total_to_load
-            );
-
-            for (index, texture_name) in texture_filenames.iter().enumerate() {
-                debug!(
-                    "🎯 Loading WW3D texture {}/{}: {}",
-                    index + 1,
-                    total_to_load,
-                    texture_name
-                );
-
-                // Try to load the texture with timeout
-                let load_future = async {
-                    match asset_manager_arc.lock() {
-                        Ok(mut asset_manager) => {
-                            // Load the texture asynchronously
-                            match asset_manager
-                                .load_texture_async(
-                                    graphics_system.device(),
-                                    graphics_system.queue(),
-                                    texture_name,
-                                )
-                                .await
-                            {
-                                Ok(_) => {
-                                    debug!("✅ Loaded texture: {}", texture_name);
-                                    true
-                                }
-                                Err(e) => {
-                                    warn!("⚠️ Failed to load texture {}: {}", texture_name, e);
-                                    false
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            warn!("Could not lock asset manager for texture: {}", texture_name);
-                            false
-                        }
-                    }
-                };
-
-                match tokio::time::timeout(tokio::time::Duration::from_millis(500), load_future)
-                    .await
-                {
-                    Ok(true) => loaded_count += 1,
-                    Ok(false) => failed_count += 1,
-                    Err(_) => {
-                        failed_count += 1;
-                        warn!("⏰ Texture '{}' timeout (500ms)", texture_name);
-                    }
-                }
-
-                // Small delay between textures
-                tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-            }
-
-            info!(
-                "✅ WW3D TEXTURE PRELOAD: Loaded {} textures ({} failed/timeout) from {} available",
-                loaded_count,
-                failed_count,
-                texture_filenames.len()
-            );
-        } else {
-            warn!("⚠️ WW3D TEXTURE PRELOAD: Asset manager not available");
-        }
-
-        Ok(())
-    }
-}
 
 /// Map HUD structure cameo labels to ThingTemplate residual names.
 fn resolve_ui_structure_template_name(name: &str) -> String {
@@ -29479,1981 +27543,6 @@ fn resolve_ui_structure_template_name(name: &str) -> String {
     }
 }
 
-#[test]
-fn stop_and_guard_hotkeys_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"s\") && !ctrl_down")
-            && src.contains("issue_named_command_from_ui(\"Command_Stop\")"),
-        "S must issue Command_Stop residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"g\") && !ctrl_down")
-            && src.contains("issue_named_command_from_ui(\"Command_Guard\")"),
-        "G must issue Command_Guard residual"
-    );
-    // Ctrl+S quick-save must remain distinct from Stop.
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"s\") && ctrl_down")
-            && src.contains("quick_save_from_hotkey"),
-        "Ctrl+S quick-save residual must remain"
-    );
-}
-
-#[test]
-fn retail_selection_and_scatter_hotkeys_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        (src.contains("eq_ignore_ascii_case(\"x\") && !ctrl_down")
-            || (src.contains("eq_ignore_ascii_case(\"x\")")
-                && src.contains("Retail CommandMap SCATTER KEY_X residual")))
-            && src.contains("issue_named_command_from_ui(\"Command_Scatter\")"),
-        "X must issue Command_Scatter residual"
-    );
-    assert!(
-        src.contains("Retail CommandMap SELECT_ALL KEY_Q residual")
-            && src.contains("select_all_friendly_units"),
-        "Q must SELECT_ALL residual"
-    );
-    assert!(
-        src.contains("Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual")
-            && src.contains("select_matching_units_hotkey"),
-        "E must SELECT_MATCHING_UNITS residual"
-    );
-    assert!(
-        src.contains("Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual")
-            && src.contains("select_all_friendly_aircraft"),
-        "W must SELECT_ALL_AIRCRAFT residual"
-    );
-
-    assert!(
-        src.contains("Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual")
-            && src.contains("issue_named_command_from_ui(\"Command_ViewCommandCenter\")"),
-        "H must VIEW_COMMAND_CENTER residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"f\")")
-            && src.contains("issue_named_command_from_ui(\"Command_CreateFormation\")"),
-        "Ctrl+F must CREATE_FORMATION residual"
-    );
-
-    assert!(
-        src.contains("NamedKey::Space") && src.contains("Command_ViewLastRadarEvent"),
-        "Space must VIEW_LAST_RADAR_EVENT residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"h\") && ctrl_down")
-            && src.contains("select_hero_units_hotkey"),
-        "Ctrl+H must SELECT_HERO residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"p\")") && src.contains("toggle_pause"),
-        "P must remain pause residual"
-    );
-}
-
-#[test]
-fn escape_in_handle_key_press_cancels_then_pauses_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    // Build needle so this test source does not self-match.
-    let marker = format!("Escape cancelled structure {} residual", "placement");
-    let hk = src
-        .find("fn handle_key_press(&mut self, key: &Key)")
-        .expect("handle_key_press");
-    let mut chosen = None;
-    let mut search = hk;
-    while let Some(rel) = src[search..].find(&marker) {
-        let i = search + rel;
-        let window = &src[i.saturating_sub(800)..src.len().min(i + 900)];
-        if window.contains("pending_map_command.take()")
-            && window.contains("request_state_change(GameState::Paused)")
-            && window.contains("NamedKey::Escape")
-        {
-            chosen = Some(i);
-            break;
-        }
-        search = i + marker.len();
-    }
-    let i = chosen.expect("handle_key_press Escape arm must cancel then pause");
-    let window = &src[i.saturating_sub(800)..src.len().min(i + 1200)];
-    assert!(
-        window.contains("request_state_change(GameState::InGame)"),
-        "Escape must resume from Paused"
-    );
-    assert!(
-        i > hk,
-        "live Escape residual must sit under handle_key_press"
-    );
-}
-
-#[test]
-fn beacon_and_control_bar_hotkeys_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"b\")") && src.contains("Command_PlaceBeacon"),
-        "Ctrl+B must PLACE_BEACON residual"
-    );
-    assert!(
-        src.contains("PendingMapCommand::PlaceBeacon")
-            && src.contains("Place beacon: click location"),
-        "PlaceBeacon must arm pending map click"
-    );
-    assert!(
-        src.contains("NamedKey::F9") && src.contains("toggle_visibility()"),
-        "F9 must TOGGLE_CONTROL_BAR residual"
-    );
-}
-
-#[test]
-fn camera_bookmarks_and_delete_beacon_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("camera_view_bookmarks") && src.contains("fn handle_camera_view_hotkey"),
-        "F1-F8 camera bookmark residual required"
-    );
-    assert!(
-        src.contains("NamedKey::F1") && src.contains("handle_camera_view_hotkey(0)"),
-        "F1 must recall/save view slot 0"
-    );
-    assert!(
-        src.contains("NamedKey::F8") && src.contains("handle_camera_view_hotkey(7)"),
-        "F8 must recall/save view slot 7"
-    );
-    assert!(
-        src.contains("NamedKey::Delete") && src.contains("Command_RemoveBeacon"),
-        "Delete must DELETE_BEACON residual"
-    );
-    // Debug destroy kept behind Shift+Delete.
-    assert!(
-        src.contains("destroy_object") && src.contains("Shift+Delete"),
-        "Shift+Delete debug destroy residual must remain"
-    );
-}
-
-#[test]
-fn cheer_camera_reset_unit_cycle_hotkeys_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_Cheer") && src.contains("eq_ignore_ascii_case(\"c\")"),
-        "Ctrl+C must ALL_CHEER residual"
-    );
-    assert!(
-        src.contains("Numpad5") && src.contains("reset_camera_view_hotkey"),
-        "KP5 must CAMERA_RESET residual"
-    );
-    assert!(
-        src.contains("ArrowRight") && src.contains("cycle_friendly_selection(1)"),
-        "Ctrl+Right must SELECT_NEXT_UNIT residual"
-    );
-    assert!(
-        src.contains("ArrowLeft") && src.contains("cycle_friendly_selection(-1)"),
-        "Ctrl+Left must SELECT_PREV_UNIT residual"
-    );
-    assert!(
-        src.contains("cycle_friendly_worker_selection"),
-        "Ctrl+Up/Down must worker cycle residual"
-    );
-}
-
-#[test]
-fn diplomacy_and_control_group_modifiers_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("toggle_diplomacy_panel_hotkey") && src.contains("NamedKey::Tab"),
-        "Tab must DIPLOMACY residual"
-    );
-    assert!(
-        src.contains("ADD_TEAM residual") || src.contains("shift_down"),
-        "Shift+digit must ADD_TEAM residual"
-    );
-    assert!(
-        src.contains("VIEW_TEAM residual") || src.contains("alt_down"),
-        "Alt+digit must VIEW_TEAM residual"
-    );
-    assert!(
-        src.contains("Escape closed diplomacy panel residual"),
-        "Escape must close diplomacy before pause"
-    );
-}
-
-#[test]
-fn chat_and_screenshot_hotkeys_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("NamedKey::Enter") && src.contains("ChatTarget::All"),
-        "Enter must CHAT_EVERYONE residual"
-    );
-    assert!(
-        src.contains("NamedKey::Backspace") && src.contains("ChatTarget::Allies"),
-        "Backspace must CHAT_ALLIES residual"
-    );
-    assert!(
-        src.contains("NamedKey::F12") && src.contains("take_screenshot_hotkey"),
-        "F12 must TAKE_SCREENSHOT residual"
-    );
-    assert!(
-        src.contains("Escape closed chat residual"),
-        "Escape must close chat first"
-    );
-}
-
-#[test]
-fn deploy_and_numpad_camera_hold_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down") && src.contains("Command_Deploy"),
-        "D must Deploy residual"
-    );
-    assert!(
-        src.contains("Numpad4") && src.contains("camera_rotate_left_held"),
-        "KP4 must rotate-left hold residual"
-    );
-    assert!(
-        src.contains("Numpad6") && src.contains("camera_rotate_right_held"),
-        "KP6 must rotate-right hold residual"
-    );
-    assert!(
-        src.contains("Numpad8") && src.contains("camera_zoom_in_held"),
-        "KP8 must zoom-in hold residual"
-    );
-    assert!(
-        src.contains("Numpad2") && src.contains("camera_zoom_out_held"),
-        "KP2 must zoom-out hold residual"
-    );
-}
-
-#[test]
-fn show_options_event_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("UIEvent::ShowOptions") && src.contains("Screen::Options"),
-        "engine must handle ShowOptions residual"
-    );
-    let ui = include_str!("ui/ui_manager.rs");
-    assert!(
-        ui.contains("options_menu") && ui.contains("Screen::Options"),
-        "UIManager must own OptionsMenu residual"
-    );
-}
-
-#[test]
-fn remaining_commandmap_hotkeys_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("toggle_camera_tracking_drawable_hotkey")
-            && src.contains("camera_tracking_selection"),
-        "TOGGLE_CAMERA_TRACKING_DRAWABLE residual required"
-    );
-    assert!(
-        src.contains("toggle_replay_fast_forward_hotkey")
-            && src.contains("replay_fast_forward")
-            && src.contains("m_TiVOFastMode"),
-        "TOGGLE_FAST_FORWARD_REPLAY residual required"
-    );
-    assert!(
-        src.contains("DEMO_INSTANT_QUIT") && src.contains("GameState::Exiting"),
-        "DEMO_INSTANT_QUIT residual required"
-    );
-}
-
-#[test]
-fn victory_defeat_shows_victory_screen_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("show_match_result(true, self.current_player_id)"),
-        "Victory state must open Victory screen"
-    );
-    assert!(
-        src.contains("show_match_result(false, self.current_player_id)"),
-        "Defeat state must open Defeat presentation residual"
-    );
-    assert!(
-        src.contains("fn show_match_result")
-            || include_str!("ui/ui_manager.rs").contains("fn show_match_result"),
-        "UIManager must expose show_match_result residual"
-    );
-}
-
-#[test]
-fn wasd_not_camera_scroll_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    let i = src
-        .find("fn update_camera(&mut self, dt: f32)")
-        .expect("update_camera");
-    let body = &src[i..src.len().min(i + 3500)];
-    assert!(
-        !body.contains("is_character_key_pressed(\"w\")")
-            && !body.contains("is_character_key_pressed(\"s\")")
-            && !body.contains("is_character_key_pressed(\"a\")")
-            && !body.contains("is_character_key_pressed(\"d\")"),
-        "WASD must not drive camera scroll (unit hotkey conflict)"
-    );
-    assert!(
-        body.contains("NamedKey::ArrowUp") && body.contains("NamedKey::ArrowDown"),
-        "arrow keys remain camera scroll residual"
-    );
-}
-
-#[test]
-fn windowed_edge_scroll_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    let i = src
-        .find("fn update_camera(&mut self, dt: f32)")
-        .expect("update_camera");
-    let body = &src[i..src.len().min(i + 4500)];
-    assert!(
-        body.contains("EDGE_SCROLL_SIZE"),
-        "edge scroll residual must remain"
-    );
-    assert!(
-        !body.contains("if !self.is_windowed\n                && matches!(self.current_state, GameState::InGame | GameState::Paused)"),
-        "edge scroll must not be fullscreen-only"
-    );
-    assert!(
-        body.contains("!self.chat_panel.is_open()")
-            && body.contains("!self.diplomacy_panel.is_active()"),
-        "edge/arrow scroll suppressed during chat/diplomacy modal"
-    );
-}
-
-#[test]
-fn settings_changed_health_bars_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("UIEvent::SettingsChanged") && src.contains("game.show_health_bars"),
-        "SettingsChanged must apply show_health_bars residual"
-    );
-}
-
-#[test]
-fn hud_h_does_not_steal_view_command_center_residual() {
-    let hud = include_str!("ui/hud.rs");
-    // After residual fix, bare KeyCode::H toggle must not remain in GameHUD key handler.
-    let marker = "Global HUD hotkeys";
-    let i = hud.find(marker).expect("global HUD hotkeys section");
-    let section = &hud[i..hud.len().min(i + 400)];
-    assert!(
-        !section.contains("KeyCode::H =>"),
-        "GameHUD must not bind bare H (VIEW_COMMAND_CENTER conflict)"
-    );
-    let eng = include_str!("cnc_game_engine.rs");
-    assert!(
-        eng.contains("Command_ViewCommandCenter")
-            && eng.contains("eq_ignore_ascii_case(\"h\") && !ctrl_down"),
-        "engine H must still VIEW_COMMAND_CENTER"
-    );
-}
-
-#[test]
-fn drag_select_rect_overlay_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("selection_start_screen")
-            && src.contains("DragSelectRect")
-            && src.contains("drag_rect.filter(|r| r.is_valid())"),
-        "InGame render must feed DragSelectRect while dragging"
-    );
-    assert!(
-        src.contains("Defer empty-ground clear until left-release")
-            || src.contains("Instant clear on mousedown fights drag-select"),
-        "mousedown must not clear selection before drag completes"
-    );
-}
-
-#[test]
-fn structure_placement_ghost_cursor_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("sync_pending_structure_placement_cursor")
-            && src.contains("sync_structure_placement_cursor")
-            && src.contains("legal_build_code_at_for_builder"),
-        "placement ghost must track cursor legality each frame"
-    );
-    let hud = include_str!("ui/hud.rs");
-    assert!(
-        hud.contains("placement: crate::ui::construction_panel::PlacementPreview")
-            || hud.contains("PlacementPreview"),
-        "HUD ConstructionPanel must own PlacementPreview ghost"
-    );
-}
-
-#[test]
-fn pending_map_radius_cursor_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("arm_radius_cursor_for_pending")
-            && src.contains("sync_pending_map_command_radius_cursor")
-            && src.contains("clear_radius_cursor_overlays"),
-        "pending map commands must drive radius cursor residual"
-    );
-    assert!(
-        src.contains("ATTACK_CONTINUE_AREA") && src.contains("GUARD_AREA"),
-        "AttackMove/Guard must arm retail radius cursor names"
-    );
-    assert!(
-        src.contains("PARTICLECANNON") || src.contains("OFFENSIVE_SPECIALPOWER"),
-        "special power must map to radius cursor type"
-    );
-}
-
-#[test]
-fn minimap_right_click_context_command_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn issue_minimap_move")
-            && src.contains("process_mouse_input")
-            && src.contains("MouseButton::Right"),
-        "minimap RMB must use context-sensitive CommandSystem path"
-    );
-    // Ensure issue_minimap_move body is not pure command_move-only.
-    let start = src
-        .find("fn issue_minimap_move")
-        .expect("issue_minimap_move");
-    let end = src[start + 1..]
-        .find(
-            "
-    fn ",
-        )
-        .map(|i| start + 1 + i)
-        .unwrap_or(start + 4000);
-    let body = &src[start..end];
-    assert!(
-        body.contains("process_mouse_input") && body.contains("find_object_at_position"),
-        "minimap RMB must resolve target + command context like world RMB"
-    );
-}
-
-#[test]
-fn ground_marker_circles_overlay_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("collect_ground_marker_circles") && src.contains("ground_markers"),
-        "engine must feed placement/radius ground markers into selection overlay"
-    );
-    let sel = include_str!("graphics/selection_renderer.rs");
-    assert!(
-        sel.contains("ground_markers: Vec<SelectedUnit>"),
-        "selection overlay must accept ground_markers residual"
-    );
-}
-
-#[test]
-fn dual_hud_construction_hotkey_route_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)")
-            && src.contains("drain_pending_ui_events"),
-        "engine GameHUD must receive construction/command hotkeys in InGame"
-    );
-    let um = include_str!("ui/ui_manager.rs");
-    assert!(
-        um.contains("pending_structure_placement") && um.contains("Fall through to GameHUD"),
-        "UIManager Escape must not open pause over active structure placement"
-    );
-}
-
-#[test]
-fn order_line_overlay_draw_residual() {
-    let sel = include_str!("graphics/selection_renderer.rs");
-    assert!(
-        sel.contains("draw_order_line_segments")
-            && sel.contains("MoveLineUpload::pack_from_presentation")
-            && sel.contains("AttackLineUpload::pack_from_presentation"),
-        "selection overlay must GPU-draw move/attack order lines from presentation"
-    );
-}
-
-#[test]
-fn shift_select_and_ctrl_force_attack_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn toggle_select_object")
-            && src.contains("fn issue_force_attack_from_left_click"),
-        "left-click must support Shift multi-select and Ctrl force-attack"
-    );
-    let start = src.find("fn handle_left_click").expect("handle_left_click");
-    let end = src[start + 1..]
-        .find("\n    fn ")
-        .map(|i| start + 1 + i)
-        .unwrap_or(start + 2500);
-    let body = &src[start..end];
-    assert!(
-        body.contains("shift_down")
-            && body.contains("toggle_select_object")
-            && body.contains("issue_force_attack_from_left_click"),
-        "handle_left_click must branch on Shift/Ctrl residuals"
-    );
-}
-
-#[test]
-fn cancel_unit_production_rmb_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn cancel_unit_production_from_ui") && src.contains("CancelUnitProduction"),
-        "engine must handle CancelUnitProduction residual"
-    );
-    let hud = include_str!("ui/hud.rs");
-    assert!(
-        hud.contains("CancelUnitProduction") && hud.contains("build_queue_cancel"),
-        "HUD RMB must raise CancelUnitProduction"
-    );
-}
-
-#[test]
-fn context_mouse_cursor_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn sync_context_mouse_cursor")
-            && src.contains("fn resolve_context_cursor_icon")
-            && src.contains("set_cursor"),
-        "InGame mouse move must apply context cursor residual"
-    );
-    assert!(
-        src.contains("\"AttackObj\"")
-            && src.contains("\"Build\"")
-            && src.contains("\"InvalidBuild\"")
-            && src.contains("\"Waypoint\""),
-        "cursor residual must cover attack/build/waypoint names"
-    );
-}
-
-#[test]
-fn auto_dozer_structure_place_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn find_nearest_friendly_dozer")
-            && src.contains("Select a dozer or worker to build"),
-        "structure place must auto-pick nearest dozer residual"
-    );
-    let start = src.find("fn place_structure_from_ui").expect("place");
-    let end = src[start + 1..]
-        .find("\n    fn ")
-        .map(|i| start + 1 + i)
-        .unwrap_or(start + 4000);
-    let body = &src[start..end];
-    assert!(
-        body.contains("clear_structure_placement")
-            && body.contains("game_hud.construction_panel")
-            && body.contains("ui_manager"),
-        "legal place must dual-clear both HUD placement ghosts"
-    );
-}
-
-#[test]
-fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    let start = src.find("fn handle_key_press").expect("handle_key_press");
-    let end = src[start + 1..]
-        .find("\n    fn ")
-        .map(|i| start + 1 + i)
-        .unwrap_or(start + 8000);
-    let body = &src[start..end];
-    assert!(
-        body.contains("Command_Deploy")
-            && body.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down"),
-        "D must issue Command_Deploy residual"
-    );
-    // Bare D must not be bound to debug_show_victory(None) ahead of Deploy.
-    assert!(
-        !body.contains(
-            "eq_ignore_ascii_case(\"d\") => {\n                self.debug_show_victory(None)"
-        ),
-        "debug defeat must not steal D from Deploy"
-    );
-}
-
-#[test]
-fn deployed_blocks_can_move_and_guard_ring_residual() {
-    let obj = include_str!("game_logic/object.rs");
-    let start = obj.find("pub fn can_move").expect("can_move");
-    let body = &obj[start..start + 700];
-    assert!(
-        body.contains("!self.status.deployed"),
-        "deployed units must not can_move residual"
-    );
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("GUARD_AREA_RADIUS") && src.contains("guard_position"),
-        "selected guard units must draw guard-area ring residual"
-    );
-}
-
-#[test]
-fn eva_low_power_chat_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn sync_eva_messages_from_logic")
-            && src.contains("add_eva_message")
-            && src.contains("eva_low_power_count")
-            && src.contains("Insufficient funds")
-            && src.contains("Our base is under attack"),
-        "engine must surface EVA LOWPOWER/funds/under-attack to chat residual"
-    );
-}
-
-#[test]
-fn pending_unit_ability_arm_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("PendingUnitAbility")
-            && src.contains("fn arm_pending_unit_ability")
-            && src.contains("UnitAbility(ability)"),
-        "ControlBar unit abilities must arm pending target click residual"
-    );
-    assert!(
-        src.contains("PendingUnitAbility::Hijack")
-            && src.contains("PendingUnitAbility::SnipeVehicle")
-            && src.contains("PendingUnitAbility::PlantTimedDemoCharge"),
-        "hero/ability set must include hijack/snipe/charges residual"
-    );
-}
-
-#[test]
-fn presentation_event_sfx_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn play_presentation_event_sfx")
-            && src.contains("SoundType::ConstructionComplete")
-            && src.contains("SoundType::UnitReady"),
-        "presentation complete events must play SFX residual"
-    );
-}
-
-#[test]
-fn sticky_waypoint_mode_toggle_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("sticky_waypoint_mode")
-            && src.contains("eq_ignore_ascii_case(\"z\")")
-            && src.contains("Waypoint mode: ON"),
-        "Z must toggle sticky waypoint mode residual"
-    );
-}
-
-#[test]
-fn idle_worker_period_key_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("c == \".\"")
-            && src.contains("cycle_friendly_worker_selection(1)")
-            && src.contains("SELECT_IDLE_WORKER"),
-        "period key must cycle idle workers residual"
-    );
-    let start = src
-        .find("fn cycle_friendly_worker_selection")
-        .expect("cycle_friendly_worker_selection");
-    let body = &src[start..start + 2200];
-    assert!(
-        body.contains("idle_workers") && body.contains("AIState::Idle"),
-        "worker cycle must prefer idle workers residual"
-    );
-}
-
-#[test]
-fn structure_placement_rotate_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("rotate_structure_placement")
-            && src.contains("facing_radians")
-            && src.contains("pending_structure_placement.is_some()"),
-        "mouse wheel must rotate structure placement ghost residual"
-    );
-}
-
-#[test]
-fn structure_cycle_and_auto_attack_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn cycle_friendly_structure_selection")
-            && src.contains("SELECT_NEXT_STRUCTURE")
-            && src.contains("sticky_auto_attack"),
-        "structure cycle + sticky auto-attack residual required"
-    );
-    assert!(
-        src.contains("Auto-attack: ON") && src.contains("AttackMoveTo"),
-        "sticky auto-attack must convert moves to attack-move"
-    );
-}
-
-#[test]
-fn force_attack_ground_t_key_and_home_structure_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("ForceAttackGround")
-            && src.contains("eq_ignore_ascii_case(\"t\")")
-            && src.contains("Force-attack ground"),
-        "T must issue ForceAttackGround at cursor residual"
-    );
-    assert!(
-        src.contains("NamedKey::Home") && src.contains("cycle_friendly_structure_selection(1)"),
-        "Home/End must cycle structures residual"
-    );
-}
-
-#[test]
-fn patrol_and_sell_hotkey_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_Sell")
-            && src.contains("eq_ignore_ascii_case(\"s\")")
-            && src.contains("NamedKey::Shift"),
-        "Ctrl+Shift+S must sell selection residual"
-    );
-    let cmd = include_str!("command_system.rs");
-    assert!(
-        cmd.contains("Patrol") && cmd.contains("\"patrol\""),
-        "Patrol command residual must exist"
-    );
-    let ex = include_str!("command_executor.rs");
-    assert!(
-        ex.contains("fn execute_patrol") && ex.contains("AIState::Patrolling"),
-        "execute_patrol must set Patrolling residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_Patrol"),
-        "command strip must expose Patrol residual"
-    );
-}
-
-#[test]
-fn evacuate_and_repair_hotkey_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"u\")") && src.contains("Command_Evacuate"),
-        "U must issue Evacuate residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"r\")")
-            && src.contains("Command_Repair")
-            && src.contains("PendingUnitAbility::Repair"),
-        "R must arm Repair residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("\"repair\"") && cs.contains("CommandType::Repair"),
-        "repair button name must map residual"
-    );
-}
-
-#[test]
-fn rally_overcharge_capture_hotkey_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"y\")") && src.contains("Command_SetRallyPoint"),
-        "Y must arm SetRallyPoint residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"o\")") && src.contains("Command_ToggleOvercharge"),
-        "O must toggle overcharge residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"c\")")
-            && src.contains("Command_CaptureBuilding")
-            && src.contains("!ctrl_down"),
-        "C must arm CaptureBuilding residual"
-    );
-}
-
-#[test]
-fn construction_cameo_hotkey_priority_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("construction_consumed")
-            && src.contains("_ if construction_consumed")
-            && src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)"),
-        "construction panel must consume build keys before global hotkeys residual"
-    );
-    assert!(
-        src.contains("cycle_construction_tab")
-            && src.contains("cycle_construction_tab(1)")
-            && src.contains("force_tab"),
-        "[ ] must cycle construction tabs residual"
-    );
-    let hud = include_str!("ui/hud.rs");
-    assert!(
-        hud.contains("fn force_tab") && hud.contains("ConstructionTab::Aircraft"),
-        "construction panel force_tab residual"
-    );
-}
-
-#[test]
-fn shift_ctrl_production_queue_multiplier_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("UIEvent::QueueUnitProduction")
-            && src.contains("saturating_mul(5)")
-            && src.contains("qty = 9"),
-        "Shift×5 and Ctrl fill-queue residual for production"
-    );
-}
-
-#[test]
-fn special_power_v_key_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    let start = src.find("fn handle_key_press").expect("handle_key_press");
-    let end = src[start + 1..]
-        .find("\n    fn ")
-        .map(|i| start + 1 + i)
-        .unwrap_or(start + 12000);
-    let body = &src[start..end];
-    assert!(
-        body.contains("Command_DoSpecialPower") && body.contains("eq_ignore_ascii_case(\"v\")"),
-        "V must arm Command_DoSpecialPower residual"
-    );
-    // Bare V must not instantly debug-win.
-    assert!(
-        !body.contains(
-            "eq_ignore_ascii_case(\"v\") => {\n                self.debug_show_victory(Some(self.current_player_id))"
-        ),
-        "debug victory must not steal bare V from special power"
-    );
-    assert!(
-        body.contains("NamedKey::Shift") && body.contains("debug_show_victory"),
-        "debug victory remains behind Ctrl+Shift residual"
-    );
-}
-
-#[test]
-fn strategy_center_battle_plan_residual() {
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("BattlePlanBombardment")
-            && cs.contains("initiatebattleplanbombardment")
-            && cs.contains("BattlePlanHoldTheLine")
-            && cs.contains("BattlePlanSearchAndDestroy"),
-        "battle plan button names must map residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_InitiateBattlePlanBombardment") && pf.contains("strategycenter"),
-        "Strategy Center strip must expose battle plans residual"
-    );
-    let eng = include_str!("cnc_game_engine.rs");
-    assert!(
-        eng.contains("BattlePlanBombardment") && eng.contains("BattlePlanHoldTheLine"),
-        "engine must execute battle plans without map-click residual"
-    );
-}
-
-#[test]
-fn named_superweapon_button_residual() {
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("spysatellitescan")
-            && cs.contains("ciaintelligence")
-            && cs.contains("particlecannon")
-            && cs.contains("nuclearmissile")
-            && cs.contains("scudstorm")
-            && cs.contains("carpetbomb")
-            && cs.contains("artillerybarrage")
-            && cs.contains("emergencyrepair")
-            && cs.contains("airstrike")
-            && cs.contains("ambush")
-            && cs.contains("sneakattack")
-            && cs.contains("leafletdrop")
-            && cs.contains("gpsscrambler")
-            && cs.contains("spectregunship")
-            && cs.contains("anthraxbomb"),
-        "named SW button names must map residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_ParticleCannon")
-            && pf.contains("Command_SpySatelliteScan")
-            && pf.contains("Command_CIAIntelligence")
-            && pf.contains("Command_CarpetBomb")
-            && pf.contains("Command_EmergencyRepair")
-            && pf.contains("Command_ArtilleryBarrage")
-            && pf.contains("Command_SpyDrone")
-            && pf.contains("Command_Airstrike")
-            && pf.contains("Command_Ambush")
-            && pf.contains("Command_SneakAttack")
-            && pf.contains("Command_LeafletDrop")
-            && pf.contains("Command_SpectreGunship"),
-        "SW structures must expose named buttons residual"
-    );
-    let eng = include_str!("cnc_game_engine.rs");
-    assert!(
-        eng.contains("Pass 1: honor named"),
-        "engine must prefer named SW type when arming residual"
-    );
-}
-
-#[test]
-fn damaged_structure_cycle_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn cycle_damaged_structure_selection")
-            && src.contains("No damaged structures")
-            && src.contains("NamedKey::Alt")
-            && src.contains("cycle_damaged_structure_selection(1)"),
-        "Ctrl+Alt+arrows must cycle damaged structures residual"
-    );
-}
-
-#[test]
-fn idle_military_select_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn select_all_idle_military")
-            && src.contains("eq_ignore_ascii_case(\"i\")")
-            && src.contains("select_all_idle_military()")
-            && src.contains("No idle military units"),
-        "Ctrl+I must select idle military residual"
-    );
-}
-
-#[test]
-fn unit_attitude_hotkey_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_AttitudeAggressive")
-            && src.contains("Command_AttitudeSleep")
-            && src.contains("Command_AttitudePassive")
-            && src.contains("NamedKey::Alt"),
-        "Alt+A/S/D must set unit attitude residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("AttitudeAggressive")
-            && cs.contains("AttitudeSleep")
-            && cs.contains("\"aggressive\""),
-        "attitude commands must map residual"
-    );
-    let ex = include_str!("command_executor.rs");
-    assert!(
-        ex.contains("fn execute_set_attitude") && ex.contains("set_ai_attitude"),
-        "execute_set_attitude residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_AttitudeAggressive") && pf.contains("Command_AttitudeSleep"),
-        "strip must expose attitude residual"
-    );
-}
-
-#[test]
-fn generals_science_purchase_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn try_purchase_next_generals_science")
-            && src.contains("PurchaseScience")
-            && src.contains("eq_ignore_ascii_case(\"g\")")
-            && src.contains("NamedKey::Alt")
-            && src.contains("No science purchase points"),
-        "Alt+G must purchase next generals science residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_PurchaseScience") && pf.contains("local_science_purchase_points"),
-        "strip must expose PurchaseScience when SPP residual"
-    );
-}
-
-#[test]
-fn wall_line_drag_placement_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn is_wall_structure_template")
-            && src.contains("fn place_wall_line_from_ui")
-            && src.contains("DozerConstructLine")
-            && src.contains("Wall line ordered"),
-        "wall/fence drag must issue DozerConstructLine residual"
-    );
-}
-
-#[test]
-fn detonate_and_harvester_select_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"n\")")
-            && src.contains("Command_DetonateRemoteDemoCharges"),
-        "N must detonate remote charges residual"
-    );
-    assert!(
-        src.contains("fn select_all_harvesters")
-            && src.contains("select_all_harvesters()")
-            && src.contains("No harvesters found"),
-        "Ctrl+Shift+I must select harvesters residual"
-    );
-}
-
-#[test]
-fn switch_weapons_and_demo_suicide_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_SwitchWeapons")
-            && src.contains("eq_ignore_ascii_case(\"w\")")
-            && src.contains("NamedKey::Alt"),
-        "Alt+W must SwitchWeapons residual"
-    );
-    assert!(
-        src.contains("Command_DemoTertiarySuicide") && src.contains("eq_ignore_ascii_case(\"b\")"),
-        "Alt+B must DemoTertiarySuicide residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("\"switchweapons\"") || cs.contains("SwitchWeapons"),
-        "switchweapons button map residual"
-    );
-}
-
-#[test]
-fn delete_cancel_production_and_combat_drop_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn cancel_selected_production_queue_head")
-            && src.contains("Canceled production")
-            && src.contains("NamedKey::Delete"),
-        "Delete must cancel production queue head residual"
-    );
-    assert!(
-        src.contains("PendingMapCommand::CombatDrop")
-            && src.contains("Command_CombatDrop")
-            && src.contains("Combat drop: click landing zone"),
-        "Alt+C / CombatDrop must arm map click residual"
-    );
-}
-
-#[test]
-fn hack_internet_and_cleanup_area_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_HackInternet")
-            && src.contains("eq_ignore_ascii_case(\"i\")")
-            && src.contains("NamedKey::Alt"),
-        "Alt+I must HackInternet residual"
-    );
-    assert!(
-        src.contains("Command_CleanupArea") && src.contains("eq_ignore_ascii_case(\"m\")"),
-        "Alt+M must CleanupArea residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("HackInternet") && cs.contains("\"hackinternet\""),
-        "HackInternet command map residual"
-    );
-    let ex = include_str!("command_executor.rs");
-    assert!(
-        ex.contains("fn execute_hack_internet") && ex.contains("start_hacker_internet_hack"),
-        "execute_hack_internet residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_HackInternet") && pf.contains("Command_CleanupArea"),
-        "strip must expose hack/cleanup residual"
-    );
-}
-
-#[test]
-fn return_to_base_aircraft_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_ReturnToBase")
-            && src.contains("eq_ignore_ascii_case(\"r\")")
-            && src.contains("NamedKey::Alt"),
-        "Alt+R must ReturnToBase residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("ReturnToBase") && cs.contains("\"returntobase\""),
-        "ReturnToBase command map residual"
-    );
-    let ex = include_str!("command_executor.rs");
-    assert!(
-        ex.contains("fn execute_return_to_base")
-            && ex.contains("is_friendly_airfield")
-            && ex.contains("execute_dock"),
-        "execute_return_to_base docks nearest airfield residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_ReturnToBase"),
-        "aircraft strip must expose RTB residual"
-    );
-}
-
-#[test]
-fn on_screen_select_and_camera_follow_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn select_all_friendly_on_screen")
-            && src.contains("select_all_friendly_on_screen()")
-            && src.contains("No units on screen"),
-        "Ctrl+Alt+A must select on-screen friendlies residual"
-    );
-    assert!(
-        src.contains("fn toggle_camera_follow_selection")
-            && src.contains("Camera follow on")
-            && src.contains("eq_ignore_ascii_case(\"f\")"),
-        "Alt+F must toggle camera follow residual"
-    );
-    let gl = include_str!("game_logic/game_logic.rs");
-    assert!(
-        gl.contains("fn set_camera_follow_object") && gl.contains("fn camera_follow_object_id"),
-        "GameLogic camera follow API residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("fn alive_selectable_friendly_near"),
-        "presentation near-select residual"
-    );
-}
-
-#[test]
-fn return_supplies_and_select_structures_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_ReturnSupplies")
-            && src.contains("eq_ignore_ascii_case(\"u\")")
-            && src.contains("NamedKey::Alt"),
-        "Alt+U must ReturnSupplies residual"
-    );
-    assert!(
-        src.contains("fn select_all_friendly_structures")
-            && src.contains("select_all_friendly_structures()")
-            && src.contains("No structures found"),
-        "Ctrl+Alt+S must select all structures residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("ReturnSupplies") && cs.contains("\"returnsupplies\""),
-        "ReturnSupplies command map residual"
-    );
-    let ex = include_str!("command_executor.rs");
-    assert!(
-        ex.contains("fn execute_return_supplies") && ex.contains("ReturningResources"),
-        "execute_return_supplies residual"
-    );
-}
-
-#[test]
-fn clear_mines_and_unfinished_construction_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("Command_ClearMines")
-            && src.contains("eq_ignore_ascii_case(\"x\")")
-            && src.contains("NamedKey::Alt"),
-        "Alt+X must ClearMines residual"
-    );
-    assert!(
-        src.contains("fn cycle_unfinished_construction")
-            && src.contains("No unfinished construction")
-            && src.contains("cycle_unfinished_construction(1)"),
-        "Ctrl+Alt+Home/End must cycle unfinished construction residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("ClearMines") && cs.contains("\"clearmines\""),
-        "ClearMines command map residual"
-    );
-    let ex = include_str!("command_executor.rs");
-    assert!(
-        ex.contains("fn execute_clear_mines") && ex.contains("is_mine_clearer"),
-        "execute_clear_mines residual"
-    );
-}
-
-#[test]
-fn resume_construction_hotkey_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn resume_selected_construction")
-            && src.contains("Resuming construction")
-            && src.contains("eq_ignore_ascii_case(\"e\")")
-            && src.contains("NamedKey::Alt"),
-        "Alt+E must resume construction residual"
-    );
-    let pf = include_str!("presentation_frame.rs");
-    assert!(
-        pf.contains("Command_ResumeConstruction"),
-        "unfinished structure strip must expose ResumeConstruction residual"
-    );
-    let cs = include_str!("command_system.rs");
-    assert!(
-        cs.contains("\"resumeconstruction\"") || cs.contains("ResumeConstruction"),
-        "resumeconstruction button map residual"
-    );
-}
-
-#[test]
-fn idle_harvesters_and_cancel_all_production_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn select_idle_harvesters")
-            && src.contains("select_idle_harvesters()")
-            && src.contains("No idle harvesters"),
-        "Ctrl+Alt+I must select idle harvesters residual"
-    );
-    assert!(
-        src.contains("fn cancel_all_selected_production")
-            && src.contains("Canceled all production")
-            && src.contains("ctrl_down && !shift"),
-        "Ctrl+Delete must cancel all production residual"
-    );
-}
-
-#[test]
-fn guard_radius_and_combat_select_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn adjust_selected_guard_radius")
-            && src.contains("Guard radius:")
-            && src.contains("adjust_selected_guard_radius(15.0)"),
-        "Alt+[ ] must adjust guard radius residual"
-    );
-    assert!(
-        src.contains("fn select_all_friendly_combat")
-            && src.contains("select_all_friendly_combat()")
-            && src.contains("No combat units"),
-        "Ctrl+Alt+Q must select combat units residual"
-    );
-}
-
-#[test]
-fn clear_path_and_damaged_unit_cycle_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn clear_selected_path_waypoints")
-            && src.contains("Path cleared")
-            && src.contains("clear_selected_path_waypoints()"),
-        "Alt+Z must clear path waypoints residual"
-    );
-    assert!(
-        src.contains("fn cycle_damaged_unit_selection")
-            && src.contains("No damaged units")
-            && src.contains("cycle_damaged_unit_selection(1)"),
-        "Ctrl+Alt+Up/Down must cycle damaged units residual"
-    );
-}
-
-#[test]
-fn moving_select_and_health_bars_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn select_all_friendly_moving")
-            && src.contains("select_all_friendly_moving()")
-            && src.contains("No moving units"),
-        "Ctrl+Alt+M must select moving units residual"
-    );
-    assert!(
-        src.contains("fn toggle_health_bars_hotkey")
-            && src.contains("Health bars: ON")
-            && src.contains("show_health_bars"),
-        "Alt+H must toggle health bars residual"
-    );
-}
-
-#[test]
-fn attacking_select_and_stop_all_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn select_all_friendly_attacking")
-            && src.contains("select_all_friendly_attacking()")
-            && src.contains("No attacking units"),
-        "Ctrl+Alt+T must select attacking units residual"
-    );
-    assert!(
-        src.contains("fn stop_all_friendly_units")
-            && src.contains("stop_all_friendly_units()")
-            && src.contains("Stopped"),
-        "Ctrl+Shift+. must stop all friendlies residual"
-    );
-}
-
-#[test]
-fn debug_producer_and_guarding_select_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn toggle_debug_info_hotkey")
-            && src.contains("Debug overlay: ON")
-            && src.contains("NamedKey::F1) if ctrl_down"),
-        "Ctrl+F1 must toggle debug overlay residual"
-    );
-    assert!(
-        src.contains("fn cycle_busy_producer_selection")
-            && src.contains("No busy producers")
-            && src.contains("cycle_busy_producer_selection(1)"),
-        "Ctrl+Alt+P must cycle busy producers residual"
-    );
-    assert!(
-        src.contains("fn select_all_friendly_guarding")
-            && src.contains("select_all_friendly_guarding()")
-            && src.contains("No guarding units"),
-        "Ctrl+Alt+G must select guarding units residual"
-    );
-}
-
-#[test]
-fn center_selection_and_constructing_workers_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn center_camera_on_selection")
-            && src.contains("Centered on selection")
-            && src.contains("NamedKey::Space")
-            && src.contains("NamedKey::Alt"),
-        "Alt+Space must center on selection residual"
-    );
-    assert!(
-        src.contains("fn select_all_constructing_workers")
-            && src.contains("select_all_constructing_workers()")
-            && src.contains("No constructing workers"),
-        "Ctrl+Alt+B must select constructing workers residual"
-    );
-}
-
-#[test]
-fn idle_military_cycle_and_repairing_select_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn cycle_idle_military_selection")
-            && src.contains("cycle_idle_military_selection(1)")
-            && src.contains("No idle military"),
-        "Ctrl+Alt+,/. must cycle idle military residual"
-    );
-    assert!(
-        src.contains("fn select_all_repairing_units")
-            && src.contains("select_all_repairing_units()")
-            && src.contains("No repairing units"),
-        "Ctrl+Alt+R must select repairing units residual"
-    );
-}
-
-#[test]
-fn patrol_gather_and_ready_sw_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn select_all_friendly_patrolling")
-            && src.contains("select_all_friendly_patrolling()")
-            && src.contains("No patrolling units"),
-        "Ctrl+Alt+Y must select patrolling residual"
-    );
-    assert!(
-        src.contains("fn select_all_friendly_gathering")
-            && src.contains("select_all_friendly_gathering()")
-            && src.contains("No gathering units"),
-        "Ctrl+Alt+H must select gathering residual"
-    );
-    assert!(
-        src.contains("fn cycle_ready_special_power_structure")
-            && src.contains("No ready special powers")
-            && src.contains("cycle_ready_special_power_structure(1)"),
-        "Ctrl+Alt+V must cycle ready SW residual"
-    );
-}
-
-#[test]
-fn fps_veterans_and_docked_aircraft_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn toggle_fps_counter_hotkey")
-            && src.contains("FPS counter: ON")
-            && src.contains("NamedKey::F2) if ctrl_down"),
-        "Ctrl+F2 must toggle FPS residual"
-    );
-    assert!(
-        src.contains("fn select_all_friendly_veterans")
-            && src.contains("No veteran units")
-            && src.contains("select_all_friendly_veterans()"),
-        "Ctrl+Alt+E must select veterans residual"
-    );
-    assert!(
-        src.contains("fn select_all_docked_aircraft")
-            && src.contains("No docked aircraft")
-            && src.contains("select_all_docked_aircraft()"),
-        "Ctrl+Alt+W must select docked aircraft residual"
-    );
-}
-
-#[test]
-fn control_group_cycle_and_stealth_select_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn cycle_control_group_selection")
-            && src.contains("cycle_control_group_selection")
-            && src.contains("No control groups"),
-        "Ctrl+Shift+Tab must cycle control groups residual"
-    );
-    assert!(
-        src.contains("fn select_all_friendly_stealthed")
-            && src.contains("select_all_friendly_stealthed()")
-            && src.contains("No stealthed units"),
-        "Ctrl+Alt+K must select stealthed residual"
-    );
-}
-
-#[test]
-fn move_lines_and_garrisoned_select_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn toggle_move_lines_hotkey")
-            && src.contains("Move lines: ON")
-            && src.contains("show_move_lines")
-            && src.contains("NamedKey::F3) if ctrl_down")
-            && src.contains("self.show_move_lines,"),
-        "Ctrl+F3 must toggle move lines residual"
-    );
-    assert!(
-        src.contains("fn select_all_garrisoned_structures")
-            && src.contains("No garrisoned structures")
-            && src.contains("select_all_garrisoned_structures()"),
-        "Ctrl+Alt+U must select garrisoned structures residual"
-    );
-}
-
-#[test]
-fn runtime_host_construct_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("dozer_construct") && src.contains("construct_ok:"),
-        "runtime host must expose construct/dozer_construct residual"
-    );
-    assert!(
-        src.contains("construct_fail_no_dozer")
-            && src.contains("construct_fail_lbc:")
-            && src.contains("place_structure_from_ui"),
-        "construct residual must legal-build scan + place_structure_from_ui"
-    );
-}
-
-#[test]
-fn runtime_host_train_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("train_unit") && src.contains("train_ok:"),
-        "runtime host must expose train_unit residual"
-    );
-    assert!(
-        src.contains("train_fail_no_producer")
-            && src.contains("under_construction")
-            && src.contains("enqueue_production"),
-        "train residual must complete unfinished barracks and enqueue production"
-    );
-}
-
-#[test]
-fn runtime_host_save_load_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("\"save_game\" | \"quicksave\"")
-            || (src.contains("save_ok:") && src.contains("quicksave")),
-        "runtime host must expose save_game/quicksave residual"
-    );
-    assert!(
-        src.contains("quickload")
-            && src.contains("load_ok:quicksave")
-            && src.contains("save_game_from_ui"),
-        "runtime host must expose quickload residual"
-    );
-}
-
-#[test]
-fn runtime_host_stop_sell_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("stop_all") && src.contains("stop_ok:"),
-        "runtime host must expose stop_all residual"
-    );
-    assert!(
-        src.contains("sell_selected") && src.contains("sell_ok:") && src.contains("Command_Sell"),
-        "runtime host must expose sell residual"
-    );
-}
-
-#[test]
-fn runtime_host_upgrade_guard_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("queue_upgrade") && src.contains("upgrade_ok:"),
-        "runtime host must expose upgrade residual"
-    );
-    assert!(
-        src.contains("guard_position") && src.contains("guard_ok:"),
-        "runtime host must expose guard residual"
-    );
-}
-
-#[test]
-fn runtime_host_attack_move_scatter_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("attack_move") && src.contains("attack_move_ok:"),
-        "runtime host must expose attack_move residual"
-    );
-    assert!(
-        src.contains("\"scatter\"")
-            && src.contains("scatter_ok:")
-            && src.contains("Command_Scatter"),
-        "runtime host must expose scatter residual"
-    );
-}
-
-#[test]
-fn runtime_host_patrol_deploy_formation_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("\"patrol\"") && src.contains("patrol_ok:"),
-        "runtime host must expose patrol residual"
-    );
-    assert!(
-        src.contains("\"deploy\"") && src.contains("deploy_ok:"),
-        "runtime host must expose deploy residual"
-    );
-    assert!(
-        src.contains("\"cheer\"") && src.contains("cheer_ok"),
-        "runtime host must expose cheer residual"
-    );
-    assert!(
-        src.contains("create_formation") && src.contains("formation_ok:"),
-        "runtime host must expose formation residual"
-    );
-}
-
-#[test]
-fn runtime_host_capture_economy_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("capture_building") && src.contains("capture_ok:"),
-        "runtime host must expose capture residual"
-    );
-    assert!(
-        src.contains("return_supplies") && src.contains("return_supplies_ok:"),
-        "runtime host must expose return_supplies residual"
-    );
-    assert!(
-        src.contains("\"evacuate\"") && src.contains("evacuate_ok:"),
-        "runtime host must expose evacuate residual"
-    );
-    assert!(
-        src.contains("\"repair\"") && src.contains("repair_ok:"),
-        "runtime host must expose repair residual"
-    );
-    assert!(
-        src.contains("return_to_base") && src.contains("return_to_base_ok:"),
-        "runtime host must expose return_to_base residual"
-    );
-}
-
-#[test]
-fn runtime_host_misc_command_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("attitude_aggressive") && src.contains("attitude_ok:aggressive"),
-        "runtime host must expose attitude residuals"
-    );
-    assert!(
-        src.contains("set_rally") && src.contains("rally_ok:"),
-        "runtime host must expose set_rally residual"
-    );
-    assert!(
-        src.contains("switch_weapons") && src.contains("switch_weapons_ok:"),
-        "runtime host must expose switch_weapons residual"
-    );
-    assert!(
-        src.contains("view_command_center") && src.contains("view_cc_ok"),
-        "runtime host must expose view_command_center residual"
-    );
-    assert!(
-        src.contains("clear_mines") && src.contains("clear_mines_ok:"),
-        "runtime host must expose clear_mines residual"
-    );
-    assert!(
-        src.contains("place_beacon") && src.contains("beacon_ok:"),
-        "runtime host must expose place_beacon residual"
-    );
-}
-
-#[test]
-fn runtime_host_special_named_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "hack_internet",
-        "hack_ok:",
-        "cleanup_area",
-        "cleanup_ok:",
-        "combat_drop",
-        "combat_drop_ok:",
-        "toggle_overcharge",
-        "overcharge_ok",
-        "do_special_power",
-        "special_power_ok",
-        "remove_beacon",
-        "remove_beacon_ok",
-        "demo_suicide",
-        "demo_suicide_ok",
-        "detonate_remote",
-        "detonate_remote_ok",
-        "view_last_radar",
-        "view_radar_ok",
-    ] {
-        assert!(src.contains(needle), "missing host residual {needle}");
-    }
-}
-
-#[test]
-fn runtime_host_force_select_group_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "force_attack",
-        "force_attack_ok:",
-        "ForceAttackGround",
-        "force_attack_object",
-        "force_attack_object_ok:",
-        "ForceAttackObject",
-        "select_all",
-        "select_all_ok:",
-        "select_all_combat",
-        "select_all_combat_ok:",
-        "assign_control_group",
-        "control_group_assign_ok:",
-        "recall_control_group",
-        "control_group_recall_ok:",
-    ] {
-        assert!(src.contains(needle), "missing host residual {needle}");
-    }
-}
-
-#[test]
-fn runtime_host_waypoint_box_presentation_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "waypoint_mode",
-        "waypoint_mode_ok:",
-        "add_waypoint",
-        "waypoint_ok:",
-        "AddWaypoint",
-        "box_select",
-        "box_select_ok:",
-        "presentation_frame_ok",
-        "presentation_live_fallback_reads",
-        "last_presentation_live_fallback_reads",
-    ] {
-        assert!(src.contains(needle), "missing residual {needle}");
-    }
-}
-
-#[test]
-fn runtime_host_selection_filter_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "select_similar",
-        "select_similar_ok:",
-        "select_on_screen",
-        "select_on_screen_ok:",
-        "select_aircraft",
-        "select_aircraft_ok:",
-        "select_idle_harvesters",
-        "select_idle_ok:",
-        "select_structures",
-        "select_structures_ok:",
-        "select_moving",
-        "select_moving_ok:",
-    ] {
-        assert!(src.contains(needle), "missing selection residual {needle}");
-    }
-}
-
-#[test]
-fn runtime_host_camera_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "camera_reset",
-        "camera_reset_ok:",
-        "reset_camera_view_hotkey",
-        "camera_look_at",
-        "camera_look_ok:",
-        "camera_zoom",
-        "camera_zoom_ok:",
-        "camera_track",
-        "camera_track_ok:",
-    ] {
-        assert!(src.contains(needle), "missing camera residual {needle}");
-    }
-}
-
-#[test]
-fn runtime_host_pause_cancel_diplomacy_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "pause_ok:paused",
-        "pause_ok:resumed",
-        "cancel_production",
-        "cancel_production_ok:",
-        "cancel_selected_production_queue_head",
-        "open_diplomacy",
-        "diplomacy_ok",
-    ] {
-        assert!(src.contains(needle), "missing residual {needle}");
-    }
-}
-
-#[test]
-fn runtime_host_live_frame_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("live_frame_ok")
-            && src.contains("has_published_live_frame")
-            && src.contains("png_file_looks_usable")
-            && src.contains("window_visible")
-            && src.contains("wnd_widget_tree_nav")
-            && src.contains("wnd_menu_to_match_complete"),
-        "runtime host must publish live_frame_ok / window_visible / physical WND menu-to-match honesty"
-    );
-    let status_fn = src.find("fn publish_status").expect("publish_status");
-    let status_end = src[status_fn..]
-        .find("fn publish_frame")
-        .map(|i| status_fn + i)
-        .unwrap_or(status_fn + 3_200);
-    let status_body = &src[status_fn..status_end];
-    assert!(
-        status_body.contains("snapshot.live_frame_ok || self.has_published_live_frame"),
-        "live_frame_ok must stay capture-promoted, not fallback PNG"
-    );
-    assert!(
-        status_body.contains("retail_sit_through_missing"),
-        "publish_status must list which of the five sit-through flags are still false"
-    );
-    assert!(
-        status_body.contains("ingame=") && status_body.contains("gameplay="),
-        "publish_status must print ingame/gameplay sit-through flags explicitly"
-    );
-    assert!(
-        !status_body.contains("png_file_looks_usable"),
-        "publish_status must not claim live_frame_ok from fallback frame.png"
-    );
-    let i = src.find("fn publish_runtime").expect("publish_runtime");
-    let w = &src[i..src.len().min(i + 350)];
-    let frame_i = w.find("publish_frame").expect("publish_frame");
-    let status_i = w.find("publish_status").expect("publish_status");
-    assert!(
-        frame_i < status_i,
-        "publish_frame must run before publish_status for live_frame_ok"
-    );
-}
-
-#[test]
-fn runtime_host_auto_attack_menu_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "auto_attack",
-        "auto_attack_ok:on",
-        "auto_attack_ok:off",
-        "sticky_auto_attack",
-        "quit_to_menu",
-        "menu_ok",
-        "options_ok",
-    ] {
-        assert!(src.contains(needle), "missing residual {needle}");
-    }
-}
-
-#[test]
-fn runtime_host_options_probe_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("options_probe") && src.contains("options_probe_ok"),
-        "runtime host must expose options_probe residual that stays InGame"
-    );
-}
-
-#[test]
-fn runtime_host_request_capture_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    for needle in [
-        "request_capture",
-        "request_capture_ok",
-        "runtime_host_pending_capture",
-        "take_runtime_host_pending_capture",
-        "force_capture_request",
-        "pending_capture",
-    ] {
-        assert!(src.contains(needle), "missing residual {needle}");
-    }
-}
-
-#[test]
-fn attack_lines_and_occupied_transports_residual() {
-    let src = include_str!("cnc_game_engine.rs");
-    assert!(
-        src.contains("fn toggle_attack_lines_hotkey")
-            && src.contains("Attack lines: ON")
-            && src.contains("show_attack_lines")
-            && src.contains("NamedKey::F4) if ctrl_down")
-            && src.contains("self.show_attack_lines,"),
-        "Ctrl+F4 must toggle attack lines residual"
-    );
-    assert!(
-        src.contains("fn select_all_occupied_transports")
-            && src.contains("No occupied transports")
-            && src.contains("select_all_occupied_transports()"),
-        "Ctrl+Alt+J must select occupied transports residual"
-    );
-}
-
 #[cfg(test)]
-mod world_scene_skip_residual_tests {
-    #[test]
-    fn ingame_does_not_skip_world_for_menu_warmup_counter() {
-        let src = include_str!("cnc_game_engine.rs");
-        let start = src
-            .find("fn should_skip_world_scene_for_shell_menu")
-            .expect("skip fn");
-        let body = &src[start..src.len().min(start + 900)];
-        assert!(body.contains("GameState::Menu =>"), "Menu branch required");
-        assert!(
-            body.contains("_ => false"),
-            "InGame and other states must not skip via menu warmup counter"
-        );
-    }
-}
-
-#[cfg(test)]
-mod runtime_host_windowed_bridge_tests {
-    use super::*;
-    use crate::command_line::CommandLineArgs;
-
-    #[test]
-    fn windowed_runtime_host_is_requested_but_not_headless() {
-        let dir = tempfile::tempdir().expect("tmpdir");
-        let control = dir.path().join("control.txt");
-        let status = dir.path().join("status.txt");
-        let frame = dir.path().join("frame.png");
-        let args = CommandLineArgs::parse_from_args(vec![
-            "generals".into(),
-            "-runtime_host".into(),
-            "windowed".into(),
-            "-gpui_control".into(),
-            control.to_string_lossy().into_owned(),
-            "-gpui_status".into(),
-            status.to_string_lossy().into_owned(),
-            "-gpui_frame".into(),
-            frame.to_string_lossy().into_owned(),
-        ])
-        .expect("parse");
-        assert!(!RuntimeHostBridge::is_headless_mode(&args));
-        assert!(RuntimeHostBridge::is_runtime_host_requested(&args));
-        assert!(RuntimeHostBridge::from_command_line(&args).is_some());
-        let headless = CommandLineArgs::parse_from_args(vec![
-            "generals".into(),
-            "-runtime_host".into(),
-            "headless".into(),
-            "-gpui_control".into(),
-            control.to_string_lossy().into_owned(),
-            "-gpui_status".into(),
-            status.to_string_lossy().into_owned(),
-            "-gpui_frame".into(),
-            frame.to_string_lossy().into_owned(),
-        ])
-        .expect("parse headless");
-        assert!(RuntimeHostBridge::is_headless_mode(&headless));
-        assert!(RuntimeHostBridge::from_command_line(&headless).is_some());
-    }
-
-    #[test]
-    fn runtime_host_enabled_uses_active_not_only_headless() {
-        let src = include_str!("cnc_game_engine.rs");
-        let start = src.find("fn runtime_host_enabled").expect("enabled");
-        let end = src[start..]
-            .find("fn runtime_host_window_visible")
-            .map(|i| start + i)
-            .unwrap_or(start + 120);
-        let body = &src[start..end];
-        assert!(
-            body.contains("self.runtime_host_active"),
-            "windowed runtime host must enable host cmds/status"
-        );
-        assert!(
-            !body.contains("self.runtime_host_headless"),
-            "enabled must not be headless-only"
-        );
-        assert!(src.contains("note_os_wnd_widget_tree_hit"));
-    }
-
-    #[test]
-    fn windowed_runtime_host_publishes_visible_from_winit_is_visible() {
-        let src = include_str!("cnc_game_engine.rs");
-        let start = src
-            .find("fn runtime_host_window_visible")
-            .expect("window_visible helper");
-        let body = &src[start..src.len().min(start + 420)];
-        assert!(
-            body.contains("!self.runtime_host_headless"),
-            "window_visible must stay false in headless"
-        );
-        assert!(
-            body.contains("is_visible()") && body.contains("unwrap_or(!self.runtime_host_headless)"),
-            "window_visible must use winit is_visible Some(true) or unwrap_or(!headless)"
-        );
-        assert!(
-            src.contains("window_visible: self.runtime_host_window_visible()"),
-            "status snapshot must publish the honest winit visibility residual"
-        );
-        assert!(
-            src.contains("live_frame_ok: false"),
-            "snapshot live_frame_ok stays false; publish ORs a real capture"
-        );
-        assert!(
-            src.contains("interactive_playability.wnd_menu_to_match_complete()"),
-            "snapshot must publish physical WND menu-to-match evidence, not a singleton latch"
-        );
-        assert!(
-            src.contains("retail_sit_through_missing"),
-            "windowed status must list which sit-through flags are still false"
-        );
-    }
-
-    #[test]
-    fn windowed_runtime_host_does_not_init_headless_ww3d() {
-        let src = include_str!("cnc_game_engine.rs");
-        let headless_init = src
-            .find("ww3d_engine::init_headless")
-            .expect("init_headless");
-        let window_init = src
-            .find("ww3d_engine::init_with_window")
-            .expect("init_with_window");
-        assert!(window_init > headless_init);
-        let gate = &src[headless_init.saturating_sub(200)..headless_init];
-        assert!(
-            gate.contains("if runtime_host_headless"),
-            "init_headless must stay behind runtime_host_headless"
-        );
-        assert!(
-            src[headless_init..window_init].contains("} else if"),
-            "windowed runtime_host must not call init_headless"
-        );
-    }
-
-    #[test]
-    fn windowed_runtime_host_redraw_presents_gpu() {
-        let src = include_str!("cnc_game_engine.rs");
-        assert!(
-            src.contains("drive_frame(engine, current_window, &mut runtime_host_bridge, true)"),
-            "windowed RedrawRequested must present (render_frame=true)"
-        );
-        assert!(
-            src.contains("next_redraw_at = now + FRAME_INTERVAL"),
-            "windowed AboutToWait must pace GPU presents"
-        );
-        assert!(
-            src.contains("HEADLESS_PRESENT_INTERVAL"),
-            "headless present interval must remain a separate path"
-        );
-    }
-}
-
-#[cfg(test)]
-mod headless_edge_scroll_residual_tests {
-    #[test]
-    fn edge_scroll_disabled_when_headless() {
-        let src = include_str!("cnc_game_engine.rs");
-        let i = src
-            .find("Edge scrolling (C++ LookAt.cpp")
-            .expect("edge scroll");
-        let body = &src[i..src.len().min(i + 500)];
-        assert!(
-            body.contains("!self.runtime_host_headless"),
-            "headless runtime host must not edge-scroll from stuck (0,0) mouse"
-        );
-    }
-}
+#[path = "cnc_game_engine_source_scan_tests.rs"]
+mod source_scan_tests;

@@ -349,10 +349,6 @@ impl AutoDepositUpdateFactory {
     }
 }
 
-// Thread safety
-unsafe impl Send for AutoDepositUpdate {}
-unsafe impl Sync for AutoDepositUpdate {}
-
 impl Snapshotable for AutoDepositUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;

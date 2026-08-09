@@ -11,6 +11,10 @@
 //! production code) or return false.
 //!
 //! Residual packs must never publish retail `playable_claim`.
+//!
+//! This module (and other `*wave*` / `*residual*` audit packs) is compiled only
+//! under `#[cfg(any(test, feature = "host-residuals"))]`. Production default
+//! `cargo check -p generals_main --bin generals` must not `mod` those files.
 
 /// Policy lock: self-table membership is inflation, not honesty.
 ///
@@ -97,5 +101,77 @@ mod tests {
             "fn draw_construct_percent",
             &["presentation_sold"]
         ));
+    }
+
+    #[test]
+    fn host_wave_inflation_production_default_does_not_mod_wave_files() {
+        // Source-scan game_logic/mod.rs: audit wave/residual mods are cfg-gated
+        // so the default `generals` binary does not compile them.
+        let src = include_str!("mod.rs");
+        let cfg = r#"#[cfg(any(test, feature = "host-residuals"))]"#;
+        assert!(
+            src.contains(cfg),
+            "game_logic/mod.rs must cfg-gate residual/wave audit modules"
+        );
+
+        for always in [
+            "pub mod host_float_update;",
+            "pub mod host_combat_attack_log;",
+            "pub mod host_microwave;",
+        ] {
+            let idx = src.find(always).unwrap_or_else(|| panic!("missing {always}"));
+            let prev = src[..idx].trim_end().rsplit('\n').next().unwrap_or("");
+            assert_ne!(
+                prev.trim(),
+                cfg,
+                "{always} is real host gameplay and must stay in the default build"
+            );
+        }
+
+        for audit in ["pub mod host_wave_inflation;"] {
+            let idx = src.find(audit).unwrap_or_else(|| panic!("missing {audit}"));
+            let prev = src[..idx].trim_end().rsplit('\n').next().unwrap_or("");
+            assert_eq!(
+                prev.trim(),
+                cfg,
+                "{audit} must not be compiled into the default generals binary"
+            );
+        }
+
+        // Wave/residual audit packs live under residuals/ and are re-exported
+        // as crate::game_logic::host_* only when the cfg is on.
+        let residuals_decl = "mod residuals;";
+        let idx = src
+            .find(residuals_decl)
+            .unwrap_or_else(|| panic!("missing {residuals_decl}"));
+        let prev = src[..idx].trim_end().rsplit('\n').next().unwrap_or("");
+        let prev2 = src[..idx]
+            .trim_end()
+            .rsplit('\n')
+            .nth(1)
+            .unwrap_or("")
+            .trim();
+        assert_eq!(
+            prev.trim(),
+            r#"#[path = "residuals/mod.rs"]"#,
+            "residuals must load from residuals/mod.rs"
+        );
+        assert_eq!(
+            prev2, cfg,
+            "residual/wave audit packs must be cfg-gated via residuals/"
+        );
+        assert!(
+            src.contains("pub use residuals::*;"),
+            "residuals must be re-exported as crate::game_logic::*"
+        );
+        assert!(
+            !src.contains("pub mod host_live_exec_smoke_early_combat_residual_wave864;"),
+            "audit packs must not be declared directly in game_logic/mod.rs"
+        );
+        let residuals_src = include_str!("residuals/mod.rs");
+        assert!(
+            residuals_src.contains("pub mod host_live_exec_smoke_early_combat_residual_wave864;"),
+            "audit packs must be declared in residuals/mod.rs"
+        );
     }
 }

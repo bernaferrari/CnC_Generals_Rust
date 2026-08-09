@@ -634,9 +634,6 @@ impl EngineModule for BridgeTowerBehaviorModule {
     fn on_delete(&mut self) {}
 }
 
-unsafe impl Send for BridgeTowerBehavior {}
-unsafe impl Sync for BridgeTowerBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -34,6 +34,10 @@ integration-tests = []
 integration-diagnostics = ["integration"]
 native-dialog = ["dep:native-dialog"]
 
+# Residual/wave audit packs under game_logic/ (test/audit only; not in default).
+# Default `generals` binary must not compile these ~1000 modules.
+host-residuals = []
+
 # Graphics backends
 vulkan = []
 metal = []
@@ -375,6 +379,7 @@ path = "src/bin/release_candidate_gate.rs"
 [[bin]]
 name = "behavior_gate"
 path = "src/bin/behavior_gate.rs"
+required-features = ["host-residuals"]
 
 [[bin]]
 name = "verify_ini_parsing"
@@ -409,6 +414,7 @@ path = "src/bin/ai_skirmish_gate.rs"
 [[bin]]
 name = "shell_smoke_gate"
 path = "src/bin/shell_smoke_gate.rs"
+required-features = ["host-residuals"]
 
 [[bin]]
 name = "executable_smoke_gate"

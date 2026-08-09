@@ -364,10 +364,6 @@ impl Module for TechBuildingBehaviorModule {
     }
 }
 
-// Thread safety
-unsafe impl Send for TechBuildingBehavior {}
-unsafe impl Sync for TechBuildingBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

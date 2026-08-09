@@ -2462,8 +2462,7 @@ pub fn simulate_credits_menu_prepare_skip() -> bool {
 /// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
 /// (C++ named layout hit; ESC skip latches via residual). Not `simulate_*` first.
 pub fn drive_os_wnd_credits_menu_skip_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
     if !clicked {
         return false;
     }
@@ -2471,8 +2470,7 @@ pub fn drive_os_wnd_credits_menu_skip_like_cpp() -> bool {
 }
 
 pub fn drive_os_wnd_credits_menu_finished_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
     if !clicked {
         return false;
     }
