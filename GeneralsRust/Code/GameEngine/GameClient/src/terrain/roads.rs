@@ -2160,6 +2160,33 @@ impl RoadManager {
         }
     }
 
+    /// Iterate visible roads/segments in stacking order for W3D GPU overlay bake.
+    pub fn for_each_visible_overlay_source<F>(&self, mut visitor: F)
+    where
+        F: FnMut(&Road, &RoadSegment),
+    {
+        let mut ordered: Vec<(u8, RoadSegmentId)> = Vec::new();
+        for segment in self.segments.values() {
+            let Some(road) = self.roads.get(&segment.road_id) else {
+                continue;
+            };
+            if !road.visible {
+                continue;
+            }
+            ordered.push((road.priority, segment.id));
+        }
+        ordered.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        for (_, segment_id) in ordered {
+            let Some(segment) = self.segments.get(&segment_id) else {
+                continue;
+            };
+            let Some(road) = self.roads.get(&segment.road_id) else {
+                continue;
+            };
+            visitor(road, segment);
+        }
+    }
+
     /// Export sampled road points for minimap/static map overlays.
     pub fn snapshot_minimap_samples(&self, samples_per_segment: u32) -> Vec<RoadMinimapSample> {
         let samples_per_segment = samples_per_segment.max(2);

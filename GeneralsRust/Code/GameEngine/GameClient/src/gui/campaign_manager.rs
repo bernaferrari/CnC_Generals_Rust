@@ -448,6 +448,11 @@ impl CampaignManager {
             .map(|mission| mission.map_name.clone())
     }
 
+    /// Number of campaigns loaded from Campaign.ini.
+    pub fn campaign_count(&self) -> usize {
+        self.campaign_list.len()
+    }
+
     pub fn get_current_mission_number(&self) -> Option<i32> {
         self.current_mission.map(|idx| idx as i32)
     }
@@ -514,6 +519,18 @@ impl CampaignManager {
                 .map(|c| c.is_challenge_campaign)
                 .unwrap_or(false);
             xfer.xfer_bool(&mut is_challenge)?;
+            if is_challenge {
+                // C++ xferSnapshot(TheChallengeGameInfo) — map + slot0 template.
+                let (mut map, mut template) =
+                    crate::gui::challenge_game_info::snapshot_map_and_template();
+                xfer.xfer_ascii_string(&mut map)?;
+                xfer.xfer_int(&mut template)?;
+                if xfer.is_loading() {
+                    crate::gui::challenge_game_info::restore_map_and_template(map, template);
+                }
+            } else if xfer.is_loading() {
+                crate::gui::challenge_game_info::clear_challenge_game_info();
+            }
         }
 
         if version >= 5 {

@@ -148,6 +148,37 @@ pub fn with_window_manager_ref<R>(f: impl FnOnce(&WindowManager) -> R) -> R {
     })
 }
 
+/// OS mouse → `TheWindowManager` hit-test + gadget input.
+///
+/// C++ `WindowXlat` turns `RAW_MOUSE_*` into `winSendInputMsg`. Shell active
+/// consumes the click (LookAt/world command must not also fire).
+pub fn dispatch_os_mouse_to_window_manager(
+    msg: WindowMessage,
+    x: i32,
+    y: i32,
+) -> WindowInputReturnCode {
+    let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
+    let rc = with_window_manager(|manager| manager.process_mouse_event(msg, x, y, data));
+    if crate::gui::shell::get_shell().is_shell_active() {
+        WindowInputReturnCode::Used
+    } else {
+        rc
+    }
+}
+
+/// OS key → focused window `GWM_CHAR` (C++ `WindowXlat` RAW_KEY_DOWN/UP).
+///
+/// `state` is the C++ key-state byte (`KEY_STATE_DOWN=0x02`, `KEY_STATE_UP=0x01`).
+/// Shell active consumes the key so world hotkeys do not also fire.
+pub fn dispatch_os_key_to_window_manager(key: u8, state: u8) -> WindowInputReturnCode {
+    let rc = with_window_manager(|manager| manager.process_key_event(key, state));
+    if crate::gui::shell::get_shell().is_shell_active() {
+        WindowInputReturnCode::Used
+    } else {
+        rc
+    }
+}
+
 fn apply_draw_callback_override(window_name: &str, draw: fn(&GameWindow, &WindowInstanceData)) {
     with_window_manager(|manager| {
         if let Some(window) = manager.find_window_by_name(window_name) {
@@ -2491,8 +2522,15 @@ impl WindowManager {
         }
     }
 
-    fn bind_window_callbacks(&self, window: &mut GameWindow, window_def: &WindowDefinition) {
-        if !window_def.system_callback.is_empty() {
+    pub(crate) fn bind_window_callbacks(
+        &self,
+        window: &mut GameWindow,
+        window_def: &WindowDefinition,
+    ) {
+        // C++ parseSystemCallback: TheFunctionLexicon->gameWinSystemFunc(nameToKey(str)).
+        // "[None]" is not in the lexicon → NULL → createWindow skips winSetSystemFunc
+        // and gadgets keep GadgetPushButtonSystem from gogoGadget*.
+        if !is_none_callback_name(&window_def.system_callback) {
             let name = window_def.system_callback.as_str();
             match name {
                 "GameWinDefaultSystem" => {
@@ -2916,7 +2954,7 @@ impl WindowManager {
             }
         }
 
-        if !window_def.input_callback.is_empty() {
+        if !is_none_callback_name(&window_def.input_callback) {
             let name = window_def.input_callback.as_str();
             match name {
                 "GameWinDefaultInput" => {
@@ -3223,7 +3261,7 @@ impl WindowManager {
             }
         }
 
-        if !window_def.tooltip_callback.is_empty() {
+        if !is_none_callback_name(&window_def.tooltip_callback) {
             let name = window_def.tooltip_callback.as_str();
             match name {
                 "GameWinDefaultTooltip" => {
@@ -3236,7 +3274,7 @@ impl WindowManager {
             }
         }
 
-        if !window_def.draw_callback.is_empty() {
+        if !is_none_callback_name(&window_def.draw_callback) {
             let name = window_def.draw_callback.as_str();
             match name {
                 "GameWinDefaultDraw" => {
@@ -4884,6 +4922,12 @@ impl WindowManager {
     }
 }
 
+/// C++ WND `"[None]"` / empty string: FunctionLexicon lookup fails → NULL callback.
+fn is_none_callback_name(name: &str) -> bool {
+    let name = name.trim();
+    name.is_empty() || name.eq_ignore_ascii_case("[none]")
+}
+
 fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(current_dir) = std::env::current_dir() {
@@ -5232,7 +5276,7 @@ mod tests {
         TEST_MOUSE_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .expect("test mouse lock poisoned")
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]
@@ -5263,6 +5307,41 @@ mod tests {
         assert_eq!(edit_data.input_callback_string, "GameWinDefaultInput");
         assert_eq!(edit_data.tooltip_callback_string, "GameWinDefaultTooltip");
         assert_eq!(edit_data.draw_callback_string, "W3DNoDraw");
+    }
+
+    #[test]
+    fn bind_none_callback_does_not_overwrite_existing_system_like_cpp() {
+        use std::cell::Cell;
+
+        let manager = WindowManager::new();
+        let mut window = GameWindow::new();
+        let hit = Rc::new(Cell::new(false));
+        {
+            let hit = Rc::clone(&hit);
+            window.set_system_callback(move |_, _, _, _| {
+                hit.set(true);
+                WindowMsgHandled::Handled
+            });
+        }
+        window.set_edit_data(Some(GameWindowEditData::default()));
+        let window_def = WindowDefinition {
+            system_callback: "[None]".to_string(),
+            input_callback: "[None]".to_string(),
+            tooltip_callback: "[None]".to_string(),
+            draw_callback: "[None]".to_string(),
+            ..WindowDefinition::default()
+        };
+        manager.bind_window_callbacks(&mut window, &window_def);
+
+        let edit_data = window.get_edit_data().unwrap();
+        assert_eq!(edit_data.system_callback_string, "[None]");
+        assert_eq!(edit_data.input_callback_string, "[None]");
+
+        let _ = window.send_system_message(WindowMessage::GadgetSelected, 1, 0);
+        assert!(
+            hit.get(),
+            "C++ createWindow skips winSetSystemFunc when SYSTEMCALLBACK=[None]"
+        );
     }
 
     #[test]
@@ -6947,6 +7026,206 @@ mod tests {
 
         let found = manager.get_window_by_id(id).unwrap();
         assert!(Rc::ptr_eq(&found, &first));
+    }
+
+    #[test]
+    fn os_mouse_dispatch_selects_push_button_when_shell_inactive() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        let clicked = Arc::new(AtomicBool::new(false));
+        with_window_manager(|manager| {
+            manager.reset();
+            let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
+            let mut button = PushButton::new(99, 0, 0, 80, 30);
+            button.set_triggers_on_mouse_down(true);
+            let flag = Arc::clone(&clicked);
+            button.set_callback(Box::new(move |_| flag.store(true, Ordering::SeqCst)));
+            window
+                .borrow_mut()
+                .set_widget(WindowWidget::PushButton(button));
+            assert!(
+                window.borrow().point_in_window(20, 20),
+                "test click must land inside created window"
+            );
+            let rc = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+            assert_eq!(rc, WindowInputReturnCode::Used);
+        });
+        assert!(
+            clicked.load(Ordering::SeqCst),
+            "OS LeftDown must hit-test the push button and fire GadgetSelected"
+        );
+        let wrapped = dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20);
+        assert_eq!(wrapped, WindowInputReturnCode::Used);
+        crate::gui::shell::get_shell().set_shell_active(true);
+    }
+
+    #[test]
+    fn os_click_named_window_hit_tests_widget_tree_and_selects_owner() {
+        use crate::gui::shell::main_menu::{
+            dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
+            reset_os_wnd_widget_tree_nav_for_tests,
+        };
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let _lock = lock_test_mouse();
+        reset_os_wnd_widget_tree_nav_for_tests();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        let selected = Arc::new(AtomicBool::new(false));
+        let button_name = "TestMenu.wnd:ButtonStart";
+        with_window_manager(|manager| {
+            manager.reset();
+            let parent = manager.create_window(None, 0, 0, 200, 80).unwrap();
+            let flag = Arc::clone(&selected);
+            parent.borrow_mut().set_system_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::GadgetSelected {
+                    flag.store(true, Ordering::SeqCst);
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+            let id = manager
+                .gogo_gadget_push_button(Some(&parent), (10, 10), (80, 30))
+                .expect("push button");
+            let button = manager.get_window_by_id(id).expect("button window");
+            button.borrow_mut().set_name(button_name);
+            let (sx, sy) = button.borrow().get_screen_position();
+            let (w, h) = button.borrow().get_size();
+            let hit = manager
+                .get_window_under_cursor(sx + w / 2, sy + h / 2, false)
+                .expect("hit");
+            assert!(
+                Rc::ptr_eq(&hit, &button),
+                "center of named gadget must be the get_window_under_cursor hit"
+            );
+        });
+        assert!(
+            dispatch_os_click_named_window(button_name),
+            "named click must hit-test the live gadget"
+        );
+        assert!(
+            last_os_wnd_widget_tree_click_ok(),
+            "LeftDown/Up must be consumed by the WND widget tree"
+        );
+        assert!(
+            selected.load(Ordering::SeqCst),
+            "owner must receive GBM_SELECTED without simulate_*"
+        );
+        assert!(!dispatch_os_click_named_window("TestMenu.wnd:Missing"));
+        assert!(!last_os_wnd_widget_tree_click_ok());
+        crate::gui::shell::get_shell().set_shell_active(true);
+    }
+
+    #[test]
+    fn os_click_named_window_rejects_when_another_window_covers_hit() {
+        use crate::gui::shell::main_menu::{
+            dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
+            reset_os_wnd_widget_tree_nav_for_tests,
+        };
+
+        let _lock = lock_test_mouse();
+        reset_os_wnd_widget_tree_nav_for_tests();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        with_window_manager(|manager| {
+            manager.reset();
+            let named = manager.create_window(None, 10, 10, 80, 30).unwrap();
+            named.borrow_mut().set_name("Covered.wnd:Button");
+            named
+                .borrow_mut()
+                .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
+            let cover = manager.create_window(None, 10, 10, 80, 30).unwrap();
+            cover.borrow_mut().set_status(WindowStatus::ABOVE);
+            cover.borrow_mut().set_name("Covered.wnd:Blocker");
+        });
+        assert!(
+            !dispatch_os_click_named_window("Covered.wnd:Button"),
+            "named click must fail when get_window_under_cursor is not the named gadget"
+        );
+        assert!(!last_os_wnd_widget_tree_click_ok());
+        crate::gui::shell::get_shell().set_shell_active(true);
+    }
+
+    #[test]
+    fn note_os_wnd_widget_tree_hit_latches_sticky_nav() {
+        use crate::gui::shell::main_menu::{
+            note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok,
+            reset_os_wnd_widget_tree_nav_for_tests,
+        };
+
+        let _lock = lock_test_mouse();
+        reset_os_wnd_widget_tree_nav_for_tests();
+        with_window_manager(|manager| {
+            manager.reset();
+            let _ = manager.create_window(None, 0, 0, 80, 30).unwrap();
+        });
+        assert!(note_os_wnd_widget_tree_hit(40, 15));
+        assert!(os_wnd_widget_tree_nav_ok());
+        assert!(!note_os_wnd_widget_tree_hit(400, 400));
+        assert!(
+            os_wnd_widget_tree_nav_ok(),
+            "sticky nav must survive a later miss"
+        );
+    }
+
+    #[test]
+    fn os_mouse_dispatch_consumed_when_shell_active() {
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(true);
+        let rc = dispatch_os_mouse_to_window_manager(WindowMessage::MousePos, 4, 4);
+        assert_eq!(rc, WindowInputReturnCode::Used);
+    }
+
+    #[test]
+    fn os_key_dispatch_enter_reaches_focused_window_when_shell_inactive() {
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(false);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        with_window_manager(|manager| {
+            manager.reset();
+            let window = manager.create_window(None, 0, 0, 100, 40).unwrap();
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => {
+                        write_input_focus_response(data1, data2, true)
+                    }
+                    _ => WindowMsgHandled::Ignored,
+                });
+            {
+                let seen = Rc::clone(&seen);
+                window
+                    .borrow_mut()
+                    .set_input_callback(move |_, msg, data1, data2| {
+                        seen.borrow_mut().push((msg, data1, data2));
+                        WindowMsgHandled::Handled
+                    });
+            }
+            manager.set_focus(Some(&window)).unwrap();
+            let rc = manager.process_key_event(13, 0x02);
+            assert_eq!(rc, WindowInputReturnCode::Used);
+        });
+        let wrapped = dispatch_os_key_to_window_manager(13, 0x02);
+        assert_eq!(wrapped, WindowInputReturnCode::Used);
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[
+                (WindowMessage::Char, 13, 0x02),
+                (WindowMessage::Char, 13, 0x02)
+            ]
+        );
+        crate::gui::shell::get_shell().set_shell_active(true);
+    }
+
+    #[test]
+    fn os_key_dispatch_consumed_when_shell_active() {
+        let _lock = lock_test_mouse();
+        crate::gui::shell::get_shell().set_shell_active(true);
+        let rc = dispatch_os_key_to_window_manager(0x1B, 0x01);
+        assert_eq!(rc, WindowInputReturnCode::Used);
     }
 
     #[test]

@@ -338,6 +338,12 @@ impl DataChunkInput {
         value
     }
 
+    pub fn read_unsigned_short(&mut self) -> u16 {
+        let value = self.stream.read_u16().unwrap_or(0);
+        self.decrement_data_left(2);
+        value
+    }
+
     pub fn read_ascii_string(&mut self) -> String {
         let len = self.stream.read_u16().unwrap_or(0) as usize;
         self.decrement_data_left(2);
@@ -449,6 +455,11 @@ impl DataChunkOutput {
         self.buffer.push(value);
     }
 
+    /// C++ `DataChunkOutput::writeUnsignedShort` / raw i16 arrays.
+    pub fn write_unsigned_short(&mut self, value: u16) {
+        self.buffer.extend_from_slice(&value.to_le_bytes());
+    }
+
     pub fn write_ascii_string(&mut self, value: &str) {
         let len = value.len() as u16;
         self.buffer.extend_from_slice(&len.to_le_bytes());
@@ -510,5 +521,26 @@ impl DataChunkOutput {
 
     pub fn into_bytes(self) -> Vec<u8> {
         self.buffer
+    }
+
+    /// Finish a C++ `DataChunkOutput` file: `CkMp` TOC then chunk bodies.
+    pub fn into_ckmp_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"CkMp");
+        let mut names: Vec<(u32, String)> = self
+            .contents
+            .iter()
+            .map(|(name, id)| (*id, name.clone()))
+            .collect();
+        names.sort_by_key(|(id, _)| *id);
+        let count = names.len() as i32;
+        out.extend_from_slice(&count.to_le_bytes());
+        for (id, name) in names {
+            out.push(name.len() as u8);
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+        }
+        out.extend_from_slice(&self.buffer);
+        out
     }
 }

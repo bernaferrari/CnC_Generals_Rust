@@ -593,8 +593,11 @@ impl PushButton {
                         GadgetState::Normal
                     };
 
-                    // Trigger callback if mouse is still inside and we haven't triggered yet
-                    if self.mouse_inside && was_pressed && !self.triggers_on_mouse_down {
+                    // C++ GadgetPushButton GWM_LEFT_UP: GBM_SELECTED if WIN_STATE_SELECTED
+                    // (set on LeftDown) and not check-like / mouse-down-trigger. MouseLeave
+                    // already clears SELECTED; do not also require mouse_inside (WND buttons
+                    // often lack GWS_MOUSE_TRACK, so MouseEnter never sets that flag).
+                    if was_pressed && !self.triggers_on_mouse_down {
                         messages.push(GadgetMessage::Clicked { gadget_id: self.id });
                         if let Some(ref callback) = self.callback {
                             callback(self.id);
@@ -1260,6 +1263,28 @@ mod tests {
             [GadgetMessage::RightClicked { gadget_id: 1 }]
         ));
         assert_eq!(button.state(), GadgetState::Hovered);
+    }
+
+    #[test]
+    fn left_up_fires_clicked_from_selected_without_mouse_enter_like_cpp() {
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        let down = button.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Left,
+        });
+        assert!(down.is_empty());
+        assert!(!button.is_mouse_inside());
+
+        let up = button.handle_input(&InputEvent::MouseUp {
+            x: 50,
+            y: 15,
+            button: MouseButton::Left,
+        });
+        assert!(matches!(
+            up.as_slice(),
+            [GadgetMessage::Clicked { gadget_id: 1 }]
+        ));
     }
 
     #[test]

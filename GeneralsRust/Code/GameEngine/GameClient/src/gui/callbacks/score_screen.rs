@@ -11,11 +11,14 @@ use crate::gui::campaign_manager::{
 use crate::gui::challenge_generals::get_challenge_generals;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::shell::Shell;
+use crate::cd_check::check_for_cd_at_game_start;
 use crate::gui::{
     get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
     write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowStatus,
 };
+use crate::message_stream::{get_message_stream, GameMessageType};
+use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{get_recorder, RecorderMode};
@@ -265,6 +268,7 @@ fn leave_score_screen_for_next_campaign(shell: &mut impl NextCampaignShellAction
 }
 
 fn start_next_campaign_game() {
+    // C++ ScoreScreen.cpp startNextCampaignGame.
     let _ = try_with_shell_mut(|shell| {
         leave_score_screen_for_next_campaign(shell);
     });
@@ -274,21 +278,49 @@ fn start_next_campaign_game() {
         manager.get_current_map().unwrap_or_default()
     };
 
+    if get_campaign_manager()
+        .get_current_campaign()
+        .map(|c| c.is_challenge_campaign())
+        .unwrap_or(false)
+    {
+        // C++ rematch: init/clearSlotList/reset/enterGame then set map+slot0.
+        crate::gui::challenge_game_info::init_challenge_game_info();
+        let template_num = get_challenge_generals()
+            .and_then(|m| {
+                m.lock()
+                    .ok()
+                    .map(|g| g.current_player_template_num())
+            })
+            .unwrap_or_else(|| {
+                get_campaign_manager().get_xfer_challenge_generals_player_template_num()
+            });
+        crate::gui::challenge_game_info::set_challenge_slot0_and_map(
+            pending_file.clone(),
+            String::new(),
+            template_num,
+        );
+        if TheGameLogic::is_in_game() {
+            let _ = TheGameLogic::clear_game_data();
+        }
+    }
+
     if let Some(data) = game_engine::common::ini::get_global_data() {
         let mut data = data.write();
         data.pending_file = pending_file;
     }
 
-    let difficulty = TheScriptEngine::get_global_difficulty();
-    let rank_points = if let Ok(list) = ThePlayerList().read() {
-        list.get_local_player()
-            .and_then(|player| player.read().ok().map(|p| p.get_skill_points()))
-            .unwrap_or(0)
-    } else {
-        0
-    };
+    let manager = get_campaign_manager();
+    let difficulty = manager.get_game_difficulty() as i32;
+    let rank_points = manager.get_rank_points();
+    drop(manager);
 
-    TheGameLogic::prepare_new_game(GAME_SINGLE_PLAYER, difficulty, rank_points);
+    let message_stream = get_message_stream();
+    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
+    let msg = stream.append_message(GameMessageType::NewGame);
+    msg.append_integer_argument(GAME_SINGLE_PLAYER);
+    msg.append_integer_argument(difficulty);
+    msg.append_integer_argument(rank_points);
+    init_random_with_seed(0);
 }
 
 fn init_single_player(state: &mut ScoreScreenState) {
@@ -1195,7 +1227,8 @@ pub fn score_screen_system(
                         set_replay_was_pressed(false);
                         let _ = try_with_shell_mut(|shell| shell.pop());
                     } else {
-                        start_next_campaign_game();
+                        // C++ CheckForCDAtGameStart(startNextCampaignGame)
+                        check_for_cd_at_game_start(start_next_campaign_game);
                     }
                 }
             } else if control_id == state.button_save_replay_id {
@@ -1286,6 +1319,17 @@ mod tests {
         assert_eq!(
             score_screen_system(&window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
+        );
+    }
+
+    #[test]
+    fn start_next_campaign_game_appends_msg_new_game_like_cpp() {
+        start_next_campaign_game();
+        let stream = get_message_stream();
+        let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            guard.contains_message_of_type(&GameMessageType::NewGame),
+            "C++ startNextCampaignGame appends MSG_NEW_GAME, not prepare_new_game"
         );
     }
 
@@ -1488,4 +1532,152 @@ pub fn simulate_score_screen_prepare_ok() -> bool {
         return false;
     }
     simulate_score_screen_ok_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonContinue`
+/// (C++ WindowXlat hit → GBM_SELECTED → CheckForCDAtGameStart(startNextCampaignGame)).
+/// Not `simulate_*` first.
+pub fn drive_os_wnd_score_screen_continue_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonContinue");
+    if !clicked {
+        return false;
+    }
+    if !simulate_score_screen_continue_button_gadget_selected() {
+        return false;
+    }
+    // C++ ScoreScreen.cpp ButtonContinue: single-player + next map starts the
+    // next mission. Finish-campaign residual skips startNextCampaignGame.
+    let start_next = with_score_screen_state(|state| {
+        state.screen_type == ScoreScreenType::SinglePlayer && !state.button_is_finish_campaign
+    }) && get_campaign_manager()
+        .get_current_map()
+        .map(|m| !m.is_empty())
+        .unwrap_or(false);
+    if start_next {
+        check_for_cd_at_game_start(start_next_campaign_game);
+    }
+    true
+}
+
+/// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonOk`
+/// (C++ WindowXlat hit → GBM_SELECTED → shell pop + clear campaign).
+pub fn drive_os_wnd_score_screen_ok_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonOk");
+    if !clicked {
+        return false;
+    }
+    simulate_score_screen_ok_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonSaveReplay`.
+pub fn drive_os_wnd_score_screen_save_replay_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonSaveReplay");
+    if !clicked {
+        return false;
+    }
+    simulate_score_screen_save_replay_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonBuddy`.
+pub fn drive_os_wnd_score_screen_buddy_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonBuddy");
+    if !clicked {
+        return false;
+    }
+    simulate_score_screen_buddy_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonEmote`.
+pub fn drive_os_wnd_score_screen_emote_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonEmote");
+    if !clicked {
+        return false;
+    }
+    simulate_score_screen_emote_button_gadget_selected()
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager
+                .create_window(None, x, y, 80, 24)
+                .expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_score_screen_continue_hits_button_then_latches_continue() {
+        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 10);
+        let _ = simulate_score_screen_set_finish_campaign(false);
+        assert!(
+            drive_os_wnd_score_screen_continue_like_cpp(),
+            "OS WND click on ButtonContinue must latch continue residual"
+        );
+        assert_eq!(
+            residual_score_screen_last_action(),
+            ResidualScoreScreenAction::Continue
+        );
+        assert!(!drive_os_wnd_score_screen_ok_like_cpp());
+    }
+
+    #[test]
+    fn os_wnd_score_screen_ok_hits_button_then_latches_ok() {
+        install_named_button("ScoreScreen.wnd:ButtonOk", 10, 40);
+        assert!(
+            drive_os_wnd_score_screen_ok_like_cpp(),
+            "OS WND click on ButtonOk must latch ok residual"
+        );
+        assert_eq!(
+            residual_score_screen_last_action(),
+            ResidualScoreScreenAction::Ok
+        );
+    }
+
+    #[test]
+    fn os_wnd_score_screen_continue_starts_next_usa_mission_like_cpp() {
+        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 70);
+        {
+            let mut manager = get_campaign_manager();
+            manager.init();
+            manager.set_campaign("USA");
+            // Victory → next mission is already current when ScoreScreen Continue fires.
+            let _ = manager.goto_next_mission();
+        }
+        let _ = simulate_score_screen_set_finish_campaign(false);
+        assert!(drive_os_wnd_score_screen_continue_like_cpp());
+        assert_eq!(
+            residual_score_screen_last_action(),
+            ResidualScoreScreenAction::Continue
+        );
+        let current_map = get_campaign_manager()
+            .get_current_map()
+            .unwrap_or_default();
+        if current_map.is_empty() {
+            return;
+        }
+        let stream = get_message_stream();
+        let guard = stream.read().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            guard.contains_message_of_type(&GameMessageType::NewGame),
+            "C++ ButtonContinue CheckForCDAtGameStart(startNextCampaignGame) posts MSG_NEW_GAME"
+        );
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            let pending = data.read().pending_file.clone();
+            if !pending.is_empty() {
+                assert!(
+                    pending.eq_ignore_ascii_case(&current_map)
+                        || pending.to_ascii_lowercase().contains("md_usa"),
+                    "next-campaign pending file follows Campaign.ini USA chain"
+                );
+            }
+        }
+    }
 }

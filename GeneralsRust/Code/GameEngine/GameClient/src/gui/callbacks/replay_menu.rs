@@ -677,3 +677,102 @@ pub fn simulate_replay_menu_prepare_load(slot_index: i32) -> bool {
     }
     simulate_replay_menu_load_button_gadget_selected()
 }
+
+/// Human click-through: OS LeftDown/Up on `ListboxReplayFiles` then `ButtonLoadReplay`.
+pub fn drive_os_wnd_replay_menu_prepare_load_like_cpp(slot_index: i32) -> bool {
+    if slot_index < 0 {
+        return false;
+    }
+    let clicked_list =
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles");
+    let clicked_load =
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonLoadReplay");
+    if !clicked_list && !clicked_load {
+        return false;
+    }
+    if clicked_list && !simulate_replay_menu_select_slot(slot_index) {
+        return false;
+    }
+    if clicked_load || clicked_list {
+        return simulate_replay_menu_load_button_gadget_selected()
+            || simulate_replay_menu_prepare_load(slot_index);
+    }
+    false
+}
+
+pub fn drive_os_wnd_replay_menu_back_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonBack");
+    if !clicked {
+        return false;
+    }
+    simulate_replay_menu_back_button_gadget_selected()
+}
+
+pub fn drive_os_wnd_replay_menu_delete_like_cpp(slot_index: i32) -> bool {
+    let clicked_list =
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles");
+    let clicked_del =
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonDeleteReplay");
+    if !clicked_list && !clicked_del {
+        return false;
+    }
+    if clicked_list {
+        let _ = simulate_replay_menu_select_slot(slot_index);
+    }
+    simulate_replay_menu_delete_button_gadget_selected()
+}
+
+pub fn drive_os_wnd_replay_menu_copy_like_cpp(slot_index: i32) -> bool {
+    let clicked_list =
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ListboxReplayFiles");
+    let clicked_copy =
+        crate::gui::dispatch_os_click_named_window("ReplayMenu.wnd:ButtonCopyReplay");
+    if !clicked_list && !clicked_copy {
+        return false;
+    }
+    if clicked_list {
+        let _ = simulate_replay_menu_select_slot(slot_index);
+    }
+    simulate_replay_menu_copy_button_gadget_selected()
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_replay_menu_prepare_load_hits_list_and_load() {
+        install_named_button("ReplayMenu.wnd:ListboxReplayFiles", 10, 10);
+        install_named_button("ReplayMenu.wnd:ButtonLoadReplay", 10, 40);
+        assert!(
+            drive_os_wnd_replay_menu_prepare_load_like_cpp(0),
+            "OS WND clicks on list + Load must latch Load residual"
+        );
+        assert_eq!(residual_replay_menu_selected_slot(), Some(0));
+        assert_eq!(
+            residual_replay_menu_last_action(),
+            ResidualReplayMenuAction::Load
+        );
+        assert!(!drive_os_wnd_replay_menu_prepare_load_like_cpp(-1));
+    }
+
+    #[test]
+    fn os_wnd_replay_menu_back_hits_button_back() {
+        install_named_button("ReplayMenu.wnd:ButtonBack", 10, 70);
+        assert!(drive_os_wnd_replay_menu_back_like_cpp());
+        assert_eq!(
+            residual_replay_menu_last_action(),
+            ResidualReplayMenuAction::Back
+        );
+        assert_eq!(residual_replay_menu_selected_slot(), None);
+    }
+}

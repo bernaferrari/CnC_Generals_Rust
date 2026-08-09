@@ -137,4 +137,35 @@ impl CaveSystem {
 
         None
     }
+
+    /// C++ `CaveSystem::xfer` (version 1): tracker count + each TunnelTracker snapshot.
+    pub fn xfer_game_logic(
+        &mut self,
+        xfer: &mut dyn game_engine::Xfer,
+    ) -> Result<(), game_engine::XferStatus> {
+        use game_engine::{Xfer, XferMode, XferStatus};
+        let mut count = self.trackers.len() as u16;
+        xfer.xfer_unsigned_short(&mut count)?;
+        if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+            for slot in &self.trackers {
+                let mut tracker = slot
+                    .as_ref()
+                    .and_then(|arc| arc.write().ok())
+                    .map(|g| g.clone())
+                    .unwrap_or_else(TunnelTracker::new);
+                tracker.xfer_game_logic(xfer)?;
+            }
+        } else {
+            if !self.trackers.is_empty() {
+                return Err(XferStatus::InvalidData);
+            }
+            for _ in 0..count {
+                let mut tracker = TunnelTracker::new();
+                tracker.xfer_game_logic(xfer)?;
+                self.trackers
+                    .push(Some(Arc::new(RwLock::new(tracker))));
+            }
+        }
+        Ok(())
+    }
 }

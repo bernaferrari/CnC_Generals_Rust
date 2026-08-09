@@ -759,10 +759,7 @@ fn discover_mapped_image_source_dirs(texture_size: i32) -> Vec<PathBuf> {
             direct_ini_root.join("MappedImages").join("HandCreated"),
         );
 
-        for extracted_root in [
-            root.join("windows_game/extracted_big_files/INIZH"),
-            root.join("windows_game/extracted_big_files_v2/INIZH"),
-        ] {
+        for extracted_root in crate::common::system::install_layout::extracted_asset_roots() {
             let ini_root = extracted_root.join("Data").join("INI");
             push_unique_dir(
                 &mut dirs,

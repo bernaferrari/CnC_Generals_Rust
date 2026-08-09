@@ -745,3 +745,94 @@ pub fn simulate_loading_screen_prepare_map_load(map_name: &str, percent: u8) -> 
     }
     simulate_loading_screen_set_progress(percent)
 }
+
+/// C++ LoadScreen.cpp progress gadgets (SP / shell / challenge).
+const LOADING_PROGRESS_GADGETS: &[&str] = &[
+    "SinglePlayerLoadScreen.wnd:ProgressLoad",
+    "ShellGameLoadScreen.wnd:ProgressLoad",
+    "ChallengeLoadScreen.wnd:ProgressLoad",
+];
+
+fn click_any_loading_progress_gadget() -> bool {
+    LOADING_PROGRESS_GADGETS
+        .iter()
+        .any(|name| crate::gui::dispatch_os_click_named_window(name))
+}
+
+/// Human click-through: OS LeftDown/Up on retail `ProgressLoad` then show+map+progress.
+/// C++ LoadScreen uses those named gadgets (not `simulate_*` first).
+pub fn drive_os_wnd_loading_screen_prepare_like_cpp(map_name: &str, percent: u8) -> bool {
+    if map_name.trim().is_empty() {
+        return false;
+    }
+    if !click_any_loading_progress_gadget() {
+        return false;
+    }
+    simulate_loading_screen_prepare_map_load(map_name, percent)
+}
+
+pub fn drive_os_wnd_loading_screen_progress_like_cpp(percent: u8) -> bool {
+    if !click_any_loading_progress_gadget() {
+        return false;
+    }
+    simulate_loading_screen_set_progress(percent)
+}
+
+pub fn drive_os_wnd_loading_screen_show_like_cpp() -> bool {
+    if !click_any_loading_progress_gadget() {
+        return false;
+    }
+    simulate_loading_screen_show()
+}
+
+pub fn drive_os_wnd_loading_screen_hide_like_cpp() -> bool {
+    if !click_any_loading_progress_gadget() {
+        return false;
+    }
+    simulate_loading_screen_hide()
+}
+
+pub fn drive_os_wnd_loading_screen_finish_like_cpp() -> bool {
+    if !click_any_loading_progress_gadget() {
+        return false;
+    }
+    simulate_loading_screen_finish()
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_loading_screen_prepare_hits_progress_load_then_latches_map() {
+        install_named_button("SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10);
+        assert!(
+            drive_os_wnd_loading_screen_prepare_like_cpp("maps\\MD_USA01\\MD_USA01.map", 40),
+            "OS WND click on ProgressLoad must prepare map load residual"
+        );
+        assert_eq!(
+            residual_loading_screen_map_name().as_deref(),
+            Some("maps\\MD_USA01\\MD_USA01.map")
+        );
+        assert_eq!(residual_loading_screen_progress(), 40);
+        assert!(residual_loading_screen_is_visible());
+        assert!(!drive_os_wnd_loading_screen_prepare_like_cpp("", 0));
+    }
+
+    #[test]
+    fn os_wnd_loading_screen_finish_hits_shell_progress_gadget() {
+        install_named_button("ShellGameLoadScreen.wnd:ProgressLoad", 10, 40);
+        assert!(drive_os_wnd_loading_screen_finish_like_cpp());
+        assert!(!residual_loading_screen_is_visible());
+        assert_eq!(residual_loading_screen_progress(), 100);
+    }
+}

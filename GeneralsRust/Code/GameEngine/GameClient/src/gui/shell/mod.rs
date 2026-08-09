@@ -28,7 +28,12 @@ pub use base::{
 
 // Re-export main menu types
 pub use main_menu::{
-    residual_last_campaign_difficulty, simulate_main_menu_campaign_side_button_gadget_selected,
+    dispatch_os_click_named_window, drive_os_wnd_open_challenge_menu_like_cpp,
+    drive_os_wnd_open_skirmish_like_cpp, drive_os_wnd_start_campaign_like_cpp,
+    drive_os_wnd_start_china_campaign_like_cpp, drive_os_wnd_start_gla_campaign_like_cpp,
+    drive_os_wnd_start_usa_campaign_like_cpp, last_os_wnd_widget_tree_click_ok,
+    note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok, residual_last_campaign_difficulty,
+    reveal_main_menu_first_input_like_cpp, simulate_main_menu_campaign_side_button_gadget_selected,
     simulate_main_menu_campaign_start_residual,
     simulate_main_menu_challenge_button_gadget_selected,
     simulate_main_menu_credits_button_gadget_selected,

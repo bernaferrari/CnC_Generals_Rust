@@ -2658,9 +2658,8 @@ impl RenderPipeline {
                 } else {
                     return Ok(());
                 };
-            if road_segments.is_empty() && bridge_segments.is_empty() {
-                return Ok(());
-            }
+            // Always push roads/bridges (even empty) so scorches bake like C++
+            // HeightMapRenderObjClass::updateScorches — independent of road presence.
 
             if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
                 if let Some(visual) = guard.as_mut() {
@@ -3445,6 +3444,23 @@ impl ForwardPass {
         let mut light = LightClass::directional(direction, Vec3::from_array(color), 1.0);
         light.enabled = true;
         env.add_light(Arc::new(Mutex::new(light)));
+
+        #[cfg(feature = "game_client")]
+        {
+            for pulse in game_client::fx_list::scene_dynamic_lights() {
+                if !pulse.enabled {
+                    continue;
+                }
+                // C++ map XYZ (z-up) → wgpu Y-up.
+                let position = Vec3::new(pulse.pos[0], pulse.pos[2], pulse.pos[1]);
+                let pulse_color = Vec3::from_array(pulse.color);
+                let range = pulse.far_atten_end.max(pulse.far_atten_start).max(0.1);
+                let intensity = pulse_color.max_element().max(0.01);
+                let mut point = LightClass::point(position, pulse_color, intensity, range);
+                point.enabled = true;
+                env.add_light(Arc::new(Mutex::new(point)));
+            }
+        }
 
         static LOGGED_FALLBACK_LIGHTING: AtomicBool = AtomicBool::new(false);
         if !have_metadata && !LOGGED_FALLBACK_LIGHTING.swap(true, Ordering::Relaxed) {
@@ -4831,8 +4847,10 @@ mod tests {
         assert!(
             roads.contains("presentation_frame")
                 && roads.contains("world_env")
+                && roads.contains("set_runtime_map_road_segments")
+                && !roads.contains("if road_segments.is_empty() && bridge_segments.is_empty()")
                 && !roads.contains("terrain_road_segments_snapshot"),
-            "roads must be presentation-only"
+            "roads must be presentation-only and still bake scorches when empty"
         );
         let mm = prod
             .split("fn build_minimap_terrain_base_texture")
@@ -4905,6 +4923,20 @@ mod tests {
             prod.contains("self.refresh_minimap_terrain_base()")
                 && !prod.contains("self.refresh_minimap_terrain_base(game_logic)"),
             "minimap base refresh must be presentation-only"
+        );
+    }
+
+    #[test]
+    fn light_environment_consumes_scene_dynamic_lights() {
+        let src = include_str!("render_pipeline.rs");
+        let lights = src
+            .split("fn build_light_environment")
+            .nth(1)
+            .and_then(|s| s.split("\n    fn ").next())
+            .expect("light env body");
+        assert!(
+            lights.contains("scene_dynamic_lights") && lights.contains("LightClass::point"),
+            "GPU light env must consume FXList createLightPulse pool: {lights}"
         );
     }
 

@@ -421,6 +421,59 @@ impl TunnelTracker {
     }
 
     /// Get number of active tunnels in the network.
+    /// C++ TunnelTracker::xfer via GameLogic's `game_engine::system::Xfer`.
+    pub fn xfer_game_logic(
+        &mut self,
+        xfer: &mut dyn game_engine::Xfer,
+    ) -> Result<(), game_engine::XferStatus> {
+        use game_engine::{Xfer as SysXfer, XferMode, XferStatus};
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        SysXfer::xfer_version(xfer, &mut version, current_version)?;
+        let mut list_count = self.tunnel_ids.len() as u16;
+        SysXfer::xfer_unsigned_short(xfer, &mut list_count)?;
+        match SysXfer::get_xfer_mode(xfer) {
+            XferMode::Save | XferMode::Crc => {
+                for &object_id in &self.tunnel_ids {
+                    let mut object_id = object_id;
+                    SysXfer::xfer_object_id(xfer, &mut object_id)?;
+                }
+            }
+            XferMode::Load => {
+                self.tunnel_ids.clear();
+                for _ in 0..list_count {
+                    let mut object_id: ObjectID = INVALID_ID;
+                    SysXfer::xfer_object_id(xfer, &mut object_id)?;
+                    self.tunnel_ids.push(object_id);
+                }
+            }
+            XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+        }
+        let mut contain_list_size = self.contained_ids.len() as i32;
+        SysXfer::xfer_int(xfer, &mut contain_list_size)?;
+        match SysXfer::get_xfer_mode(xfer) {
+            XferMode::Save | XferMode::Crc => {
+                for &object_id in &self.contained_ids {
+                    let mut object_id = object_id;
+                    SysXfer::xfer_object_id(xfer, &mut object_id)?;
+                }
+            }
+            XferMode::Load => {
+                self.contain_list_size = contain_list_size.max(0) as usize;
+                self.xfer_contain_list.clear();
+                self.contained_ids.clear();
+                for _ in 0..self.contain_list_size {
+                    let mut object_id: ObjectID = INVALID_ID;
+                    SysXfer::xfer_object_id(xfer, &mut object_id)?;
+                    self.xfer_contain_list.push(object_id);
+                }
+            }
+            XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+        }
+        SysXfer::xfer_unsigned_int(xfer, &mut self.tunnel_count)?;
+        Ok(())
+    }
+
     pub fn get_tunnel_count(&self) -> u32 {
         self.tunnel_count
     }

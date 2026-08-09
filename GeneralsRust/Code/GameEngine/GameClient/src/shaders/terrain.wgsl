@@ -23,6 +23,7 @@ struct VertexOutput {
     @location(1) normal: vec3<f32>,
     @location(2) tex_coords: vec2<f32>,
     @location(3) blend_weights: vec4<f32>,
+    @location(4) color: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -49,6 +50,8 @@ fn vs_main(vertex: TerrainVertex) -> VertexOutput {
     out.normal = vertex.normal;
     out.tex_coords = vertex.tex_coords;
     out.blend_weights = vertex.blend_weights;
+    // C++ HeightMap VB `diffuse` already includes doTheDynamicLight.
+    out.color = vertex.color;
     
     return out;
 }
@@ -67,9 +70,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                      color_2 * in.blend_weights.z +
                      color_3 * in.blend_weights.w;
     
-    // Simple lighting calculation
-    let light_dir = normalize(vec3<f32>(0.3, 0.7, 0.2));
-    let light_factor = max(dot(normalize(in.normal), light_dir), 0.2);
-    
-    return vec4<f32>(final_color.rgb * light_factor, final_color.a);
+    // Modulate by baked vb.diffuse (doTheDynamicLight). Do not fake-N·L again.
+    return vec4<f32>(final_color.rgb * in.color.rgb, final_color.a * in.color.a);
 }

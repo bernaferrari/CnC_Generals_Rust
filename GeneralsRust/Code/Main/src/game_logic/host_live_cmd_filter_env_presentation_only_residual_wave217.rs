@@ -81,14 +81,50 @@ pub fn honesty_live_cmd_filter_env_presentation_only_residual_pack_wave217() -> 
         && honesty_live_cmd_filter_env_presentation_only_nav_commands_residual_wave217()
 }
 
+/// Wave 217: sell identity from presentation freeze only (no live get_object).
+pub fn presentation_selected_sellable_structure_ids(
+    frame: Option<&crate::presentation_frame::PresentationFrame>,
+    selected: &[crate::game_logic::ObjectId],
+    team: crate::game_logic::Team,
+) -> Vec<crate::game_logic::ObjectId> {
+    use crate::game_logic::KindOf;
+    use crate::presentation_frame::{PresentationBuildingType, PresentationObjectType};
+    let Some(frame) = frame else {
+        // Wave 217: presentation required for sell identity.
+        return Vec::new();
+    };
+    selected
+        .iter()
+        .copied()
+        .filter(|id| {
+            frame.objects.iter().any(|o| {
+                o.id == *id
+                    && o.team == team
+                    && !o.destroyed
+                    && (crate::presentation_frame::PresentationFrame::object_has_kind(
+                        o,
+                        KindOf::Structure,
+                    ) || o.object_type == PresentationObjectType::Building)
+                    && !crate::presentation_frame::PresentationFrame::object_has_kind(
+                        o,
+                        KindOf::CommandCenter,
+                    )
+                    && o.building_type != Some(PresentationBuildingType::CommandCenter)
+            })
+        })
+        .collect()
+}
+
 /// Source residual: sell/upgrade/formation/construct filters presentation-required.
 pub fn honesty_cmd_filters_presentation_only_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
+    let helper = include_str!("host_live_cmd_filter_env_presentation_only_residual_wave217.rs");
+    if !helper.contains("Wave 217: presentation required for sell identity")
+        || !helper.contains("pub fn presentation_selected_sellable_structure_ids")
+    {
+        return false;
+    }
     let markers = [
-        (
-            "sell_fail_no_structure",
-            "Wave 217: presentation required for sell identity",
-        ),
         (
             "upgrade_fail_no_player",
             "Wave 217: presentation required for upgrade producer identity",
@@ -106,19 +142,19 @@ pub fn honesty_cmd_filters_presentation_only_source() -> bool {
         let Some(i) = eng.find(anchor) else {
             return false;
         };
-        // search nearby window (filters sit before fail strings for sell; for others broader)
         let lo = i.saturating_sub(2500);
         let hi = (i + 2500).min(eng.len());
         if !eng[lo..hi].contains(note) {
             return false;
         }
     }
-    // No live get_object left inside sell selected filter window.
     let Some(sell_i) = eng.find("\"sell\" | \"sell_selected\"") else {
         return false;
     };
     let sell_win = &eng[sell_i..sell_i + 2000.min(eng.len() - sell_i)];
     !sell_win.contains("get_object(*id)")
+        && sell_win.contains("presentation_selected_sellable_structure_ids")
+        && eng.contains("sell_fail_no_structure")
 }
 
 /// Source residual: env hints presentation-only (Wave 455: no live GameLogic dual-read).
@@ -174,6 +210,69 @@ mod tests {
         assert!(
             simulate_live_cmd_filter_env_presentation_only_honesty(),
             "cmd-filter/env presentation-only residual must latch"
+        );
+    }
+
+    #[test]
+    fn presentation_selected_sellable_structure_ids_fail_closed_without_freeze() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::gameworld_shadow::ensure_gate_damage_authority;
+        use crate::presentation_frame::PresentationFrame;
+        use glam::Vec3;
+
+        ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        let mut barracks = ThingTemplate::new("SellBarracks217");
+        barracks.set_health(1000.0);
+        barracks.add_kind_of(KindOf::Structure);
+        barracks.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("SellBarracks217".into(), barracks);
+        let mut cc = ThingTemplate::new("SellCC217");
+        cc.set_health(2000.0);
+        cc.add_kind_of(KindOf::Structure);
+        cc.add_kind_of(KindOf::CommandCenter);
+        cc.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("SellCC217".into(), cc);
+        let mut ranger = ThingTemplate::new("SellRanger217");
+        ranger.set_health(100.0);
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("SellRanger217".into(), ranger);
+
+        let bid = logic
+            .create_object(
+                "SellBarracks217",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("barracks");
+        let cid = logic
+            .create_object("SellCC217", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("cc");
+        let rid = logic
+            .create_object("SellRanger217", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("ranger");
+
+        assert!(
+            presentation_selected_sellable_structure_ids(None, &[bid], Team::USA).is_empty(),
+            "no presentation freeze → sell identity fail-closed"
+        );
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let sold = presentation_selected_sellable_structure_ids(
+            Some(&frame),
+            &[bid, cid, rid],
+            Team::USA,
+        );
+        assert_eq!(sold, vec![bid], "only non-CC structure is sellable");
+        assert!(
+            presentation_selected_sellable_structure_ids(Some(&frame), &[rid], Team::USA)
+                .is_empty()
+        );
+        assert!(
+            presentation_selected_sellable_structure_ids(Some(&frame), &[cid], Team::USA)
+                .is_empty(),
+            "command center is not sellable"
         );
     }
 }

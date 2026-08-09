@@ -80,22 +80,107 @@ impl Map {
 
     /// Load a map from file
     pub async fn load(path: &Path) -> Result<Self> {
-        let content = tokio::fs::read_to_string(path).await?;
+        let bytes = tokio::fs::read(path).await?;
+        if bytes.starts_with(b"CkMp") {
+            let doc = world_builder::MapDocument::read_ckmp(&bytes)
+                .map_err(|e| anyhow::anyhow!("CkMp load failed: {e}"))?;
+            let mut map = Self::from_map_document(doc, path)?;
+            map.file_path = Some(path.to_path_buf());
+            return Ok(map);
+        }
+        let content = String::from_utf8(bytes)?;
         let mut map: Self = serde_json::from_str(&content)?;
         map.file_path = Some(path.to_path_buf());
         Ok(map)
     }
 
-    /// Save the map to file
+    /// Save the map to a C++-shaped `.map` (CkMp HeightMapData + ObjectsList).
     pub async fn save(&mut self, path: &Path) -> Result<()> {
         self.modified_time = chrono::Utc::now();
         self.file_path = Some(path.to_path_buf());
-
-        let content = serde_json::to_string_pretty(self)?;
-        tokio::fs::write(path, content).await?;
-
+        let doc = self.to_map_document()?;
+        doc.save_to_path(path)
+            .map_err(|e| anyhow::anyhow!("CkMp save failed: {e}"))?;
         log::info!("Map saved to: {}", path.display());
         Ok(())
+    }
+
+    fn to_map_document(&self) -> Result<world_builder::MapDocument> {
+        use world_builder::{HeightMapEdit, MapDocument, MapObjectEdit};
+
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let mut height = HeightMapEdit::new(w, h, 0)?;
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let sample = self.heightmap[y as usize][x as usize].clamp(0.0, 255.0) as u8;
+                height.set_height(x as i32, y as i32, sample)?;
+            }
+        }
+        let mut doc = MapDocument::new(height);
+        for object in &self.objects {
+            let waypoint_name = object
+                .properties
+                .get("waypointName")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    if object.object_type.to_lowercase().contains("waypoint") {
+                        Some(object.name.clone())
+                    } else {
+                        None
+                    }
+                });
+            let name = if object.object_type.is_empty() {
+                object.name.clone()
+            } else {
+                object.object_type.clone()
+            };
+            doc.objects.push(MapObjectEdit {
+                name,
+                x: object.position.x,
+                y: object.position.z,
+                z: object.position.y,
+                angle: object.rotation.to_euler(glam::EulerRot::YXZ).0,
+                flags: 0,
+                properties: game_engine::common::dict::Dict::new(),
+                waypoint_name,
+            });
+        }
+        Ok(doc)
+    }
+
+    fn from_map_document(doc: world_builder::MapDocument, path: &Path) -> Result<Self> {
+        let mut settings = MapSettings::default();
+        settings.width = doc.heightmap.width.max(0) as u32;
+        settings.height = doc.heightmap.height.max(0) as u32;
+        settings.name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Map")
+            .to_string();
+        let mut map = Map::new(settings)?;
+        for y in 0..doc.heightmap.height {
+            for x in 0..doc.heightmap.width {
+                if let Some(h) = doc.heightmap.get_height(x, y) {
+                    map.set_height(x as u32, y as u32, h as f32);
+                }
+            }
+        }
+        for obj in doc.objects {
+            let mut placed = MapObject::new(
+                obj.waypoint_name.clone().unwrap_or_else(|| obj.name.clone()),
+                obj.name,
+                glam::Vec3::new(obj.x, obj.z, obj.y),
+            );
+            if let Some(wp) = obj.waypoint_name {
+                placed
+                    .properties
+                    .insert("waypointName".into(), serde_json::Value::String(wp));
+            }
+            map.add_object(placed);
+        }
+        Ok(map)
     }
 
     /// Get map dimensions
@@ -487,4 +572,39 @@ pub struct MapStatistics {
     pub max_height: f32,
     pub script_count: usize,
     pub trigger_count: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editor_save_writes_ckmp_map_like_cpp_save_to_file() {
+        let mut settings = MapSettings::default();
+        settings.width = 8;
+        settings.height = 8;
+        let mut map = Map::new(settings).unwrap();
+        map.set_height(1, 2, 55.0);
+        map.add_object(MapObject::new(
+            "Player_1_Start".into(),
+            "*Waypoints/Waypoint".into(),
+            glam::Vec3::new(10.0, 0.0, 20.0),
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("EditorSave.map");
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(map.save(&path))
+            .unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(bytes.starts_with(b"CkMp"));
+        assert!(bytes.windows(b"HeightMapData".len()).any(|w| w == b"HeightMapData"));
+        assert!(bytes.windows(b"ObjectsList".len()).any(|w| w == b"ObjectsList"));
+        let loaded = world_builder::MapDocument::load_from_path(&path).unwrap();
+        assert_eq!(loaded.heightmap.get_height(1, 2), Some(55));
+        assert_eq!(
+            loaded.objects[0].waypoint_name.as_deref(),
+            Some("Player_1_Start")
+        );
+    }
 }

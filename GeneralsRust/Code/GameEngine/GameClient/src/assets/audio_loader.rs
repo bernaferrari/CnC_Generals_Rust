@@ -142,6 +142,7 @@ pub struct Audio3DSettings {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
     pub orientation: Vector3<f32>,
+    pub min_distance: f32,
     pub max_distance: f32,
     pub rolloff_factor: f32,
     pub doppler_factor: f32,
@@ -156,6 +157,7 @@ impl Default for Audio3DSettings {
             position: Vector3::zeros(),
             velocity: Vector3::zeros(),
             orientation: Vector3::new(0.0, 0.0, -1.0),
+            min_distance: 25.0,
             max_distance: 100.0,
             rolloff_factor: 1.0,
             doppler_factor: 1.0,
@@ -817,8 +819,12 @@ impl AudioLoader {
                         y: position.y,
                         z: position.z,
                     },
-                    EmitterSettings::default()
-                        .distances((1.0, spatial_settings.max_distance.max(1.0))),
+                    EmitterSettings::default().distances((
+                        spatial_settings.min_distance.max(1.0),
+                        spatial_settings
+                            .max_distance
+                            .max(spatial_settings.min_distance.max(1.0)),
+                    )),
                 )
                 .map_err(|e| AudioError::EngineError(format!("Failed to create emitter: {}", e)))?;
             settings = settings.output_destination(&emitter);

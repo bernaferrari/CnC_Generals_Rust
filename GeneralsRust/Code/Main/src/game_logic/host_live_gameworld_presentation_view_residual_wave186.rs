@@ -210,4 +210,44 @@ mod tests {
             "live GameWorld presentation view residual must latch"
         );
     }
+
+    #[test]
+    fn presentation_view_from_shadow_reports_created_host_object() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::gameworld_shadow::{
+            ensure_gate_damage_authority, presentation_view_from_shadow, GameWorldShadow,
+        };
+        use glam::Vec3;
+
+        ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GwViewRanger186");
+        t.set_health(120.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("GwViewRanger186".into(), t);
+        let id = logic
+            .create_object(
+                "GwViewRanger186",
+                Team::USA,
+                Vec3::new(8.0, 0.0, 16.0),
+            )
+            .expect("create host object");
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let view = presentation_view_from_shadow(&shadow, 0);
+        assert!(
+            !view.entities.is_empty(),
+            "presentation_view_from_shadow must observe synced host objects"
+        );
+        assert!(
+            view.entities.iter().any(|e| e.id == id.0 || e.template.contains("GwViewRanger186")),
+            "observe-path view must include the created unit"
+        );
+        assert!(
+            view.entities.len() >= 1,
+            "entity count is the host residual stamped after shadow session"
+        );
+    }
 }

@@ -287,9 +287,10 @@ impl HeightMap {
             return 0.0;
         }
 
-        // Convert world coordinates to heightmap coordinates
-        let mut hm_x = world_x / self.scale;
-        let mut hm_y = world_y / self.scale;
+        // Convert world coordinates to heightmap coordinates.
+        // C++ adds getBorderSizeInline() so playable (0,0) samples (border, border).
+        let mut hm_x = world_x / self.scale + self.border_size as f32;
+        let mut hm_y = world_y / self.scale + self.border_size as f32;
 
         // Clamp to heightmap bounds
         let max_x = self.width.saturating_sub(1) as f32;
@@ -342,6 +343,11 @@ impl HeightMap {
         } else {
             0.0
         }
+    }
+
+    /// World-space height at a grid sample (same remapping as `get_height_at`).
+    pub fn world_height_at_index(&self, x: u32, y: u32) -> f32 {
+        self.min_height + self.get_height_at_index(x, y) * self.height_range
     }
 
     /// Set height at heightmap index
@@ -703,12 +709,13 @@ impl HeightMap {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        // Generate vertices
+        // Generate vertices at exact grid samples (world height remapping).
         for y in (min_y..=max_y).step_by(step as usize) {
             for x in (min_x..=max_x).step_by(step as usize) {
-                let world_x = x as f32 * self.scale;
-                let world_y = y as f32 * self.scale;
-                let height = self.get_height_at(world_x, world_y);
+                // C++ ADJUST_FROM_INDEX_TO_REAL(k) = (k - border) * MAP_XY_FACTOR
+                let world_x = (x as f32 - self.border_size as f32) * self.scale;
+                let world_y = (y as f32 - self.border_size as f32) * self.scale;
+                let height = self.world_height_at_index(x, y);
                 let normal = self.get_normal_at(world_x, world_y);
 
                 vertices.push(HeightMapVertex {
@@ -719,23 +726,32 @@ impl HeightMap {
             }
         }
 
-        // Generate indices for triangle strips
+        // C++ cell split is the p0→p2 diagonal (same as `get_height_at`):
+        //
+        //  p3 ----- p2
+        //   |    /  |
+        //   |  /    |
+        //  p0 ----- p1
         let width_in_vertices = (max_x - min_x) / step + 1;
         let height_in_vertices = (max_y - min_y) / step + 1;
 
         for y in 0..height_in_vertices - 1 {
             for x in 0..width_in_vertices - 1 {
                 let base = y * width_in_vertices + x;
+                let p0 = base;
+                let p1 = base + 1;
+                let p2 = base + width_in_vertices + 1;
+                let p3 = base + width_in_vertices;
 
-                // First triangle
-                indices.push(base);
-                indices.push(base + width_in_vertices);
-                indices.push(base + 1);
+                // fy > fx triangle: p0, p3, p2
+                indices.push(p0);
+                indices.push(p3);
+                indices.push(p2);
 
-                // Second triangle
-                indices.push(base + 1);
-                indices.push(base + width_in_vertices);
-                indices.push(base + width_in_vertices + 1);
+                // fy <= fx triangle: p0, p2, p1
+                indices.push(p0);
+                indices.push(p2);
+                indices.push(p1);
             }
         }
 
@@ -749,7 +765,7 @@ impl HeightMap {
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
-                let height = self.get_height_at_index(x, y) * self.max_height;
+                let height = self.world_height_at_index(x, y);
                 min_height = min_height.min(height);
                 max_height = max_height.max(height);
             }
@@ -899,6 +915,18 @@ mod tests {
     }
 
     #[test]
+    fn get_height_at_adds_border_size_like_cpp() {
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
+        heightmap.border_size = 1;
+        heightmap.set_height_at_index(1, 1, 0.5);
+        let height = heightmap.get_height_at(0.0, 0.0);
+        assert!(
+            (height - 50.0).abs() < 0.001,
+            "playable (0,0) samples index (border,border); got {height}"
+        );
+    }
+
+    #[test]
     fn test_heightmap_sampling_includes_exact_map_edges() {
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
         heightmap.set_height_at_index(3, 0, 0.25);
@@ -983,5 +1011,83 @@ mod tests {
         // Check first vertex
         assert_eq!(vertices[0].position, [0.0, 0.0, 0.0]);
         assert_eq!(vertices[0].tex_coords, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn generate_mesh_subtracts_border_size_like_cpp_adjust_from_index() {
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 10.0);
+        heightmap.border_size = 1;
+        heightmap.set_height_at_index(1, 1, 0.5);
+        let (vertices, _) = heightmap.generate_mesh(0, 0, 3, 3, 0);
+        // Index 0 → world (-border * scale) = -10
+        assert_eq!(vertices[0].position[0], -10.0);
+        assert_eq!(vertices[0].position[1], -10.0);
+        // Index 1,1 → playable origin (0,0); height matches get_height_at(0,0)
+        let origin = vertices
+            .iter()
+            .find(|v| v.position[0] == 0.0 && v.position[1] == 0.0)
+            .expect("border-adjusted origin vertex");
+        let sampled = heightmap.get_height_at(0.0, 0.0);
+        assert!((origin.position[2] - sampled).abs() < 0.001);
+    }
+
+    #[test]
+    fn generate_mesh_uses_cpp_p0_p2_split_matching_get_height_at() {
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
+        heightmap.set_height_at_index(1, 1, 0.0);
+        heightmap.set_height_at_index(2, 1, 0.0);
+        heightmap.set_height_at_index(1, 2, 1.0);
+        heightmap.set_height_at_index(2, 2, 0.0);
+
+        let (vertices, indices) = heightmap.generate_mesh(1, 1, 2, 2, 0);
+        assert_eq!(vertices.len(), 4);
+        assert_eq!(indices.len(), 6);
+        // p0,p3,p2 then p0,p2,p1
+        assert_eq!(indices, vec![0, 2, 3, 0, 3, 1]);
+
+        let sampled = heightmap.get_height_at(1.25, 1.75);
+        assert!((sampled - 50.0).abs() < 0.001);
+
+        // Upper triangle p0-p3-p2 contains (1.25, 1.75) because fy > fx.
+        let p0 = vertices[0].position;
+        let p3 = vertices[2].position;
+        let p2 = vertices[3].position;
+        let mesh_z = interpolate_z_in_triangle(
+            [p0[0], p0[1], p0[2]],
+            [p3[0], p3[1], p3[2]],
+            [p2[0], p2[1], p2[2]],
+            1.25,
+            1.75,
+        );
+        assert!(
+            (mesh_z - sampled).abs() < 0.001,
+            "mesh plane {mesh_z} must match get_height_at {sampled}"
+        );
+    }
+
+    #[test]
+    fn calculate_bounds_uses_world_height_remap() {
+        let mut heightmap = HeightMap::new(2, 2, 80.0, 1.0);
+        heightmap.min_height = 20.0;
+        heightmap.height_range = 80.0;
+        heightmap.set_height_at_index(0, 0, 0.0);
+        heightmap.set_height_at_index(1, 1, 1.0);
+        let (min, max) = heightmap.calculate_bounds(0, 0, 1, 1);
+        assert!((min.z - 20.0).abs() < 0.001);
+        assert!((max.z - 100.0).abs() < 0.001);
+    }
+
+    fn interpolate_z_in_triangle(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> f32 {
+        let v0x = b[0] - a[0];
+        let v0y = b[1] - a[1];
+        let v1x = c[0] - a[0];
+        let v1y = c[1] - a[1];
+        let v2x = x - a[0];
+        let v2y = y - a[1];
+        let den = v0x * v1y - v1x * v0y;
+        let v = (v2x * v1y - v1x * v2y) / den;
+        let w = (v0x * v2y - v2x * v0y) / den;
+        let u = 1.0 - v - w;
+        u * a[2] + v * b[2] + w * c[2]
     }
 }

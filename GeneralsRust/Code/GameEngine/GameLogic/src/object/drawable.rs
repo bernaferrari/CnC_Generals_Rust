@@ -606,7 +606,7 @@ where
     });
 }
 
-const AC_LOOP: u32 = 0x00000004;
+const AC_LOOP: u32 = 0x00000001;
 const VERY_TRANSPARENT_MATERIAL_PASS_OPACITY: Real = 0.001;
 const MATERIAL_PASS_OPACITY_FADE_SCALAR: Real = 0.8;
 
@@ -1695,6 +1695,43 @@ impl Drawable {
         Ok(())
     }
 
+    /// C++ `Drawable::getExpirationDate`.
+    pub fn expiration_date(&self) -> u32 {
+        self.expiration_date
+    }
+
+    /// C++ `Drawable::setExpirationDate`.
+    pub fn set_expiration_date(&mut self, expiration_date: u32) {
+        self.expiration_date = expiration_date;
+    }
+
+    /// C++ TracerFXNugget: walk draw modules, `getTracerDrawInterface()->setTracerParms`,
+    /// then stamp expiration on the drawable + tracer modules.
+    pub fn apply_tracer_parms(
+        &mut self,
+        speed: Real,
+        length: Real,
+        width: Real,
+        color: &RGBColor,
+        initial_opacity: Real,
+        expiration_date: u32,
+    ) -> usize {
+        self.expiration_date = expiration_date;
+        let mut applied = 0usize;
+        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+            module_handle.with_module(|module| {
+                with_draw_module_mut(module, |draw| {
+                    if let Some(tdi) = draw.get_tracer_draw_interface_mut() {
+                        tdi.set_tracer_parms(speed, length, width, color, initial_opacity);
+                        tdi.set_expiration_date(expiration_date);
+                        applied += 1;
+                    }
+                });
+            });
+        }
+        applied
+    }
+
     /// Set the world transform
     pub fn set_transform(&mut self, transform: Matrix3D) {
         let old_mtx = self.transform;
@@ -2565,6 +2602,10 @@ impl Drawable {
         self.custom_sound_ambient_off = true;
     }
 
+    pub fn get_custom_sound_ambient_dynamic_info(&self) -> Option<&DynamicAudioEventInfo> {
+        self.custom_sound_ambient_dynamic_info.as_ref()
+    }
+
     pub fn is_custom_sound_ambient_off(&self) -> Bool {
         self.custom_sound_ambient_off
     }
@@ -2587,7 +2628,8 @@ impl Drawable {
     }
 
     fn is_permanent_ambient_sound(info: &AudioEventInfo) -> bool {
-        (info.control & AC_LOOP) != 0 || info.loop_count != 1
+        // C++ AudioEventInfo::isPermanentSound: AC_LOOP && loopCount==0
+        (info.control & AC_LOOP) != 0 && info.loop_count == 0
     }
 
     fn find_or_create_audio_event_info(event_name: &str) -> Option<Arc<AudioEventInfo>> {
@@ -2974,6 +3016,14 @@ impl Drawable {
 
     pub(crate) fn bind_object_ref(&mut self, object: &Arc<RwLock<crate::object::Object>>) {
         self.object_ref = Some(Arc::downgrade(object));
+    }
+
+    /// C++ `Drawable::friend_bindToObject` + `GameLogic::bindObjectAndDrawable`.
+    pub fn friend_bind_to_object(&mut self, object: &Arc<RwLock<crate::object::Object>>) {
+        if let Ok(guard) = object.read() {
+            self.object_id = guard.get_id();
+        }
+        self.bind_object_ref(object);
     }
 
     /// Get current worldspace client bone positions

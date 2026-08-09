@@ -298,6 +298,22 @@ mod tests {
         xfer.close().unwrap();
     }
 
+    #[test]
+    fn xfer_bool_is_one_byte_like_cpp_typedef_bool() {
+        let buffer = {
+            let mut xfer = MockXferSave::new();
+            let mut flag = true;
+            xfer.xfer_bool(&mut flag).unwrap();
+            xfer.get_buffer().to_vec()
+        };
+        assert_eq!(
+            buffer.len(),
+            1,
+            "C++ Xfer::xferBool transfers sizeof(Bool)==1"
+        );
+        assert_eq!(buffer[0], 1);
+    }
+
     // ============================================================================
     // Coordinate and Region Tests
     // ============================================================================

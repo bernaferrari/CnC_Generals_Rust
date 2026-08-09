@@ -1438,8 +1438,10 @@ fn fight_enemies_with_rangers(
         any_damage = true;
     }
     let fought = any_damage || combat_destroyed;
-    // Honesty: damage/victory without ever pulling via set_position.
-    let combat_no_teleport_ok = fought && !used_teleport_pull;
+    // Honesty: never mid-fight set_position pull. Do not AND with `fought` —
+    // a cleanup wave that scores no extra damage would otherwise wipe the
+    // aggregated combat_no_teleport_ok flag (golden_skirmish_gate map path).
+    let combat_no_teleport_ok = !used_teleport_pull;
     (
         fought,
         combat_destroyed && !enemies_left,

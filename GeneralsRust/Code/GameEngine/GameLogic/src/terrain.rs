@@ -915,10 +915,23 @@ impl TerrainLogic {
     pub fn load_map_data(&mut self, map_data: crate::system::map_loader::MapData) {
         self.query_load_pending = false;
 
-        // Store heightmap
+        // Store heightmap. MapData.width/height are playable (minus 2*border);
+        // sample buffer is C++ full extent including border. Keep map_dx/dy as
+        // full stride so indexing matches WorldHeightMap::getXExtent().
         self.map_data = map_data.heightmap.clone();
-        self.map_dx = map_data.width as i32;
-        self.map_dy = map_data.height as i32;
+        let border = map_data.border_size.max(0);
+        let playable_w = map_data.width as i32;
+        let playable_h = map_data.height as i32;
+        let full_w = playable_w.saturating_add(2 * border);
+        let full_h = playable_h.saturating_add(2 * border);
+        let data_len = self.map_data.len() as i32;
+        if border > 0 && full_w > 0 && full_h > 0 && data_len == full_w.saturating_mul(full_h) {
+            self.map_dx = full_w;
+            self.map_dy = full_h;
+        } else {
+            self.map_dx = playable_w;
+            self.map_dy = playable_h;
+        }
         if let Some((&min_height, &max_height)) =
             self.map_data.iter().min().zip(self.map_data.iter().max())
         {
@@ -1184,37 +1197,39 @@ impl TerrainLogic {
         let map_x = x / MAP_XY_FACTOR;
         let map_y = y / MAP_XY_FACTOR;
 
-        // Bounds check
-        if map_x < 0.0
-            || map_y < 0.0
-            || map_x > (self.map_dx - 1).max(0) as f32
-            || map_y > (self.map_dy - 1).max(0) as f32
-        {
-            if let Some(n) = normal {
-                *n = Coord3D::new(0.0, 0.0, 1.0);
-            }
-            return 0.0;
-        }
-
         let ixf = map_x.floor();
         let iyf = map_y.floor();
         let fx = map_x - ixf;
         let fy = map_y - iyf;
 
-        let ix = ixf as i32;
-        let iy = iyf as i32;
+        // C++ BaseHeightMap: ix/iy += getBorderSizeInline(); xExtent is full width.
+        let ix = ixf as i32 + self.border_size.max(0);
+        let iy = iyf as i32 + self.border_size.max(0);
 
         let x_extent = self.map_dx;
         let y_extent = self.map_dy;
 
         let get_height_sample = |gx: i32, gy: i32| -> f32 {
-            let idx = (gy * x_extent + gx) as usize;
-            if gx >= 0 && gy >= 0 && gx < x_extent && gy < y_extent && idx < self.map_data.len() {
+            let cx = gx.clamp(0, x_extent.saturating_sub(1).max(0));
+            let cy = gy.clamp(0, y_extent.saturating_sub(1).max(0));
+            let idx = (cy * x_extent + cx) as usize;
+            if idx < self.map_data.len() {
                 self.map_data[idx] as f32
             } else {
                 0.0
             }
         };
+
+        // C++ rejects ix/iy < 1 or > extent-3 (needs neighborhood for normals).
+        if x_extent >= 3
+            && y_extent >= 3
+            && (ix > x_extent - 3 || iy > y_extent - 3 || iy < 1 || ix < 1)
+        {
+            if let Some(n) = normal {
+                *n = Coord3D::new(0.0, 0.0, 1.0);
+            }
+            return get_height_sample(ix, iy) * MAP_HEIGHT_SCALE;
+        }
 
         let p0 = get_height_sample(ix, iy);
         let p1 = get_height_sample(ix + 1, iy);
@@ -3381,6 +3396,23 @@ mod tests {
         map_data.height = height;
         map_data.heightmap = heightmap;
         map_data
+    }
+
+    #[test]
+    fn get_ground_height_adds_border_size_like_cpp() {
+        // Playable 4x4, border 1 → full 6x6 sample buffer.
+        let mut heightmap = vec![0u8; 6 * 6];
+        heightmap[1 + 1 * 6] = 80;
+        let mut map_data = map_data_with_heightmap(4, 4, heightmap);
+        map_data.border_size = 1;
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data);
+        let height = terrain.get_ground_height(0.0, 0.0, None);
+        let expected = 80.0 * MAP_HEIGHT_SCALE;
+        assert!(
+            (height - expected).abs() < 0.01,
+            "world (0,0) must sample (border,border) like C++ BaseHeightMap, got {height} expected {expected}"
+        );
     }
 
     #[test]

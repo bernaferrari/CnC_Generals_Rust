@@ -248,6 +248,49 @@ fn test_checkpoint_and_recovery() {
     // Should be back at checkpoint position
 }
 
+#[test]
+fn fold_crc_bytes_leftover_1_2_3_matches_cpp_double_htonl() {
+    fn cpp_fold(data: &[u8]) -> u32 {
+        let mut crc = 0u32;
+        let full_words = data.len() / 4;
+        for chunk in data[..full_words * 4].chunks_exact(4) {
+            let word = u32::from_ne_bytes(chunk.try_into().unwrap());
+            crc = add_crc_word(crc, word);
+        }
+        let leftover = &data[full_words * 4..];
+        if !leftover.is_empty() {
+            let mut word = 0u32;
+            for (index, byte) in leftover.iter().enumerate() {
+                word = word.wrapping_add((*byte as u32) << (index * 8));
+            }
+            crc = add_crc_word(crc, word.to_be());
+        }
+        crc
+    }
+
+    let cases: &[&[u8]] = &[
+        &[0xAB],
+        &[0xAB, 0xCD],
+        &[0xAB, 0xCD, 0xEF],
+        &[0x11, 0x22, 0x33, 0x44, 0xAB],
+        &[0x11, 0x22, 0x33, 0x44, 0xAB, 0xCD],
+        &[0x11, 0x22, 0x33, 0x44, 0xAB, 0xCD, 0xEF],
+        b"MARKER",
+        b"OBJECT",
+    ];
+    for data in cases {
+        assert_eq!(
+            fold_crc_bytes(0, data),
+            cpp_fold(data),
+            "fold leftover len={} data={data:?}",
+            data.len()
+        );
+    }
+
+    // Leftover 1 byte is htonl'd twice; a single addCRC of the packed word differs.
+    assert_ne!(fold_crc_bytes(0, &[0xAB]), add_crc_word(0, 0xAB));
+}
+
 // Helper types for testing
 
 #[derive(Debug, Default)]

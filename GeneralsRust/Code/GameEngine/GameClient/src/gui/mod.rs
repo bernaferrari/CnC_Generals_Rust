@@ -57,7 +57,13 @@
 pub mod animate_window_manager;
 pub mod callbacks;
 pub mod campaign_manager;
+pub mod campaign_playthrough;
 pub mod challenge_generals;
+pub use campaign_playthrough::{
+    play_through_campaign, playable_challenge_campaign_names, resolve_campaign_map_file,
+    run_retail_campaign_and_challenge_playthrough, start_challenge_playthrough,
+    CampaignPlaythroughReport, CampaignPlaythroughStep,
+};
 pub use challenge_generals::{
     residual_challenge_generals_bio_name_len, residual_challenge_generals_difficulty,
     residual_challenge_generals_last_action, residual_challenge_generals_starts_enabled,
@@ -86,11 +92,13 @@ pub mod gui_callbacks;
 pub mod header_template;
 pub mod ime_manager;
 pub use ime_manager::{
-    residual_ime_candidate_count, residual_ime_is_composing, residual_ime_is_enabled,
-    residual_ime_last_action, simulate_ime_candidate_list, simulate_ime_clear_candidates,
-    simulate_ime_disable, simulate_ime_enable, simulate_ime_end_composition,
-    simulate_ime_prepare_composition_cycle, simulate_ime_reset, simulate_ime_result_string,
-    simulate_ime_start_composition, simulate_ime_update_composition, ResidualImeAction,
+    drive_os_wnd_ime_clear_candidates_like_cpp, drive_os_wnd_ime_prepare_composition_cycle_like_cpp,
+    drive_os_wnd_ime_result_like_cpp, residual_ime_candidate_count, residual_ime_is_composing,
+    residual_ime_is_enabled, residual_ime_last_action, simulate_ime_candidate_list,
+    simulate_ime_clear_candidates, simulate_ime_disable, simulate_ime_enable,
+    simulate_ime_end_composition, simulate_ime_prepare_composition_cycle, simulate_ime_reset,
+    simulate_ime_result_string, simulate_ime_start_composition, simulate_ime_update_composition,
+    ResidualImeAction,
 };
 pub mod ingame_ui;
 pub mod integrated_ui_system;
@@ -102,6 +110,7 @@ pub mod menu_flags;
 pub mod menus;
 pub mod process_animate_window;
 pub mod shell;
+pub mod challenge_game_info;
 pub mod skirmish_preferences;
 pub mod skirmish_setup;
 pub mod ui_globals;
@@ -146,8 +155,9 @@ pub use game_window::{
 pub use game_window_transitions::GameWindowTransitionsHandler;
 
 pub use window_manager::{
-    with_window_manager, with_window_manager_ref, CaptureFlags, ModalWindow, TabDirection,
-    WindowLayout, WindowLayoutInfo, WindowManager,
+    dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager, with_window_manager,
+    with_window_manager_ref, CaptureFlags, ModalWindow, TabDirection, WindowLayout,
+    WindowLayoutInfo, WindowManager,
 };
 
 // Re-export font system types for convenience
@@ -164,9 +174,13 @@ pub use custom_match_preferences::CustomMatchPreferencesStore;
 pub use lan_preferences::LanPreferences;
 pub use lan_setup::get_lan_setup;
 pub use shell::{
-    get_shell, residual_last_campaign_difficulty, residual_shell_map_is_on,
-    residual_shell_map_last_action, show_shell_map_if_available,
-    simulate_main_menu_campaign_side_button_gadget_selected,
+    dispatch_os_click_named_window, drive_os_wnd_open_challenge_menu_like_cpp,
+    drive_os_wnd_open_skirmish_like_cpp, drive_os_wnd_start_campaign_like_cpp,
+    drive_os_wnd_start_china_campaign_like_cpp, drive_os_wnd_start_gla_campaign_like_cpp,
+    drive_os_wnd_start_usa_campaign_like_cpp, get_shell, last_os_wnd_widget_tree_click_ok,
+    note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok, residual_last_campaign_difficulty,
+    residual_shell_map_is_on, residual_shell_map_last_action, reveal_main_menu_first_input_like_cpp,
+    show_shell_map_if_available, simulate_main_menu_campaign_side_button_gadget_selected,
     simulate_main_menu_campaign_start_residual,
     simulate_main_menu_challenge_button_gadget_selected,
     simulate_main_menu_credits_button_gadget_selected,
@@ -182,6 +196,11 @@ pub use shell::{
     try_with_shell_mut, AnimateWindowManager, AnimationType, Color, Coord2D, GameDifficulty,
     LayoutState, ResidualShellMapAction, Shell, ShellError, ShellMenuScheme,
     ShellMenuSchemeManager, ShowSide, WindowLayout as ShellWindowLayout, WindowRect,
+};
+pub use challenge_game_info::{
+    challenge_game_info_exists, clear_challenge_game_info, ensure_challenge_game_info,
+    init_challenge_game_info, set_challenge_slot0_and_map, snapshot_map_and_template,
+    restore_map_and_template, with_challenge_game_info, with_challenge_game_info_mut,
 };
 pub use skirmish_preferences::SkirmishPreferences;
 pub use skirmish_setup::get_skirmish_setup;

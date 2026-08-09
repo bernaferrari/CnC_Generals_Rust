@@ -4,6 +4,7 @@
 //! This system divides the terrain into manageable pieces for culling, LOD,
 //! and streaming optimizations.
 
+use crate::fx_list::{do_the_dynamic_light, scene_dynamic_lights};
 use crate::terrain::{
     calculate_terrain_lod, HeightMap, TerrainConfig, TerrainError, TerrainLOD, TerrainModification,
     TerrainResult, TerrainVertex,
@@ -12,6 +13,22 @@ use glam::{Mat4, Vec3, Vec4};
 use std::collections::HashMap;
 use std::time::Instant;
 use wgpu::RenderPass;
+
+fn bgra_u32_to_rgba_f32(packed: u32) -> [f32; 4] {
+    let b = (packed & 0xFF) as f32 / 255.0;
+    let g = ((packed >> 8) & 0xFF) as f32 / 255.0;
+    let r = ((packed >> 16) & 0xFF) as f32 / 255.0;
+    let a = ((packed >> 24) & 0xFF) as f32 / 255.0;
+    [r, g, b, a]
+}
+
+fn rgba_f32_to_bgra_u32(color: [f32; 4]) -> u32 {
+    let r = (color[0].clamp(0.0, 1.0) * 255.0) as u32;
+    let g = (color[1].clamp(0.0, 1.0) * 255.0) as u32;
+    let b = (color[2].clamp(0.0, 1.0) * 255.0) as u32;
+    let a = (color[3].clamp(0.0, 1.0) * 255.0) as u32;
+    b | (g << 8) | (r << 16) | (a << 24)
+}
 
 fn falloff_weight(distance: f32, radius: f32, falloff: f32) -> f32 {
     if radius <= 0.0 {
@@ -59,6 +76,9 @@ pub struct TerrainChunk {
 
     /// Vertex data for rendering
     pub vertices: Vec<TerrainVertex>,
+
+    /// Pre-dynamic VB diffuse (C++ `vbMirror`) used each `doTheDynamicLight` bake.
+    pub base_colors: Vec<[f32; 4]>,
 
     /// Index data for triangle rendering
     pub indices: Vec<u32>,
@@ -182,6 +202,7 @@ impl TerrainChunk {
             size,
             heights: Vec::new(),
             vertices: Vec::new(),
+            base_colors: Vec::new(),
             indices: Vec::new(),
             texture_weights: Vec::new(),
             dirty: true,
@@ -202,6 +223,7 @@ impl TerrainChunk {
         }
 
         self.vertices.clear();
+        self.base_colors.clear();
         self.indices.clear();
 
         let step = self.size / (resolution as f32 - 1.0);
@@ -222,36 +244,45 @@ impl TerrainChunk {
                 // Calculate normal using central differences so lighting matches the legacy renderer.
                 let normal = self.compute_normal(tex_u, tex_v, step);
 
+                let base_color = [1.0, 1.0, 1.0, 1.0];
+                self.base_colors.push(base_color);
                 self.vertices.push(TerrainVertex::from_components(
                     Vec3::new(world_x, height, world_z),
                     normal,
                     (tex_u, tex_v),
                     [0; 4],
                     [0.0; 4],
-                    [1.0, 1.0, 1.0, 1.0],
+                    base_color,
                 ));
             }
         }
 
-        // Generate indices for triangle strips
+        // C++ cell split p0→p2 (BaseHeightMap.cpp):
+        //   p3 ----- p2
+        //    |    /  |
+        //    |  /    |
+        //   p0 ----- p1
         for z in 0..(resolution - 1) {
             for x in 0..(resolution - 1) {
                 let i = z * resolution + x;
-
-                // First triangle
-                self.indices.push(i);
-                self.indices.push(i + resolution);
-                self.indices.push(i + 1);
-
-                // Second triangle
-                self.indices.push(i + 1);
-                self.indices.push(i + resolution);
-                self.indices.push(i + resolution + 1);
+                let p0 = i;
+                let p1 = i + 1;
+                let p3 = i + resolution;
+                let p2 = i + resolution + 1;
+                self.indices.push(p0);
+                self.indices.push(p1);
+                self.indices.push(p2);
+                self.indices.push(p0);
+                self.indices.push(p2);
+                self.indices.push(p3);
             }
         }
 
         // Update bounding box
         self.update_bounds();
+
+        // C++ HeightMap::doTheDynamicLight bakes pulse lights into VB diffuse.
+        self.apply_dynamic_lights();
 
         // Update statistics
         self.stats.vertex_count = self.vertices.len() as u32;
@@ -260,6 +291,38 @@ impl TerrainChunk {
 
         self.dirty = false;
         Ok(())
+    }
+
+    /// C++ per-vertex dynamic light bake (`doTheDynamicLight`) into chunk VB colours.
+    /// Always starts from white global diffuse (`0xFFFFFFFF`) then adds pulse lights.
+    /// Map coords are C++ Z-up: `(x, y, z) = (wgpu.x, wgpu.z, wgpu.y)`.
+    pub fn apply_dynamic_lights(&mut self) {
+        let lights = scene_dynamic_lights();
+        for (i, vertex) in self.vertices.iter_mut().enumerate() {
+            let base = self.base_colors.get(i).copied().unwrap_or([1.0, 1.0, 1.0, 1.0]);
+            let base_packed = rgba_f32_to_bgra_u32(base);
+            let xyz = [vertex.position[0], vertex.position[2], vertex.position[1]];
+            let normal = [vertex.normal[0], vertex.normal[2], vertex.normal[1]];
+            let packed = if lights.is_empty() {
+                base_packed
+            } else {
+                do_the_dynamic_light(xyz, normal, base_packed, &lights)
+            };
+            vertex.color = bgra_u32_to_rgba_f32(packed);
+        }
+    }
+
+    /// C++ HeightMap fragment: texture sample * vb.diffuse (already lit).
+    #[must_use]
+    pub fn modulate_terrain_sample_by_vb_color(
+        sample_rgb: [f32; 3],
+        vb_color: [f32; 4],
+    ) -> [f32; 3] {
+        [
+            (sample_rgb[0] * vb_color[0]).clamp(0.0, 1.0),
+            (sample_rgb[1] * vb_color[1]).clamp(0.0, 1.0),
+            (sample_rgb[2] * vb_color[2]).clamp(0.0, 1.0),
+        ]
     }
 
     fn sample_height_grid(&self, x: usize, z: usize) -> f32 {
@@ -288,13 +351,16 @@ impl TerrainChunk {
         let tx = sample_x - x0 as f32;
         let tz = sample_z - z0 as f32;
 
-        let h00 = self.sample_height_grid(x0, z0);
-        let h10 = self.sample_height_grid(x1, z0);
-        let h01 = self.sample_height_grid(x0, z1);
-        let h11 = self.sample_height_grid(x1, z1);
-        let hx0 = h00 * (1.0 - tx) + h10 * tx;
-        let hx1 = h01 * (1.0 - tx) + h11 * tx;
-        hx0 * (1.0 - tz) + hx1 * tz
+        let h00 = self.sample_height_grid(x0, z0); // p0
+        let h10 = self.sample_height_grid(x1, z0); // p1
+        let h01 = self.sample_height_grid(x0, z1); // p3
+        let h11 = self.sample_height_grid(x1, z1); // p2
+        // Same plane split as HeightMap::get_height_at / C++ fy > fx upper triangle.
+        if tz > tx {
+            h01 + (1.0 - tz) * (h00 - h01) + tx * (h11 - h01)
+        } else {
+            h10 + tz * (h11 - h10) + (1.0 - tx) * (h00 - h10)
+        }
     }
 
     fn compute_normal(&self, u: f32, v: f32, step: f32) -> Vec3 {
@@ -1360,6 +1426,9 @@ impl ChunkManager {
                 } else {
                     self.stats.geometry_updates += 1;
                 }
+            } else if chunk.visible && !chunk.vertices.is_empty() {
+                // Lights fade every frame; re-bake VB like C++ updateVBForLight.
+                chunk.apply_dynamic_lights();
             }
         }
 
@@ -1514,7 +1583,8 @@ mod tests {
     }
 
     #[test]
-    fn generate_geometry_bilinearly_samples_sparse_chunk_height_fields() {
+    fn generate_geometry_uses_p0_p2_split_like_cpp_heightmap() {
+        crate::fx_list::clear_scene_dynamic_lights();
         let mut chunk = TerrainChunk::new(1, Vec3::new(32.0, 0.0, 32.0), 64.0);
         chunk.heights = vec![vec![0.0, 10.0], vec![20.0, 30.0]];
 
@@ -1526,12 +1596,97 @@ mod tests {
             center_height > 10.0 && center_height < 20.0,
             "center vertex should interpolate chunk heights, got {center_height}"
         );
+        assert_eq!(chunk.indices.len(), 3 * 3 * 2 * 3);
+        assert_eq!(chunk.indices[0], 0);
+        assert_eq!(chunk.indices[1], 1);
+        assert_eq!(chunk.indices[2], 5);
+        assert_eq!(chunk.indices[3], 0);
+        assert_eq!(chunk.indices[4], 5);
+        assert_eq!(chunk.indices[5], 4);
+        let upper = chunk.sample_height_bilinear(0.25, 0.75);
+        assert!(
+            (upper - 17.5).abs() < 0.01,
+            "upper triangle p0-p2 plane, got {upper}"
+        );
 
         let last_col_top = chunk.vertices[3].position().y;
         assert!(
             (last_col_top - 10.0).abs() < 0.001,
             "top-right corner should preserve corner height, got {last_col_top}"
         );
+    }
+
+    #[test]
+    fn generate_geometry_bakes_do_the_dynamic_light_into_vertex_color() {
+        use crate::fx_list::{
+            clear_scene_dynamic_lights, create_display_light_pulse, do_the_dynamic_light,
+            drain_display_light_pulses, scene_dynamic_lights, DisplayLightPulse,
+        };
+
+        let _ = drain_display_light_pulses();
+        clear_scene_dynamic_lights();
+        assert!(create_display_light_pulse(DisplayLightPulse {
+            pos: [0.0, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+            inner_radius: 10.0,
+            outer_radius: 80.0,
+            increase_frames: 0,
+            decay_frames: 0,
+        }));
+
+        let mut chunk = TerrainChunk::new(1, Vec3::new(0.0, 0.0, 0.0), 32.0);
+        chunk.heights = vec![vec![0.0, 0.0], vec![0.0, 0.0]];
+        chunk.generate_geometry(3).unwrap();
+        assert!(!chunk.vertices.is_empty());
+        // White global fill clamps added light; C++ vbMirror is sun-lit gray.
+        for base in &mut chunk.base_colors {
+            *base = [0.2, 0.2, 0.2, 1.0];
+        }
+        chunk.apply_dynamic_lights();
+
+        let lights = scene_dynamic_lights();
+        let v = &chunk.vertices[0];
+        let expected = do_the_dynamic_light(
+            [v.position[0], v.position[2], v.position[1]],
+            [v.normal[0], v.normal[2], v.normal[1]],
+            super::rgba_f32_to_bgra_u32([0.2, 0.2, 0.2, 1.0]),
+            &lights,
+        );
+        let expected_color = super::bgra_u32_to_rgba_f32(expected);
+        for i in 0..4 {
+            assert!(
+                (v.color[i] - expected_color[i]).abs() < 1e-5,
+                "vertex color[{i}]={} expected={}",
+                v.color[i],
+                expected_color[i]
+            );
+        }
+        assert!(
+            v.color[0] > v.color[1] + 0.05,
+            "red pulse must raise R vs G from gray base, got {:?}",
+            v.color
+        );
+
+        // Shipped wgpu FS must multiply sample by this baked color (no fake N·L).
+        let shaded = TerrainChunk::modulate_terrain_sample_by_vb_color([1.0, 1.0, 1.0], v.color);
+        assert!((shaded[0] - v.color[0]).abs() < 1e-5);
+        assert!((shaded[1] - v.color[1]).abs() < 1e-5);
+        assert!(shaded[0] > shaded[1] + 0.05);
+
+        let shader = include_str!("../shaders/terrain.wgsl");
+        assert!(
+            shader.contains("out.color = vertex.color"),
+            "terrain VS must pass baked doTheDynamicLight color"
+        );
+        assert!(
+            shader.contains("final_color.rgb * in.color.rgb"),
+            "terrain FS must modulate by vb.diffuse"
+        );
+        assert!(
+            !shader.contains("light_dir = normalize(vec3<f32>(0.3, 0.7, 0.2))"),
+            "terrain FS must not fake-N·L after HeightMap bake"
+        );
+        clear_scene_dynamic_lights();
     }
 
     #[test]

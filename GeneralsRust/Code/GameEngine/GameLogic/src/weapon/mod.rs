@@ -4701,91 +4701,110 @@ fn weapon_status_from_u32(value: u32) -> WeaponStatus {
     }
 }
 
+/// C++ `Weapon::crc` payload (Weapon.cpp). Status is commented out in C++.
+#[derive(Debug, Clone)]
+pub(crate) struct WeaponCrcSnapshot {
+    pub template_name: String,
+    pub wslot: i32,
+    pub ammo_in_clip: u32,
+    pub when_we_can_fire_again: u32,
+    pub when_pre_attack_finished: u32,
+    pub when_last_reload_started: u32,
+    pub last_fire_frame: u32,
+    pub projectile_stream_id: ObjectId,
+    pub max_shot_count: i32,
+    pub cur_barrel: i32,
+    pub num_shots_for_cur_barrel: i32,
+    pub scatter_targets_unused: Vec<i32>,
+    pub pitch_limited: bool,
+    pub leech_weapon_range_active: bool,
+}
+
+impl Weapon {
+    pub(crate) fn crc_snapshot_fields(&self) -> WeaponCrcSnapshot {
+        WeaponCrcSnapshot {
+            template_name: self.template.get_name().to_string(),
+            wslot: self.weapon_slot as i32,
+            ammo_in_clip: self.ammo_in_clip,
+            when_we_can_fire_again: self.when_we_can_fire_again,
+            when_pre_attack_finished: self.when_pre_attack_finished,
+            when_last_reload_started: self.when_last_reload_started,
+            last_fire_frame: self.last_fire_frame,
+            projectile_stream_id: self.projectile_stream_id,
+            max_shot_count: self.max_shot_count,
+            cur_barrel: self.current_barrel,
+            num_shots_for_cur_barrel: self.num_shots_for_current_barrel,
+            scatter_targets_unused: self.scatter_targets_unused.clone(),
+            pitch_limited: self.pitch_limited,
+            leech_weapon_range_active: self.leech_weapon_range_active,
+        }
+    }
+}
+
 impl Snapshotable for Weapon {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: XferVersion = 3;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
+        // C++ Weapon::crc: name, slot blob, ammo, fire/reload frames, projectile +
+        // unused laser IDs, shot/barrel, scatter list, pitch/leech. No version/status.
+        let snap = self.crc_snapshot_fields();
+        let mut name = snap.template_name;
+        xfer.xfer_ascii_string(&mut name)
             .map_err(|e| e.to_string())?;
 
-        if version >= 2 {
-            let mut template_name = self.template.get_name().to_string();
-            xfer.xfer_ascii_string(&mut template_name)
-                .map_err(|e| e.to_string())?;
+        let mut wslot = snap.wslot;
+        unsafe {
+            xfer.xfer_user(
+                (&mut wslot as *mut i32).cast::<u8>(),
+                std::mem::size_of::<i32>(),
+            )
         }
+        .map_err(|e| e.to_string())?;
 
-        let mut slot = weapon_slot_to_u32(self.weapon_slot);
-        xfer.xfer_unsigned_int(&mut slot)
+        let mut ammo = snap.ammo_in_clip;
+        xfer.xfer_unsigned_int(&mut ammo)
+            .map_err(|e| e.to_string())?;
+        let mut when_fire = snap.when_we_can_fire_again;
+        xfer.xfer_unsigned_int(&mut when_fire)
+            .map_err(|e| e.to_string())?;
+        let mut when_pre = snap.when_pre_attack_finished;
+        xfer.xfer_unsigned_int(&mut when_pre)
+            .map_err(|e| e.to_string())?;
+        let mut when_reload = snap.when_last_reload_started;
+        xfer.xfer_unsigned_int(&mut when_reload)
+            .map_err(|e| e.to_string())?;
+        let mut last_fire = snap.last_fire_frame;
+        xfer.xfer_unsigned_int(&mut last_fire)
             .map_err(|e| e.to_string())?;
 
-        let mut status = weapon_status_to_u32(self.status);
-        xfer.xfer_unsigned_int(&mut status)
+        let mut stream_id = snap.projectile_stream_id;
+        xfer.xfer_object_id(&mut stream_id)
+            .map_err(|e| e.to_string())?;
+        let mut laser_id_unused = INVALID_OBJECT_ID;
+        xfer.xfer_object_id(&mut laser_id_unused)
             .map_err(|e| e.to_string())?;
 
-        let mut ammo_in_clip = self.ammo_in_clip;
-        xfer.xfer_unsigned_int(&mut ammo_in_clip)
+        let mut max_shots = snap.max_shot_count;
+        xfer.xfer_int(&mut max_shots)
+            .map_err(|e| e.to_string())?;
+        let mut cur_barrel = snap.cur_barrel;
+        xfer.xfer_int(&mut cur_barrel)
+            .map_err(|e| e.to_string())?;
+        let mut shots_for_barrel = snap.num_shots_for_cur_barrel;
+        xfer.xfer_int(&mut shots_for_barrel)
             .map_err(|e| e.to_string())?;
 
-        let mut when_we_can_fire_again = self.when_we_can_fire_again;
-        xfer.xfer_unsigned_int(&mut when_we_can_fire_again)
-            .map_err(|e| e.to_string())?;
-
-        let mut when_pre_attack_finished = self.when_pre_attack_finished;
-        xfer.xfer_unsigned_int(&mut when_pre_attack_finished)
-            .map_err(|e| e.to_string())?;
-
-        let mut when_last_reload_started = self.when_last_reload_started;
-        xfer.xfer_unsigned_int(&mut when_last_reload_started)
-            .map_err(|e| e.to_string())?;
-
-        let mut last_fire_frame = self.last_fire_frame;
-        xfer.xfer_unsigned_int(&mut last_fire_frame)
-            .map_err(|e| e.to_string())?;
-
-        if version >= 3 {
-            let mut suspend_fx_frame = self.suspend_fx_frame;
-            xfer.xfer_unsigned_int(&mut suspend_fx_frame)
-                .map_err(|e| e.to_string())?;
-        }
-
-        let mut projectile_stream_id = self.projectile_stream_id;
-        xfer.xfer_object_id(&mut projectile_stream_id)
-            .map_err(|e| e.to_string())?;
-
-        let mut unused_laser_id = INVALID_OBJECT_ID;
-        xfer.xfer_object_id(&mut unused_laser_id)
-            .map_err(|e| e.to_string())?;
-
-        let mut max_shot_count = self.max_shot_count;
-        xfer.xfer_int(&mut max_shot_count)
-            .map_err(|e| e.to_string())?;
-
-        let mut current_barrel = self.current_barrel;
-        xfer.xfer_int(&mut current_barrel)
-            .map_err(|e| e.to_string())?;
-
-        let mut num_shots_for_current_barrel = self.num_shots_for_current_barrel;
-        xfer.xfer_int(&mut num_shots_for_current_barrel)
-            .map_err(|e| e.to_string())?;
-
-        let count = self.scatter_targets_unused.len().min(u16::MAX as usize) as u16;
-        let mut scatter_count = count;
+        let mut scatter_count = snap.scatter_targets_unused.len().min(u16::MAX as usize) as u16;
         xfer.xfer_unsigned_short(&mut scatter_count)
             .map_err(|e| e.to_string())?;
-
-        for &entry in self.scatter_targets_unused.iter().take(count as usize) {
-            let mut value = entry;
-            xfer.xfer_int(&mut value).map_err(|e| e.to_string())?;
+        for target in &snap.scatter_targets_unused {
+            let mut int_data = *target;
+            xfer.xfer_int(&mut int_data).map_err(|e| e.to_string())?;
         }
 
-        let mut pitch_limited = self.pitch_limited;
+        let mut pitch_limited = snap.pitch_limited;
         xfer.xfer_bool(&mut pitch_limited)
             .map_err(|e| e.to_string())?;
-
-        let mut leech_weapon_range_active = self.leech_weapon_range_active;
-        xfer.xfer_bool(&mut leech_weapon_range_active)
-            .map_err(|e| e.to_string())?;
-
+        let mut leech = snap.leech_weapon_range_active;
+        xfer.xfer_bool(&mut leech).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -5310,6 +5329,44 @@ mod tests {
         assert_eq!(weapon.get_name(), "TestWeapon");
         assert_eq!(weapon.get_weapon_slot(), WeaponSlotType::Primary);
         assert_eq!(weapon.get_status(), WeaponStatus::OutOfAmmo);
+    }
+
+    #[test]
+    fn weapon_crc_matches_cpp_weapon_cpp_field_order() {
+        let src = include_str!("mod.rs");
+        let crc = src
+            .split("impl Snapshotable for Weapon {")
+            .nth(1)
+            .and_then(|s| s.split("fn xfer(&mut self, xfer: &mut dyn Xfer)").next())
+            .expect("Weapon::crc");
+        assert!(crc.contains("crc_snapshot_fields"));
+        assert!(crc.contains("xfer_ascii_string"));
+        assert!(crc.contains("xfer_user"));
+        assert!(!crc.contains("xfer_version"));
+        assert!(!crc.contains("weapon_status_to_u32"));
+        let keys = [
+            "let mut ammo",
+            "let mut when_fire",
+            "let mut laser_id_unused",
+            "let mut scatter_count",
+            "let mut pitch_limited",
+            "let mut leech",
+        ];
+        let mut last = 0usize;
+        for key in keys {
+            let at = crc[last..]
+                .find(key)
+                .unwrap_or_else(|| panic!("{key} missing after offset {last}\n{crc}"));
+            last += at + key.len();
+        }
+        let weapon = Weapon::new(
+            Arc::new(WeaponTemplate::new("CrcGun".to_string())),
+            WeaponSlotType::Secondary,
+        );
+        let snap = weapon.crc_snapshot_fields();
+        assert_eq!(snap.template_name, "CrcGun");
+        assert_eq!(snap.wslot, WeaponSlotType::Secondary as i32);
+        assert_eq!(snap.ammo_in_clip, 0);
     }
 
     #[test]

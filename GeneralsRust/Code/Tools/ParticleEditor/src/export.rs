@@ -42,9 +42,14 @@ impl ParticleExporter {
                 log::info!("Exported particle system to JSON: {:?}", path);
             }
             ExportFormat::Binary => {
-                // Implement binary export
-                log::info!("Binary export not yet implemented");
-                return Err(anyhow::anyhow!("Binary export not implemented"));
+                // C++ ParticleEditor has no separate binary dump — `ShouldWriteINI`
+                // writes `_writeSingleParticleSystem` INI that the engine loads.
+                let ini_content = self.generate_ini_content(system);
+                fs::write(path, ini_content)?;
+                log::info!(
+                    "Exported particle system as C++ _writeSingleParticleSystem INI: {:?}",
+                    path
+                );
             }
             ExportFormat::Ini => {
                 let ini_content = self.generate_ini_content(system);
@@ -62,14 +67,36 @@ impl ParticleExporter {
                 log::info!("Exported particle system to JSON: {:?}", path);
             }
             ExportFormat::Binary => {
-                log::info!("Binary export not yet implemented");
-                return Err(anyhow::anyhow!("Binary export not implemented"));
+                // C++ ParticleEditor has no separate binary dump — raw path still
+                // writes `_writeSingleParticleSystem` INI text the engine loads.
+                if !data.lines().any(|line| {
+                    line.trim_start()
+                        .to_ascii_lowercase()
+                        .starts_with("particlesystem ")
+                }) {
+                    return Err(anyhow::anyhow!(
+                        "Binary export requires ParticleSystem <Name> text (C++ _writeSingleParticleSystem)"
+                    ));
+                }
+                fs::write(path, data)?;
+                log::info!(
+                    "Exported raw C++ particle INI via Binary format: {:?}",
+                    path
+                );
             }
             ExportFormat::Ini => {
-                log::info!("INI export not yet implemented for raw data");
-                return Err(anyhow::anyhow!(
-                    "INI export requires particle system object"
-                ));
+                // Raw path: accept C++ ParticleSystem INI text (HEADER + fields + End).
+                if !data.lines().any(|line| {
+                    line.trim_start()
+                        .to_ascii_lowercase()
+                        .starts_with("particlesystem ")
+                }) {
+                    return Err(anyhow::anyhow!(
+                        "INI export requires ParticleSystem <Name> text (C++ _writeSingleParticleSystem)"
+                    ));
+                }
+                fs::write(path, data)?;
+                log::info!("Exported raw C++ particle INI: {:?}", path);
             }
         }
         Ok(())
@@ -89,12 +116,21 @@ impl ParticleExporter {
         self.parse_ini_content(&content)
     }
 
-    fn parse_ini_content(&self, content: &str) -> Result<ParticleSystem> {
+    pub fn parse_ini_content(&self, content: &str) -> Result<ParticleSystem> {
         let mut system = ParticleSystem::new("ImportedParticleSystem".to_string())?;
 
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() || line.starts_with(';') {
+            if line.is_empty() || line.starts_with(';') || line.eq_ignore_ascii_case("End") {
+                continue;
+            }
+
+            // C++ `_writeSingleParticleSystem`: `ParticleSystem <Name>`
+            if let Some(rest) = line.strip_prefix("ParticleSystem") {
+                let name = rest.trim();
+                if !name.is_empty() && name != "{" {
+                    system.info.name = name.to_string();
+                }
                 continue;
             }
 
@@ -120,27 +156,69 @@ impl ParticleExporter {
         match key {
             "Name" => system.info.name = value.to_string(),
             "Priority" => system.info.priority = self.parse_priority(value)?,
-            "IsOneShot" => system.info.is_one_shot = value.parse::<i32>()? != 0,
+            "IsOneShot" => system.info.is_one_shot = Self::parse_bool_token(value)?,
             "Shader" => system.info.shader_type = self.parse_shader(value)?,
-            "ParticleType" => system.info.particle_type = self.parse_particle_type(value)?,
-            "ParticleTypeName" => system.info.particle_type_name = value.to_string(),
+            "Type" | "ParticleType" => {
+                system.info.particle_type = self.parse_particle_type(value)?
+            }
+            "ParticleName" | "ParticleTypeName" => {
+                system.info.particle_type_name = value.to_string()
+            }
 
             // Emission settings
-            "EmissionVolumeType" => {
-                system.info.emission_volume_type = self.parse_emission_volume_type(value)?
+            "VolumeType" | "EmissionVolumeType" => {
+                system.info.emission_volume_type = self.parse_emission_volume_type(value)?;
+                system.info.emission_volume = match system.info.emission_volume_type {
+                    EmissionVolumeType::Line => EmissionVolumeData::Line {
+                        start: Coord3D::default(),
+                        end: Coord3D::default(),
+                    },
+                    EmissionVolumeType::Box => EmissionVolumeData::Box {
+                        half_size: Coord3D::default(),
+                    },
+                    EmissionVolumeType::Sphere => EmissionVolumeData::Sphere { radius: 1.0 },
+                    EmissionVolumeType::Cylinder => EmissionVolumeData::Cylinder {
+                        radius: 1.0,
+                        length: 2.0,
+                    },
+                    _ => EmissionVolumeData::Point,
+                };
             }
-            "EmissionVelocityType" => {
-                system.info.emission_velocity_type = self.parse_emission_velocity_type(value)?
+            "VelocityType" | "EmissionVelocityType" => {
+                system.info.emission_velocity_type = self.parse_emission_velocity_type(value)?;
+                system.info.emission_velocity = match system.info.emission_velocity_type {
+                    EmissionVelocityType::Spherical => EmissionVelocityData::Spherical {
+                        speed: GameClientRandomVariable::constant(0.0),
+                    },
+                    EmissionVelocityType::Hemispherical => EmissionVelocityData::Hemispherical {
+                        speed: GameClientRandomVariable::constant(0.0),
+                    },
+                    EmissionVelocityType::Cylindrical => EmissionVelocityData::Cylindrical {
+                        radial: GameClientRandomVariable::constant(0.0),
+                        normal: GameClientRandomVariable::constant(0.0),
+                    },
+                    EmissionVelocityType::Outward => EmissionVelocityData::Outward {
+                        speed: GameClientRandomVariable::constant(0.0),
+                        other_speed: GameClientRandomVariable::constant(0.0),
+                    },
+                    _ => EmissionVelocityData::Ortho {
+                        x: GameClientRandomVariable::constant(0.0),
+                        y: GameClientRandomVariable::constant(0.0),
+                        z: GameClientRandomVariable::constant(0.0),
+                    },
+                };
             }
-            "IsEmissionVolumeHollow" => {
-                system.info.is_emission_volume_hollow = value.parse::<i32>()? != 0
+            "IsHollow" | "IsEmissionVolumeHollow" => {
+                system.info.is_emission_volume_hollow = Self::parse_bool_token(value)?
             }
-            "IsGroundAligned" => system.info.is_ground_aligned = value.parse::<i32>()? != 0,
+            "IsGroundAligned" => {
+                system.info.is_ground_aligned = Self::parse_bool_token(value)?
+            }
             "IsEmitAboveGroundOnly" => {
-                system.info.is_emit_above_ground_only = value.parse::<i32>()? != 0
+                system.info.is_emit_above_ground_only = Self::parse_bool_token(value)?
             }
             "IsParticleUpTowardsEmitter" => {
-                system.info.is_particle_up_towards_emitter = value.parse::<i32>()? != 0
+                system.info.is_particle_up_towards_emitter = Self::parse_bool_token(value)?
             }
 
             // System lifetime
@@ -156,72 +234,104 @@ impl ParticleExporter {
             "WindAngleChange" => system.info.wind_angle_change = value.parse()?,
             "WindAngleChangeMin" => system.info.wind_angle_change_min = value.parse()?,
             "WindAngleChangeMax" => system.info.wind_angle_change_max = value.parse()?,
+            "WindPingPongStartAngleMin" => {
+                system.info.wind_motion_start_angle_min = value.parse()?
+            }
+            "WindPingPongStartAngleMax" => {
+                system.info.wind_motion_start_angle_max = value.parse()?
+            }
+            "WindPingPongEndAngleMin" => system.info.wind_motion_end_angle_min = value.parse()?,
+            "WindPingPongEndAngleMax" => system.info.wind_motion_end_angle_max = value.parse()?,
 
             // Slave systems
             "SlaveSystem" => system.info.slave_system_name = value.to_string(),
             "SlavePosOffset" => self.parse_coord3d(value, &mut system.info.slave_pos_offset)?,
-            "AttachedSystem" => system.info.attached_system_name = value.to_string(),
+            "AttachedSystem" | "PerParticleAttachedSystem" => {
+                system.info.attached_system_name = value.to_string()
+            }
 
-            // Emission volume parameters
-            "EmissionLineStart" => {
+            // Emission volume parameters (C++ Vol* names + legacy Emission* aliases)
+            "VolLineStart" | "EmissionLineStart" => {
+                self.ensure_volume_line(&mut system.info);
                 self.parse_emission_line_start(value, &mut system.info.emission_volume)?
             }
-            "EmissionLineEnd" => {
+            "VolLineEnd" | "EmissionLineEnd" => {
+                self.ensure_volume_line(&mut system.info);
                 self.parse_emission_line_end(value, &mut system.info.emission_volume)?
             }
-            "EmissionBoxHalfSize" => {
+            "VolBoxHalfSize" | "EmissionBoxHalfSize" => {
+                self.ensure_volume_box(&mut system.info);
                 self.parse_emission_box_half_size(value, &mut system.info.emission_volume)?
             }
-            "EmissionSphereRadius" => {
+            "VolSphereRadius" | "EmissionSphereRadius" => {
+                self.ensure_volume_sphere(&mut system.info);
                 self.parse_emission_sphere_radius(value, &mut system.info.emission_volume)?
             }
-            "EmissionCylinderRadius" => {
+            "VolCylinderRadius" | "EmissionCylinderRadius" => {
+                self.ensure_volume_cylinder(&mut system.info);
                 self.parse_emission_cylinder_radius(value, &mut system.info.emission_volume)?
             }
-            "EmissionCylinderLength" => {
+            "VolCylinderLength" | "EmissionCylinderLength" => {
+                self.ensure_volume_cylinder(&mut system.info);
                 self.parse_emission_cylinder_length(value, &mut system.info.emission_volume)?
             }
 
-            // Emission velocity parameters
-            "EmissionVelocityOrthoX" => {
+            // Emission velocity parameters (C++ Vel* names + legacy aliases)
+            "VelOrthoX" | "EmissionVelocityOrthoX" => {
+                self.ensure_velocity_ortho(&mut system.info);
                 self.parse_emission_velocity_ortho_x(value, &mut system.info.emission_velocity)?
             }
-            "EmissionVelocityOrthoY" => {
+            "VelOrthoY" | "EmissionVelocityOrthoY" => {
+                self.ensure_velocity_ortho(&mut system.info);
                 self.parse_emission_velocity_ortho_y(value, &mut system.info.emission_velocity)?
             }
-            "EmissionVelocityOrthoZ" => {
+            "VelOrthoZ" | "EmissionVelocityOrthoZ" => {
+                self.ensure_velocity_ortho(&mut system.info);
                 self.parse_emission_velocity_ortho_z(value, &mut system.info.emission_velocity)?
             }
-            "EmissionVelocitySphericalSpeed" => self.parse_emission_velocity_spherical_speed(
-                value,
-                &mut system.info.emission_velocity,
-            )?,
-            "EmissionVelocityHemisphericalSpeed" => self
-                .parse_emission_velocity_hemispherical_speed(
+            "VelSpherical" | "EmissionVelocitySphericalSpeed" => {
+                self.parse_emission_velocity_spherical_speed(
                     value,
                     &mut system.info.emission_velocity,
-                )?,
-            "EmissionVelocityCylindricalRadial" => self
-                .parse_emission_velocity_cylindrical_radial(
+                )?;
+            }
+            "VelHemispherical" | "EmissionVelocityHemisphericalSpeed" => {
+                self.parse_emission_velocity_hemispherical_speed(
                     value,
                     &mut system.info.emission_velocity,
-                )?,
-            "EmissionVelocityCylindricalNormal" => self
-                .parse_emission_velocity_cylindrical_normal(
+                )?;
+            }
+            "VelCylindricalRadial" | "EmissionVelocityCylindricalRadial" => {
+                self.parse_emission_velocity_cylindrical_radial(
                     value,
                     &mut system.info.emission_velocity,
-                )?,
-            "EmissionVelocityOutwardSpeed" => self
-                .parse_emission_velocity_outward_speed(value, &mut system.info.emission_velocity)?,
-            "EmissionVelocityOutwardOtherSpeed" => self
-                .parse_emission_velocity_outward_other_speed(
+                )?;
+            }
+            "VelCylindricalNormal" | "EmissionVelocityCylindricalNormal" => {
+                self.parse_emission_velocity_cylindrical_normal(
                     value,
                     &mut system.info.emission_velocity,
-                )?,
+                )?;
+            }
+            "VelOutward" | "EmissionVelocityOutwardSpeed" => {
+                self.parse_emission_velocity_outward_speed(
+                    value,
+                    &mut system.info.emission_velocity,
+                )?;
+            }
+            "VelOutwardOther" | "EmissionVelocityOutwardOtherSpeed" => {
+                self.parse_emission_velocity_outward_other_speed(
+                    value,
+                    &mut system.info.emission_velocity,
+                )?;
+            }
 
-            // Particle parameters
+            // Particle parameters (C++ writes `Size` for start size)
             "Lifetime" => system.info.lifetime = self.parse_random_variable(value)?,
-            "StartSize" => system.info.start_size = self.parse_random_variable(value)?,
+            "Size" | "StartSize" => system.info.start_size = self.parse_random_variable(value)?,
+            "StartSizeRate" => {
+                system.info.start_size_rate = self.parse_random_variable(value)?
+            }
             "SizeRate" => system.info.size_rate = self.parse_random_variable(value)?,
             "SizeRateDamping" => {
                 system.info.size_rate_damping = self.parse_random_variable(value)?
@@ -234,6 +344,24 @@ impl ParticleExporter {
             "BurstDelay" => system.info.burst_delay = self.parse_random_variable(value)?,
             "BurstCount" => system.info.burst_count = self.parse_random_variable(value)?,
             "InitialDelay" => system.info.initial_delay = self.parse_random_variable(value)?,
+            "Alpha1" | "Alpha2" | "Alpha3" | "Alpha4" | "Alpha5" | "Alpha6" | "Alpha7"
+            | "Alpha8" => {
+                if let Some(idx) = key.chars().last().and_then(|c| c.to_digit(10)) {
+                    let i = idx as usize - 1;
+                    if i < MAX_KEYFRAMES {
+                        system.info.alpha_key[i] = self.parse_alpha_keyframe(value)?;
+                    }
+                }
+            }
+            "Color1" | "Color2" | "Color3" | "Color4" | "Color5" | "Color6" | "Color7"
+            | "Color8" => {
+                if let Some(idx) = key.chars().last().and_then(|c| c.to_digit(10)) {
+                    let i = idx as usize - 1;
+                    if i < MAX_KEYFRAMES {
+                        system.info.color_key[i] = self.parse_color_keyframe(value)?;
+                    }
+                }
+            }
 
             _ => {
                 // Unknown parameter, skip
@@ -243,126 +371,229 @@ impl ParticleExporter {
         Ok(())
     }
 
-    fn generate_ini_content(&self, system: &ParticleSystem) -> String {
+    pub fn generate_ini_content(&self, system: &ParticleSystem) -> String {
+        let info = &system.info;
         let mut content = String::new();
 
-        // Main particle system section
-        content.push_str(&format!("ParticleSystem\n"));
-        content.push_str(&format!("  Name = {}\n", system.info.name));
+        // C++ ScriptEngine::_writeSingleParticleSystem field order.
+        content.push_str(&format!("ParticleSystem {}\n", info.name));
         content.push_str(&format!(
             "  Priority = {}\n",
-            Self::priority_to_string(system.info.priority)
+            Self::priority_to_string(info.priority)
         ));
         content.push_str(&format!(
             "  IsOneShot = {}\n",
-            system.info.is_one_shot as i32
+            Self::yes_no(info.is_one_shot)
         ));
         content.push_str(&format!(
             "  Shader = {}\n",
-            Self::shader_to_string(system.info.shader_type)
+            Self::shader_to_string(info.shader_type)
         ));
         content.push_str(&format!(
-            "  ParticleType = {}\n",
-            Self::particle_type_to_string(system.info.particle_type)
+            "  Type = {}\n",
+            Self::particle_type_to_string(info.particle_type)
         ));
+        content.push_str(&format!("  ParticleName = {}\n", info.particle_type_name));
+
+        content.push_str("  AngleZ = ");
+        content.push_str(&self.random_var_to_string(&info.angle_z));
+        content.push_str("\n  AngularRateZ = ");
+        content.push_str(&self.random_var_to_string(&info.angular_rate_z));
+        content.push_str("\n  AngularDamping = ");
+        content.push_str(&self.random_var_to_string(&info.angular_damping));
+        content.push_str("\n  VelocityDamping = ");
+        content.push_str(&self.random_var_to_string(&info.vel_damping));
+        content.push_str(&format!("\n  Gravity = {}\n", info.gravity));
+
+        if !info.slave_system_name.is_empty() {
+            content.push_str(&format!("  SlaveSystem = {}\n", info.slave_system_name));
+            content.push_str(&format!(
+                "  SlavePosOffset = X:{} Y:{} Z:{}\n",
+                info.slave_pos_offset.x, info.slave_pos_offset.y, info.slave_pos_offset.z
+            ));
+        }
+        if !info.attached_system_name.is_empty() {
+            content.push_str(&format!(
+                "  PerParticleAttachedSystem = {}\n",
+                info.attached_system_name
+            ));
+        }
+
+        content.push_str("  Lifetime = ");
+        content.push_str(&self.random_var_to_string(&info.lifetime));
         content.push_str(&format!(
-            "  ParticleTypeName = {}\n",
-            system.info.particle_type_name
+            "\n  SystemLifetime = {}\n",
+            info.system_lifetime
+        ));
+        content.push_str("  Size = ");
+        content.push_str(&self.random_var_to_string(&info.start_size));
+        content.push_str("\n  StartSizeRate = ");
+        content.push_str(&self.random_var_to_string(&info.start_size_rate));
+        content.push_str("\n  SizeRate = ");
+        content.push_str(&self.random_var_to_string(&info.size_rate));
+        content.push_str("\n  SizeRateDamping = ");
+        content.push_str(&self.random_var_to_string(&info.size_rate_damping));
+        content.push_str("\n");
+
+        for (i, key) in info.alpha_key.iter().enumerate() {
+            content.push_str(&format!(
+                "  Alpha{} = {} {} {}\n",
+                i + 1,
+                key.var.low,
+                key.var.high,
+                key.frame
+            ));
+        }
+        for (i, key) in info.color_key.iter().enumerate() {
+            let r = (key.color.red * 255.0 + 0.5) as i32;
+            let g = (key.color.green * 255.0 + 0.5) as i32;
+            let b = (key.color.blue * 255.0 + 0.5) as i32;
+            content.push_str(&format!(
+                "  Color{} = R:{} G:{} B:{} {}\n",
+                i + 1,
+                r,
+                g,
+                b,
+                key.frame
+            ));
+        }
+
+        content.push_str("  ColorScale = ");
+        content.push_str(&self.random_var_to_string(&info.color_scale));
+        content.push_str("\n  BurstDelay = ");
+        content.push_str(&self.random_var_to_string(&info.burst_delay));
+        content.push_str("\n  BurstCount = ");
+        content.push_str(&self.random_var_to_string(&info.burst_count));
+        content.push_str("\n  InitialDelay = ");
+        content.push_str(&self.random_var_to_string(&info.initial_delay));
+        content.push_str(&format!(
+            "\n  DriftVelocity = X:{} Y:{} Z:{}\n",
+            info.drift_velocity.x, info.drift_velocity.y, info.drift_velocity.z
         ));
 
-        // Emission settings
         content.push_str(&format!(
-            "  EmissionVolumeType = {}\n",
-            Self::emission_volume_to_string(system.info.emission_volume_type)
+            "  VelocityType = {}\n",
+            Self::emission_velocity_to_string(info.emission_velocity_type)
         ));
+        content.push_str(&self.generate_emission_velocity_ini(&info.emission_velocity));
         content.push_str(&format!(
-            "  EmissionVelocityType = {}\n",
-            Self::emission_velocity_to_string(system.info.emission_velocity_type)
+            "  VolumeType = {}\n",
+            Self::emission_volume_to_string(info.emission_volume_type)
         ));
+        content.push_str(&self.generate_emission_volume_ini(&info.emission_volume));
+
         content.push_str(&format!(
-            "  IsEmissionVolumeHollow = {}\n",
-            system.info.is_emission_volume_hollow as i32
+            "  IsHollow = {}\n",
+            Self::yes_no(info.is_emission_volume_hollow)
         ));
         content.push_str(&format!(
             "  IsGroundAligned = {}\n",
-            system.info.is_ground_aligned as i32
+            Self::yes_no(info.is_ground_aligned)
         ));
         content.push_str(&format!(
             "  IsEmitAboveGroundOnly = {}\n",
-            system.info.is_emit_above_ground_only as i32
+            Self::yes_no(info.is_emit_above_ground_only)
         ));
         content.push_str(&format!(
             "  IsParticleUpTowardsEmitter = {}\n",
-            system.info.is_particle_up_towards_emitter as i32
+            Self::yes_no(info.is_particle_up_towards_emitter)
         ));
 
-        // System lifetime
-        content.push_str(&format!(
-            "  SystemLifetime = {}\n",
-            system.info.system_lifetime
-        ));
-
-        // Slave systems
-        if !system.info.slave_system_name.is_empty() {
-            content.push_str(&format!(
-                "  SlaveSystem = {}\n",
-                system.info.slave_system_name
-            ));
-            content.push_str(&format!(
-                "  SlavePosOffset = X:{} Y:{} Z:{}\n",
-                system.info.slave_pos_offset.x,
-                system.info.slave_pos_offset.y,
-                system.info.slave_pos_offset.z
-            ));
-        }
-
-        if !system.info.attached_system_name.is_empty() {
-            content.push_str(&format!(
-                "  AttachedSystem = {}\n",
-                system.info.attached_system_name
-            ));
-        }
-
-        // Physics
-        content.push_str(&format!(
-            "  DriftVelocity = X:{} Y:{} Z:{}\n",
-            system.info.drift_velocity.x,
-            system.info.drift_velocity.y,
-            system.info.drift_velocity.z
-        ));
-        content.push_str(&format!("  Gravity = {}\n", system.info.gravity));
-
-        // Wind
         content.push_str(&format!(
             "  WindMotion = {}\n",
-            Self::wind_motion_to_string(system.info.wind_motion)
-        ));
-        content.push_str(&format!("  WindAngle = {}\n", system.info.wind_angle));
-        content.push_str(&format!(
-            "  WindAngleChange = {}\n",
-            system.info.wind_angle_change
+            Self::wind_motion_to_string(info.wind_motion)
         ));
         content.push_str(&format!(
             "  WindAngleChangeMin = {}\n",
-            system.info.wind_angle_change_min
+            info.wind_angle_change_min
         ));
         content.push_str(&format!(
             "  WindAngleChangeMax = {}\n",
-            system.info.wind_angle_change_max
+            info.wind_angle_change_max
+        ));
+        // C++ `_writeSingleParticleSystem` then WindPingPong* after WindAngleChange*.
+        content.push_str(&format!(
+            "  WindPingPongStartAngleMin = {}\n",
+            info.wind_motion_start_angle_min
+        ));
+        content.push_str(&format!(
+            "  WindPingPongStartAngleMax = {}\n",
+            info.wind_motion_start_angle_max
+        ));
+        content.push_str(&format!(
+            "  WindPingPongEndAngleMin = {}\n",
+            info.wind_motion_end_angle_min
+        ));
+        content.push_str(&format!(
+            "  WindPingPongEndAngleMax = {}\n",
+            info.wind_motion_end_angle_max
         ));
 
         content.push_str("End\n\n");
-
-        // Add emission volume specific settings
-        content.push_str(&self.generate_emission_volume_ini(&system.info.emission_volume));
-
-        // Add emission velocity specific settings
-        content.push_str(&self.generate_emission_velocity_ini(&system.info.emission_velocity));
-
-        // Add particle parameters
-        content.push_str(&self.generate_particle_parameters_ini(&system.info));
-
         content
+    }
+
+    fn yes_no(value: bool) -> &'static str {
+        if value {
+            "Yes"
+        } else {
+            "No"
+        }
+    }
+
+    fn parse_bool_token(value: &str) -> Result<bool> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "y" => Ok(true),
+            "0" | "false" | "no" | "n" => Ok(false),
+            _ => Err(anyhow::anyhow!("Invalid bool token: {}", value)),
+        }
+    }
+
+    fn ensure_volume_line(&self, info: &mut ParticleSystemInfo) {
+        if !matches!(info.emission_volume, EmissionVolumeData::Line { .. }) {
+            info.emission_volume_type = EmissionVolumeType::Line;
+            info.emission_volume = EmissionVolumeData::Line {
+                start: Coord3D::default(),
+                end: Coord3D::default(),
+            };
+        }
+    }
+
+    fn ensure_volume_box(&self, info: &mut ParticleSystemInfo) {
+        if !matches!(info.emission_volume, EmissionVolumeData::Box { .. }) {
+            info.emission_volume_type = EmissionVolumeType::Box;
+            info.emission_volume = EmissionVolumeData::Box {
+                half_size: Coord3D::default(),
+            };
+        }
+    }
+
+    fn ensure_volume_sphere(&self, info: &mut ParticleSystemInfo) {
+        if !matches!(info.emission_volume, EmissionVolumeData::Sphere { .. }) {
+            info.emission_volume_type = EmissionVolumeType::Sphere;
+            info.emission_volume = EmissionVolumeData::Sphere { radius: 1.0 };
+        }
+    }
+
+    fn ensure_volume_cylinder(&self, info: &mut ParticleSystemInfo) {
+        if !matches!(info.emission_volume, EmissionVolumeData::Cylinder { .. }) {
+            info.emission_volume_type = EmissionVolumeType::Cylinder;
+            info.emission_volume = EmissionVolumeData::Cylinder {
+                radius: 1.0,
+                length: 2.0,
+            };
+        }
+    }
+
+    fn ensure_velocity_ortho(&self, info: &mut ParticleSystemInfo) {
+        if !matches!(info.emission_velocity, EmissionVelocityData::Ortho { .. }) {
+            info.emission_velocity_type = EmissionVelocityType::Ortho;
+            info.emission_velocity = EmissionVelocityData::Ortho {
+                x: GameClientRandomVariable::constant(0.0),
+                y: GameClientRandomVariable::constant(0.0),
+                z: GameClientRandomVariable::constant(0.0),
+            };
+        }
     }
 
     fn generate_emission_volume_ini(&self, volume: &EmissionVolumeData) -> String {
@@ -373,24 +604,24 @@ impl ParticleExporter {
                 // No additional parameters for point
             }
             EmissionVolumeData::Line { start, end } => {
-                content.push_str("  EmissionLineStart = X:");
+                content.push_str("  VolLineStart = X:");
                 content.push_str(&format!("{} Y:{} Z:{}\n", start.x, start.y, start.z));
-                content.push_str("  EmissionLineEnd = X:");
+                content.push_str("  VolLineEnd = X:");
                 content.push_str(&format!("{} Y:{} Z:{}\n", end.x, end.y, end.z));
             }
             EmissionVolumeData::Box { half_size } => {
-                content.push_str("  EmissionBoxHalfSize = X:");
+                content.push_str("  VolBoxHalfSize = X:");
                 content.push_str(&format!(
                     "{} Y:{} Z:{}\n",
                     half_size.x, half_size.y, half_size.z
                 ));
             }
             EmissionVolumeData::Sphere { radius } => {
-                content.push_str(&format!("  EmissionSphereRadius = {}\n", radius));
+                content.push_str(&format!("  VolSphereRadius = {}\n", radius));
             }
             EmissionVolumeData::Cylinder { radius, length } => {
-                content.push_str(&format!("  EmissionCylinderRadius = {}\n", radius));
-                content.push_str(&format!("  EmissionCylinderLength = {}\n", length));
+                content.push_str(&format!("  VolCylinderRadius = {}\n", radius));
+                content.push_str(&format!("  VolCylinderLength = {}\n", length));
             }
         }
 
@@ -402,39 +633,39 @@ impl ParticleExporter {
 
         match velocity {
             EmissionVelocityData::Ortho { x, y, z } => {
-                content.push_str("  EmissionVelocityOrthoX = ");
+                content.push_str("  VelOrthoX = ");
                 content.push_str(&self.random_var_to_string(x));
                 content.push_str("\n");
-                content.push_str("  EmissionVelocityOrthoY = ");
+                content.push_str("  VelOrthoY = ");
                 content.push_str(&self.random_var_to_string(y));
                 content.push_str("\n");
-                content.push_str("  EmissionVelocityOrthoZ = ");
+                content.push_str("  VelOrthoZ = ");
                 content.push_str(&self.random_var_to_string(z));
                 content.push_str("\n");
             }
             EmissionVelocityData::Spherical { speed } => {
-                content.push_str("  EmissionVelocitySphericalSpeed = ");
+                content.push_str("  VelSpherical = ");
                 content.push_str(&self.random_var_to_string(speed));
                 content.push_str("\n");
             }
             EmissionVelocityData::Hemispherical { speed } => {
-                content.push_str("  EmissionVelocityHemisphericalSpeed = ");
+                content.push_str("  VelHemispherical = ");
                 content.push_str(&self.random_var_to_string(speed));
                 content.push_str("\n");
             }
             EmissionVelocityData::Cylindrical { radial, normal } => {
-                content.push_str("  EmissionVelocityCylindricalRadial = ");
+                content.push_str("  VelCylindricalRadial = ");
                 content.push_str(&self.random_var_to_string(radial));
                 content.push_str("\n");
-                content.push_str("  EmissionVelocityCylindricalNormal = ");
+                content.push_str("  VelCylindricalNormal = ");
                 content.push_str(&self.random_var_to_string(normal));
                 content.push_str("\n");
             }
             EmissionVelocityData::Outward { speed, other_speed } => {
-                content.push_str("  EmissionVelocityOutwardSpeed = ");
+                content.push_str("  VelOutward = ");
                 content.push_str(&self.random_var_to_string(speed));
                 content.push_str("\n");
-                content.push_str("  EmissionVelocityOutwardOtherSpeed = ");
+                content.push_str("  VelOutwardOther = ");
                 content.push_str(&self.random_var_to_string(other_speed));
                 content.push_str("\n");
             }
@@ -443,60 +674,49 @@ impl ParticleExporter {
         content
     }
 
-    fn generate_particle_parameters_ini(&self, info: &ParticleSystemInfo) -> String {
-        let mut content = String::new();
+    fn parse_alpha_keyframe(&self, value: &str) -> Result<RandomKeyframe> {
+        let parts: Vec<f32> = value
+            .split_whitespace()
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        if parts.len() < 2 {
+            return Err(anyhow::anyhow!("Invalid Alpha keyframe: {}", value));
+        }
+        let frame = if parts.len() >= 3 {
+            parts[2] as u32
+        } else {
+            0
+        };
+        Ok(RandomKeyframe {
+            var: GameClientRandomVariable::new(parts[0], parts[1]),
+            frame,
+        })
+    }
 
-        // Basic particle parameters
-        content.push_str("  Lifetime = ");
-        content.push_str(&self.random_var_to_string(&info.lifetime));
-        content.push_str("\n");
-
-        content.push_str("  StartSize = ");
-        content.push_str(&self.random_var_to_string(&info.start_size));
-        content.push_str("\n");
-
-        content.push_str("  SizeRate = ");
-        content.push_str(&self.random_var_to_string(&info.size_rate));
-        content.push_str("\n");
-
-        content.push_str("  SizeRateDamping = ");
-        content.push_str(&self.random_var_to_string(&info.size_rate_damping));
-        content.push_str("\n");
-
-        content.push_str("  AngleZ = ");
-        content.push_str(&self.random_var_to_string(&info.angle_z));
-        content.push_str("\n");
-
-        content.push_str("  AngularRateZ = ");
-        content.push_str(&self.random_var_to_string(&info.angular_rate_z));
-        content.push_str("\n");
-
-        content.push_str("  AngularDamping = ");
-        content.push_str(&self.random_var_to_string(&info.angular_damping));
-        content.push_str("\n");
-
-        content.push_str("  VelocityDamping = ");
-        content.push_str(&self.random_var_to_string(&info.vel_damping));
-        content.push_str("\n");
-
-        content.push_str("  ColorScale = ");
-        content.push_str(&self.random_var_to_string(&info.color_scale));
-        content.push_str("\n");
-
-        // Burst parameters
-        content.push_str("  BurstDelay = ");
-        content.push_str(&self.random_var_to_string(&info.burst_delay));
-        content.push_str("\n");
-
-        content.push_str("  BurstCount = ");
-        content.push_str(&self.random_var_to_string(&info.burst_count));
-        content.push_str("\n");
-
-        content.push_str("  InitialDelay = ");
-        content.push_str(&self.random_var_to_string(&info.initial_delay));
-        content.push_str("\n");
-
-        content
+    fn parse_color_keyframe(&self, value: &str) -> Result<RGBColorKeyframe> {
+        let mut red = 255.0;
+        let mut green = 255.0;
+        let mut blue = 255.0;
+        let mut frame = 0u32;
+        for part in value.split_whitespace() {
+            if let Some(v) = part.strip_prefix("R:") {
+                red = v.parse().unwrap_or(red);
+            } else if let Some(v) = part.strip_prefix("G:") {
+                green = v.parse().unwrap_or(green);
+            } else if let Some(v) = part.strip_prefix("B:") {
+                blue = v.parse().unwrap_or(blue);
+            } else if let Ok(f) = part.parse::<u32>() {
+                frame = f;
+            }
+        }
+        Ok(RGBColorKeyframe {
+            color: RGBColor {
+                red: red / 255.0,
+                green: green / 255.0,
+                blue: blue / 255.0,
+            },
+            frame,
+        })
     }
 
     fn random_var_to_string(&self, var: &GameClientRandomVariable) -> String {
@@ -788,9 +1008,8 @@ impl ParticleExporter {
         value: &str,
         velocity: &mut EmissionVelocityData,
     ) -> Result<()> {
-        if let EmissionVelocityData::Spherical { speed } = velocity {
-            *speed = self.parse_random_variable(value)?;
-        }
+        let speed = self.parse_random_variable(value)?;
+        *velocity = EmissionVelocityData::Spherical { speed };
         Ok(())
     }
 
@@ -799,9 +1018,8 @@ impl ParticleExporter {
         value: &str,
         velocity: &mut EmissionVelocityData,
     ) -> Result<()> {
-        if let EmissionVelocityData::Hemispherical { speed } = velocity {
-            *speed = self.parse_random_variable(value)?;
-        }
+        let speed = self.parse_random_variable(value)?;
+        *velocity = EmissionVelocityData::Hemispherical { speed };
         Ok(())
     }
 
@@ -810,9 +1028,17 @@ impl ParticleExporter {
         value: &str,
         velocity: &mut EmissionVelocityData,
     ) -> Result<()> {
-        if let EmissionVelocityData::Cylindrical { radial, .. } = velocity {
-            *radial = self.parse_random_variable(value)?;
-        }
+        let radial = self.parse_random_variable(value)?;
+        *velocity = match velocity {
+            EmissionVelocityData::Cylindrical { normal, .. } => EmissionVelocityData::Cylindrical {
+                radial,
+                normal: normal.clone(),
+            },
+            _ => EmissionVelocityData::Cylindrical {
+                radial,
+                normal: GameClientRandomVariable::constant(0.0),
+            },
+        };
         Ok(())
     }
 
@@ -821,9 +1047,17 @@ impl ParticleExporter {
         value: &str,
         velocity: &mut EmissionVelocityData,
     ) -> Result<()> {
-        if let EmissionVelocityData::Cylindrical { normal, .. } = velocity {
-            *normal = self.parse_random_variable(value)?;
-        }
+        let normal = self.parse_random_variable(value)?;
+        *velocity = match velocity {
+            EmissionVelocityData::Cylindrical { radial, .. } => EmissionVelocityData::Cylindrical {
+                radial: radial.clone(),
+                normal,
+            },
+            _ => EmissionVelocityData::Cylindrical {
+                radial: GameClientRandomVariable::constant(0.0),
+                normal,
+            },
+        };
         Ok(())
     }
 
@@ -832,9 +1066,17 @@ impl ParticleExporter {
         value: &str,
         velocity: &mut EmissionVelocityData,
     ) -> Result<()> {
-        if let EmissionVelocityData::Outward { speed, .. } = velocity {
-            *speed = self.parse_random_variable(value)?;
-        }
+        let speed = self.parse_random_variable(value)?;
+        *velocity = match velocity {
+            EmissionVelocityData::Outward { other_speed, .. } => EmissionVelocityData::Outward {
+                speed,
+                other_speed: other_speed.clone(),
+            },
+            _ => EmissionVelocityData::Outward {
+                speed,
+                other_speed: GameClientRandomVariable::constant(0.0),
+            },
+        };
         Ok(())
     }
 
@@ -843,9 +1085,17 @@ impl ParticleExporter {
         value: &str,
         velocity: &mut EmissionVelocityData,
     ) -> Result<()> {
-        if let EmissionVelocityData::Outward { other_speed, .. } = velocity {
-            *other_speed = self.parse_random_variable(value)?;
-        }
+        let other_speed = self.parse_random_variable(value)?;
+        *velocity = match velocity {
+            EmissionVelocityData::Outward { speed, .. } => EmissionVelocityData::Outward {
+                speed: speed.clone(),
+                other_speed,
+            },
+            _ => EmissionVelocityData::Outward {
+                speed: GameClientRandomVariable::constant(0.0),
+                other_speed,
+            },
+        };
         Ok(())
     }
 }
@@ -853,5 +1103,158 @@ impl ParticleExporter {
 impl Default for ParticleExporter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn particle_ini_roundtrip_preserves_name_and_lifetime() {
+        let mut system = ParticleSystem::new("TestBurst".to_string()).expect("system");
+        system.info.priority = ParticlePriorityType::WeaponExplosion;
+        system.info.shader_type = ParticleShaderType::Additive;
+        system.info.particle_type = ParticleType::Particle;
+        system.info.particle_type_name = "EXPburst".to_string();
+        system.info.is_one_shot = true;
+        system.info.system_lifetime = 30;
+        system.info.gravity = 0.25;
+        system.info.emission_volume_type = EmissionVolumeType::Point;
+        system.info.emission_velocity_type = EmissionVelocityType::Ortho;
+        system.info.alpha_key[0] = RandomKeyframe {
+            var: GameClientRandomVariable::new(0.2, 0.8),
+            frame: 10,
+        };
+        system.info.color_key[0] = RGBColorKeyframe {
+            color: RGBColor {
+                red: 1.0,
+                green: 0.0,
+                blue: 0.0,
+            },
+            frame: 4,
+        };
+        let exporter = ParticleExporter::new();
+        let ini = exporter.generate_ini_content(&system);
+        assert!(ini.contains("ParticleSystem TestBurst"));
+        assert!(!ini.contains("Name = TestBurst"));
+        assert!(ini.contains("Type = PARTICLE"));
+        assert!(ini.contains("ParticleName = EXPburst"));
+        assert!(ini.contains("IsOneShot = Yes"));
+        assert!(ini.contains("SystemLifetime = 30"));
+        assert!(ini.contains("Gravity = 0.25") || ini.contains("Gravity = 0.250"));
+        assert!(ini.contains("Alpha1 = 0.2 0.8 10"));
+        assert!(ini.contains("Color1 = R:255 G:0 B:0 4"));
+        assert!(ini.contains("Alpha8 ="));
+        assert!(ini.contains("Color8 ="));
+        let loaded = exporter.parse_ini_content(&ini).expect("parse");
+        assert_eq!(loaded.info.name, "TestBurst");
+        assert_eq!(loaded.info.particle_type_name, "EXPburst");
+        assert_eq!(loaded.info.system_lifetime, 30);
+        assert_eq!(loaded.info.priority, ParticlePriorityType::WeaponExplosion);
+        assert_eq!(loaded.info.shader_type, ParticleShaderType::Additive);
+        assert!(loaded.info.is_one_shot);
+        assert!((loaded.info.alpha_key[0].var.low - 0.2).abs() < 1e-5);
+        assert_eq!(loaded.info.alpha_key[0].frame, 10);
+        assert!((loaded.info.color_key[0].color.red - 1.0).abs() < 0.01);
+        assert_eq!(loaded.info.color_key[0].frame, 4);
+    }
+
+    #[test]
+    fn particle_ini_field_order_matches_cpp_write_single_particle_system() {
+        let mut system = ParticleSystem::new("OrderCheck".to_string()).expect("system");
+        system.info.wind_motion = WindMotion::PingPong;
+        system.info.wind_angle_change_min = 0.15;
+        system.info.wind_angle_change_max = 0.45;
+        system.info.wind_motion_start_angle_min = 0.1;
+        system.info.wind_motion_start_angle_max = 0.2;
+        system.info.wind_motion_end_angle_min = 3.0;
+        system.info.wind_motion_end_angle_max = 3.1;
+        let ini = ParticleExporter::new().generate_ini_content(&system);
+        let keys = [
+            "ParticleName",
+            "AngleZ",
+            "Gravity",
+            "Lifetime",
+            "SystemLifetime",
+            "Size",
+            "Alpha1",
+            "Color1",
+            "ColorScale",
+            "DriftVelocity",
+            "VelocityType",
+            "VolumeType",
+            "IsHollow",
+            "WindMotion",
+            "WindAngleChangeMin",
+            "WindAngleChangeMax",
+            "WindPingPongStartAngleMin",
+            "WindPingPongStartAngleMax",
+            "WindPingPongEndAngleMin",
+            "WindPingPongEndAngleMax",
+            "End",
+        ];
+        let mut last = 0usize;
+        for key in keys {
+            let at = ini[last..]
+                .find(key)
+                .unwrap_or_else(|| panic!("{key} missing after offset {last}\n{ini}"));
+            last += at;
+        }
+        let loaded = ParticleExporter::new()
+            .parse_ini_content(&ini)
+            .expect("parse wind ping-pong");
+        assert_eq!(loaded.info.wind_motion, WindMotion::PingPong);
+        assert!((loaded.info.wind_angle_change_min - 0.15).abs() < 1e-5);
+        assert!((loaded.info.wind_motion_start_angle_min - 0.1).abs() < 1e-5);
+        assert!((loaded.info.wind_motion_start_angle_max - 0.2).abs() < 1e-5);
+        assert!((loaded.info.wind_motion_end_angle_min - 3.0).abs() < 1e-5);
+        assert!((loaded.info.wind_motion_end_angle_max - 3.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn binary_export_writes_cpp_write_single_particle_system_ini() {
+        let mut system = ParticleSystem::new("BinDump".to_string()).expect("system");
+        system.info.particle_type_name = "EXPtracer".to_string();
+        system.info.gravity = 0.5;
+        let mut exporter = ParticleExporter::new();
+        exporter.export_format = ExportFormat::Binary;
+        let dir = std::env::temp_dir().join(format!(
+            "particle_editor_bin_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("tmp dir");
+        let path = dir.join("BinDump.ini");
+        exporter
+            .export_particle_system(&system, &path)
+            .expect("binary export is C++ INI");
+        let written = std::fs::read_to_string(&path).expect("read");
+        let expected = exporter.generate_ini_content(&system);
+        assert_eq!(written, expected);
+        assert!(written.starts_with("ParticleSystem BinDump\n"));
+        assert!(written.contains("ParticleName = EXPtracer"));
+        assert!(written.contains("End\n"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn binary_raw_export_writes_cpp_particle_system_ini_text() {
+        let mut exporter = ParticleExporter::new();
+        exporter.export_format = ExportFormat::Binary;
+        let dir = std::env::temp_dir().join(format!(
+            "particle_editor_bin_raw_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("tmp dir");
+        let path = dir.join("RawDump.ini");
+        let text = "ParticleSystem RawDump\nParticleName = EXPtracer\nEnd\n";
+        exporter.export(text, &path).expect("binary raw INI");
+        let written = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(written, text);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

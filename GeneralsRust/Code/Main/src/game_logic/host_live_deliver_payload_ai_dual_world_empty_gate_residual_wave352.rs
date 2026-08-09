@@ -1,6 +1,6 @@
 //! Wave 352 residual peels: DeliverPayloadAIUpdate dual-world empty short-circuits.
-//! When `OBJECT_REGISTRY` is empty (host-only presentation path), payload
-//! delivery helpers fail-closed without dual-world factory walks.
+//! Host-only (not in GameLogic + empty OBJECT_REGISTRY) still fail-closed.
+//! In-game C++ path runs (`TheGameLogic::is_in_game()` → no skip).
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 351 DozerAI dual-world empty-gate residual.
@@ -123,9 +123,9 @@ pub fn honesty_deliver_payload_ai_dual_world_empty_gate_source() -> bool {
     {
         return false;
     }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
+    let helper_ok = g.contains("fn dual_world_registry_unavailable")
+        && g.contains("if TheGameLogic::is_in_game()")
+        && g.contains("OBJECT_REGISTRY.is_empty()");
     let Some(mv) = fn_body(g, "fn ai_move_to_position(") else {
         return false;
     };

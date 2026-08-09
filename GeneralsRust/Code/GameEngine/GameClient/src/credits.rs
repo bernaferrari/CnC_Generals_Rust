@@ -807,3 +807,59 @@ pub fn simulate_credits_prepare_short_roll() -> bool {
     }
     residual_credits_line_count() >= 3 && !residual_credits_is_finished()
 }
+
+/// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
+/// (C++ CreditsMenuUpdate / TheCredits::update). Not `simulate_*` first.
+pub fn drive_os_wnd_credits_roll_prepare_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    if !clicked {
+        return false;
+    }
+    simulate_credits_prepare_short_roll()
+}
+
+pub fn drive_os_wnd_credits_roll_update_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    if !clicked {
+        return false;
+    }
+    simulate_credits_update()
+}
+
+pub fn drive_os_wnd_credits_roll_finished_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    if !clicked {
+        return false;
+    }
+    simulate_credits_is_finished_probe()
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    #[test]
+    fn os_wnd_credits_roll_prepare_hits_parent_then_latches_lines() {
+        with_window_manager(|manager| {
+            let parent = manager
+                .create_window(None, 10, 10, 200, 120)
+                .expect("ParentCreditsWindow");
+            parent
+                .borrow_mut()
+                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+            let _ = parent.borrow_mut().hide(false);
+        });
+        assert!(
+            drive_os_wnd_credits_roll_prepare_like_cpp(),
+            "OS WND click on ParentCreditsWindow must prepare short credits roll"
+        );
+        assert!(residual_credits_line_count() >= 3);
+        assert!(!residual_credits_is_finished());
+        assert!(drive_os_wnd_credits_roll_update_like_cpp());
+        assert_eq!(residual_credits_last_action(), ResidualCreditsAction::Update);
+    }
+}

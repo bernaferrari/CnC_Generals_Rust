@@ -77,10 +77,14 @@ pub struct W3DTracerDraw {
     color: RGBColor,
     speed_in_dist_per_frame: Real,
     opacity: Real,
+    /// C++ `getDrawable()->getExpirationDate()`; 0 means no decay.
+    expiration_date: UnsignedInt,
     current_pos: Coord3D,
     direction: Coord3D,
     line_start: Coord3D,
     line_end: Coord3D,
+    /// C++ `Line3DClass` world transform (independent of drawable after create).
+    line_transform: Option<Matrix3D>,
     scene_line_id: Option<SceneLineId>,
     hidden: bool,
     fully_obscured_by_shroud: bool,
@@ -96,10 +100,12 @@ impl W3DTracerDraw {
             color: RGBColor::new(229, 204, 178),
             speed_in_dist_per_frame: 1.0,
             opacity: 1.0,
+            expiration_date: 0,
             current_pos: Coord3D::origin(),
             direction: Coord3D::new(1.0, 0.0, 0.0),
             line_start: Coord3D::origin(),
             line_end: Coord3D::origin(),
+            line_transform: None,
             scene_line_id: None,
             hidden: false,
             fully_obscured_by_shroud: false,
@@ -125,6 +131,15 @@ impl W3DTracerDraw {
 
     pub fn opacity(&self) -> Real {
         self.opacity
+    }
+
+    pub fn expiration_date(&self) -> UnsignedInt {
+        self.expiration_date
+    }
+
+    /// C++ `Drawable::setExpirationDate` consumed by `doDrawModule`.
+    pub fn set_expiration_date(&mut self, expiration_date: UnsignedInt) {
+        self.expiration_date = expiration_date;
     }
 
     pub fn line_start(&self) -> Coord3D {
@@ -162,41 +177,29 @@ impl W3DTracerDraw {
         };
         update_scene_line(id, &desc);
     }
-}
 
-impl Module for W3DTracerDraw {
-    fn on_drawable_bound_to_object(&mut self) {}
-    fn on_delete(&mut self) {
-        if let Some(id) = self.scene_line_id.take() {
-            remove_scene_line(id);
+    /// C++ `W3DTracerDraw::doDrawModule` opacity step:
+    /// `decay = opacity / (expDate - currentFrame); opacity -= decay`.
+    fn apply_expiration_decay(&mut self, current_frame: UnsignedInt) {
+        if self.expiration_date == 0 || current_frame >= self.expiration_date {
+            return;
+        }
+        let remaining = (self.expiration_date - current_frame) as Real;
+        if remaining > 0.0 {
+            self.opacity -= self.opacity / remaining;
         }
     }
-    fn get_module_name_key(&self) -> NameKeyType {
-        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DTracerDraw")
+
+    fn world_line_from_transform(transform: &Matrix3D, length: Real) -> (Coord3D, Coord3D) {
+        let start = transform.transform_point3(glam::Vec3::ZERO);
+        let end = transform.transform_point3(glam::Vec3::new(length, 0.0, 0.0));
+        (
+            Coord3D::new(start.x, start.y, start.z),
+            Coord3D::new(end.x, end.y, end.z),
+        )
     }
-    fn get_module_tag_name_key(&self) -> NameKeyType {
-        self._data.module_tag_name_key
-    }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self._data
-    }
-}
 
-impl DrawModule for W3DTracerDraw {
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        let translation = transform_mtx.w_axis;
-        self.current_pos = Coord3D::new(translation.x, translation.y, translation.z);
-
-        let dir = if self.direction.length() > 0.001 {
-            self.direction.normalize()
-        } else {
-            Coord3D::new(1.0, 0.0, 0.0)
-        };
-
-        self.line_start = self.current_pos;
-        self.line_end = self.current_pos + dir * self.length;
-        self.current_pos += dir * self.speed_in_dist_per_frame;
-
+    fn submit_or_update_line(&mut self) {
         let desc = SceneLineDesc {
             start: game_engine::common::system::geometry::Coord3D::new(
                 self.line_start.x,
@@ -227,6 +230,57 @@ impl DrawModule for W3DTracerDraw {
             }
         }
     }
+}
+
+impl Module for W3DTracerDraw {
+    fn on_drawable_bound_to_object(&mut self) {}
+    fn on_delete(&mut self) {
+        if let Some(id) = self.scene_line_id.take() {
+            remove_scene_line(id);
+        }
+    }
+    fn get_module_name_key(&self) -> NameKeyType {
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DTracerDraw")
+    }
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self._data.module_tag_name_key
+    }
+    fn get_module_data(&self) -> &dyn ModuleData {
+        &self._data
+    }
+}
+
+impl DrawModule for W3DTracerDraw {
+    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        // C++ creates Line3D once with local (0,0,0)→(length,0,0) and
+        // `Set_Transform(*transformMtx)`. Later draws only mutate that Line3D
+        // transform (not the incoming drawable matrix).
+        if self.line_transform.is_none() {
+            self.line_transform = Some(*transform_mtx);
+        }
+
+        self.apply_expiration_decay(crate::helpers::TheGameLogic::get_frame());
+
+        // C++ `pos.Translate(Vector3(m_speedInDistPerFrame, 0, 0))` on the Line3D
+        // transform — local X, including the first draw.
+        if self.speed_in_dist_per_frame != 0.0 {
+            if let Some(ref mut xf) = self.line_transform {
+                *xf = *xf
+                    * Matrix3D::from_translation(glam::Vec3::new(
+                        self.speed_in_dist_per_frame,
+                        0.0,
+                        0.0,
+                    ));
+            }
+        }
+
+        let xf = self.line_transform.unwrap_or(*transform_mtx);
+        let (start, end) = Self::world_line_from_transform(&xf, self.length);
+        self.line_start = start;
+        self.line_end = end;
+        self.current_pos = start;
+        self.submit_or_update_line();
+    }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
         let _ = enable;
@@ -244,10 +298,14 @@ impl DrawModule for W3DTracerDraw {
     fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix3D,
-        old_pos: &Coord3D,
+        _old_pos: &Coord3D,
         _old_angle: Real,
     ) {
-        self.current_pos = *old_pos;
+        // C++ `m_theTracer->Set_Transform(*getDrawable()->getTransformMatrix())`.
+        // New drawable mtx arrives on the next `do_draw_module`.
+        if self.line_transform.is_some() {
+            self.line_transform = None;
+        }
     }
 
     fn react_to_geometry_change(&mut self) {
@@ -277,9 +335,16 @@ impl TracerDrawInterface for W3DTracerDraw {
         self.width = width;
         self.color = *color;
         self.opacity = initial_opacity;
+        // C++ `Reset(0→length)` then `Set_Transform(*drawable mtx)` — next draw
+        // re-inits Line3D from the drawable transform.
+        self.line_transform = None;
         self.line_start = Coord3D::origin();
         self.line_end = Coord3D::new(self.length, 0.0, 0.0);
         self.sync_scene_visibility(true);
+    }
+
+    fn set_expiration_date(&mut self, expiration_date: UnsignedInt) {
+        self.expiration_date = expiration_date;
     }
 }
 
@@ -351,5 +416,66 @@ mod tests {
 
         assert_eq!(draw.length(), 20.0);
         assert_eq!(draw.opacity(), 1.0);
+    }
+
+    #[test]
+    fn do_draw_module_translates_local_x_on_line3d_like_cpp() {
+        let mut draw = W3DTracerDraw::new(W3DTracerDrawModuleData::new());
+        let color = RGBColor::new(229, 204, 178);
+        draw.set_tracer_parms(5.0, 10.0, 0.5, &color, 1.0);
+
+        let origin = Matrix3D::from_translation(glam::Vec3::new(10.0, 20.0, 30.0));
+        draw.do_draw_module(&origin);
+        // First draw: create at drawable mtx, then Translate(speed,0,0).
+        assert!((draw.line_start().x - 15.0).abs() < 1.0e-5);
+        assert!((draw.line_start().y - 20.0).abs() < 1.0e-5);
+        assert!((draw.line_start().z - 30.0).abs() < 1.0e-5);
+        assert!((draw.line_end().x - 25.0).abs() < 1.0e-5);
+        assert!((draw.line_end().y - 20.0).abs() < 1.0e-5);
+        assert!((draw.line_end().z - 30.0).abs() < 1.0e-5);
+
+        // Second draw still receives the unmoved drawable mtx; Line3D accumulates.
+        draw.do_draw_module(&origin);
+        assert!((draw.line_start().x - 20.0).abs() < 1.0e-5);
+        assert!((draw.line_end().x - 30.0).abs() < 1.0e-5);
+        assert!((draw.line_start().y - 20.0).abs() < 1.0e-5);
+        assert!((draw.line_end().y - 20.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn do_draw_module_opacity_decay_matches_cpp_when_expiration_set() {
+        let mut draw = W3DTracerDraw::new(W3DTracerDrawModuleData::new());
+        let color = RGBColor::new(229, 204, 178);
+        draw.set_tracer_parms(0.0, 10.0, 0.5, &color, 1.0);
+        draw.set_expiration_date(4);
+
+        // current_frame() is 0 in unit tests without GameLogic init, so remaining
+        // stays expDate (4). C++ `opacity -= opacity / (expDate - frame)`.
+        draw.do_draw_module(&Matrix3D::IDENTITY);
+        assert!((draw.opacity() - 0.75).abs() < 1.0e-5);
+        draw.do_draw_module(&Matrix3D::IDENTITY);
+        assert!((draw.opacity() - 0.5625).abs() < 1.0e-5);
+
+        // When the logic frame advances, remaining shrinks: 1, 1-1/3, 0.5-0.5/2.
+        let mut opacity = 1.0_f32;
+        for frame in 0u32..3 {
+            opacity -= opacity / (4 - frame) as f32;
+        }
+        assert!((opacity - 0.25).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn react_to_transform_change_resnaps_line3d_to_next_drawable_mtx() {
+        let mut draw = W3DTracerDraw::new(W3DTracerDrawModuleData::new());
+        let color = RGBColor::new(229, 204, 178);
+        draw.set_tracer_parms(5.0, 10.0, 0.5, &color, 1.0);
+        let first = Matrix3D::from_translation(glam::Vec3::new(10.0, 20.0, 30.0));
+        draw.do_draw_module(&first);
+        draw.react_to_transform_change(&first, &Coord3D::new(10.0, 20.0, 30.0), 0.0);
+
+        let moved = Matrix3D::from_translation(glam::Vec3::new(100.0, 0.0, 0.0));
+        draw.do_draw_module(&moved);
+        assert!((draw.line_start().x - 105.0).abs() < 1.0e-5);
+        assert!((draw.line_end().x - 115.0).abs() < 1.0e-5);
     }
 }

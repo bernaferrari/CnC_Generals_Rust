@@ -623,32 +623,40 @@ impl UIRenderer {
         self.instance_data.clear();
     }
 
+    /// GPU triangle list for a gadget fill rect (two triangles, C++ StretchRect).
+    #[must_use]
+    pub fn gadget_gpu_fill_rect_mesh(
+        rect: UIRect,
+        color: [f32; 4],
+        z_order: f32,
+    ) -> (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>, Vec<u32>) {
+        (
+            vec![
+                [rect.x, rect.y, z_order],
+                [rect.x + rect.width, rect.y, z_order],
+                [rect.x + rect.width, rect.y + rect.height, z_order],
+                [rect.x, rect.y + rect.height, z_order],
+            ],
+            vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            vec![color, color, color, color],
+            vec![0, 1, 2, 0, 2, 3],
+        )
+    }
+
     /// Add a rectangle draw command
     pub fn draw_rect(&mut self, rect: UIRect, color: [f32; 4], z_order: f32) {
-        let vertices = vec![
-            UIVertex {
-                position: [rect.x, rect.y, z_order],
-                tex_coord: [0.0, 0.0],
+        let (positions, uvs, colors, indices) =
+            Self::gadget_gpu_fill_rect_mesh(rect, color, z_order);
+        let vertices = positions
+            .into_iter()
+            .zip(uvs)
+            .zip(colors)
+            .map(|((position, tex_coord), color)| UIVertex {
+                position,
+                tex_coord,
                 color,
-            },
-            UIVertex {
-                position: [rect.x + rect.width, rect.y, z_order],
-                tex_coord: [1.0, 0.0],
-                color,
-            },
-            UIVertex {
-                position: [rect.x + rect.width, rect.y + rect.height, z_order],
-                tex_coord: [1.0, 1.0],
-                color,
-            },
-            UIVertex {
-                position: [rect.x, rect.y + rect.height, z_order],
-                tex_coord: [0.0, 1.0],
-                color,
-            },
-        ];
-
-        let indices = vec![0, 1, 2, 0, 2, 3];
+            })
+            .collect();
 
         self.draw_commands.push(UIDrawCommand {
             vertices,

@@ -1090,3 +1090,113 @@ pub fn simulate_diplomacy_prepare_ingame() -> bool {
     }
     simulate_diplomacy_radio_ingame()
 }
+
+/// Human click-through: OS LeftDown/Up on `Diplomacy.wnd:RadioButtonInGame`.
+pub fn drive_os_wnd_diplomacy_radio_ingame_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonInGame");
+    if !clicked {
+        return false;
+    }
+    simulate_diplomacy_radio_ingame()
+}
+
+pub fn drive_os_wnd_diplomacy_radio_buddies_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonBuddies");
+    if !clicked {
+        return false;
+    }
+    simulate_diplomacy_radio_buddies()
+}
+
+pub fn drive_os_wnd_diplomacy_hide_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:ButtonHide");
+    if !clicked {
+        return false;
+    }
+    simulate_diplomacy_hide()
+}
+
+pub fn drive_os_wnd_diplomacy_mute_like_cpp(slot: i32) -> bool {
+    if slot < 0 {
+        return false;
+    }
+    let name = format!("Diplomacy.wnd:ButtonMute{slot}");
+    let clicked = crate::gui::dispatch_os_click_named_window(&name);
+    if !clicked {
+        return false;
+    }
+    simulate_diplomacy_mute_slot(slot)
+}
+
+pub fn drive_os_wnd_diplomacy_unmute_like_cpp(slot: i32) -> bool {
+    if slot < 0 {
+        return false;
+    }
+    let name = format!("Diplomacy.wnd:ButtonUnMute{slot}");
+    let clicked = crate::gui::dispatch_os_click_named_window(&name);
+    if !clicked {
+        return false;
+    }
+    simulate_diplomacy_unmute_slot(slot)
+}
+
+pub fn drive_os_wnd_diplomacy_prepare_ingame_like_cpp() -> bool {
+    let clicked_parent =
+        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:InGameParent");
+    if clicked_parent {
+        let _ = simulate_diplomacy_toggle_show();
+    }
+    let clicked_radio = drive_os_wnd_diplomacy_radio_ingame_like_cpp();
+    if !clicked_parent && !clicked_radio {
+        return false;
+    }
+    if clicked_radio {
+        return residual_diplomacy_last_action() == ResidualDiplomacyAction::RadioInGame;
+    }
+    simulate_diplomacy_radio_ingame()
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_diplomacy_ingame_and_hide_hit_named_gadgets() {
+        install_named_button("Diplomacy.wnd:InGameParent", 10, 10);
+        install_named_button("Diplomacy.wnd:RadioButtonInGame", 10, 40);
+        install_named_button("Diplomacy.wnd:ButtonHide", 10, 70);
+        assert!(
+            drive_os_wnd_diplomacy_prepare_ingame_like_cpp(),
+            "OS WND clicks must latch InGame radio residual"
+        );
+        assert_eq!(
+            residual_diplomacy_last_action(),
+            ResidualDiplomacyAction::RadioInGame
+        );
+        assert!(drive_os_wnd_diplomacy_hide_like_cpp());
+        assert_eq!(
+            residual_diplomacy_last_action(),
+            ResidualDiplomacyAction::Hide
+        );
+    }
+
+    #[test]
+    fn os_wnd_diplomacy_mute_hits_button_mute_slot() {
+        install_named_button("Diplomacy.wnd:ButtonMute0", 10, 100);
+        assert!(drive_os_wnd_diplomacy_mute_like_cpp(0));
+        assert_eq!(residual_diplomacy_last_action(), ResidualDiplomacyAction::Mute);
+        assert_eq!(residual_diplomacy_mute_slot(), Some(0));
+        assert!(!drive_os_wnd_diplomacy_unmute_like_cpp(0));
+    }
+}

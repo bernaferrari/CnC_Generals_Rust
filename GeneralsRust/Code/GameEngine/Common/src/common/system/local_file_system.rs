@@ -258,6 +258,14 @@ impl FileSystemBackend for LocalFileSystem {
                 self.add_search_path(current_dir.join("Maps"));
             }
 
+            for install in crate::common::system::install_layout::zh_install_roots() {
+                self.add_search_path(&install);
+                self.add_search_path(install.join("Data"));
+            }
+            for extracted in crate::common::system::install_layout::extracted_asset_roots() {
+                self.add_search_path(extracted);
+            }
+
             self.initialized = true;
         }
         self.state = SubsystemState::Running;
@@ -447,6 +455,20 @@ mod tests {
         let fs = LocalFileSystem::new();
         assert!(!fs.initialized);
         assert_eq!(fs.search_paths().len(), 0);
+    }
+
+    #[test]
+    fn init_discovers_install_marker_bigs() {
+        let mut fs = LocalFileSystem::new();
+        super::super::file_system::FileSystemBackend::init(&mut fs);
+        assert!(
+            fs.does_file_exist("INIZH.big"),
+            "LocalFileSystem must see INIZH.big after install discovery"
+        );
+        assert!(
+            fs.does_file_exist("GensecZH.big"),
+            "LocalFileSystem must see GensecZH.big after install discovery"
+        );
     }
 
     #[test]

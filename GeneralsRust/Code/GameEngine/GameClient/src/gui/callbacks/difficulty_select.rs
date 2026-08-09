@@ -424,3 +424,97 @@ pub fn simulate_difficulty_select_prepare_ok(level: u8) -> bool {
     drop(state);
     simulate_difficulty_select_ok_button_gadget_selected()
 }
+
+/// Human click-through: OS LeftDown/Up on a DifficultySelect radio
+/// (`RadioButtonEasy` / `Medium` / `Hard`). Not `simulate_*` first.
+pub fn drive_os_wnd_difficulty_select_radio_like_cpp(level: u8) -> bool {
+    let name = match level {
+        0 => "DifficultySelect.wnd:RadioButtonEasy",
+        2 => "DifficultySelect.wnd:RadioButtonHard",
+        _ => "DifficultySelect.wnd:RadioButtonMedium",
+    };
+    let clicked = crate::gui::dispatch_os_click_named_window(name);
+    if !clicked {
+        return false;
+    }
+    match level {
+        0 => simulate_difficulty_select_radio_easy(),
+        2 => simulate_difficulty_select_radio_hard(),
+        _ => simulate_difficulty_select_radio_medium(),
+    }
+}
+
+/// Human click-through: OS LeftDown/Up on `DifficultySelect.wnd:ButtonOk`
+/// (C++ WindowXlat hit → GBM_SELECTED → setupGameStart). Not `simulate_*` first.
+pub fn drive_os_wnd_difficulty_select_ok_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonOk");
+    if !clicked {
+        return false;
+    }
+    simulate_difficulty_select_ok_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `DifficultySelect.wnd:ButtonCancel`.
+pub fn drive_os_wnd_difficulty_select_cancel_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonCancel");
+    if !clicked {
+        return false;
+    }
+    simulate_difficulty_select_cancel_button_gadget_selected()
+}
+
+/// Human click-through: radio then OK (C++ DifficultySelect Easy/Med/Hard + ButtonOk).
+pub fn drive_os_wnd_difficulty_select_like_cpp(level: u8) -> bool {
+    let clicked_radio = drive_os_wnd_difficulty_select_radio_like_cpp(level);
+    let clicked_ok = drive_os_wnd_difficulty_select_ok_like_cpp();
+    if !clicked_radio && !clicked_ok {
+        return false;
+    }
+    if clicked_ok {
+        return residual_difficulty_select_last_action() == ResidualDifficultySelectAction::Ok;
+    }
+    simulate_difficulty_select_ok_button_gadget_selected()
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager
+                .create_window(None, x, y, 80, 24)
+                .expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_difficulty_select_hits_radio_and_ok_then_latches() {
+        install_named_button("DifficultySelect.wnd:RadioButtonHard", 10, 10);
+        install_named_button("DifficultySelect.wnd:ButtonOk", 10, 40);
+        assert!(
+            drive_os_wnd_difficulty_select_like_cpp(2),
+            "OS WND clicks on Hard + Ok must latch difficulty residual"
+        );
+        assert_eq!(residual_difficulty_select_level(), 2);
+        assert_eq!(
+            residual_difficulty_select_last_action(),
+            ResidualDifficultySelectAction::Ok
+        );
+        assert!(!drive_os_wnd_difficulty_select_cancel_like_cpp());
+    }
+
+    #[test]
+    fn os_wnd_difficulty_select_cancel_hits_named_gadget() {
+        install_named_button("DifficultySelect.wnd:ButtonCancel", 10, 70);
+        assert!(drive_os_wnd_difficulty_select_cancel_like_cpp());
+        assert_eq!(
+            residual_difficulty_select_last_action(),
+            ResidualDifficultySelectAction::Cancel
+        );
+    }
+}

@@ -621,6 +621,38 @@ impl View {
         self.position = *pos;
     }
 
+    /// C++ `m_shakeIntensity` after `W3DView::shake`.
+    pub fn camera_shake_intensity(&self) -> f32 {
+        self.shake_intensity
+    }
+
+    /// C++ `m_shakeOffset` after `W3DView::update` processes impulse shake.
+    pub fn impulse_shake_offset(&self) -> Vector2 {
+        self.shake_offset
+    }
+
+    /// Advance the damped-oscillation impulse (C++ `W3DView::update` shake block).
+    pub fn tick_impulse_shake(&mut self) {
+        if self.shake_intensity > 0.01 {
+            self.shake_offset.x = self.shake_intensity * self.shake_angle_cos;
+            self.shake_offset.y = self.shake_intensity * self.shake_angle_sin;
+            self.shake_intensity *= 0.75;
+            self.shake_angle_cos = -self.shake_angle_cos;
+            self.shake_angle_sin = -self.shake_angle_sin;
+        } else {
+            self.shake_intensity = 0.0;
+            self.shake_offset = Vector2::zero();
+        }
+    }
+
+    /// Clear impulse shake so FXList tests start from rest.
+    pub fn reset_camera_shake(&mut self) {
+        self.shake_intensity = 0.0;
+        self.shake_angle_cos = 0.0;
+        self.shake_angle_sin = 0.0;
+        self.shake_offset = Vector2::zero();
+    }
+
     /// Center the view on the given world coordinate.
     ///
     /// C++ parity: `View::lookAt` stores the view's top-left world origin,
@@ -1206,16 +1238,7 @@ impl View {
         }
 
         // Process camera shake (position offsets)
-        if self.shake_intensity > 0.01 {
-            self.shake_offset.x = self.shake_intensity * self.shake_angle_cos;
-            self.shake_offset.y = self.shake_intensity * self.shake_angle_sin;
-            self.shake_intensity *= 0.75;
-            self.shake_angle_cos = -self.shake_angle_cos;
-            self.shake_angle_sin = -self.shake_angle_sin;
-        } else {
-            self.shake_intensity = 0.0;
-            self.shake_offset = Vector2::zero();
-        }
+        self.tick_impulse_shake();
 
         if self.fade_total_frames > 0 {
             self.fade_progress_frames += 1;
@@ -1841,6 +1864,9 @@ impl View {
             // C++ parity (W3DView::shake): overflow clamps to fixed 3.0, not to max_shake_intensity.
             self.shake_intensity = 3.0;
         }
+        // Seed offset so same-frame wgpu consumers see the impulse before update().
+        self.shake_offset.x = self.shake_intensity * self.shake_angle_cos;
+        self.shake_offset.y = self.shake_intensity * self.shake_angle_sin;
     }
 }
 
@@ -2257,6 +2283,19 @@ mod tests {
         }
 
         assert!((view.shake_intensity - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn tick_impulse_shake_seeds_and_decays_offset() {
+        let mut view = View::new();
+        view.init();
+        view.set_position(&Point3::origin());
+        view.shake(&Point3::origin(), CameraShakeType::Severe);
+        let first = view.impulse_shake_offset();
+        assert!(first.x.abs() > 0.0 || first.y.abs() > 0.0);
+        let before = view.camera_shake_intensity();
+        view.tick_impulse_shake();
+        assert!(view.camera_shake_intensity() < before);
     }
 
     #[test]

@@ -936,6 +936,13 @@ impl GameEngine {
             PathBuf::from("GeneralsRust/Code/Main/assets"),
         ];
 
+        for path in crate::common::system::install_layout::zh_install_roots() {
+            asset_paths.push(path);
+        }
+        for path in crate::common::system::install_layout::extracted_asset_roots() {
+            asset_paths.push(path);
+        }
+
         for path in &self.config.data_paths {
             asset_paths.push(PathBuf::from(path));
         }
@@ -1154,18 +1161,12 @@ impl GameEngine {
             return Some(ResolvedAnimSoundIni::Bytes { source_name, bytes });
         }
 
-        let big_candidates = [
-            Path::new("INIZH.big"),
-            Path::new("INI.big"),
-            Path::new("windows_game/Command & Conquer Generals Zero Hour/INIZH.big"),
-            Path::new("windows_game/Command & Conquer Generals Zero Hour/INI.big"),
-            Path::new("windows_game/Command & Conquer Generals/INI.big"),
-            Path::new("windows_game/Command & Conquer Generals/Data/INI.big"),
-            Path::new("../windows_game/Command & Conquer Generals Zero Hour/INIZH.big"),
-            Path::new("../windows_game/Command & Conquer Generals Zero Hour/INI.big"),
-            Path::new("../windows_game/Command & Conquer Generals/INI.big"),
-            Path::new("../windows_game/Command & Conquer Generals/Data/INI.big"),
-        ];
+        let mut big_candidates: Vec<PathBuf> =
+            vec![PathBuf::from("INIZH.big"), PathBuf::from("INI.big")];
+        for root in crate::common::system::install_layout::zh_install_roots() {
+            big_candidates.push(root.join("INIZH.big"));
+            big_candidates.push(root.join("INI.big"));
+        }
 
         let entry_names = [
             "data/ini/w3danimsound.ini",
@@ -1181,7 +1182,7 @@ impl GameEngine {
             candidate_paths.push(candidate.to_path_buf());
             if let Ok(cwd) = std::env::current_dir() {
                 for ancestor in cwd.ancestors() {
-                    candidate_paths.push(ancestor.join(candidate));
+                    candidate_paths.push(ancestor.join(&candidate));
                 }
             }
 

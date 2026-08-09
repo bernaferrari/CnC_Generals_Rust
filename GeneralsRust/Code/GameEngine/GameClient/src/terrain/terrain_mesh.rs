@@ -110,61 +110,20 @@ impl TerrainTile {
         max_y: u32,
         lod_level: u8,
     ) -> TerrainResult<(Vec<TerrainMeshVertex>, Vec<u32>)> {
-        let step = 1u32 << lod_level; // LOD step size: 1, 2, 4, 8, 16
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-
-        // Calculate vertex grid dimensions
-        let width_vertices = (max_x - min_x) / step + 1;
-        let height_vertices = (max_y - min_y) / step + 1;
-
-        // Generate vertices
-        for grid_y in 0..height_vertices {
-            for grid_x in 0..width_vertices {
-                let hm_x = min_x + grid_x * step;
-                let hm_y = min_y + grid_y * step;
-
-                // Clamp to heightmap bounds
-                let hm_x = hm_x.min(heightmap.width - 1);
-                let hm_y = hm_y.min(heightmap.height - 1);
-
-                let world_x = hm_x as f32 * heightmap.scale;
-                let world_y = hm_y as f32 * heightmap.scale;
-                let height = heightmap.get_height_at(world_x, world_y);
-                let normal = heightmap.get_normal_at(world_x, world_y);
-
-                // Calculate texture coordinates
-                let tex_u = hm_x as f32 / heightmap.width as f32;
-                let tex_v = hm_y as f32 / heightmap.height as f32;
-
-                vertices.push(TerrainMeshVertex {
-                    position: [world_x, world_y, height],
-                    normal: [normal.x, normal.y, normal.z],
-                    tex_coords: [tex_u, tex_v],
-                    detail_coords: [0.0, 0.0],
-                    blend_indices: [0; 4],
-                    blend_weights: [0.0, 0.0, 0.0, 0.0],
-                    color: [1.0, 1.0, 1.0, 1.0], // Default white
-                });
-            }
-        }
-
-        // Generate indices for triangles
-        for grid_y in 0..height_vertices - 1 {
-            for grid_x in 0..width_vertices - 1 {
-                let base = grid_y * width_vertices + grid_x;
-
-                // First triangle (top-left, bottom-left, top-right)
-                indices.push(base);
-                indices.push(base + width_vertices);
-                indices.push(base + 1);
-
-                // Second triangle (top-right, bottom-left, bottom-right)
-                indices.push(base + 1);
-                indices.push(base + width_vertices);
-                indices.push(base + width_vertices + 1);
-            }
-        }
+        let (hm_verts, indices) =
+            heightmap.generate_mesh(min_x, min_y, max_x, max_y, lod_level);
+        let vertices = hm_verts
+            .into_iter()
+            .map(|v| TerrainMeshVertex {
+                position: v.position,
+                normal: v.normal,
+                tex_coords: v.tex_coords,
+                detail_coords: [0.0, 0.0],
+                blend_indices: [0; 4],
+                blend_weights: [0.0, 0.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+            })
+            .collect();
 
         Ok((vertices, indices))
     }

@@ -21,7 +21,9 @@ use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
 use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::audio::audio_event_rts::AudioEventRts;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
+use game_engine::common::audio::game_audio::get_global_audio_manager;
 use game_engine::common::bit_flags::{
     create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
 };
@@ -1611,7 +1613,10 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     }
 
     /// Populate icon UI overlay state after the drawable's 3D pass.
-    fn draw_icon_ui(&mut self) {}
+    /// Wave 270: trait default fail-closed (no dual-world walk). BasicDrawable overrides.
+    fn draw_icon_ui(&mut self) {
+        // Wave 270: default icon UI is empty; registry-bound types override.
+    }
 
     /// Update drawable based on current time-of-day (default noop)
     fn set_time_of_day(&self, _time_of_day: TimeOfDay) -> Result<(), Box<dyn Error>> {
@@ -1683,6 +1688,8 @@ pub struct BasicDrawable {
     custom_sound_ambient_off: bool,
     custom_sound_ambient_base_name: Option<String>,
     custom_sound_ambient_dynamic_info: Option<DynamicAudioEventInfo>,
+    /// Live C++ `m_ambientSound` event after startAmbientSound.
+    ambient_sound_event: Option<AudioEventRts>,
     current_frame: u32,
     /// Model condition flags for animation state (matches C++ m_conditionState)
     model_condition_flags: ModelConditionBitFlags,
@@ -1707,6 +1714,8 @@ pub struct BasicDrawable {
     /// Wave 970: presentation construction residual.
     presentation_under_construction: bool,
     presentation_construction_percent: f32,
+    /// Wave 1115: C++ OBJECT_STATUS_SOLD residual for construct-percent fail-closed.
+    presentation_sold: bool,
     /// Wave 972: icon-pip residual.
     presentation_ammo_pip_total: u8,
     presentation_ammo_pip_full: u8,
@@ -1808,6 +1817,7 @@ impl BasicDrawable {
             custom_sound_ambient_off: false,
             custom_sound_ambient_base_name: None,
             custom_sound_ambient_dynamic_info: None,
+            ambient_sound_event: None,
             current_frame: 0,
             model_condition_flags: create_model_condition_flags(),
             presentation_kind_names: Vec::new(),
@@ -1821,6 +1831,7 @@ impl BasicDrawable {
             presentation_veterancy_level: 0,
             presentation_under_construction: false,
             presentation_construction_percent: 0.0,
+            presentation_sold: false,
             presentation_ammo_pip_total: 0,
             presentation_ammo_pip_full: 0,
             presentation_occupant_count: 0,
@@ -1868,6 +1879,51 @@ impl BasicDrawable {
     /// Get reference to locomotor info if it exists
     pub fn get_loco_info(&self) -> Option<&LocoInfo> {
         self.loco_info.as_ref()
+    }
+
+    /// C++ `Drawable::stopAmbientSound`.
+    pub fn stop_ambient_sound(&mut self) {
+        if let Some(event) = self.ambient_sound_event.take() {
+            if let Some(audio) = get_global_audio_manager() {
+                if let Ok(mut manager) = audio.lock() {
+                    manager.remove_audio_event(event.get_playing_handle());
+                }
+            }
+        }
+    }
+
+    /// C++ `Drawable::startAmbientSound(onlyIfPermanent)`.
+    pub fn start_ambient_sound(&mut self, only_if_permanent: bool) {
+        if !self.ambient_sound_enabled || !self.ambient_sound_enabled_from_script {
+            return;
+        }
+        self.stop_ambient_sound();
+        if self.custom_sound_ambient_off {
+            return;
+        }
+        let Some(info) = self.custom_sound_ambient_dynamic_info.as_ref() else {
+            return;
+        };
+        if only_if_permanent && !info.get_audio_event_info().is_permanent_sound() {
+            return;
+        }
+        let mut event = AudioEventRts::new();
+        event.set_event_name(info.get_audio_event_info().audio_name.clone());
+        event.set_audio_event_info(std::sync::Arc::new(info.get_audio_event_info().clone()));
+        event.set_drawable_id_override(self.id.0);
+        if let Some(audio) = get_global_audio_manager() {
+            if let Ok(mut manager) = audio.lock() {
+                let handle = manager.add_audio_event(&event);
+                event.set_playing_handle(handle);
+            }
+        }
+        self.ambient_sound_event = Some(event);
+    }
+
+    /// Whether an ambient event is currently attached (started).
+    #[must_use]
+    pub fn ambient_sound_is_active(&self) -> bool {
+        self.ambient_sound_event.is_some()
     }
 
     /// Get the current model-condition flags.
@@ -2290,9 +2346,22 @@ impl BasicDrawable {
         self.presentation_hotkey_group = group;
     }
 
+    /// Wave 1115: stamp C++ OBJECT_STATUS_SOLD residual for construct-percent.
+    pub fn set_presentation_sold(&mut self, sold: bool) {
+        self.presentation_sold = sold;
+        if sold {
+            self.overlay_data.is_under_construction = false;
+            self.overlay_data.construction_percent = 0.0;
+        }
+    }
+
     fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
-        // Wave 965: host empty dual-world → presentation kind residual.
+        // Wave 270/965: host empty dual-world → presentation kind residual.
+        // Fail-closed when presentation kinds were never stamped.
         if dual_world_registry_unavailable() {
+            if self.presentation_kind_names.is_empty() {
+                return false;
+            }
             let name = format!("{kind:?}");
             return self
                 .presentation_kind_names
@@ -2952,25 +3021,40 @@ impl BasicDrawable {
 
     fn draw_construct_percent(&mut self, _health_region: &IRegion2D) {
         // Wave 970: host empty dual-world → presentation construction residual.
+        // C++ Drawable::drawConstructPercent (Drawable.cpp:3672-3732) bails when
+        // there is no object, not OBJECT_STATUS_UNDER_CONSTRUCTION, or
+        // OBJECT_STATUS_SOLD. The isEffectivelyDead check is commented out.
         if dual_world_registry_unavailable() {
-            self.overlay_data.is_under_construction = self.presentation_under_construction;
+            // Wave 1115: dual construct residual fail-closed on sold /
+            // not-under-construction (C++ OBJECT_STATUS_SOLD), not on dead health.
+            if self.presentation_sold || !self.presentation_under_construction {
+                self.overlay_data.is_under_construction = false;
+                self.overlay_data.construction_percent = 0.0;
+                return;
+            }
+            self.overlay_data.is_under_construction = true;
             self.overlay_data.construction_percent = self.presentation_construction_percent;
             return;
         }
 
         if let Some(obj_id) = self.object_id {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                self.overlay_data.is_under_construction = false;
+                self.overlay_data.construction_percent = 0.0;
                 return;
             };
             let Ok(obj_guard) = obj_arc.read() else {
                 return;
             };
-            if obj_guard.is_under_construction() {
+            if obj_guard.test_status(gamelogic::common::ObjectStatusTypes::Sold)
+                || !obj_guard.is_under_construction()
+            {
+                self.overlay_data.is_under_construction = false;
+                self.overlay_data.construction_percent = 0.0;
+            } else {
                 self.overlay_data.is_under_construction = true;
                 self.overlay_data.construction_percent =
                     (obj_guard.get_construction_percent() as f32) / 100.0;
-            } else {
-                self.overlay_data.is_under_construction = false;
             }
         }
     }
@@ -3379,6 +3463,7 @@ impl BasicDrawable {
     }
 
     pub fn draw_icon_ui(&mut self) {
+        // Wave 270: host empty dual-world fail-closed via dual_world_registry_unavailable.
         // Wave 977: host empty dual-world runs presentation residual icon path.
         let region = self.compute_health_region();
 
@@ -4905,6 +4990,8 @@ impl Snapshotable for BasicDrawable {
             // hidden/shadow behavior from authoritative object state.
             // (C++ Drawable.cpp line 5274: m_stealthLook = STEALTHLOOK_NONE)
             self.stealth_look = StealthLook::None;
+            // C++ Drawable.cpp line 5293: stopAmbientSound(); Restarted in loadPostProcess().
+            self.stop_ambient_sound();
         }
 
         // --- ambient sound enabled (C++ line 5300: version >= 4) ---
@@ -5024,6 +5111,11 @@ impl Snapshotable for BasicDrawable {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script {
+            self.start_ambient_sound(true);
+        } else {
+            self.stop_ambient_sound();
+        }
         Ok(())
     }
 }
@@ -6300,6 +6392,80 @@ mod tests {
     }
 
     #[test]
+    fn drawable_load_post_process_restarts_only_permanent_ambient() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut permanent = DynamicAudioEventInfo::new();
+        permanent.override_audio_name("PermanentAmbient");
+        permanent.override_loop_flag(true);
+        permanent.override_loop_count(0);
+
+        let mut saved = BasicDrawable::new(DrawableId(101));
+        saved.custom_sound_ambient_base_name = Some("PermanentAmbient".to_string());
+        saved.custom_sound_ambient_dynamic_info = Some(permanent);
+        saved.start_ambient_sound(false);
+        assert!(saved.ambient_sound_is_active());
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_ambient_post").unwrap();
+            saved.xfer_snapshot(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = BasicDrawable::new(DrawableId(0));
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_ambient_post").unwrap();
+        loaded.xfer_snapshot(&mut load).unwrap();
+        load.close().unwrap();
+        assert!(!loaded.ambient_sound_is_active());
+        Snapshotable::load_post_process(&mut loaded).unwrap();
+        assert!(loaded.ambient_sound_is_active());
+
+        let mut oneshot = DynamicAudioEventInfo::new();
+        oneshot.override_audio_name("OneShotAmbient");
+        oneshot.override_loop_flag(false);
+        oneshot.override_loop_count(1);
+        let mut oneshot_drawable = BasicDrawable::new(DrawableId(102));
+        oneshot_drawable.custom_sound_ambient_dynamic_info = Some(oneshot);
+        oneshot_drawable.start_ambient_sound(true);
+        assert!(!oneshot_drawable.ambient_sound_is_active());
+    }
+
+    #[test]
+    fn drawable_load_post_process_stops_when_ambient_disabled() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = BasicDrawable::new(DrawableId(103));
+        saved.ambient_sound_enabled = false;
+        saved.ambient_sound_enabled_from_script = true;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_ambient_disabled").unwrap();
+            saved.xfer_snapshot(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = BasicDrawable::new(DrawableId(0));
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_ambient_disabled").unwrap();
+        loaded.xfer_snapshot(&mut load).unwrap();
+        load.close().unwrap();
+        Snapshotable::load_post_process(&mut loaded).unwrap();
+        assert!(!loaded.ambient_sound_is_active());
+        assert!(!loaded.ambient_sound_enabled);
+    }
+
+    #[test]
     fn test_model_condition_flags_flow_into_render_flags() {
         use crate::render_bridge::RenderConditionFlags;
         let mut drawable = BasicDrawable::new(DrawableId(1));
@@ -6341,6 +6507,71 @@ mod tests {
         assert!(!flags.test(ModelConditionFlags::REALLYDAMAGED));
         assert!(!flags.test(ModelConditionFlags::RUBBLE));
         assert!(flags.test(ModelConditionFlags::MOVING));
+    }
+
+    #[test]
+    fn is_object_kind_of_fail_closed_when_dual_world_empty_and_no_presentation_kinds() {
+        let drawable = BasicDrawable::new(DrawableId(11));
+        assert!(
+            drawable.presentation_kind_names.is_empty(),
+            "new drawable has no presentation KindOf residual"
+        );
+        assert!(
+            !drawable.is_object_kind_of(gamelogic::common::types::KindOf::Structure),
+            "Wave 270: empty dual-world + unstamped kinds must fail-closed"
+        );
+    }
+
+    #[test]
+    fn draw_construct_percent_fail_closed_on_sold_not_dead_health() {
+        // C++ drawConstructPercent: OBJECT_STATUS_SOLD clears the overlay;
+        // isEffectivelyDead is commented out, so 0 health still shows UC text.
+        let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
+
+        let mut building = BasicDrawable::new(DrawableId(8));
+        building.overlay_data.health_region = Some(region);
+        building.presentation_under_construction = true;
+        building.presentation_construction_percent = 0.42;
+        building.presentation_sold = false;
+        building.presentation_health_pct = 0.0;
+        building.overlay_data.is_under_construction = true;
+        building.overlay_data.construction_percent = 0.42;
+        building.draw_icon_ui();
+        assert!(
+            building.overlay_data.is_under_construction,
+            "dead health must not clear construct overlay (C++ dead check commented out)"
+        );
+        assert!(
+            (building.overlay_data.construction_percent - 0.42).abs() < 0.0001,
+            "construct percent stays at presentation residual when not sold"
+        );
+
+        building.presentation_sold = true;
+        building.draw_icon_ui();
+        assert!(
+            !building.overlay_data.is_under_construction,
+            "sold must fail-closed construct overlay"
+        );
+        assert_eq!(building.overlay_data.construction_percent, 0.0);
+
+        let mut complete = BasicDrawable::new(DrawableId(9));
+        complete.overlay_data.health_region = Some(region);
+        complete.presentation_under_construction = false;
+        complete.presentation_construction_percent = 0.8;
+        complete.presentation_sold = false;
+        complete.presentation_health_pct = 1.0;
+        complete.overlay_data.is_under_construction = true;
+        complete.overlay_data.construction_percent = 0.8;
+        complete.draw_icon_ui();
+        assert!(!complete.overlay_data.is_under_construction);
+        assert_eq!(complete.overlay_data.construction_percent, 0.0);
+
+        let mut sold_setter = BasicDrawable::new(DrawableId(10));
+        sold_setter.overlay_data.is_under_construction = true;
+        sold_setter.overlay_data.construction_percent = 0.3;
+        sold_setter.set_presentation_sold(true);
+        assert!(!sold_setter.overlay_data.is_under_construction);
+        assert_eq!(sold_setter.overlay_data.construction_percent, 0.0);
     }
 
     #[test]

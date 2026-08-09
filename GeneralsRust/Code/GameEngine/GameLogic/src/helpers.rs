@@ -588,12 +588,9 @@ pub fn game_client_random_value_real(lo: Real, hi: Real) -> Real {
 /// Gets the CRC of the game logic random seed state (matching C++ GetGameLogicRandomSeedCRC)
 /// CRITICAL for network synchronization - ensures all players have same random state.
 ///
-/// Residual: hashes the Common stream 6-word seed via crc32fast (helpers path).
+/// Residual: hashes the Common stream 6-word seed via Generals rotate-add CRC.
 pub fn get_game_logic_random_seed_crc() -> UnsignedInt {
-    let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
-    let seed_bytes: &[u8] =
-        unsafe { std::slice::from_raw_parts(seed.as_ptr() as *const u8, 6 * 4) };
-    crc32fast::hash(seed_bytes)
+    game_engine::common::random_value::get_game_logic_random_seed_crc()
 }
 
 /// Sets the game logic random seed (matching C++ SetGameLogicRandomSeed).
@@ -1137,16 +1134,21 @@ impl TheGameLogic {
         crate::system::game_logic::try_current_frame()
     }
 
-    /// Find object by ID using the global registry (mirrors C++ TheGameLogic::Find_Object_By_ID)
+    /// Find object by ID using the global registry (mirrors C++ TheGameLogic::findObjectByID).
     pub fn find_object_by_id(
         id: ObjectID,
     ) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
-        // Wave 281: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
+        // Wave 281: dual_world_registry_unavailable no longer forces None;
+        // try OBJECT_REGISTRY then GameLogic.objects via try_lock.
+        if let Some(obj) = OBJECT_REGISTRY.get_object(id) {
+            return Some(obj);
         }
-
-        OBJECT_REGISTRY.get_object(id)
+        // Host path: objects live on GameLogic.objects. try_lock avoids deadlock
+        // if we are already inside GameLogic::update.
+        crate::system::game_logic::get_game_logic()
+            .try_lock()
+            .ok()
+            .and_then(|logic| logic.find_object_by_id(id))
     }
 
     /// Register a newly created object handle with the global registry.
@@ -3279,6 +3281,16 @@ impl TheThingFactory {
     /// Get a reference to TheThingFactory
     pub fn get() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Self)
+    }
+
+    /// C++ `System.ini` `Object GenericTracer` / `GenericRope` (DRAWABLE_ONLY).
+    /// Does not run full `init_thing_factory` (all Object INI).
+    pub fn ensure_system_ini_drawable_only_templates() -> bool {
+        game_engine::common::thing::thing_factory::ensure_system_ini_drawable_only_templates()
+    }
+
+    pub fn generic_tracer_matches_system_ini() -> bool {
+        game_engine::common::thing::thing_factory::generic_tracer_template_matches_system_ini()
     }
 
     fn resolve_build_variation_name(

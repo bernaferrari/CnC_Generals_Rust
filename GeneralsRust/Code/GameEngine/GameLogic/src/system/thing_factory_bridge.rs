@@ -159,3 +159,26 @@ pub fn install_thing_factory_bridge() {
     set_object_creator(Some(Arc::new(GameLogicObjectCreator)));
     set_drawable_creator(Some(Arc::new(GameLogicDrawableCreator)));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::install_thing_factory_bridge;
+    use game_engine::common::thing::thing_factory::ThingFactory;
+    use game_engine::common::thing::thing_template::ThingTemplate;
+
+    #[test]
+    fn thing_factory_bridge_installs_dual_world_creators() {
+        install_thing_factory_bridge();
+        let factory = ThingFactory::new();
+        let dummy = ThingTemplate::new();
+        let err = factory
+            .new_object(&dummy, None, 0)
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(
+            !err.contains("Object creator not registered"),
+            "dual-world ThingFactory must be wired to GameLogic, got {err}"
+        );
+    }
+}

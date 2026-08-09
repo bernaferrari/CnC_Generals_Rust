@@ -43,11 +43,7 @@ impl ArchiveFileSystem {
         fn push_install_layout_paths(push_unique: &mut impl FnMut(PathBuf), root: &Path) {
             push_unique(root.join("assets"));
 
-            // Zero Hour directories.
-            push_unique(root.join("windows_game/Command & Conquer Generals Zero Hour"));
-            push_unique(root.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
-            push_unique(root.join("windows_game/Command and Conquer Generals Zero Hour"));
-            push_unique(root.join("windows_game/Command and Conquer Generals Zero Hour/Data"));
+            // Official retail directory names (not a repo-specific wrapper folder).
             push_unique(root.join("Command & Conquer Generals Zero Hour"));
             push_unique(root.join("Command & Conquer Generals Zero Hour/Data"));
             push_unique(root.join("Command and Conquer Generals Zero Hour"));
@@ -68,10 +64,6 @@ impl ArchiveFileSystem {
             ));
 
             // Base Generals directories (needed by ZH in C++).
-            push_unique(root.join("windows_game/Command & Conquer Generals"));
-            push_unique(root.join("windows_game/Command & Conquer Generals/Data"));
-            push_unique(root.join("windows_game/Command and Conquer Generals"));
-            push_unique(root.join("windows_game/Command and Conquer Generals/Data"));
             push_unique(root.join("Command & Conquer Generals"));
             push_unique(root.join("Command & Conquer Generals/Data"));
             push_unique(root.join("Command and Conquer Generals"));
@@ -135,6 +127,12 @@ impl ArchiveFileSystem {
         let home_dir = std::env::var("HOME").ok().map(PathBuf::from);
 
         for path in direct_install_candidates {
+            push_unique(path);
+        }
+        for path in game_engine::common::system::install_layout::zh_install_roots() {
+            push_unique(path);
+        }
+        for path in game_engine::common::system::install_layout::extracted_asset_roots() {
             push_unique(path);
         }
 
@@ -702,20 +700,9 @@ mod tests {
     }
 
     #[test]
-    fn init_discovers_retail_windows_game_archives() {
-        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let Some(repo_root) = manifest_dir.ancestors().nth(3) else {
-            eprintln!("Skipping retail archive discovery test: cannot resolve repo root");
-            return;
-        };
-        let retail_root = repo_root
-            .join("windows_game")
-            .join("Command & Conquer Generals Zero Hour");
-        if !retail_root.join("INIZH.big").is_file() {
-            eprintln!(
-                "Skipping retail archive discovery test: {} is unavailable",
-                retail_root.display()
-            );
+    fn init_discovers_retail_archives_from_install_layout() {
+        if game_engine::common::system::install_layout::zh_install_roots().is_empty() {
+            eprintln!("Skipping retail archive discovery test: no INIZH.big install found");
             return;
         }
 
@@ -730,7 +717,7 @@ mod tests {
 
         assert!(
             loaded.iter().any(|archive| archive.ends_with("/inizh.big")),
-            "INIZH.big should be loaded from the retail windows_game layout"
+            "INIZH.big should be loaded from the discovered install layout"
         );
         assert!(
             loaded

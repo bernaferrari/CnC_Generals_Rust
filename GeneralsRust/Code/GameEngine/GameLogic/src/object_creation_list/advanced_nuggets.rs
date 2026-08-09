@@ -106,10 +106,19 @@ impl Default for DeliverPayloadNugget {
     }
 }
 
+/// C++ DeliverPayloadNugget formation flight poses (start / moveTo / target / yaw).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeliverPayloadFormationPose {
+    pub start_pos: Coord3D,
+    pub move_to_pos: Coord3D,
+    pub target_pos: Coord3D,
+    pub orient: Real,
+}
+
 impl DeliverPayloadNugget {
     /// Calculate formation offset vectors (CCW and CW perpendicular to approach)
-    /// Matches C++ lines 271-298
-    fn calculate_formation_vectors(
+    /// Matches C++ ObjectCreationList.cpp:271-298
+    pub fn calculate_formation_vectors(
         primary: &Coord3D,
         secondary: &Coord3D,
     ) -> (Real, Real, Real, Real) {
@@ -141,8 +150,8 @@ impl DeliverPayloadNugget {
     }
 
     /// Calculate offset for formation member
-    /// Matches C++ lines 303-319
-    fn calculate_formation_offset(
+    /// Matches C++ ObjectCreationList.cpp:303-319
+    pub fn calculate_formation_offset(
         formation_index: Int,
         formation_size: Int,
         formation_spacing: Real,
@@ -163,6 +172,68 @@ impl DeliverPayloadNugget {
         } else {
             // Even - use CW
             Coord3D::new(cw_x * offset_multiplier, cw_y * offset_multiplier, 0.0)
+        }
+    }
+
+    /// Full C++ formation flight matrix for one transport:
+    /// offset → start/moveTo/target, optional error radius, distToTarget slop.
+    pub fn formation_flight_pose(
+        primary: &Coord3D,
+        secondary: &Coord3D,
+        formation_index: Int,
+        formation_size: Int,
+        formation_spacing: Real,
+        convergence_factor: Real,
+        dist_to_target: Real,
+        error_sample: Option<(Real, Real)>,
+    ) -> DeliverPayloadFormationPose {
+        let (ccw_x, ccw_y, cw_x, cw_y) = if formation_size > 1 {
+            Self::calculate_formation_vectors(primary, secondary)
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        };
+        let offset = Self::calculate_formation_offset(
+            formation_index,
+            formation_size,
+            formation_spacing,
+            ccw_x,
+            ccw_y,
+            cw_x,
+            cw_y,
+        );
+
+        let mut start_pos = *primary;
+        start_pos.x += offset.x;
+        start_pos.y += offset.y;
+
+        let mut move_to_pos = *secondary;
+        move_to_pos.x += offset.x;
+        move_to_pos.y += offset.y;
+
+        let mut target_pos = *secondary;
+        target_pos.x += offset.x * (1.0 - convergence_factor);
+        target_pos.y += offset.y * (1.0 - convergence_factor);
+
+        // First guy is always spot-on; later members may scatter by error radius.
+        if formation_index > 0 {
+            if let Some((random_radius, random_angle)) = error_sample {
+                target_pos.x += random_radius * random_angle.cos();
+                target_pos.y += random_radius * random_angle.sin();
+            }
+        }
+
+        let orient = (move_to_pos.y - start_pos.y).atan2(move_to_pos.x - start_pos.x);
+        if dist_to_target > 0.0 {
+            const SLOP: Real = 1.5;
+            start_pos.x -= orient.cos() * dist_to_target * SLOP;
+            start_pos.y -= orient.sin() * dist_to_target * SLOP;
+        }
+
+        DeliverPayloadFormationPose {
+            start_pos,
+            move_to_pos,
+            target_pos,
+            orient,
         }
     }
 }
@@ -209,56 +280,32 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
             return None;
         };
 
-        // Calculate formation vectors if multiple transports
-        let (ccw_x, ccw_y, cw_x, cw_y) = if self.formation_size > 1 {
-            Self::calculate_formation_vectors(primary, secondary)
-        } else {
-            (0.0, 0.0, 0.0, 0.0)
-        };
-
         let mut first_transport: Option<Arc<RwLock<Object>>> = None;
 
         // Create each transport in formation
         for formation_index in 0..self.formation_size as Int {
-            // Calculate formation offset
-            let offset = Self::calculate_formation_offset(
+            let error_sample = if self.error_radius > 1.0 && formation_index > 0 {
+                Some((
+                    ctx.game_logic.random_value_real(0.0, self.error_radius),
+                    ctx.game_logic.random_value_real(0.0, PI * 2.0),
+                ))
+            } else {
+                None
+            };
+            let pose = Self::formation_flight_pose(
+                primary,
+                secondary,
                 formation_index,
                 self.formation_size as Int,
                 self.formation_spacing,
-                ccw_x,
-                ccw_y,
-                cw_x,
-                cw_y,
+                self.convergence_factor,
+                self.data.dist_to_target,
+                error_sample,
             );
-
-            // Calculate positions
-            let mut start_pos = *primary;
-            start_pos.x += offset.x;
-            start_pos.y += offset.y;
-
-            let mut move_to_pos = *secondary;
-            move_to_pos.x += offset.x;
-            move_to_pos.y += offset.y;
-
-            let mut target_pos = *secondary;
-            target_pos.x += offset.x * (1.0 - self.convergence_factor);
-            target_pos.y += offset.y * (1.0 - self.convergence_factor);
-
-            // Apply random error to target (except first transport)
-            if self.error_radius > 1.0 && formation_index > 0 {
-                let random_radius = ctx.game_logic.random_value_real(0.0, self.error_radius);
-                let random_angle = ctx.game_logic.random_value_real(0.0, PI * 2.0);
-                target_pos.x += random_radius * random_angle.cos();
-                target_pos.y += random_radius * random_angle.sin();
-            }
-
-            // Calculate orientation and adjust start position
-            let orient = (move_to_pos.y - start_pos.y).atan2(move_to_pos.x - start_pos.x);
-            if self.data.dist_to_target > 0.0 {
-                const SLOP: Real = 1.5;
-                start_pos.x -= orient.cos() * self.data.dist_to_target * SLOP;
-                start_pos.y -= orient.sin() * self.data.dist_to_target * SLOP;
-            }
+            let mut start_pos = pose.start_pos;
+            let move_to_pos = pose.move_to_pos;
+            let target_pos = pose.target_pos;
+            let orient = pose.orient;
 
             // Create or use existing transport
             let transport = if create_owner {
@@ -743,6 +790,66 @@ mod tests {
         // Vectors should be perpendicular to approach vector
         assert!(ccw_x.abs() > 0.0 || ccw_y.abs() > 0.0);
         assert!(cw_x.abs() > 0.0 || cw_y.abs() > 0.0);
+    }
+
+    #[test]
+    fn formation_flight_pose_matches_cpp_lead_and_wingmen() {
+        let primary = Coord3D::new(100.0, 0.0, 10.0);
+        let secondary = Coord3D::new(0.0, 0.0, 10.0);
+        let spacing = 25.0;
+
+        // Lead plane: no offset, yaw faces move-to.
+        let lead = DeliverPayloadNugget::formation_flight_pose(
+            &primary, &secondary, 0, 3, spacing, 0.0, 0.0, None,
+        );
+        assert!((lead.start_pos.x - 100.0).abs() < 1e-4);
+        assert!((lead.start_pos.y - 0.0).abs() < 1e-4);
+        assert!((lead.move_to_pos.x - 0.0).abs() < 1e-4);
+        assert!((lead.target_pos.x - 0.0).abs() < 1e-4);
+        assert!((lead.orient - std::f32::consts::PI).abs() < 1e-3);
+
+        // Index 1 (odd): CCW offset; multiplier = (1+1)/2 * spacing = 25.
+        let (ccw_x, ccw_y, cw_x, cw_y) =
+            DeliverPayloadNugget::calculate_formation_vectors(&primary, &secondary);
+        let wing = DeliverPayloadNugget::formation_flight_pose(
+            &primary, &secondary, 1, 3, spacing, 0.0, 0.0, None,
+        );
+        let expected_off =
+            DeliverPayloadNugget::calculate_formation_offset(1, 3, spacing, ccw_x, ccw_y, cw_x, cw_y);
+        assert!((wing.start_pos.x - (primary.x + expected_off.x)).abs() < 1e-4);
+        assert!((wing.start_pos.y - (primary.y + expected_off.y)).abs() < 1e-4);
+        assert!((wing.move_to_pos.x - (secondary.x + expected_off.x)).abs() < 1e-4);
+        assert!((wing.target_pos.x - (secondary.x + expected_off.x)).abs() < 1e-4);
+
+        // Convergence 1.0: target stays on lead target (no offset).
+        let conv = DeliverPayloadNugget::formation_flight_pose(
+            &primary, &secondary, 1, 3, spacing, 1.0, 0.0, None,
+        );
+        assert!((conv.target_pos.x - secondary.x).abs() < 1e-4);
+        assert!((conv.target_pos.y - secondary.y).abs() < 1e-4);
+
+        // distToTarget slop pulls start back along heading.
+        let slop = DeliverPayloadNugget::formation_flight_pose(
+            &primary, &secondary, 0, 1, spacing, 0.0, 100.0, None,
+        );
+        let expected_back = 100.0 * 1.5;
+        assert!((slop.start_pos.x - (100.0 + expected_back)).abs() < 1e-3);
+        assert!((slop.orient - std::f32::consts::PI).abs() < 1e-3);
+
+        // Error sample only applies after lead.
+        let err = DeliverPayloadNugget::formation_flight_pose(
+            &primary,
+            &secondary,
+            2,
+            3,
+            spacing,
+            0.0,
+            0.0,
+            Some((10.0, 0.0)),
+        );
+        let off2 =
+            DeliverPayloadNugget::calculate_formation_offset(2, 3, spacing, ccw_x, ccw_y, cw_x, cw_y);
+        assert!((err.target_pos.x - (secondary.x + off2.x + 10.0)).abs() < 1e-4);
     }
 
     #[test]

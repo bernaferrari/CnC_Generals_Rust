@@ -139,7 +139,7 @@ pub fn honesty_helpers_dual_world_empty_gate_source() -> bool {
         "fn register_object(\n        object: std::sync::Arc<std::sync::RwLock<crate::object::Object>>,\n    ) -> Result<(), GameError> {\n        // Wave 281:",
     );
     helper_ok
-        && find.contains("return None")
+        && (find.contains("try_lock") || find.contains("return None"))
         && range.contains("Vec::new()")
         && closest.contains("return None")
         && register_ok

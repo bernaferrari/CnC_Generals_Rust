@@ -1749,3 +1749,119 @@ pub fn simulate_message_box_prepare_ok(title: &str, body: &str) -> bool {
     }
     simulate_message_box_ok_button_gadget_selected()
 }
+
+/// Human click-through: OS LeftDown/Up on a retail `MessageBox.wnd:*` gadget
+/// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
+fn drive_os_wnd_message_box_named(name: &str, latch: impl FnOnce() -> bool) -> bool {
+    if !crate::gui::dispatch_os_click_named_window(name) {
+        return false;
+    }
+    latch()
+}
+
+pub fn drive_os_wnd_message_box_ok_like_cpp() -> bool {
+    drive_os_wnd_message_box_named(
+        "MessageBox.wnd:ButtonOk",
+        simulate_message_box_ok_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_message_box_yes_like_cpp() -> bool {
+    drive_os_wnd_message_box_named(
+        "MessageBox.wnd:ButtonYes",
+        simulate_message_box_yes_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_message_box_no_like_cpp() -> bool {
+    drive_os_wnd_message_box_named(
+        "MessageBox.wnd:ButtonNo",
+        simulate_message_box_no_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_message_box_cancel_like_cpp() -> bool {
+    drive_os_wnd_message_box_named(
+        "MessageBox.wnd:ButtonCancel",
+        simulate_message_box_cancel_button_gadget_selected,
+    )
+}
+
+/// Human click-through: show Yes/No via title/body gadgets then ButtonYes.
+pub fn drive_os_wnd_message_box_prepare_yes_like_cpp(title: &str, body: &str) -> bool {
+    let clicked_title =
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextTitle");
+    let clicked_body =
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextMessage");
+    let clicked_yes = drive_os_wnd_message_box_yes_like_cpp();
+    if !clicked_title && !clicked_body && !clicked_yes {
+        return false;
+    }
+    if !clicked_yes {
+        let _ = simulate_message_box_show_yes_no(title, body);
+        return drive_os_wnd_message_box_yes_like_cpp()
+            || simulate_message_box_prepare_yes(title, body);
+    }
+    true
+}
+
+pub fn drive_os_wnd_message_box_prepare_ok_like_cpp(title: &str, body: &str) -> bool {
+    let clicked_title =
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextTitle");
+    let clicked_body =
+        crate::gui::dispatch_os_click_named_window("MessageBox.wnd:StaticTextMessage");
+    let clicked_ok = drive_os_wnd_message_box_ok_like_cpp();
+    if !clicked_title && !clicked_body && !clicked_ok {
+        return false;
+    }
+    if !clicked_ok {
+        let _ = simulate_message_box_show_ok(title, body);
+        return drive_os_wnd_message_box_ok_like_cpp()
+            || simulate_message_box_prepare_ok(title, body);
+    }
+    true
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_message_box_yes_hits_button_then_latches() {
+        install_named_button("MessageBox.wnd:ButtonYes", 10, 10);
+        assert!(
+            drive_os_wnd_message_box_yes_like_cpp(),
+            "OS WND click on ButtonYes must latch Yes residual"
+        );
+        assert_eq!(
+            residual_message_box_last_action(),
+            ResidualMessageBoxAction::Yes
+        );
+        assert!(!residual_message_box_is_visible());
+        assert!(!drive_os_wnd_message_box_ok_like_cpp());
+    }
+
+    #[test]
+    fn os_wnd_message_box_prepare_ok_hits_title_and_ok() {
+        install_named_button("MessageBox.wnd:StaticTextTitle", 10, 40);
+        install_named_button("MessageBox.wnd:StaticTextMessage", 10, 70);
+        install_named_button("MessageBox.wnd:ButtonOk", 10, 100);
+        assert!(drive_os_wnd_message_box_prepare_ok_like_cpp(
+            "GUI:Message",
+            "GUI:Confirm"
+        ));
+        assert_eq!(
+            residual_message_box_last_action(),
+            ResidualMessageBoxAction::Ok
+        );
+    }
+}

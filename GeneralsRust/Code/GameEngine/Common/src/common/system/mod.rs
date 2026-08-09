@@ -16,6 +16,7 @@ pub mod disabled_types;
 pub mod encrypt;
 pub mod file;
 pub mod file_system;
+pub mod install_layout;
 pub mod function_lexicon;
 pub mod game_common;
 pub mod game_memory;

@@ -54,8 +54,9 @@ pub mod streaming; // Audio streaming for large files // Sound effects managemen
 
 // Re-export commonly used types and functions
 pub use audio_event_rts::{
-    AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D,
-    DynamicAudioEventRts, OwnerType, PortionToPlay, TimeOfDay,
+    miles_get_effective_volume, miles_positional_gain, miles_positional_ranges, AudioEventInfo,
+    AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D, DynamicAudioEventRts,
+    MilesVolumeSliders, OwnerType, PortionToPlay, TimeOfDay, AC_ALL, AC_LOOP, ST_GLOBAL, ST_WORLD,
 };
 
 pub use audio_request::{AudioRequest, RequestData, RequestType};

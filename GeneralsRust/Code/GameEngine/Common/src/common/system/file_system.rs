@@ -5,6 +5,7 @@
 
 use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -222,6 +223,14 @@ impl FileSystem {
         None
     }
 
+    /// C++ `FileSystem::areMusicFilesOnCD`.
+    ///
+    /// Walks `TheCDManager` drive roots for `genseczh.big`, plus any discovered
+    /// install directory that contains that archive.
+    pub fn are_music_files_on_cd(&self) -> bool {
+        are_music_files_on_cd()
+    }
+
     /// Check if a file exists in any backend
     ///
     /// This method implements caching to avoid repeated file system queries.
@@ -400,6 +409,27 @@ lazy_static::lazy_static! {
 /// Convenience function to access the global file system
 pub fn get_file_system() -> Arc<Mutex<FileSystem>> {
     THE_FILE_SYSTEM.clone()
+}
+
+/// C++ `FileSystem::areMusicFilesOnCD` (does not require a live `FileSystem` instance).
+pub fn are_music_files_on_cd() -> bool {
+    use crate::common::system::cd_manager::get_cd_manager;
+    use crate::common::system::install_layout::{
+        find_file_case_insensitive, find_genseczh_big, GENSECZH_BIG,
+    };
+
+    if let Some(cd) = get_cd_manager() {
+        for index in 0..cd.drive_count() {
+            if let Some(drive) = cd.get_drive(index) {
+                let root = drive.get_path();
+                if find_file_case_insensitive(Path::new(root.as_str()), GENSECZH_BIG).is_some() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    find_genseczh_big().is_some()
 }
 
 /// Directory path constants
@@ -605,6 +635,14 @@ mod tests {
     }
 
     #[test]
+    fn are_music_files_on_cd_finds_discovered_genseczh() {
+        assert!(
+            are_music_files_on_cd(),
+            "FileSystem::areMusicFilesOnCD must find genseczh.big via install/CD discovery"
+        );
+    }
+
+    #[test]
     fn local_backend_overrides_archived_file_like_cpp_file_system() {
         let temp_dir = tempfile::tempdir().unwrap();
         let loose_dir = temp_dir.path().join("loose");
@@ -637,5 +675,16 @@ mod tests {
             .get_file_info(&AsciiString::from("test.txt"))
             .expect("loose file info should win over archive info");
         assert_eq!(info.size_low, "Loose Override".len() as i32);
+    }
+
+    #[test]
+    fn file_system_does_file_exist_sees_discovered_inizh_after_local_init() {
+        let mut fs = FileSystem::new();
+        fs.ensure_backend(crate::common::system::local_file_system::LocalFileSystem::new);
+        fs.init().unwrap();
+        assert!(
+            fs.does_file_exist("INIZH.big"),
+            "TheFileSystem must find INIZH.big after local backend init discovers the install"
+        );
     }
 }
