@@ -1750,6 +1750,39 @@ mod tests {
     }
 
     #[test]
+    fn attach_particle_system_to_object_helper_records_parent_object_id() {
+        let _ = initialize_particle_system_manager();
+        register_particle_system_manager_bridge();
+        {
+            let mut guard = get_particle_system_manager_mut().expect("global particle manager");
+            let mgr = guard.get_or_insert_with(ParticleSystemManager::new);
+            let _ = mgr.new_template("OclDummyAttachSmoke".to_string());
+        }
+
+        let object_id = 4_242u32;
+        let sys_id = gamelogic::helpers::attach_particle_system_to_object(
+            "OclDummyAttachSmoke",
+            object_id,
+        )
+        .expect("registered template should create+attach");
+
+        {
+            let guard = get_particle_system_manager().expect("global particle manager");
+            let mgr = guard.as_ref().expect("manager initialized");
+            let system = mgr
+                .find_particle_system(sys_id)
+                .expect("created particle system");
+            assert_eq!(system.attached_object(), Some(object_id));
+        }
+
+        assert!(
+            gamelogic::helpers::attach_particle_system_to_object("NoSuchOclParticleTemplate", 1)
+                .is_none(),
+            "unknown template must fail-closed"
+        );
+    }
+
+    #[test]
     fn preload_assets_matches_cpp_particle_texture_filter() {
         let mut manager = ParticleSystemManager::new();
 

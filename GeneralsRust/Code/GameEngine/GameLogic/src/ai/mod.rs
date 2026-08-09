@@ -2300,8 +2300,6 @@ impl Pathfinder {
         self.inner.remove_wall_piece(wall_piece_id);
     }
 
-    /// C++ `Pathfinder::forceMapRecalculation`.
-
     /// C++ `Pathfinder::cleanOpenAndClosedLists`.
     pub fn clean_open_and_closed_lists(&mut self) {
         self.inner.clean_open_and_closed_lists();
@@ -2321,10 +2319,6 @@ impl Pathfinder {
     pub fn load_post_process_pathfinder(&mut self) {
         self.inner.load_post_process();
     }
-
-    /// C++ `Pathfinder::moveAllies`.
-
-    /// C++ `Pathfinder::getMoveAwayFromPath`.
 
     /// C++ `Pathfinder::patchPath`.
     pub fn patch_path(
@@ -2350,6 +2344,7 @@ impl Pathfinder {
         )
     }
 
+    /// C++ `Pathfinder::getMoveAwayFromPath`.
     pub fn get_move_away_from_path(
         &mut self,
         from: &Coord3D,
@@ -2397,6 +2392,7 @@ impl Pathfinder {
         )
     }
 
+    /// C++ `Pathfinder::moveAllies`.
     pub fn move_allies(
         &mut self,
         obj_id: ObjectID,
@@ -2414,6 +2410,7 @@ impl Pathfinder {
         )
     }
 
+    /// C++ `Pathfinder::forceMapRecalculation`.
     pub fn force_map_recalculation(&mut self) {
         self.inner.force_map_recalculation();
     }
@@ -2532,10 +2529,6 @@ impl Pathfinder {
         self.inner.find_closest_path(request)
     }
 
-    /// C++ `Pathfinder::findAttackPath` with simple range circle.
-
-    /// C++ `Pathfinder::getAircraftPath`.
-
     /// C++ `Pathfinder::buildGroundPath`.
     pub fn build_ground_path(
         &self,
@@ -2563,6 +2556,7 @@ impl Pathfinder {
         self.inner.set_debug_path(path);
     }
 
+    /// C++ `Pathfinder::getAircraftPath`.
     pub fn get_aircraft_path(
         &self,
         from: &Coord3D,
@@ -2600,6 +2594,7 @@ impl Pathfinder {
         )
     }
 
+    /// C++ `Pathfinder::findAttackPath` with simple range circle.
     pub fn find_attack_path_range(
         &mut self,
         from: &Coord3D,
@@ -3225,6 +3220,18 @@ impl Pathfinder {
         );
     }
 
+    /// C++ `Pathfinder::removePos` — clear previous occupancy without touching goal.
+    pub fn remove_pos_cells(
+        &self,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+        layer: pathfind_astar::PathfindLayerEnum,
+    ) {
+        self.inner
+            .remove_pos(unit_id, radius, center_in_cell, layer);
+    }
+
     /// C++ `Pathfinder::removeUnitFromPathfindMap`.
     pub fn remove_unit_from_pathfind_map(
         &self,
@@ -3299,6 +3306,34 @@ impl Pathfinder {
     ) {
         self.inner
             .clear_aircraft_goal_cells(unit_id, center_cell, radius, center_in_cell);
+    }
+
+    /// C++ `Pathfinder::getCell(LAYER_GROUND, pos)->getType()` via world position.
+    /// Ground A* grid; cell index uses `GridCoord::from_world` (floor).
+    pub fn get_cell_type_at(&self, pos: &Coord3D) -> Option<PathfindCellType> {
+        self.inner.get_cell_type(pos)
+    }
+
+    /// C++ `Pathfinder::getCell(layer, REAL_TO_INT(x/SIZE), REAL_TO_INT(y/SIZE))`.
+    ///
+    /// Truncate-toward-zero cell indices. Non-Ground looks up BridgeLayer;
+    /// missing cell → `None` (diesOnBadLand treats as `CELL_IMPASSABLE`).
+    pub fn get_cell_type_at_layer(
+        &self,
+        pos: &Coord3D,
+        layer: self::pathfind_astar::PathfindLayerEnum,
+    ) -> Option<PathfindCellType> {
+        self.inner.get_cell_type_at_layer(pos, layer)
+    }
+
+    /// C++ `Pathfinder::getCell(layer, cellX, cellY)->getType()`.
+    pub fn get_cell_type_at_cell(
+        &self,
+        layer: self::pathfind_astar::PathfindLayerEnum,
+        cell_x: i32,
+        cell_y: i32,
+    ) -> Option<PathfindCellType> {
+        self.inner.get_cell_type_at_cell(layer, cell_x, cell_y)
     }
 
     pub fn add_object_to_map(

@@ -1927,7 +1927,7 @@ impl SpecialPowerType {
     pub fn from_u32(value: u32) -> Option<Self> {
         if value <= SpecialPowerType::SpecialPowerCount as u32 {
             // SAFETY: SpecialPowerType is #[repr(u32)] and we bounds-check against the max value.
-            Some(unsafe { std::mem::transmute(value) })
+            Some(unsafe { std::mem::transmute::<u32, SpecialPowerType>(value) })
         } else {
             None
         }
@@ -3274,6 +3274,13 @@ impl DefaultThingTemplate {
 
     pub fn add_armor_template_set(&mut self, set: ArmorTemplateSet) {
         self.armor_template_sets.push(set);
+    }
+
+    /// Add a KINDOF flag used by OCL LIKE_EXISTING structure flattening tests.
+    pub fn add_kind_of(&mut self, kind: KindOf) {
+        if !self.kind_of_flags.contains(&kind) {
+            self.kind_of_flags.push(kind);
+        }
     }
 
     pub fn set_per_unit_sound(

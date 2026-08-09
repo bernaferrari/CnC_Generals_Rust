@@ -413,7 +413,7 @@ pub enum ScriptActionType {
 impl ScriptActionType {
     pub fn from_u32(value: u32) -> Option<Self> {
         if value <= ScriptActionType::NumItems as u32 {
-            Some(unsafe { std::mem::transmute(value) })
+            Some(unsafe { std::mem::transmute::<u32, ScriptActionType>(value) })
         } else {
             None
         }
@@ -539,7 +539,7 @@ pub enum ConditionType {
 impl ConditionType {
     pub fn from_u32(value: u32) -> Option<Self> {
         if value <= ConditionType::NumItems as u32 {
-            Some(unsafe { std::mem::transmute(value) })
+            Some(unsafe { std::mem::transmute::<u32, ConditionType>(value) })
         } else {
             None
         }
@@ -608,7 +608,7 @@ pub enum ParameterType {
 impl ParameterType {
     pub fn from_u32(value: u32) -> Option<Self> {
         if value <= ParameterType::NumItems as u32 {
-            Some(unsafe { std::mem::transmute(value) })
+            Some(unsafe { std::mem::transmute::<u32, ParameterType>(value) })
         } else {
             None
         }

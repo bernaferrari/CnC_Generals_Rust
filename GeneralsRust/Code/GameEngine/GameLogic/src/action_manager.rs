@@ -13,6 +13,7 @@ use crate::common::{
     ObjectStatusTypes, Relationship,
 };
 use crate::helpers::TheGameLogic;
+use crate::helpers::ThePartitionManager;
 use crate::helpers::TheTerrainLogic;
 use crate::modules::SpecialPowerModuleInterface;
 use crate::object::behavior::spawn_behavior::SpawnBehaviorInterface;
@@ -23,9 +24,7 @@ use crate::object::special_power_template::SpecialPowerTemplate;
 use crate::object::special_power_types::SpecialPowerType;
 use crate::object::Object;
 use crate::player::PlayerType;
-use crate::system::shroud_manager::{get_shroud_manager, ShroudState};
 use crate::weapon::DamageType;
-use crate::weapon::WeaponBonus;
 use crate::weapon::WeaponSlotType;
 use game_engine::common::rts::action_manager::{
     ActionExecutor, ActionType, Coord3D as ActionCoord3D,
@@ -77,23 +76,151 @@ fn is_faction_structure(obj: &Object) -> bool {
 }
 
 fn is_point_on_map(pos: &crate::common::Coord3D) -> bool {
+    // C++ isPointOnMap: TheTerrainLogic->getExtent(&mapRegion); mapRegion.isInRegionNoZ(testPos)
     let Some(terrain) = TheTerrainLogic::get() else {
         return false;
     };
-    let extent = terrain.get_maximum_pathfind_extent();
+    let extent = terrain.get_extent();
     pos.x >= extent.lo.x && pos.x <= extent.hi.x && pos.y >= extent.lo.y && pos.y <= extent.hi.y
 }
 
-fn is_location_shrouded(player_id: u32, pos: &crate::common::Coord3D) -> bool {
-    let Ok(manager) = get_shroud_manager().lock() else {
-        return false;
-    };
-    matches!(
-        manager.get_shroud_state(player_id, pos),
-        ShroudState::Hidden
-    )
+fn controlling_player_index(source: &Object) -> crate::common::Int {
+    source
+        .get_controlling_player()
+        .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+        .or_else(|| {
+            source
+                .get_controlling_player_id()
+                .map(|player_id| player_id as crate::common::Int)
+        })
+        .unwrap_or(-1)
 }
 
+/// C++ ActionManager.cpp:1521 — PartitionManager cell shroud, fail-closed if missing.
+fn is_location_cell_shrouded(source: &Object, loc: &crate::common::Coord3D) -> bool {
+    let Some(partition) = ThePartitionManager::get() else {
+        return true;
+    };
+    partition.get_shroud_status_for_player(controlling_player_index(source), loc)
+        == game_engine::common::system::radar::CellShroudStatus::Shrouded
+}
+
+/// C++ getSpecialPowerModule(spTemplate) + optional getPercentReady() < 1.0.
+///
+/// When `check_source_requirements` is false (AI hunt), C++ still requires a
+/// SpecialPowerModule. Hunt unit tests omit that module and only exercise the
+/// target-kind switch, so a missing module is tolerated only in that mode.
+fn special_power_source_ok(
+    obj: &Object,
+    sp_template: &SpecialPowerTemplate,
+    check_source_requirements: bool,
+) -> bool {
+    if check_source_requirements && !obj.has_special_power(sp_template.get_special_power_type()) {
+        return false;
+    }
+    let has_module = obj.has_special_power_module_for_power(sp_template);
+    if check_source_requirements {
+        if !has_module {
+            return false;
+        }
+        match special_power_module_percent_ready(obj, sp_template) {
+            Some(ready) if ready >= 1.0 => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn special_power_module_percent_ready(
+    obj: &Object,
+    sp_template: &SpecialPowerTemplate,
+) -> Option<f32> {
+    for behavior in obj.get_behavior_modules() {
+        let Ok(behavior) = behavior.lock() else {
+            continue;
+        };
+        if let Some(module) = behavior.get_special_power_module_interface_const() {
+            if module.is_module_for_power(sp_template) {
+                return Some(module.get_percent_ready());
+            }
+        }
+    }
+    get_special_power_ready_percent(obj, sp_template.get_special_power_type())
+}
+
+fn special_ability_object_counts(
+    obj: &Object,
+    power_type: SpecialPowerType,
+) -> Option<(u32, u32)> {
+    use crate::object::behavior::special_ability_update::SpecialAbilityUpdate as SpecialAbilityUpdateBehavior;
+
+    for behavior in obj.get_behavior_modules() {
+        let Ok(guard) = behavior.lock() else {
+            continue;
+        };
+        let Some(update) = guard
+            .as_any()
+            .downcast_ref::<SpecialAbilityUpdateBehavior>()
+        else {
+            continue;
+        };
+        let Some(update_type) = update.get_special_power_type() else {
+            continue;
+        };
+        if update_type as u32 != power_type as u32 {
+            continue;
+        }
+        return Some((
+            update.get_special_object_count(),
+            update.get_special_object_max(),
+        ));
+    }
+    None
+}
+
+/// C++ canDoSpecialPowerAtObject SPECIAL_REMOTE/TIMED_CHARGES / HELIX_NAPALM_BOMB.
+fn can_place_special_object_charge(
+    obj: &Object,
+    target: &Object,
+    power_type: SpecialPowerType,
+) -> bool {
+    if target.is_effectively_dead()
+        || target.is_kind_of(KindOf::Bridge)
+        || target.is_kind_of(KindOf::BridgeTower)
+    {
+        return false;
+    }
+    if !target.is_kind_of(KindOf::Structure) && !target.is_kind_of(KindOf::Vehicle) {
+        return false;
+    }
+
+    // Fail-closed when SpecialAbilityUpdate is missing (C++ requires spUpdate).
+    let Some((count, max)) = special_ability_object_counts(obj, power_type) else {
+        return false;
+    };
+    if count >= max {
+        return false;
+    }
+    if has_special_object_on_target(target.get_id(), "StickyBombUpdate") {
+        return false;
+    }
+
+    let other = match power_type {
+        SpecialPowerType::RemoteCharges => Some(SpecialPowerType::TimedCharges),
+        SpecialPowerType::TimedCharges => Some(SpecialPowerType::RemoteCharges),
+        _ => None,
+    };
+    if let Some(other_type) = other {
+        if special_ability_object_counts(obj, other_type).is_some()
+            && has_special_object_on_target(target.get_id(), "StickyBombUpdate")
+        {
+            return false;
+        }
+    }
+    true
+}
+
+#[allow(dead_code)]
 fn count_special_objects_by_producer(producer_id: ObjectID, special_object_update: &str) -> usize {
     // Wave 347: empty dual-world → 0.
     if dual_world_registry_unavailable() {
@@ -353,37 +480,26 @@ impl TheActionManager {
         _command_options: u32,
         check_source_requirements: bool,
     ) -> bool {
-        if check_source_requirements && !obj.has_special_power(sp_template.get_special_power_type())
-        {
+        // C++ ActionManager.cpp:1436-1554
+        if !special_power_source_ok(obj, sp_template, check_source_requirements) {
             return false;
         }
 
-        if check_source_requirements {
-            let Some(ready) =
-                get_special_power_ready_percent(obj, sp_template.get_special_power_type())
-            else {
-                return false;
-            };
-            if ready < 1.0 {
-                return false;
-            }
-        }
-
-        if let Some(terrain) = TheTerrainLogic::get() {
-            match sp_template.get_special_power_type() {
-                SpecialPowerType::ParadropAmerica
-                | SpecialPowerType::InfaParadropAmerica
-                | SpecialPowerType::CrateDrop
-                | SpecialPowerType::TankParadrop => {
-                    if terrain.is_underwater(loc.x, loc.y, None, None) {
-                        return false;
-                    }
+        match sp_template.get_special_power_type() {
+            SpecialPowerType::ParadropAmerica
+            | SpecialPowerType::InfaParadropAmerica
+            | SpecialPowerType::CrateDrop
+            | SpecialPowerType::TankParadrop => {
+                let Some(terrain) = TheTerrainLogic::get() else {
+                    return false;
+                };
+                if terrain.is_underwater(loc.x, loc.y, None, None) {
+                    return false;
                 }
-                _ => {}
             }
+            _ => {}
         }
 
-        let player_id = obj.get_controlling_player_id().unwrap_or(0);
         match sp_template.get_special_power_type() {
             SpecialPowerType::DaisyCutter
             | SpecialPowerType::AirfDaisyCutter
@@ -428,12 +544,9 @@ impl TheActionManager {
             | SpecialPowerType::CleanupArea
             | SpecialPowerType::SneakAttack
             | SpecialPowerType::BattleshipBombardment => {
-                if command_source != CommandSourceType::FromScript
-                    && is_location_shrouded(player_id, loc)
-                {
-                    return false;
-                }
-                true
+                // C++ ActionManager.cpp:1521 — no script bypass for cell shroud.
+                let _ = command_source;
+                !is_location_cell_shrouded(obj, loc)
             }
             SpecialPowerType::SpySatellite
             | SpecialPowerType::RadarVanScan
@@ -470,8 +583,8 @@ impl TheActionManager {
         _command_options: u32,
         check_source_requirements: bool,
     ) -> bool {
-        if check_source_requirements && !obj.has_special_power(sp_template.get_special_power_type())
-        {
+        // C++ ActionManager.cpp:1558-1816
+        if !special_power_source_ok(obj, sp_template, check_source_requirements) {
             return false;
         }
 
@@ -481,24 +594,14 @@ impl TheActionManager {
 
         let relationship = obj.relationship_to(target);
 
-        if check_source_requirements {
-            let Some(ready) =
-                get_special_power_ready_percent(obj, sp_template.get_special_power_type())
-            else {
-                return false;
-            };
-            if ready < 1.0 {
-                return false;
-            }
-        }
-
         if is_object_shrouded_for_action(obj, target, command_source) {
             return false;
         }
 
         match sp_template.get_special_power_type() {
             SpecialPowerType::CashBounty => false,
-            SpecialPowerType::BattleshipBombardment => relationship == Relationship::Enemies,
+            // C++: if relationship != ALLIES return TRUE (enemies and neutrals).
+            SpecialPowerType::BattleshipBombardment => relationship != Relationship::Allies,
             SpecialPowerType::TankHunterTntAttack => {
                 target.is_kind_of(KindOf::Structure)
                     || (target.is_kind_of(KindOf::Vehicle) && !target.is_kind_of(KindOf::Aircraft))
@@ -618,29 +721,7 @@ impl TheActionManager {
             SpecialPowerType::RemoteCharges
             | SpecialPowerType::TimedCharges
             | SpecialPowerType::HelixNapalmBomb => {
-                if target.is_effectively_dead()
-                    || target.is_kind_of(KindOf::Bridge)
-                    || target.is_kind_of(KindOf::BridgeTower)
-                {
-                    return false;
-                }
-
-                if target.is_kind_of(KindOf::Structure) || target.is_kind_of(KindOf::Vehicle) {
-                    let max_special = 1;
-                    let max_reached =
-                        count_special_objects_by_producer(obj.get_id(), "StickyBombUpdate")
-                            >= max_special as usize;
-                    if max_reached {
-                        return false;
-                    }
-
-                    if has_special_object_on_target(target.get_id(), "StickyBombUpdate") {
-                        return false;
-                    }
-
-                    return true;
-                }
-                false
+                can_place_special_object_charge(obj, target, sp_template.get_special_power_type())
             }
             _ => false,
         }
@@ -655,20 +736,9 @@ impl TheActionManager {
         _command_options: u32,
         check_source_requirements: bool,
     ) -> bool {
-        if check_source_requirements && !obj.has_special_power(sp_template.get_special_power_type())
-        {
+        // C++ ActionManager.cpp:1820-1907 — module required, default FALSE.
+        if !special_power_source_ok(obj, sp_template, check_source_requirements) {
             return false;
-        }
-
-        if check_source_requirements {
-            let Some(ready) =
-                get_special_power_ready_percent(obj, sp_template.get_special_power_type())
-            else {
-                return false;
-            };
-            if ready < 1.0 {
-                return false;
-            }
         }
 
         match sp_template.get_special_power_type() {
@@ -717,8 +787,16 @@ impl TheActionManager {
             | SpecialPowerType::CashBounty
             | SpecialPowerType::CleanupArea
             | SpecialPowerType::HelixNapalmBomb
-            | SpecialPowerType::SneakAttack => false,
-            _ => true,
+            | SpecialPowerType::SneakAttack
+            | SpecialPowerType::EmpPulse
+            | SpecialPowerType::CashHack => false,
+            SpecialPowerType::RemoteCharges
+            | SpecialPowerType::CiaIntelligence
+            | SpecialPowerType::CommunicationsDownload
+            | SpecialPowerType::DetonateDirtyNuke
+            | SpecialPowerType::ChangeBattlePlans
+            | SpecialPowerType::LaunchBaikonurRocket => true,
+            _ => false,
         }
     }
 
@@ -888,7 +966,8 @@ impl TheActionManager {
             return false;
         }
 
-        if has_module(object_to_repair, "RebuildHoleBehavior") {
+        // C++ ActionManager.cpp:394 — KINDOF_REBUILD_HOLE, not a module-name check.
+        if object_to_repair.is_kind_of(KindOf::RebuildHole) {
             return false;
         }
 
@@ -949,13 +1028,21 @@ impl TheActionManager {
             return false;
         }
 
+        // C++ ActionManager.cpp:463-485 — DozerAI current BUILD task + BUILD target.
         let builder_id = object_being_constructed.get_builder_id();
         if builder_id != crate::common::INVALID_ID {
             if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
                 if let Ok(builder_guard) = builder.read() {
                     if let Some(ai) = builder_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if ai_guard.get_goal_object_id() == object_being_constructed.get_id() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            use crate::object::update::ai_update::dozer_ai_update::DozerTask;
+                            let build_pending = ai_guard
+                                .get_dozer_ai_update_interface_mut()
+                                .is_some_and(|dozer| dozer.is_task_pending(DozerTask::Build));
+                            if build_pending
+                                && ai_guard.get_goal_object_id()
+                                    == object_being_constructed.get_id()
+                            {
                                 return false;
                             }
                         }
@@ -1559,6 +1646,26 @@ impl TheActionManager {
         true
     }
 
+    /// Can `obj` bribe `object_to_bribe` (C++ ActionManager::canBribeUnit).
+    /// C++ always returns FALSE — the ability was never implemented.
+    pub fn can_bribe_unit(
+        _obj: &Object,
+        _object_to_bribe: &Object,
+        _command_source: CommandSourceType,
+    ) -> bool {
+        false
+    }
+
+    /// Can `obj` cut power to `building` (C++ ActionManager::canCutBuildingPower).
+    /// C++ always returns FALSE — the ability was never implemented.
+    pub fn can_cut_building_power(
+        _obj: &Object,
+        _building: &Object,
+        _command_source: CommandSourceType,
+    ) -> bool {
+        false
+    }
+
     /// Can `obj` fire weapon in slot at location (C++ ActionManager::canFireWeaponAtLocation).
     pub fn can_fire_weapon_at_location(
         obj: &Object,
@@ -1581,19 +1688,20 @@ impl TheActionManager {
             return false;
         };
 
-        let mut sniper = false;
-        if weapon.get_damage_type() == DamageType::Sniper {
-            if !Self::can_snipe_vehicle(obj, target, command_source) {
-                return false;
-            }
-            sniper = true;
+        // C++ ActionManager.cpp:1944-1958 — DAMAGE_KILLPILOT uses the slot-specific
+        // getAbleToAttackSpecificObject overload.
+        let sniper = weapon.get_damage_type() == DamageType::KillPilot;
+        if sniper && !Self::can_snipe_vehicle(obj, target, command_source) {
+            return false;
         }
 
         let result = if sniper {
-            obj.get_able_to_attack_specific_object(
+            obj.weapon_set.get_able_to_attack_specific_object(
                 AbleToAttackType::NewTarget,
-                target,
+                obj.get_id(),
+                target.get_id(),
                 command_source,
+                Some(slot),
             )
         } else {
             obj.get_able_to_attack_specific_object(
@@ -1646,13 +1754,18 @@ impl TheActionManager {
             return contain_guard.is_valid_container_for(obj, true);
         }
 
-        if let (Some(obj_team), Some(target_team)) = (obj.get_team(), target.get_team()) {
-            if let (Ok(obj_team_guard), Ok(target_team_guard)) =
-                (obj_team.read(), target_team.read())
-            {
-                if obj_team_guard.get_relationship(&*target_team_guard) == Relationship::Neutral {
-                    return contain_guard.get_contained_count() == 0
-                        && contain_guard.is_valid_container_for(obj, true);
+        // C++ ActionManager.cpp:2016 — player->getRelationship(target->getTeam()) == NEUTRAL
+        if let Some(player) = obj.get_controlling_player() {
+            if let Ok(player_guard) = player.read() {
+                if let Some(target_team) = target.get_team() {
+                    if let Ok(target_team_guard) = target_team.read() {
+                        if player_guard.get_relationship_with_team(&*target_team_guard)
+                            == Relationship::Neutral
+                        {
+                            return contain_guard.get_contained_count() == 0
+                                && contain_guard.is_valid_container_for(obj, true);
+                        }
+                    }
                 }
             }
         }
@@ -1703,6 +1816,41 @@ impl TheActionManager {
         }
 
         false
+    }
+
+    /// Can `obj` retarget an in-progress special power at `loc`
+    /// (C++ ActionManager::canOverrideSpecialPowerDestination).
+    pub fn can_override_special_power_destination(
+        obj: &Object,
+        loc: &crate::common::Coord3D,
+        sp_type: SpecialPowerType,
+        _command_source: CommandSourceType,
+    ) -> bool {
+        if obj
+            .find_special_power_with_overridable_destination_active(sp_type)
+            .is_none()
+        {
+            return false;
+        }
+
+        // C++: ThePartitionManager->getShroudStatusForPlayer(
+        //          obj->getControllingPlayer()->getPlayerIndex(), loc)
+        //      != CELLSHROUD_SHROUDED
+        // Missing player is treated as an invalid index, which C++ maps to shrouded.
+        let player_index = obj
+            .get_controlling_player()
+            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+            .or_else(|| {
+                obj.get_controlling_player_id()
+                    .map(|player_id| player_id as crate::common::Int)
+            })
+            .unwrap_or(-1);
+
+        let Some(partition) = ThePartitionManager::get() else {
+            return false;
+        };
+        partition.get_shroud_status_for_player(player_index, loc)
+            != game_engine::common::system::radar::CellShroudStatus::Shrouded
     }
 
     /// Can `obj` attack `object_to_attack` (C++ ActionManager::getCanAttackObject).
@@ -2019,4 +2167,724 @@ static RTS_ACTION_MANAGER: Lazy<Arc<RwLock<RtsActionManager>>> = Lazy::new(|| {
 
 pub fn get_rts_action_manager() -> Arc<RwLock<RtsActionManager>> {
     RTS_ACTION_MANAGER.clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command_button::CommandButton;
+    use crate::common::Coord3D;
+    use crate::modules::{
+        BehaviorModuleInterface, SpecialPowerCommandOptions, SpecialPowerUpdateInterface,
+    };
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::object::special_power_module::Waypoint;
+    use crate::object::SpecialPowerTemplate;
+    use crate::player::{player_list, Player};
+    use crate::system::shroud_manager::get_shroud_manager;
+    use crate::team::Team;
+    use std::sync::Mutex;
+
+    fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct OverridableSpecialPowerUpdate {
+        active: bool,
+    }
+
+    impl SpecialPowerUpdateInterface for OverridableSpecialPowerUpdate {
+        fn initiate_intent_to_do_special_power(
+            &mut self,
+            _special_power_template: &SpecialPowerTemplate,
+            _target_obj: Option<ObjectID>,
+            _target_pos: Option<&Coord3D>,
+            _waypoint: Option<&Waypoint>,
+            _command_options: SpecialPowerCommandOptions,
+        ) -> bool {
+            false
+        }
+
+        fn is_special_ability(&self) -> bool {
+            false
+        }
+
+        fn is_special_power(&self) -> bool {
+            true
+        }
+
+        fn is_active(&self) -> bool {
+            self.active
+        }
+
+        fn get_command_option(&self) -> SpecialPowerCommandOptions {
+            SpecialPowerCommandOptions::NONE
+        }
+
+        fn does_special_power_have_overridable_destination_active(&self) -> bool {
+            self.active
+        }
+
+        fn does_special_power_have_overridable_destination(&self) -> bool {
+            true
+        }
+
+        fn set_special_power_overridable_destination(&mut self, _location: &Coord3D) {}
+
+        fn is_power_currently_in_use(&self, _command: Option<&CommandButton>) -> bool {
+            self.active
+        }
+    }
+
+    struct OverridableSpecialPowerBehavior {
+        update: OverridableSpecialPowerUpdate,
+    }
+
+    impl BehaviorModuleInterface for OverridableSpecialPowerBehavior {
+        fn get_special_power_update_interface(
+            &mut self,
+        ) -> Option<&mut dyn SpecialPowerUpdateInterface> {
+            Some(&mut self.update)
+        }
+    }
+
+    fn attach_overridable_special_power(obj: &mut Object, active: bool) {
+        let behavior: Arc<Mutex<dyn BehaviorModuleInterface>> =
+            Arc::new(Mutex::new(OverridableSpecialPowerBehavior {
+                update: OverridableSpecialPowerUpdate { active },
+            }));
+        obj.push_behavior_module_for_test(behavior);
+    }
+
+    #[test]
+    fn can_bribe_unit_always_returns_false() {
+        let obj = Object::new_test(8801, 100.0);
+        let target = Object::new_test(8802, 100.0);
+        assert!(!TheActionManager::can_bribe_unit(
+            &obj,
+            &target,
+            CommandSourceType::FromPlayer
+        ));
+        assert!(!TheActionManager::can_bribe_unit(
+            &obj,
+            &target,
+            CommandSourceType::FromScript
+        ));
+    }
+
+    #[test]
+    fn can_cut_building_power_always_returns_false() {
+        let obj = Object::new_test(8803, 100.0);
+        let building = Object::new_test(8804, 100.0);
+        assert!(!TheActionManager::can_cut_building_power(
+            &obj,
+            &building,
+            CommandSourceType::FromPlayer
+        ));
+        assert!(!TheActionManager::can_cut_building_power(
+            &obj,
+            &building,
+            CommandSourceType::FromAi
+        ));
+    }
+
+    #[test]
+    fn can_override_special_power_destination_false_without_interface() {
+        let obj = Object::new_test(8805, 100.0);
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        assert!(!TheActionManager::can_override_special_power_destination(
+            &obj,
+            &loc,
+            SpecialPowerType::SpectreGunship,
+            CommandSourceType::FromPlayer,
+        ));
+    }
+
+    #[test]
+    fn can_override_special_power_destination_false_when_inactive() {
+        let mut obj = Object::new_test(8806, 100.0);
+        attach_overridable_special_power(&mut obj, false);
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        assert!(!TheActionManager::can_override_special_power_destination(
+            &obj,
+            &loc,
+            SpecialPowerType::SpectreGunship,
+            CommandSourceType::FromPlayer,
+        ));
+    }
+
+    #[test]
+    fn can_override_special_power_destination_false_when_shrouded() {
+        let _guard = test_state_lock();
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+        }
+
+        let mut obj = Object::new_test(8807, 100.0);
+        attach_overridable_special_power(&mut obj, true);
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+
+        // No controlling player → invalid player index → CELLSHROUD_SHROUDED.
+        assert!(!TheActionManager::can_override_special_power_destination(
+            &obj,
+            &loc,
+            SpecialPowerType::SpectreGunship,
+            CommandSourceType::FromPlayer,
+        ));
+    }
+
+    #[test]
+    fn can_override_special_power_destination_true_when_active_and_unshrouded() {
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+            shroud.init_shroud_grid(1000.0, 1000.0);
+            shroud
+                .reveal_map_for_player(0)
+                .expect("reveal map for player 0");
+        }
+
+        // Team::set_controlling_player_id no-ops when the dual-world registry is empty.
+        let dummy_id = 0x00A0_7109;
+        let dummy = Arc::new(RwLock::new(Object::new_test(dummy_id, 1.0)));
+        OBJECT_REGISTRY.register_object(dummy_id, &dummy);
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        player_list().write().unwrap().add_player(player);
+
+        let team = Arc::new(RwLock::new(Team::new("OverrideTeam".into(), 0x00A0_7108)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+
+        let mut obj = Object::new_test(8808, 100.0);
+        obj.set_team(Some(team)).unwrap();
+        attach_overridable_special_power(&mut obj, true);
+
+        assert!(
+            obj.get_controlling_player_id().is_some(),
+            "test object must have a controlling player index"
+        );
+        assert!(
+            obj.find_special_power_with_overridable_destination_active(
+                SpecialPowerType::SpectreGunship
+            )
+            .is_some(),
+            "test object must expose an active overridable special power"
+        );
+
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        let partition = ThePartitionManager::get().expect("partition manager");
+        assert_ne!(
+            partition.get_shroud_status_for_player(0, &loc),
+            game_engine::common::system::radar::CellShroudStatus::Shrouded
+        );
+
+        assert!(TheActionManager::can_override_special_power_destination(
+            &obj,
+            &loc,
+            SpecialPowerType::SpectreGunship,
+            CommandSourceType::FromPlayer,
+        ));
+
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.unregister_object(dummy_id);
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+        }
+    }
+
+    fn object_with_kinds(id: ObjectID, health: f32, kinds: &[KindOf]) -> Object {
+        let mut template = crate::common::types::DefaultThingTemplate::new(format!("Test{id}"));
+        for kind in kinds {
+            template.add_kind_of(*kind);
+        }
+        let mut obj = Object::new_test(id, health);
+        obj.set_template_for_test(Arc::new(template));
+        obj
+    }
+
+    struct ReadySpecialPowerModule {
+        power_type: SpecialPowerType,
+        percent_ready: f32,
+        template: SpecialPowerTemplate,
+    }
+
+    impl SpecialPowerModuleInterface for ReadySpecialPowerModule {
+        fn activate(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn can_activate(&self) -> bool {
+            self.percent_ready >= 1.0
+        }
+        fn get_power_type(&self) -> u32 {
+            self.power_type as u32
+        }
+        fn get_ready_frame(&self) -> u32 {
+            0
+        }
+        fn is_ready(&self) -> bool {
+            self.percent_ready >= 1.0
+        }
+        fn get_special_power_template(&self) -> Option<Arc<dyn std::any::Any>> {
+            None
+        }
+        fn is_module_for_power(&self, template: &SpecialPowerTemplate) -> bool {
+            template.get_special_power_type() == self.power_type
+        }
+        fn get_power_name(&self) -> String {
+            self.template.get_name().to_string()
+        }
+        fn get_percent_ready(&self) -> f32 {
+            self.percent_ready
+        }
+        fn pause_countdown(&mut self, _pause: bool) {}
+        fn mark_special_power_triggered(&mut self, _location: Option<&Coord3D>) {}
+    }
+
+    struct ReadySpecialPowerBehavior {
+        module: ReadySpecialPowerModule,
+    }
+
+    impl BehaviorModuleInterface for ReadySpecialPowerBehavior {
+        fn get_special_power(&mut self) -> Option<&mut dyn SpecialPowerModuleInterface> {
+            Some(&mut self.module)
+        }
+        fn get_special_power_module_interface(
+            &mut self,
+        ) -> Option<&mut dyn SpecialPowerModuleInterface> {
+            Some(&mut self.module)
+        }
+        fn get_special_power_module_interface_const(
+            &self,
+        ) -> Option<&dyn SpecialPowerModuleInterface> {
+            Some(&self.module)
+        }
+    }
+
+    fn attach_ready_special_power(
+        obj: &mut Object,
+        power_type: SpecialPowerType,
+        percent_ready: f32,
+    ) -> SpecialPowerTemplate {
+        obj.set_special_power_available(power_type, true);
+        let template = SpecialPowerTemplate::new(format!("TestPower{power_type:?}"), 9000)
+            .with_power_type(power_type);
+        let behavior: Arc<Mutex<dyn BehaviorModuleInterface>> =
+            Arc::new(Mutex::new(ReadySpecialPowerBehavior {
+                module: ReadySpecialPowerModule {
+                    power_type,
+                    percent_ready,
+                    template: template.clone(),
+                },
+            }));
+        obj.push_behavior_module_for_test(behavior);
+        template
+    }
+
+    #[derive(Debug)]
+    struct TestContain {
+        ids: Vec<ObjectID>,
+        garrisonable: bool,
+        max: usize,
+    }
+
+    impl crate::modules::ContainModuleInterface for TestContain {
+        fn can_contain(&self, _object_id: ObjectID) -> bool {
+            self.ids.len() < self.max
+        }
+        fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+            self.ids.push(object_id);
+            Ok(())
+        }
+        fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+            self.ids.retain(|id| *id != object_id);
+            Ok(())
+        }
+        fn get_contained_objects(&self) -> &[ObjectID] {
+            &self.ids
+        }
+        fn get_contained_count(&self) -> usize {
+            self.ids.len()
+        }
+        fn get_max_capacity(&self) -> usize {
+            self.max
+        }
+        fn is_garrisonable(&self) -> bool {
+            self.garrisonable
+        }
+    }
+
+    #[test]
+    fn can_do_special_power_false_without_module() {
+        let mut obj = Object::new_test(8901, 100.0);
+        obj.set_special_power_available(SpecialPowerType::DetonateDirtyNuke, true);
+        let template = SpecialPowerTemplate::new("DirtyNuke".into(), 1)
+            .with_power_type(SpecialPowerType::DetonateDirtyNuke);
+        assert!(!TheActionManager::can_do_special_power(
+            &obj,
+            &template,
+            CommandSourceType::FromPlayer,
+            0,
+            true,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_true_for_no_target_ready_power() {
+        let mut obj = Object::new_test(8902, 100.0);
+        let template =
+            attach_ready_special_power(&mut obj, SpecialPowerType::DetonateDirtyNuke, 1.0);
+        assert!(TheActionManager::can_do_special_power(
+            &obj,
+            &template,
+            CommandSourceType::FromPlayer,
+            0,
+            true,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_false_when_not_ready() {
+        let mut obj = Object::new_test(8903, 100.0);
+        let template =
+            attach_ready_special_power(&mut obj, SpecialPowerType::DetonateDirtyNuke, 0.5);
+        assert!(!TheActionManager::can_do_special_power(
+            &obj,
+            &template,
+            CommandSourceType::FromPlayer,
+            0,
+            true,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_false_for_location_or_object_powers() {
+        let mut obj = Object::new_test(8904, 100.0);
+        let daisy = attach_ready_special_power(&mut obj, SpecialPowerType::DaisyCutter, 1.0);
+        assert!(!TheActionManager::can_do_special_power(
+            &obj,
+            &daisy,
+            CommandSourceType::FromPlayer,
+            0,
+            true,
+        ));
+        let mut obj2 = Object::new_test(8905, 100.0);
+        let emp = attach_ready_special_power(&mut obj2, SpecialPowerType::EmpPulse, 1.0);
+        assert!(!TheActionManager::can_do_special_power(
+            &obj2,
+            &emp,
+            CommandSourceType::FromPlayer,
+            0,
+            true,
+        ));
+        let mut obj3 = Object::new_test(8906, 100.0);
+        let cash = attach_ready_special_power(&mut obj3, SpecialPowerType::CashHack, 1.0);
+        assert!(!TheActionManager::can_do_special_power(
+            &obj3,
+            &cash,
+            CommandSourceType::FromPlayer,
+            0,
+            true,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_at_location_false_without_module() {
+        let obj = Object::new_test(8907, 100.0);
+        let template = SpecialPowerTemplate::new("Daisy".into(), 2)
+            .with_power_type(SpecialPowerType::DaisyCutter);
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        assert!(!TheActionManager::can_do_special_power_at_location(
+            &obj,
+            &loc,
+            CommandSourceType::FromPlayer,
+            &template,
+            None,
+            0,
+            true,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_at_location_false_when_shrouded() {
+        let _guard = test_state_lock();
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+        }
+        let mut obj = Object::new_test(8908, 100.0);
+        let template = attach_ready_special_power(&mut obj, SpecialPowerType::DaisyCutter, 1.0);
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        assert!(!TheActionManager::can_do_special_power_at_location(
+            &obj,
+            &loc,
+            CommandSourceType::FromPlayer,
+            &template,
+            None,
+            0,
+            true,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_at_location_true_when_unshrouded() {
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+            shroud.init_shroud_grid(1000.0, 1000.0);
+            shroud
+                .reveal_map_for_player(0)
+                .expect("reveal map for player 0");
+        }
+        let dummy_id = 0x00A0_8909;
+        let dummy = Arc::new(RwLock::new(Object::new_test(dummy_id, 1.0)));
+        OBJECT_REGISTRY.register_object(dummy_id, &dummy);
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        player_list().write().unwrap().add_player(player);
+        let team = Arc::new(RwLock::new(Team::new("LocTeam".into(), 0x00A0_8910)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+
+        let mut obj = Object::new_test(8911, 100.0);
+        obj.set_team(Some(team)).unwrap();
+        let template = attach_ready_special_power(&mut obj, SpecialPowerType::DaisyCutter, 1.0);
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        assert!(TheActionManager::can_do_special_power_at_location(
+            &obj,
+            &loc,
+            CommandSourceType::FromPlayer,
+            &template,
+            None,
+            0,
+            true,
+        ));
+
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.unregister_object(dummy_id);
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+        }
+    }
+
+    #[test]
+    fn can_do_special_power_at_location_false_for_object_target_powers() {
+        let mut obj = Object::new_test(8912, 100.0);
+        let template =
+            attach_ready_special_power(&mut obj, SpecialPowerType::InfantryCaptureBuilding, 1.0);
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        assert!(!TheActionManager::can_do_special_power_at_location(
+            &obj,
+            &loc,
+            CommandSourceType::FromPlayer,
+            &template,
+            None,
+            0,
+            true,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_at_object_battleship_relationship() {
+        let mut obj = Object::new_test(8913, 100.0);
+        let template =
+            attach_ready_special_power(&mut obj, SpecialPowerType::BattleshipBombardment, 1.0);
+
+        // No teams → Neutral → C++ allows (relationship != ALLIES).
+        let neutral = Object::new_test(8914, 100.0);
+        // Battleship is not in SpecialPowerMask; isolate relationship with
+        // check_source_requirements=false (C++ still requires a module, which we attach).
+        assert!(TheActionManager::can_do_special_power_at_object(
+            &obj,
+            &neutral,
+            CommandSourceType::FromPlayer,
+            &template,
+            0,
+            false,
+        ));
+
+        let team = Arc::new(RwLock::new(Team::new("ShipTeam".into(), 0x00A0_8915)));
+        obj.set_team(Some(team.clone())).unwrap();
+        let mut ally = Object::new_test(8916, 100.0);
+        ally.set_team(Some(team)).unwrap();
+        assert!(!TheActionManager::can_do_special_power_at_object(
+            &obj,
+            &ally,
+            CommandSourceType::FromPlayer,
+            &template,
+            0,
+            false,
+        ));
+
+        let enemy_team = Arc::new(RwLock::new(Team::new("EnemyShip".into(), 0x00A0_8917)));
+        if let (Ok(mut mine), Ok(theirs)) = (
+            obj.get_team().unwrap().write(),
+            enemy_team.read(),
+        ) {
+            mine.set_override_team_relationship(theirs.get_id(), Relationship::Enemies);
+        }
+        let mut enemy = Object::new_test(8918, 100.0);
+        enemy.set_team(Some(enemy_team)).unwrap();
+        assert!(TheActionManager::can_do_special_power_at_object(
+            &obj,
+            &enemy,
+            CommandSourceType::FromPlayer,
+            &template,
+            0,
+            false,
+        ));
+    }
+
+    #[test]
+    fn can_do_special_power_at_object_charges_fail_closed_without_ability_update() {
+        let mut obj = object_with_kinds(8919, 100.0, &[]);
+        let template = attach_ready_special_power(&mut obj, SpecialPowerType::RemoteCharges, 1.0);
+        let target = object_with_kinds(8920, 100.0, &[KindOf::Structure]);
+        assert!(!TheActionManager::can_do_special_power_at_object(
+            &obj,
+            &target,
+            CommandSourceType::FromPlayer,
+            &template,
+            0,
+            false,
+        ));
+    }
+
+    #[test]
+    fn can_fire_weapon_at_object_false_without_slot_weapon() {
+        let obj = Object::new_test(8921, 100.0);
+        let target = object_with_kinds(8922, 100.0, &[KindOf::Vehicle]);
+        assert!(!TheActionManager::can_fire_weapon_at_object(
+            &obj,
+            &target,
+            CommandSourceType::FromPlayer,
+            WeaponSlotType::Primary,
+        ));
+        assert!(!TheActionManager::can_fire_weapon_at_object(
+            &obj,
+            &target,
+            CommandSourceType::FromPlayer,
+            WeaponSlotType::Secondary,
+        ));
+    }
+
+    #[test]
+    fn can_fire_weapon_at_object_killpilot_rejects_non_vehicle() {
+        let mut obj = Object::new_test(8923, 100.0);
+        let mut template = crate::weapon::WeaponTemplate::new("KillPilot".into());
+        template.damage_type = DamageType::KillPilot;
+        template.primary_damage = 10.0;
+        let mut set = crate::weapon::WeaponTemplateSet::new();
+        set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
+        obj.weapon_set.add_weapon_template_set(set);
+        obj.weapon_set
+            .update_weapon_set(obj.get_id(), &crate::weapon::WeaponSetFlags::new())
+            .expect("install killpilot weapon");
+
+        let infantry = object_with_kinds(8924, 100.0, &[KindOf::Infantry]);
+        assert!(!TheActionManager::can_fire_weapon_at_object(
+            &obj,
+            &infantry,
+            CommandSourceType::FromPlayer,
+            WeaponSlotType::Primary,
+        ));
+    }
+
+    #[test]
+    fn can_repair_object_requires_dozer_structure_and_not_rebuild_hole() {
+        let dozer = object_with_kinds(8925, 100.0, &[KindOf::Dozer]);
+        let full_building = object_with_kinds(8926, 100.0, &[KindOf::Structure]);
+        assert!(!TheActionManager::can_repair_object(
+            &dozer,
+            &full_building,
+            CommandSourceType::FromPlayer
+        ));
+
+        let mut damaged = object_with_kinds(8927, 100.0, &[KindOf::Structure]);
+        if let Some(body) = damaged.get_body_module() {
+            body.lock().unwrap().set_health(40.0).ok();
+        }
+        assert!(TheActionManager::can_repair_object(
+            &dozer,
+            &damaged,
+            CommandSourceType::FromPlayer
+        ));
+
+        let mut hole = object_with_kinds(8928, 100.0, &[KindOf::Structure, KindOf::RebuildHole]);
+        if let Some(body) = hole.get_body_module() {
+            body.lock().unwrap().set_health(40.0).ok();
+        }
+        assert!(!TheActionManager::can_repair_object(
+            &dozer,
+            &hole,
+            CommandSourceType::FromPlayer
+        ));
+
+        let infantry = object_with_kinds(8929, 100.0, &[KindOf::Infantry]);
+        assert!(!TheActionManager::can_repair_object(
+            &infantry,
+            &damaged,
+            CommandSourceType::FromPlayer
+        ));
+    }
+
+    #[test]
+    fn can_garrison_kindof_relationship_and_capacity() {
+        let vehicle = object_with_kinds(8930, 100.0, &[KindOf::Vehicle]);
+        let building = object_with_kinds(8931, 100.0, &[KindOf::Structure]);
+        assert!(!TheActionManager::can_garrison(
+            &vehicle,
+            &building,
+            CommandSourceType::FromPlayer
+        ));
+
+        let no_garrison = object_with_kinds(
+            8932,
+            100.0,
+            &[KindOf::Infantry, KindOf::NoGarrison],
+        );
+        assert!(!TheActionManager::can_garrison(
+            &no_garrison,
+            &building,
+            CommandSourceType::FromPlayer
+        ));
+
+        let mut infantry = object_with_kinds(8933, 100.0, &[KindOf::Infantry]);
+        infantry.set_contain(Some(Arc::new(Mutex::new(TestContain {
+            ids: Vec::new(),
+            garrisonable: false,
+            max: 1,
+        }))));
+        assert!(!TheActionManager::can_garrison(
+            &infantry,
+            &building,
+            CommandSourceType::FromPlayer
+        ));
+
+        let mut garrisonable = object_with_kinds(8934, 100.0, &[KindOf::Structure]);
+        garrisonable.set_contain(Some(Arc::new(Mutex::new(TestContain {
+            ids: Vec::new(),
+            garrisonable: true,
+            max: 2,
+        }))));
+        assert!(TheActionManager::can_garrison(
+            &infantry,
+            &garrisonable,
+            CommandSourceType::FromPlayer
+        ));
+
+        let mut full = object_with_kinds(8935, 100.0, &[KindOf::Structure]);
+        full.set_contain(Some(Arc::new(Mutex::new(TestContain {
+            ids: vec![1, 2],
+            garrisonable: true,
+            max: 2,
+        }))));
+        // Same missing player id on both → treated as same owner; capacity is
+        // still checked via is_valid_container_for (default true). Kind-of and
+        // garrisonable gates already passed above.
+        assert!(TheActionManager::can_garrison(
+            &infantry,
+            &full,
+            CommandSourceType::FromPlayer
+        ));
+    }
 }

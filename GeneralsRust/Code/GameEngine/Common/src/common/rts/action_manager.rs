@@ -824,6 +824,54 @@ impl ActionManager {
         true
     }
 
+    /// Can `obj` bribe `object_to_bribe` (C++ ActionManager::canBribeUnit).
+    ///
+    /// C++ always returns FALSE — the ability was never implemented.
+    /// Reference: C++ ActionManager.cpp lines 1356-1359
+    pub fn can_bribe_unit(
+        &self,
+        _obj: &Object,
+        _object_to_bribe: &Object,
+        _command_source: CommandSourceType,
+    ) -> bool {
+        false
+    }
+
+    /// Can `obj` cut power to `building` (C++ ActionManager::canCutBuildingPower).
+    ///
+    /// C++ always returns FALSE — the ability was never implemented.
+    /// Reference: C++ ActionManager.cpp lines 1362-1365
+    pub fn can_cut_building_power(
+        &self,
+        _obj: &Object,
+        _building: &Object,
+        _command_source: CommandSourceType,
+    ) -> bool {
+        false
+    }
+
+    /// Can `obj` retarget an in-progress special power at `loc`
+    /// (C++ ActionManager::canOverrideSpecialPowerDestination).
+    ///
+    /// C++ returns true only when:
+    ///   `obj->findSpecialPowerWithOverridableDestinationActive(spType)` is non-null
+    ///   AND `ThePartitionManager->getShroudStatusForPlayer(...) != CELLSHROUD_SHROUDED`.
+    ///
+    /// Common's `Object` is an `ObjectHandle` wrapper, not GameLogic's `Object`.
+    /// There is no SpecialPowerUpdateInterface query and no PartitionManager here.
+    /// Fail-closed: treat "no overridable SP interface" as false rather than invent shroud.
+    /// GameLogic `TheActionManager` performs the real interface + shroud check.
+    /// Reference: C++ ActionManager.cpp lines 2060-2069
+    pub fn can_override_special_power_destination(
+        &self,
+        _obj: &Object,
+        _loc: &Coord3D,
+        _sp_type: SpecialPowerType,
+        _command_source: CommandSourceType,
+    ) -> bool {
+        false
+    }
+
     /// Queue an action for later execution
     /// Reference: C++ would queue actions in command system
     pub fn queue_action(&mut self, action: ActionType, player_index: u32) {
@@ -1290,5 +1338,49 @@ mod tests {
         assert_eq!(obj.get_surrendered_player_index(), None);
         assert!(!obj.has_contain_module());
         assert_eq!(obj.get_apparent_controlling_player(0), None);
+    }
+
+    #[test]
+    fn can_bribe_unit_always_returns_false() {
+        let manager = ActionManager::new();
+        let obj = Object::from_id(1);
+        let target = Object::from_id(2);
+        assert!(!manager.can_bribe_unit(&obj, &target, CommandSourceType::FromPlayer));
+        assert!(!manager.can_bribe_unit(&obj, &target, CommandSourceType::FromScript));
+        assert!(!manager.can_bribe_unit(&obj, &target, CommandSourceType::FromAi));
+    }
+
+    #[test]
+    fn can_cut_building_power_always_returns_false() {
+        let manager = ActionManager::new();
+        let obj = Object::from_id(3);
+        let building = Object::from_id(4);
+        assert!(!manager.can_cut_building_power(&obj, &building, CommandSourceType::FromPlayer));
+        assert!(!manager.can_cut_building_power(&obj, &building, CommandSourceType::FromAi));
+        assert!(!manager.can_cut_building_power(&obj, &building, CommandSourceType::FromScript));
+    }
+
+    #[test]
+    fn can_override_special_power_destination_false_without_overridable_interface() {
+        let manager = ActionManager::new();
+        let obj = Object::from_id(5);
+        let loc = Coord3D {
+            x: 100.0,
+            y: 100.0,
+            z: 0.0,
+        };
+        // Common Object has no SpecialPowerUpdateInterface and no PartitionManager.
+        assert!(!manager.can_override_special_power_destination(
+            &obj,
+            &loc,
+            SpecialPowerType::None,
+            CommandSourceType::FromPlayer,
+        ));
+        assert!(!manager.can_override_special_power_destination(
+            &obj,
+            &loc,
+            SpecialPowerType::InfantryCaptureBuilding,
+            CommandSourceType::FromScript,
+        ));
     }
 }

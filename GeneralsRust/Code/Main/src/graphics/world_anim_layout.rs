@@ -19,7 +19,9 @@
 //! - Anim2DCollection `update` residual skips tryNextFrame when FROZEN
 //! - Anim2DCollection `init` residual path `Data/INI/Animation2D.ini`
 //! - MoneyPickUp RandomizeStartFrame = No residual
-//! - `getCurrentFrameWidth`/`Height` monospaced placeholder size residual
+//! - `getCurrentFrameWidth`/`Height` residual: valid frame + known Image
+//!   natural size → that size; missing image / invalid frame → 0
+//!   (fail-closed; no fake 32×32 placeholder)
 //!
 //! Wave 68 residual closed (host-testable, fail-closed vs GPU):
 //! - Animation2D.ini template count residual (**14** retail templates)
@@ -1029,14 +1031,6 @@ pub fn honesty_anim2d_status_alpha() -> bool {
 /// only — not full INI parse of every Anim2DTemplate.
 pub const ANIM2D_COLLECTION_INI_PATH: &str = "Data/INI/Animation2D.ini";
 
-/// Host residual monospaced placeholder size for frame image atlas residual.
-///
-/// C++ `getCurrentFrameWidth/Height` returns Image natural size when the frame
-/// Image is loaded; host residual uses a fixed monospaced placeholder so
-/// width/height honesty stays deterministic without a GPU atlas.
-pub const ANIM2D_FRAME_PLACEHOLDER_WIDTH: u32 = 32;
-pub const ANIM2D_FRAME_PLACEHOLDER_HEIGHT: u32 = 32;
-
 /// Host residual Anim2DTemplate id (collection list node).
 pub type Anim2DTemplateId = u32;
 /// Host residual Anim2D instance id (collection instance list node).
@@ -1052,6 +1046,10 @@ pub struct Anim2DTemplateResidual {
     pub num_frames: u16,
     /// Wave 68/74: Image list residual (`SCPDollar000`.. for MoneyPickUp).
     pub images: Vec<String>,
+    /// Optional natural (width, height) per frame, recorded from Image /
+    /// MappedImage INI metadata when known. Missing / None → 0 like C++
+    /// `getCurrentFrameWidth/Height` when the frame Image pointer is NULL.
+    pub image_sizes: Vec<Option<(u32, u32)>>,
     /// Wave 102: AnimationMode residual name (`LOOP` / `PING_PONG` / `ONCE`).
     pub anim_mode_name: String,
     /// Wave 102: AnimationDelay residual in milliseconds.
@@ -1153,6 +1151,7 @@ impl Anim2DCollectionResidual {
         } else {
             (false, 1, Vec::new(), "LOOP".to_string(), 30, String::new())
         };
+        let image_sizes = vec![None; num_frames as usize];
         self.templates.insert(
             id,
             Anim2DTemplateResidual {
@@ -1161,6 +1160,7 @@ impl Anim2DCollectionResidual {
                 randomize_start_frame: randomize,
                 num_frames,
                 images,
+                image_sizes,
                 anim_mode_name: mode_name,
                 anim_delay_ms: delay_ms,
                 image_prefix: prefix,
@@ -1329,29 +1329,101 @@ impl Anim2DCollectionResidual {
     pub fn instance_count(&self) -> usize {
         self.instance_next.len()
     }
-}
 
-/// Host residual `Anim2D::getCurrentFrameWidth` monospaced placeholder.
-///
-/// C++ returns Image natural width when frame Image is present, else 0.
-/// Host residual: valid frame index → placeholder width; out-of-range → 0.
-/// Fail-closed vs live Image atlas.
-#[inline]
-pub fn anim2d_get_current_frame_width(frame: u16, num_frames: u16) -> u32 {
-    if num_frames == 0 || frame >= num_frames {
-        0
-    } else {
-        ANIM2D_FRAME_PLACEHOLDER_WIDTH
+    /// C++ `Anim2D::getCurrentFrameWidth` via residual instance + template.
+    pub fn get_current_frame_width(&self, instance_id: Anim2DInstanceId) -> u32 {
+        let Some(inst) = self.instances.get(&instance_id) else {
+            return 0;
+        };
+        let Some(tmpl) = self.templates.get(&inst.template_id) else {
+            return 0;
+        };
+        tmpl.get_current_frame_width(inst.current_frame)
+    }
+
+    /// C++ `Anim2D::getCurrentFrameHeight` via residual instance + template.
+    pub fn get_current_frame_height(&self, instance_id: Anim2DInstanceId) -> u32 {
+        let Some(inst) = self.instances.get(&instance_id) else {
+            return 0;
+        };
+        let Some(tmpl) = self.templates.get(&inst.template_id) else {
+            return 0;
+        };
+        tmpl.get_current_frame_height(inst.current_frame)
     }
 }
 
-/// Host residual `Anim2D::getCurrentFrameHeight` monospaced placeholder.
+impl Anim2DTemplateResidual {
+    /// Record natural Image size for a frame (MappedImage INI Coords residual).
+    /// No-op when `frame` is out of range (C++ `getFrame` returns NULL).
+    pub fn set_frame_image_size(&mut self, frame: u16, width: u32, height: u32) {
+        let n = self.num_frames as usize;
+        if n == 0 || (frame as usize) >= n {
+            return;
+        }
+        if self.image_sizes.len() < n {
+            self.image_sizes.resize(n, None);
+        }
+        self.image_sizes[frame as usize] = Some((width, height));
+    }
+
+    /// Natural (width, height) recorded for `frame`, if any.
+    pub fn frame_image_size(&self, frame: u16) -> Option<(u32, u32)> {
+        self.image_sizes.get(frame as usize).copied().flatten()
+    }
+
+    /// C++ `Anim2D::getCurrentFrameWidth` against this template residual.
+    pub fn get_current_frame_width(&self, frame: u16) -> u32 {
+        anim2d_get_current_frame_width(
+            frame,
+            self.num_frames,
+            self.frame_image_size(frame).map(|(w, _)| w),
+        )
+    }
+
+    /// C++ `Anim2D::getCurrentFrameHeight` against this template residual.
+    pub fn get_current_frame_height(&self, frame: u16) -> u32 {
+        anim2d_get_current_frame_height(
+            frame,
+            self.num_frames,
+            self.frame_image_size(frame).map(|(_, h)| h),
+        )
+    }
+}
+
+/// Host residual `Anim2D::getCurrentFrameWidth`.
+///
+/// C++: if current frame Image is present, return `Image::getImageWidth()`;
+/// else 0. Out-of-range frame → 0.
+/// Host residual: valid frame + known natural size → that size;
+/// missing image / unknown size / invalid frame → 0.
+/// Fail-closed vs live Image atlas (do not invent 32×32).
 #[inline]
-pub fn anim2d_get_current_frame_height(frame: u16, num_frames: u16) -> u32 {
+pub fn anim2d_get_current_frame_width(
+    frame: u16,
+    num_frames: u16,
+    image_natural_width: Option<u32>,
+) -> u32 {
     if num_frames == 0 || frame >= num_frames {
         0
     } else {
-        ANIM2D_FRAME_PLACEHOLDER_HEIGHT
+        image_natural_width.unwrap_or(0)
+    }
+}
+
+/// Host residual `Anim2D::getCurrentFrameHeight`.
+///
+/// Same contract as [`anim2d_get_current_frame_width`].
+#[inline]
+pub fn anim2d_get_current_frame_height(
+    frame: u16,
+    num_frames: u16,
+    image_natural_height: Option<u32>,
+) -> u32 {
+    if num_frames == 0 || frame >= num_frames {
+        0
+    } else {
+        image_natural_height.unwrap_or(0)
     }
 }
 
@@ -1445,13 +1517,46 @@ pub fn honesty_anim2d_collection_residual() -> bool {
         return false;
     }
 
-    // getCurrentFrameWidth/Height monospaced placeholder residual.
-    anim2d_get_current_frame_width(0, MONEY_PICKUP_NUM_FRAMES) == ANIM2D_FRAME_PLACEHOLDER_WIDTH
-        && anim2d_get_current_frame_height(15, MONEY_PICKUP_NUM_FRAMES)
-            == ANIM2D_FRAME_PLACEHOLDER_HEIGHT
-        && anim2d_get_current_frame_width(31, MONEY_PICKUP_NUM_FRAMES) == 0
-        && anim2d_get_current_frame_height(0, 0) == 0
-        && anim2d_get_current_frame_width(0, 1) == ANIM2D_FRAME_PLACEHOLDER_WIDTH
+    // getCurrentFrameWidth/Height: unknown Image size fail-closed 0;
+    // known size returns that size; out-of-range → 0 even if a size is supplied.
+    if anim2d_get_current_frame_width(0, MONEY_PICKUP_NUM_FRAMES, None) != 0 {
+        return false;
+    }
+    if anim2d_get_current_frame_height(15, MONEY_PICKUP_NUM_FRAMES, None) != 0 {
+        return false;
+    }
+    if anim2d_get_current_frame_width(31, MONEY_PICKUP_NUM_FRAMES, Some(64)) != 0 {
+        return false;
+    }
+    if anim2d_get_current_frame_height(0, 0, Some(48)) != 0 {
+        return false;
+    }
+    if anim2d_get_current_frame_width(0, 1, Some(64)) != 64 {
+        return false;
+    }
+    if anim2d_get_current_frame_height(0, 1, Some(48)) != 48 {
+        return false;
+    }
+
+    // MoneyPickUp residual has names but no mapped Image sizes → 0.
+    // Recording a known natural size is looked up like C++ Image metadata.
+    let Some(t) = col.templates.get_mut(&t2) else {
+        return false;
+    };
+    if t.get_current_frame_width(0) != 0 || t.get_current_frame_height(0) != 0 {
+        return false;
+    }
+    t.set_frame_image_size(0, 64, 48);
+    if t.get_current_frame_width(0) != 64 || t.get_current_frame_height(0) != 48 {
+        return false;
+    }
+    if t.get_current_frame_width(1) != 0 {
+        return false;
+    }
+    if t.get_current_frame_width(99) != 0 {
+        return false;
+    }
+    true
 }
 
 /// One CPU-side residual world-anim layout sample.
@@ -1804,14 +1909,16 @@ mod tests {
         assert_eq!(ANIM2D_COLLECTION_INI_PATH, "Data/INI/Animation2D.ini");
         assert!(!MONEY_PICKUP_RANDOMIZE_START_FRAME);
         assert_eq!(
-            anim2d_get_current_frame_width(0, MONEY_PICKUP_NUM_FRAMES),
-            ANIM2D_FRAME_PLACEHOLDER_WIDTH
+            anim2d_get_current_frame_width(0, MONEY_PICKUP_NUM_FRAMES, None),
+            0
         );
         assert_eq!(
-            anim2d_get_current_frame_height(30, MONEY_PICKUP_NUM_FRAMES),
-            ANIM2D_FRAME_PLACEHOLDER_HEIGHT
+            anim2d_get_current_frame_height(30, MONEY_PICKUP_NUM_FRAMES, None),
+            0
         );
-        assert_eq!(anim2d_get_current_frame_width(99, 31), 0);
+        assert_eq!(anim2d_get_current_frame_width(99, 31, Some(64)), 0);
+        assert_eq!(anim2d_get_current_frame_width(0, 1, Some(64)), 64);
+        assert_eq!(anim2d_get_current_frame_height(0, 1, Some(48)), 48);
 
         let mut col = Anim2DCollectionResidual::new();
         col.init();
@@ -1838,6 +1945,50 @@ mod tests {
         assert_eq!(col.instance_head, Some(a));
         col.unregister_animation(a);
         assert!(col.instance_head.is_none());
+    }
+
+    #[test]
+    fn anim2d_get_current_frame_size_uses_recorded_natural_size() {
+        // MoneyPickUp residual has names only — no mapped Image sizes → 0.
+        let mut col = Anim2DCollectionResidual::new();
+        col.init();
+        let money = col.new_template("MoneyPickUp");
+        {
+            let t = col.templates.get(&money).expect("MoneyPickUp template");
+            assert_eq!(t.image_sizes.len(), MONEY_PICKUP_NUM_FRAMES as usize);
+            assert!(t.image_sizes.iter().all(|s| s.is_none()));
+            assert_eq!(t.get_current_frame_width(0), 0);
+            assert_eq!(t.get_current_frame_height(15), 0);
+            assert_eq!(t.get_current_frame_width(31), 0);
+        }
+
+        // Record explicit natural size (as MappedImage Coords would) and look it up.
+        col.templates
+            .get_mut(&money)
+            .expect("MoneyPickUp template")
+            .set_frame_image_size(0, 64, 48);
+        {
+            let t = col.templates.get(&money).expect("MoneyPickUp template");
+            assert_eq!(t.get_current_frame_width(0), 64);
+            assert_eq!(t.get_current_frame_height(0), 48);
+            assert_eq!(t.frame_image_size(0), Some((64, 48)));
+            // Other frames still unknown → 0.
+            assert_eq!(t.get_current_frame_width(1), 0);
+            assert_eq!(t.get_current_frame_height(1), 0);
+            // Out-of-range / empty template → 0 even with a supplied size.
+            assert_eq!(t.get_current_frame_width(99), 0);
+            assert_eq!(anim2d_get_current_frame_width(0, 0, Some(64)), 0);
+            assert_eq!(anim2d_get_current_frame_height(5, 3, Some(48)), 0);
+        }
+
+        // Instance residual reads the template-recorded size for current_frame.
+        let inst = col.new_instance(money, Anim2DModeResidual::Loop, 0, 30);
+        col.register_animation(inst);
+        assert_eq!(col.get_current_frame_width(inst), 64);
+        assert_eq!(col.get_current_frame_height(inst), 48);
+        col.instances.get_mut(&inst).unwrap().current_frame = 1;
+        assert_eq!(col.get_current_frame_width(inst), 0);
+        assert_eq!(col.get_current_frame_height(inst), 0);
     }
 
     #[test]

@@ -18,62 +18,60 @@ use std::io::Cursor;
 use std::time::Duration;
 
 use crate::assets::archive::ArchiveFileSystem;
-use crate::assets::audio::{AudioManager, SendSyncWrapper};
+use crate::assets::audio::AudioManager;
 use crate::game_logic::ObjectId;
 
 enum InstanceSink {
-    Stereo(SendSyncWrapper<Sink>),
-    Spatial(SendSyncWrapper<SpatialSink>),
+    Stereo(Sink),
+    Spatial(SpatialSink),
 }
 
 impl InstanceSink {
     fn stop(&self) {
         match self {
-            InstanceSink::Stereo(sink) => sink.get().stop(),
-            InstanceSink::Spatial(sink) => sink.get().stop(),
+            InstanceSink::Stereo(sink) => sink.stop(),
+            InstanceSink::Spatial(sink) => sink.stop(),
         }
     }
 
     fn empty(&self) -> bool {
         match self {
-            InstanceSink::Stereo(sink) => sink.get().empty(),
-            InstanceSink::Spatial(sink) => sink.get().empty(),
+            InstanceSink::Stereo(sink) => sink.empty(),
+            InstanceSink::Spatial(sink) => sink.empty(),
         }
     }
 
     fn is_paused(&self) -> bool {
         match self {
-            InstanceSink::Stereo(sink) => sink.get().is_paused(),
-            InstanceSink::Spatial(sink) => sink.get().is_paused(),
+            InstanceSink::Stereo(sink) => sink.is_paused(),
+            InstanceSink::Spatial(sink) => sink.is_paused(),
         }
     }
 
     fn set_volume(&self, value: f32) {
         match self {
-            InstanceSink::Stereo(sink) => sink.get().set_volume(value),
-            InstanceSink::Spatial(sink) => sink.get().set_volume(value),
+            InstanceSink::Stereo(sink) => sink.set_volume(value),
+            InstanceSink::Spatial(sink) => sink.set_volume(value),
         }
     }
 
     fn set_speed(&self, value: f32) {
         match self {
-            InstanceSink::Stereo(sink) => sink.get().set_speed(value),
-            InstanceSink::Spatial(sink) => sink.get().set_speed(value),
+            InstanceSink::Stereo(sink) => sink.set_speed(value),
+            InstanceSink::Spatial(sink) => sink.set_speed(value),
         }
     }
 
     fn set_emitter_position(&self, position: Vec3) {
         if let InstanceSink::Spatial(sink) = self {
-            sink.get()
-                .set_emitter_position([position.x, position.y, position.z]);
+            sink.set_emitter_position([position.x, position.y, position.z]);
         }
     }
 
     fn set_ear_positions(&self, left: Vec3, right: Vec3) {
         if let InstanceSink::Spatial(sink) = self {
-            sink.get().set_left_ear_position([left.x, left.y, left.z]);
-            sink.get()
-                .set_right_ear_position([right.x, right.y, right.z]);
+            sink.set_left_ear_position([left.x, left.y, left.z]);
+            sink.set_right_ear_position([right.x, right.y, right.z]);
         }
     }
 }
@@ -467,14 +465,13 @@ impl EnhancedAudioManager {
                             let right_ear = self.listener_position + right * ear_offset;
 
                             let sink = SpatialSink::try_new(
-                                handle.get(),
+                                handle,
                                 [position.x, position.y, position.z],
                                 [left_ear.x, left_ear.y, left_ear.z],
                                 [right_ear.x, right_ear.y, right_ear.z],
                             );
                             match sink {
                                 Ok(sink) => {
-                                    let sink = SendSyncWrapper::new(sink);
                                     let instance_sink = InstanceSink::Spatial(sink);
                                     instance_sink
                                         .set_volume(volume * self.get_category_volume(event_type));
@@ -491,7 +488,7 @@ impl EnhancedAudioManager {
                                             } else {
                                                 final_source
                                             };
-                                        spatial.get().append(final_source);
+                                        spatial.append(final_source);
                                     }
 
                                     let instance = AudioInstance {
@@ -575,13 +572,13 @@ impl EnhancedAudioManager {
                         };
 
                         if let Some(handle) = &self.base_audio.handle {
-                            match Sink::try_new(handle.get()) {
+                            match Sink::try_new(handle) {
                                 Ok(sink) => {
                                     sink.set_volume(volume);
                                     sink.append(final_source);
 
                                     let instance = AudioInstance {
-                                        sink: InstanceSink::Stereo(SendSyncWrapper::new(sink)),
+                                        sink: InstanceSink::Stereo(sink),
                                         event_type,
                                         object_id: None,
                                         start_time_seconds: self.current_time_seconds,

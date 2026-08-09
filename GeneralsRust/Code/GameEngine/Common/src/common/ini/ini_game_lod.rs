@@ -611,6 +611,23 @@ pub struct GameLODManager {
     num_bench_profiles: usize,
     /// Really low MHz threshold for disabling shell map
     pub really_low_mhz: i32,
+
+    /// Current dynamic LOD. C++ `m_currentDynamicLOD`, default HIGH.
+    current_dynamic_lod: DynamicGameLODLevel,
+    /// Particles generated since the last dynamic LOD apply. C++ `m_numParticleGenerations`.
+    num_particle_generations: i32,
+    /// Runtime particle skip mask copied from DynamicGameLODInfo. C++ `m_dynamicParticleSkipMask`.
+    dynamic_particle_skip_mask: i32,
+    /// Debris generated since the last dynamic LOD apply. C++ `m_numDebrisGenerations`.
+    num_debris_generations: i32,
+    /// Runtime debris skip mask copied from DynamicGameLODInfo. C++ `m_dynamicDebrisSkipMask`.
+    dynamic_debris_skip_mask: i32,
+    /// Values < 1.0 accelerate deaths. C++ `m_slowDeathScale`.
+    slow_death_scale: f32,
+    /// Minimum particle priority that may still render. C++ `m_minDynamicParticlePriority`.
+    min_dynamic_particle_priority: ParticlePriorityType,
+    /// Priorities at/above this never skip. C++ `m_minDynamicParticleSkipPriority`.
+    min_dynamic_particle_skip_priority: ParticlePriorityType,
 }
 
 impl Default for GameLODManager {
@@ -639,6 +656,14 @@ impl GameLODManager {
             num_level_presets: [0; 3],
             num_bench_profiles: 0,
             really_low_mhz: 400,
+            current_dynamic_lod: DynamicGameLODLevel::High,
+            num_particle_generations: 0,
+            dynamic_particle_skip_mask: 0,
+            num_debris_generations: 0,
+            dynamic_debris_skip_mask: 0,
+            slow_death_scale: 1.0,
+            min_dynamic_particle_priority: ParticlePriorityType::WeaponExplosion,
+            min_dynamic_particle_skip_priority: ParticlePriorityType::WeaponExplosion,
         }
     }
 
@@ -661,6 +686,14 @@ impl GameLODManager {
         self.num_level_presets = [0; 3];
         self.num_bench_profiles = 0;
         self.really_low_mhz = 400;
+        self.current_dynamic_lod = DynamicGameLODLevel::High;
+        self.num_particle_generations = 0;
+        self.dynamic_particle_skip_mask = 0;
+        self.num_debris_generations = 0;
+        self.dynamic_debris_skip_mask = 0;
+        self.slow_death_scale = 1.0;
+        self.min_dynamic_particle_priority = ParticlePriorityType::WeaponExplosion;
+        self.min_dynamic_particle_skip_priority = ParticlePriorityType::WeaponExplosion;
     }
 
     /// Get static LOD index from name
@@ -705,6 +738,91 @@ impl GameLODManager {
     /// Set the really low MHz threshold
     pub fn set_really_low_mhz(&mut self, mhz: i32) {
         self.really_low_mhz = mhz;
+    }
+
+    /// Current dynamic LOD level.
+    /// Matches C++ `GameLODManager::getDynamicLODLevel`.
+    pub fn get_dynamic_lod_level(&self) -> DynamicGameLODLevel {
+        self.current_dynamic_lod
+    }
+
+    /// Set the current dynamic LOD level and apply skip masks / death scale.
+    /// Matches C++ `GameLODManager::setDynamicLODLevel`.
+    pub fn set_dynamic_lod_level(&mut self, level: DynamicGameLODLevel) -> bool {
+        if level == DynamicGameLODLevel::Unknown || self.current_dynamic_lod == level {
+            return false;
+        }
+        self.current_dynamic_lod = level;
+        self.apply_dynamic_lod_level(level);
+        true
+    }
+
+    /// Copy skip masks and related runtime fields from the selected DynamicGameLODInfo.
+    /// Matches C++ `GameLODManager::applyDynamicLODLevel`.
+    fn apply_dynamic_lod_level(&mut self, level: DynamicGameLODLevel) {
+        let Some(index) = level.to_index() else {
+            return;
+        };
+        let info = self.dynamic_game_lod_info[index].clone();
+
+        self.num_particle_generations = 0;
+        self.dynamic_particle_skip_mask = info.dynamic_particle_skip_mask as i32;
+
+        self.num_debris_generations = 0;
+        self.dynamic_debris_skip_mask = info.dynamic_debris_skip_mask as i32;
+
+        self.slow_death_scale = info.slow_death_scale;
+        self.min_dynamic_particle_priority = info.min_dynamic_particle_priority;
+        self.min_dynamic_particle_skip_priority = info.min_dynamic_particle_skip_priority;
+    }
+
+    /// Skip every Nth particle based on the current dynamic LOD mask.
+    /// Matches C++ `GameLODManager::isParticleSkipped`:
+    /// `return (++m_numParticleGenerations & m_dynamicParticleSkipMask) != m_dynamicParticleSkipMask;`
+    ///
+    /// Mask 0 never skips (`(++n & 0) != 0` is always false).
+    pub fn is_particle_skipped(&mut self) -> bool {
+        self.num_particle_generations = self.num_particle_generations.wrapping_add(1);
+        (self.num_particle_generations & self.dynamic_particle_skip_mask)
+            != self.dynamic_particle_skip_mask
+    }
+
+    /// Skip every Nth debris based on the current dynamic LOD mask.
+    /// Matches C++ `GameLODManager::isDebrisSkipped`:
+    /// `return (++m_numDebrisGenerations & m_dynamicDebrisSkipMask) != m_dynamicDebrisSkipMask;`
+    ///
+    /// Mask 0 never skips (`(++n & 0) != 0` is always false).
+    pub fn is_debris_skipped(&mut self) -> bool {
+        self.num_debris_generations = self.num_debris_generations.wrapping_add(1);
+        (self.num_debris_generations & self.dynamic_debris_skip_mask)
+            != self.dynamic_debris_skip_mask
+    }
+
+    /// Runtime debris skip mask (C++ `m_dynamicDebrisSkipMask`).
+    pub fn dynamic_debris_skip_mask(&self) -> i32 {
+        self.dynamic_debris_skip_mask
+    }
+
+    /// Set the runtime debris skip mask and reset the generation counter.
+    /// Tests / OCL skip paths use this to force `isDebrisSkipped` without a full LOD apply.
+    pub fn set_dynamic_debris_skip_mask(&mut self, mask: i32) {
+        self.dynamic_debris_skip_mask = mask;
+        self.num_debris_generations = 0;
+    }
+
+    /// Matches C++ `GameLODManager::getSlowDeathScale`.
+    pub fn get_slow_death_scale(&self) -> f32 {
+        self.slow_death_scale
+    }
+
+    /// Matches C++ `GameLODManager::getMinDynamicParticlePriority`.
+    pub fn get_min_dynamic_particle_priority(&self) -> ParticlePriorityType {
+        self.min_dynamic_particle_priority
+    }
+
+    /// Matches C++ `GameLODManager::getMinDynamicParticleSkipPriority`.
+    pub fn get_min_dynamic_particle_skip_priority(&self) -> ParticlePriorityType {
+        self.min_dynamic_particle_skip_priority
     }
 
     /// Parse static game LOD definition
@@ -963,6 +1081,32 @@ pub fn init_game_lod_manager() {
             guard.init();
         }
     }
+}
+
+/// C++ `TheGameLODManager->isParticleSkipped()`.
+pub fn is_particle_skipped() -> bool {
+    get_game_lod_manager_mut().is_particle_skipped()
+}
+
+/// C++ `TheGameLODManager->isDebrisSkipped()`.
+/// OCL generic-debris spawn should skip when this returns true.
+pub fn is_debris_skipped() -> bool {
+    get_game_lod_manager_mut().is_debris_skipped()
+}
+
+/// Set the runtime debris skip mask (and reset the generation counter).
+pub fn set_dynamic_debris_skip_mask(mask: i32) {
+    get_game_lod_manager_mut().set_dynamic_debris_skip_mask(mask);
+}
+
+/// C++ `TheGameLODManager->setDynamicLODLevel(level)`.
+pub fn set_dynamic_lod_level(level: DynamicGameLODLevel) -> bool {
+    get_game_lod_manager_mut().set_dynamic_lod_level(level)
+}
+
+/// C++ `TheGameLODManager->getDynamicLODLevel()`.
+pub fn get_dynamic_lod_level() -> DynamicGameLODLevel {
+    get_game_lod_manager().get_dynamic_lod_level()
 }
 
 // ============================================================================
@@ -1261,5 +1405,67 @@ mod tests {
         profile.mem_bench_index = 9.402223;
 
         assert_eq!(manager.num_bench_profiles, 1);
+    }
+
+    #[test]
+    fn test_skip_mask_zero_never_skips() {
+        let mut manager = GameLODManager::new();
+        assert_eq!(manager.dynamic_debris_skip_mask, 0);
+        assert_eq!(manager.dynamic_particle_skip_mask, 0);
+        for _ in 0..32 {
+            assert!(!manager.is_debris_skipped());
+            assert!(!manager.is_particle_skipped());
+        }
+    }
+
+    #[test]
+    fn test_skip_mask_one_skips_every_other_call() {
+        let mut manager = GameLODManager::new();
+        let low = DynamicGameLODLevel::Low.to_index().unwrap();
+        manager.dynamic_game_lod_info[low].dynamic_debris_skip_mask = 1;
+        manager.dynamic_game_lod_info[low].dynamic_particle_skip_mask = 1;
+        manager.dynamic_game_lod_info[low].slow_death_scale = 0.5;
+
+        assert!(manager.set_dynamic_lod_level(DynamicGameLODLevel::Low));
+        assert_eq!(manager.get_dynamic_lod_level(), DynamicGameLODLevel::Low);
+        assert_eq!(manager.dynamic_debris_skip_mask, 1);
+        assert_eq!(manager.dynamic_particle_skip_mask, 1);
+        assert_eq!(manager.get_slow_death_scale(), 0.5);
+
+        // C++: (++n & 1) != 1 → keep on odd generations, skip on even.
+        assert!(!manager.is_debris_skipped());
+        assert!(manager.is_debris_skipped());
+        assert!(!manager.is_debris_skipped());
+        assert!(manager.is_debris_skipped());
+
+        assert!(!manager.is_particle_skipped());
+        assert!(manager.is_particle_skipped());
+        assert!(!manager.is_particle_skipped());
+        assert!(manager.is_particle_skipped());
+    }
+
+    #[test]
+    fn test_set_dynamic_lod_level_applies_masks_and_resets_counters() {
+        let mut manager = GameLODManager::new();
+        let low = DynamicGameLODLevel::Low.to_index().unwrap();
+        let medium = DynamicGameLODLevel::Medium.to_index().unwrap();
+        manager.dynamic_game_lod_info[low].dynamic_debris_skip_mask = 1;
+        manager.dynamic_game_lod_info[medium].dynamic_debris_skip_mask = 0;
+
+        assert!(manager.set_dynamic_lod_level(DynamicGameLODLevel::Low));
+        assert!(!manager.is_debris_skipped());
+        assert!(manager.is_debris_skipped());
+
+        // Same level is a no-op (C++ returns FALSE) and does not reset the counter.
+        assert!(!manager.set_dynamic_lod_level(DynamicGameLODLevel::Low));
+        assert!(!manager.is_debris_skipped());
+
+        // Changing level copies the new mask and resets generation counters.
+        assert!(manager.set_dynamic_lod_level(DynamicGameLODLevel::Medium));
+        assert_eq!(manager.dynamic_debris_skip_mask, 0);
+        for _ in 0..8 {
+            assert!(!manager.is_debris_skipped());
+        }
+        assert!(!manager.set_dynamic_lod_level(DynamicGameLODLevel::Unknown));
     }
 }

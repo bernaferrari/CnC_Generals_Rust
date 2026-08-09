@@ -145,6 +145,43 @@ pub fn get_control_bar_bridge() -> Option<RwLockReadGuard<'static, ControlBarBri
     CONTROL_BAR_BRIDGE.get().and_then(|cell| cell.read().ok())
 }
 
+/// Insert a synthetic command button + command-set slot for tests / internal harnesses.
+/// C++ scripts look these up via `TheControlBar->findCommandButton` / `findCommandSet`.
+#[cfg(any(test, feature = "internal"))]
+pub fn install_test_command_button(
+    button: CommandButton,
+    command_set_name: &str,
+    slot: usize,
+) -> Result<(), String> {
+    if slot >= MAX_COMMANDS_PER_SET {
+        return Err(format!(
+            "Command slot {} out of range [0, {})",
+            slot, MAX_COMMANDS_PER_SET
+        ));
+    }
+
+    let cell = CONTROL_BAR_BRIDGE.get_or_init(|| {
+        RwLock::new(ControlBarBridge {
+            buttons_by_id: HashMap::new(),
+            command_sets: HashMap::new(),
+        })
+    });
+    let mut guard = cell
+        .write()
+        .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
+
+    let id = button.get_id();
+    guard.buttons_by_id.insert(id, button.clone());
+    let set = guard
+        .command_sets
+        .entry(command_set_name.to_string())
+        .or_insert_with(|| CommandSet::new(command_set_name.to_string()));
+    if !set.set_command_button(slot, Some(button)) {
+        return Err(format!("Failed to set command button at slot {}", slot));
+    }
+    Ok(())
+}
+
 pub fn register_academy_template_context_provider() {
     set_academy_template_context_provider(|player| find_academy_template_context(player));
 }

@@ -232,6 +232,16 @@ impl PhysicsBehaviorHandle {
             || self.state.yaw_rate != 0.0;
         self.state.set_flag(FLAG_HAS_PITCHROLLYAW, has);
     }
+
+    /// C++ PhysicsBehavior::setAllowToFall — sets ALLOW_TO_FALL flag.
+    pub fn set_allow_to_fall(&mut self, allow: bool) {
+        self.state.set_flag(FLAG_ALLOW_TO_FALL, allow);
+    }
+
+    /// C++ PhysicsBehavior::getAllowToFall — readable ALLOW_TO_FALL flag.
+    pub fn allow_to_fall(&self) -> bool {
+        self.state.has_flag(FLAG_ALLOW_TO_FALL)
+    }
 }
 
 impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
@@ -497,11 +507,15 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn set_allow_to_fall(&mut self, allow: bool) {
-        self.state.set_flag(FLAG_ALLOW_TO_FALL, allow);
+        PhysicsBehaviorHandle::set_allow_to_fall(self, allow);
     }
 
     fn get_allow_to_fall(&self) -> bool {
-        self.state.has_flag(FLAG_ALLOW_TO_FALL)
+        self.allow_to_fall()
+    }
+
+    fn allow_to_fall(&self) -> bool {
+        PhysicsBehaviorHandle::allow_to_fall(self)
     }
 
     fn clear_acceleration(&mut self) {
@@ -1269,6 +1283,24 @@ mod tests {
             .expect("field");
         let mut ini = INI::new();
         (field.parse)(&mut ini, data, tokens).expect("parse field");
+    }
+
+    #[test]
+    fn set_allow_to_fall_is_readable() {
+        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        assert!(
+            !handle.allow_to_fall(),
+            "C++ ALLOW_TO_FALL defaults unset/false"
+        );
+
+        handle.set_allow_to_fall(true);
+        assert!(handle.allow_to_fall());
+        assert!(PhysicsBehaviorTrait::get_allow_to_fall(&handle));
+
+        handle.set_allow_to_fall(false);
+        assert!(!handle.allow_to_fall());
+        assert!(!PhysicsBehaviorTrait::get_allow_to_fall(&handle));
     }
 
     #[test]

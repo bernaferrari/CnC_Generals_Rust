@@ -15,12 +15,14 @@ use gamelogic::common::{Coord3D, FXListId, Matrix3D};
 use gamelogic::object::Object;
 
 use crate::display::cinematic_camera::CameraShakeSystem;
+use crate::display::view::{
+    with_tactical_view, CameraShakeType as ViewShakeKind, Point3 as ViewPoint3,
+};
 use crate::effects::decals::{DecalManager, DecalSettings};
 use crate::effects::fxlist_integration::ParticleSystemFXNugget;
 use crate::effects::particle_manager::{get_particle_system_manager_mut, GameClientRandomVariable};
-use crate::effects::ray_effects::{RayEffectConfig, RayEffectManager};
-use crate::display::view::{with_tactical_view, CameraShakeType as ViewShakeKind, Point3 as ViewPoint3};
 use crate::effects::ray_effect_system::create_ray_effect_by_template;
+use crate::effects::ray_effects::{RayEffectConfig, RayEffectManager};
 use crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp;
 use crate::message_stream::game_message::Coord3D as MessageCoord3D;
 use crate::terrain::scorch_mesh::{add_terrain_scorch, resolve_scorch_type};
@@ -653,6 +655,47 @@ fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> 
     Ok(Some((key.to_string(), values)))
 }
 
+fn parse_labeled_vec3(values: &[String], color: bool) -> INIResult<Vec3> {
+    let mut components = [None; 3];
+    for value in values {
+        let Some((label, raw)) = value.split_once(':') else {
+            continue;
+        };
+        // Two shipped offsets contain `Y:15:`.  The C++ parser accepts the
+        // numeric prefix, so keep that retail-compatible behavior here.
+        let number = INI::parse_real(raw.trim_end_matches(':'))?;
+        let index = match label.to_ascii_uppercase().as_str() {
+            "X" | "R" => 0,
+            "Y" | "G" => 1,
+            "Z" | "B" => 2,
+            _ => continue,
+        };
+        components[index] = Some(number);
+    }
+    let scale = if color { 1.0 / 255.0 } else { 1.0 };
+    Ok(Vec3::new(
+        components[0].ok_or(INIError::InvalidData)? * scale,
+        components[1].ok_or(INIError::InvalidData)? * scale,
+        components[2].ok_or(INIError::InvalidData)? * scale,
+    ))
+}
+
+fn parse_random_variable(values: &[String]) -> INIResult<GameClientRandomVariable> {
+    let Some(minimum) = values.first() else {
+        return Err(INIError::InvalidData);
+    };
+    let maximum = values.get(1).unwrap_or(minimum);
+    let mut variable =
+        GameClientRandomVariable::new(INI::parse_real(minimum)?, INI::parse_real(maximum)?);
+    if values
+        .get(2)
+        .is_some_and(|kind| kind.eq_ignore_ascii_case("NORMAL"))
+    {
+        variable.distribution_type = 1;
+    }
+    Ok(variable)
+}
+
 fn parse_sound_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
     let mut sound_name = String::new();
     loop {
@@ -692,13 +735,7 @@ fn parse_tracer_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
             "LENGTH" => nugget.length = INI::parse_real(value)?,
             "WIDTH" => nugget.width = INI::parse_real(value)?,
             "COLOR" => {
-                if values.len() >= 3 {
-                    nugget.color = Vec3::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                        INI::parse_real(&values[2])?,
-                    );
-                }
+                nugget.color = parse_labeled_vec3(&values, true)?;
             }
             "PROBABILITY" => nugget.probability = INI::parse_real(value)?,
             _ => {}
@@ -723,20 +760,10 @@ fn parse_ray_effect_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()>
         match key.to_ascii_uppercase().as_str() {
             "NAME" => nugget.template_name = INI::parse_ascii_string(value)?,
             "PRIMARYOFFSET" => {
-                if values.len() >= 3 {
-                    nugget.primary_offset = Vec3::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                        INI::parse_real(&values[2])?,
-                    );
-                }
+                nugget.primary_offset = parse_labeled_vec3(&values, false)?;
             }
-            "SECONDARYOFFSET" if values.len() >= 3 => {
-                nugget.secondary_offset = Vec3::new(
-                    INI::parse_real(&values[0])?,
-                    INI::parse_real(&values[1])?,
-                    INI::parse_real(&values[2])?,
-                );
+            "SECONDARYOFFSET" => {
+                nugget.secondary_offset = parse_labeled_vec3(&values, false)?;
             }
             _ => {}
         }
@@ -759,26 +786,17 @@ fn parse_light_pulse_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()
         };
         match key.to_ascii_uppercase().as_str() {
             "COLOR" => {
-                if values.len() >= 3 {
-                    nugget.color = Vec3::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                        INI::parse_real(&values[2])?,
-                    );
-                }
+                nugget.color = parse_labeled_vec3(&values, true)?;
             }
             "RADIUS" => nugget.radius = INI::parse_real(value)?,
             "RADIUSASPERCENTOFOBJECTSIZE" => {
-                let pct = INI::parse_real(value)?;
-                nugget.bounding_circle_pct = pct / 100.0;
+                nugget.bounding_circle_pct = INI::parse_percent_to_real(value)?;
             }
             "INCREASETIME" => {
-                let msec = INI::parse_real(value)?;
-                nugget.increase_frames = (msec / 33.333).ceil() as u32;
+                nugget.increase_frames = INI::parse_duration_unsigned_int(value)?;
             }
             "DECREASETIME" => {
-                let msec = INI::parse_real(value)?;
-                nugget.decrease_frames = (msec / 33.333).ceil() as u32;
+                nugget.decrease_frames = INI::parse_duration_unsigned_int(value)?;
             }
             _ => {}
         }
@@ -851,41 +869,21 @@ fn parse_particle_system_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResul
             "NAME" => nugget.template_name = INI::parse_ascii_string(value)?,
             "COUNT" => nugget.count = INI::parse_int(value)?,
             "OFFSET" => {
-                if values.len() >= 3 {
-                    nugget.offset = nalgebra::Vector3::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                        INI::parse_real(&values[2])?,
-                    );
-                }
+                let offset = parse_labeled_vec3(&values, false)?;
+                nugget.offset = nalgebra::Vector3::new(offset.x, offset.y, offset.z);
             }
             "RADIUS" => {
-                if values.len() >= 2 {
-                    nugget.radius = GameClientRandomVariable::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                    );
-                }
+                nugget.radius = parse_random_variable(&values)?;
             }
             "HEIGHT" => {
-                if values.len() >= 2 {
-                    nugget.height = GameClientRandomVariable::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                    );
-                }
+                nugget.height = parse_random_variable(&values)?;
             }
             "INITIALDELAY" => {
-                if values.len() >= 2 {
-                    nugget.delay = GameClientRandomVariable::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                    );
-                }
+                nugget.delay = parse_random_variable(&values)?;
             }
-            "ROTATEX" => nugget.rotate_x = INI::parse_real(value)?,
-            "ROTATEY" => nugget.rotate_y = INI::parse_real(value)?,
-            "ROTATEZ" => nugget.rotate_z = INI::parse_real(value)?,
+            "ROTATEX" => nugget.rotate_x = INI::parse_angle_real(value)?,
+            "ROTATEY" => nugget.rotate_y = INI::parse_angle_real(value)?,
+            "ROTATEZ" => nugget.rotate_z = INI::parse_angle_real(value)?,
             "ORIENTTOOBJECT" => nugget.orient_to_object = INI::parse_bool(value)?,
             "RICOCHET" => nugget.ricochet = INI::parse_bool(value)?,
             "ATTACHTOOBJECT" => nugget.attach_to_object = INI::parse_bool(value)?,
@@ -1146,8 +1144,8 @@ impl FXNugget for LightPulseFXNugget {
         };
         let mut radius = self.radius;
         if self.bounding_circle_pct > 0.0 {
-            radius = primary.get_geometry_info().get_bounding_circle_radius()
-                * self.bounding_circle_pct;
+            radius =
+                primary.get_geometry_info().get_bounding_circle_radius() * self.bounding_circle_pct;
         }
         self.emit_pulse(primary.get_position(), radius);
     }
@@ -1279,11 +1277,7 @@ impl FXNugget for TerrainScorchFXNugget {
             return;
         };
         let scorch_idx = resolve_scorch_type(self.scorch);
-        let _ = add_terrain_scorch(
-            [primary.x, primary.y, primary.z],
-            self.radius,
-            scorch_idx,
-        );
+        let _ = add_terrain_scorch([primary.x, primary.y, primary.z], self.radius, scorch_idx);
         with_decal_manager(|manager| {
             let settings = DecalSettings::scorch_mark(
                 nalgebra::Point3::new(primary.x, primary.y, primary.z),
@@ -1425,6 +1419,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn runtime_fx_parser_accepts_retail_labeled_values() {
+        let color = parse_labeled_vec3(&["R:255".into(), "G:128".into(), "B:0".into()], true)
+            .expect("retail color");
+        assert_eq!(color, Vec3::new(1.0, 128.0 / 255.0, 0.0));
+
+        let offset = parse_labeled_vec3(&["X:1".into(), "Y:15:".into(), "Z:-2".into()], false)
+            .expect("retail offset with C++ numeric-prefix typo");
+        assert_eq!(offset, Vec3::new(1.0, 15.0, -2.0));
+    }
+
+    #[test]
+    fn runtime_fx_parser_loads_complete_retail_file_when_present() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/FXList.ini");
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        FX_LIST_PARSER_REGISTERED.get_or_init(|| {
+            assert!(register_block_parser("FXList", parse_fx_list_definition));
+        });
+
+        let mut ini = INI::new();
+        ini.with_inline_source(&source, |ini| ini.parse_current_file())
+            .unwrap_or_else(|error| panic!("retail {} must parse: {error:?}", path.display()));
+
+        let store = get_fx_list_store();
+        let tank = store
+            .find_fx_list("WeaponFX_GenericTankGun")
+            .expect("known retail runtime FXList stored");
+        assert!(tank.nuggets.len() >= 4);
+    }
+
+    #[test]
     fn fx_list_at_bone_pos_queries_cpp_bone_name_sequence() {
         let nugget = FXListAtBonePosFXNugget {
             fx_name: "NestedFX".to_string(),
@@ -1466,16 +1493,27 @@ mod tests {
         clear_scene_dynamic_lights();
         nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
         let pulses = drain_display_light_pulses();
-        assert_eq!(pulses.len(), 1, "FXList LightPulse must call TheDisplay createLightPulse");
+        assert_eq!(
+            pulses.len(),
+            1,
+            "FXList LightPulse must call TheDisplay createLightPulse"
+        );
         let lights = scene_dynamic_lights();
-        assert_eq!(lights.len(), 1, "createLightPulse must allocate a scene dynamic light");
+        assert_eq!(
+            lights.len(),
+            1,
+            "createLightPulse must allocate a scene dynamic light"
+        );
         assert_eq!(lights[0].far_atten_start, 1.0);
         assert_eq!(lights[0].far_atten_end, 51.0);
         assert!(lights[0].far_attenuation);
         assert!(lights[0].decay_range && lights[0].decay_color);
         assert_eq!(pulses[0].pos, [12.0, 34.0, 5.0]);
         assert_eq!(pulses[0].color, [1.0, 0.25, 0.0]);
-        assert_eq!(pulses[0].inner_radius, 1.0, "C++ always passes innerRadius=1");
+        assert_eq!(
+            pulses[0].inner_radius, 1.0,
+            "C++ always passes innerRadius=1"
+        );
         assert_eq!(pulses[0].outer_radius, 50.0);
         assert_eq!(pulses[0].increase_frames, 3);
         assert_eq!(pulses[0].decay_frames, 9);
@@ -1545,34 +1583,25 @@ mod tests {
         let ambient_byte = (factor * 255.0) as u32;
         let expected_ambient = 0xFF00_0000 | (ambient_byte << 16);
 
-        let facing = do_the_dynamic_light(
-            [0.0, 0.0, 20.0],
-            [0.0, 0.0, -1.0],
-            0xFF00_0000,
-            &lights,
+        let facing = do_the_dynamic_light([0.0, 0.0, 20.0], [0.0, 0.0, -1.0], 0xFF00_0000, &lights);
+        assert_eq!(
+            facing, 0xFFFF_0000,
+            "N·L + ambient both add factor → clamp 1.0 red"
         );
-        assert_eq!(facing, 0xFFFF_0000, "N·L + ambient both add factor → clamp 1.0 red");
 
-        let ambient_only = do_the_dynamic_light(
-            [0.0, 0.0, 20.0],
-            [0.0, 0.0, 1.0],
-            0xFF00_0000,
-            &lights,
-        );
+        let ambient_only =
+            do_the_dynamic_light([0.0, 0.0, 20.0], [0.0, 0.0, 1.0], 0xFF00_0000, &lights);
         assert_eq!(
             ambient_only, expected_ambient,
             "backface keeps factor*ambient only (chop {ambient_byte})"
         );
 
-        let out_of_range = do_the_dynamic_light(
-            [0.0, 0.0, 50.0],
-            [0.0, 0.0, -1.0],
-            0xFF00_0000,
-            &lights,
-        );
+        let out_of_range =
+            do_the_dynamic_light([0.0, 0.0, 50.0], [0.0, 0.0, -1.0], 0xFF00_0000, &lights);
         assert_eq!(out_of_range, 0xFF00_0000);
 
-        let from_scene = do_the_dynamic_light_from_scene([0.0, 0.0, 20.0], [0.0, 0.0, 1.0], 0xFF00_0000);
+        let from_scene =
+            do_the_dynamic_light_from_scene([0.0, 0.0, 20.0], [0.0, 0.0, 1.0], 0xFF00_0000);
         assert_eq!(from_scene, ambient_only);
         clear_scene_dynamic_lights();
     }
@@ -1651,7 +1680,11 @@ mod tests {
             + (secondary.y - primary.y).powi(2)
             + (secondary.z - primary.z).powi(2))
         .sqrt();
-        let frames = if dist - 10.0 >= 0.0 { (dist - 10.0) / 10.0 } else { 1.0 };
+        let frames = if dist - 10.0 >= 0.0 {
+            (dist - 10.0) / 10.0
+        } else {
+            1.0
+        };
         let expire_span = (frames * 0.5).ceil().max(0.0) as u32;
         assert_eq!(tracers[0].expire_frame, spawn + expire_span);
 

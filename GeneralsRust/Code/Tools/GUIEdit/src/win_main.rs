@@ -2,48 +2,25 @@
 //!
 //! Corresponds to C++ file: Tools/GUIEdit/Source/WinMain.cpp
 //!
-//! This tool provides a visual editor for creating and editing game UI layouts.
+//! Layout-editor chrome shell: File/Edit/View/Layout menus, gadget toolbox,
+//! canvas, properties, status bar. Save/load uses shipped `gui_edit::save`.
 
 use anyhow::Result;
 use eframe::egui;
-use log::info;
-use std::path::PathBuf;
+use gui_edit::chrome::{
+    ChromeEditor, GadgetType, EDIT_MENU_LABELS, FILE_MENU_LABELS, LAYOUT_MENU_LABELS,
+};
+use log::{error, info};
 
-/// Main GUIEdit application
+/// Main GUIEdit application (C++ `GUIEdit` + `WinMain` chrome).
 struct GUIEditApp {
-    current_layout: Option<PathBuf>,
-    show_properties: bool,
-    show_hierarchy: bool,
-    show_toolbox: bool,
-    selected_widget: Option<String>,
-    widgets: Vec<WidgetInfo>,
-    zoom: f32,
-    grid_size: i32,
-    snap_to_grid: bool,
-}
-
-#[derive(Clone, Debug)]
-struct WidgetInfo {
-    name: String,
-    widget_type: String,
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
+    editor: ChromeEditor,
 }
 
 impl Default for GUIEditApp {
     fn default() -> Self {
         Self {
-            current_layout: None,
-            show_properties: true,
-            show_hierarchy: true,
-            show_toolbox: true,
-            selected_widget: None,
-            widgets: Vec::new(),
-            zoom: 1.0,
-            grid_size: 10,
-            snap_to_grid: true,
+            editor: ChromeEditor::new(),
         }
     }
 }
@@ -53,163 +30,166 @@ impl eframe::App for GUIEditApp {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("New Layout").clicked() {
-                        self.new_layout();
-                    }
-                    if ui.button("Open Layout...").clicked() {
-                        self.open_layout();
-                    }
-                    if ui.button("Save Layout").clicked() {
-                        self.save_layout();
-                    }
-                    if ui.button("Save Layout As...").clicked() {
-                        self.save_layout_as();
-                    }
-                    ui.separator();
-                    if ui.button("Exit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    for label in FILE_MENU_LABELS {
+                        if ui.button(*label).clicked() {
+                            match *label {
+                                "New" => self.editor.new_layout(),
+                                "Open" => self.open_layout(),
+                                "Save" => self.save_layout(),
+                                "Save As" => self.save_layout_as(),
+                                "Exit" => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                                _ => {}
+                            }
+                        }
                     }
                 });
 
                 ui.menu_button("Edit", |ui| {
-                    if ui.button("Undo").clicked() {
-                        info!("Undo");
-                    }
-                    if ui.button("Redo").clicked() {
-                        info!("Redo");
-                    }
-                    ui.separator();
-                    if ui.button("Delete Selected").clicked() {
-                        self.delete_selected();
+                    for label in EDIT_MENU_LABELS {
+                        if ui.button(*label).clicked() {
+                            match *label {
+                                "Undo" => self.editor.undo(),
+                                "Redo" => self.editor.redo(),
+                                "Delete" => self.editor.delete_selected(),
+                                _ => {}
+                            }
+                        }
                     }
                 });
 
                 ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.show_toolbox, "Toolbox");
-                    ui.checkbox(&mut self.show_hierarchy, "Hierarchy");
-                    ui.checkbox(&mut self.show_properties, "Properties");
+                    ui.checkbox(&mut self.editor.show_hierarchy, "Hierarchy");
+                    ui.checkbox(&mut self.editor.show_properties, "Properties");
+                    ui.checkbox(&mut self.editor.show_toolbox, "Toolbox");
+                    ui.checkbox(&mut self.editor.show_grid, "Grid");
+                    ui.separator();
+                    ui.checkbox(&mut self.editor.snap_to_grid, "Snap to Grid");
+                    ui.horizontal(|ui| {
+                        ui.label("Grid Size:");
+                        ui.add(egui::DragValue::new(&mut self.editor.grid_size).speed(1.0));
+                    });
                     ui.separator();
                     if ui.button("Zoom In").clicked() {
-                        self.zoom *= 1.2;
+                        self.editor.zoom *= 1.2;
                     }
                     if ui.button("Zoom Out").clicked() {
-                        self.zoom /= 1.2;
+                        self.editor.zoom /= 1.2;
                     }
                     if ui.button("Reset Zoom").clicked() {
-                        self.zoom = 1.0;
+                        self.editor.zoom = 1.0;
                     }
                 });
 
-                ui.menu_button("Tools", |ui| {
-                    ui.checkbox(&mut self.snap_to_grid, "Snap to Grid");
-                    ui.horizontal(|ui| {
-                        ui.label("Grid Size:");
-                        ui.add(egui::DragValue::new(&mut self.grid_size).speed(1.0));
-                    });
+                ui.menu_button("Layout", |ui| {
+                    for label in LAYOUT_MENU_LABELS {
+                        if ui.button(*label).clicked() {
+                            self.editor.apply_layout_command(label);
+                        }
+                    }
                 });
             });
         });
 
-        if self.show_toolbox {
+        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(self.editor.status_line());
+                ui.separator();
+                if let Some(path) = &self.editor.current_path {
+                    ui.label(path.display().to_string());
+                } else {
+                    ui.label("Untitled.wnd");
+                }
+                ui.separator();
+                ui.label(format!("Zoom: {:.0}%", self.editor.zoom * 100.0));
+            });
+        });
+
+        if self.editor.show_toolbox {
             egui::SidePanel::left("toolbox")
                 .resizable(true)
-                .default_width(200.0)
+                .default_width(180.0)
                 .show(ctx, |ui| {
                     ui.heading("Toolbox");
                     ui.separator();
-
-                    ui.label("Widgets:");
-                    if ui.button("Button").clicked() {
-                        self.add_widget("Button");
-                    }
-                    if ui.button("Label").clicked() {
-                        self.add_widget("Label");
-                    }
-                    if ui.button("TextBox").clicked() {
-                        self.add_widget("TextBox");
-                    }
-                    if ui.button("CheckBox").clicked() {
-                        self.add_widget("CheckBox");
-                    }
-                    if ui.button("RadioButton").clicked() {
-                        self.add_widget("RadioButton");
-                    }
-                    if ui.button("ComboBox").clicked() {
-                        self.add_widget("ComboBox");
-                    }
-                    if ui.button("ListBox").clicked() {
-                        self.add_widget("ListBox");
-                    }
-                    if ui.button("ProgressBar").clicked() {
-                        self.add_widget("ProgressBar");
-                    }
-                    if ui.button("Slider").clicked() {
-                        self.add_widget("Slider");
-                    }
-                    if ui.button("TabControl").clicked() {
-                        self.add_widget("TabControl");
+                    ui.label("Gadgets:");
+                    for gadget in GadgetType::toolbox_types() {
+                        if ui.button(gadget.as_str()).clicked() {
+                            self.editor.add_gadget(*gadget);
+                        }
                     }
                 });
         }
 
-        if self.show_hierarchy {
-            egui::SidePanel::right("hierarchy")
+        if self.editor.show_hierarchy {
+            egui::SidePanel::left("hierarchy")
                 .resizable(true)
-                .default_width(200.0)
+                .default_width(180.0)
                 .show(ctx, |ui| {
                     ui.heading("Hierarchy");
                     ui.separator();
-
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        for widget in &self.widgets {
-                            let is_selected = self.selected_widget.as_ref() == Some(&widget.name);
-                            if ui.selectable_label(is_selected, &widget.name).clicked() {
-                                self.selected_widget = Some(widget.name.clone());
+                        let mut clicked = None;
+                        for widget in &self.editor.widgets {
+                            let is_selected = self.editor.selected == Some(widget.id);
+                            let label = format!("{} ({})", widget.name, widget.gadget.as_str());
+                            if ui.selectable_label(is_selected, label).clicked() {
+                                clicked = Some(widget.id);
                             }
+                        }
+                        if let Some(id) = clicked {
+                            self.editor.select(Some(id));
                         }
                     });
                 });
         }
 
-        if self.show_properties {
+        if self.editor.show_properties {
             egui::SidePanel::right("properties")
                 .resizable(true)
                 .default_width(250.0)
                 .show(ctx, |ui| {
                     ui.heading("Properties");
                     ui.separator();
-
-                    if let Some(selected) = &self.selected_widget {
-                        if let Some(widget) = self.widgets.iter_mut().find(|w| &w.name == selected)
-                        {
-                            ui.label(format!("Type: {}", widget.widget_type));
-                            ui.separator();
-
-                            ui.horizontal(|ui| {
-                                ui.label("Name:");
-                                ui.text_edit_singleline(&mut widget.name);
-                            });
-
-                            ui.horizontal(|ui| {
-                                ui.label("X:");
-                                ui.add(egui::DragValue::new(&mut widget.x).speed(1.0));
-                            });
-
-                            ui.horizontal(|ui| {
-                                ui.label("Y:");
-                                ui.add(egui::DragValue::new(&mut widget.y).speed(1.0));
-                            });
-
-                            ui.horizontal(|ui| {
-                                ui.label("Width:");
-                                ui.add(egui::DragValue::new(&mut widget.width).speed(1.0));
-                            });
-
-                            ui.horizontal(|ui| {
-                                ui.label("Height:");
-                                ui.add(egui::DragValue::new(&mut widget.height).speed(1.0));
-                            });
-                        }
+                    if let Some(widget) = self.editor.selected_widget_mut() {
+                        ui.horizontal(|ui| {
+                            ui.label("Type:");
+                            egui::ComboBox::from_id_salt("prop_gadget_type")
+                                .selected_text(widget.gadget.as_str())
+                                .show_ui(ui, |ui| {
+                                    for gadget in GadgetType::toolbox_types() {
+                                        ui.selectable_value(
+                                            &mut widget.gadget,
+                                            *gadget,
+                                            gadget.as_str(),
+                                        );
+                                    }
+                                });
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("WINDOWTYPE:");
+                            ui.monospace(widget.window_type());
+                        });
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("Name:");
+                            ui.text_edit_singleline(&mut widget.name);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("X:");
+                            ui.add(egui::DragValue::new(&mut widget.x).speed(1.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Y:");
+                            ui.add(egui::DragValue::new(&mut widget.y).speed(1.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("W:");
+                            ui.add(egui::DragValue::new(&mut widget.width).speed(1.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("H:");
+                            ui.add(egui::DragValue::new(&mut widget.height).speed(1.0));
+                        });
                     } else {
                         ui.label("No widget selected");
                     }
@@ -225,108 +205,139 @@ impl eframe::App for GUIEditApp {
                 ui.allocate_painter(available_size, egui::Sense::click_and_drag());
 
             let canvas_rect = response.rect;
+            let zoom = self.editor.zoom.max(0.1);
 
             painter.rect_filled(canvas_rect, 0.0, egui::Color32::from_gray(40));
 
-            if self.snap_to_grid {
-                let grid_spacing = self.grid_size as f32 * self.zoom;
-                for x in (0..canvas_rect.width() as i32).step_by(grid_spacing as usize) {
+            if self.editor.show_grid {
+                let grid_spacing = (self.editor.grid_size as f32 * zoom).max(2.0);
+                let mut x = 0.0;
+                while x < canvas_rect.width() {
                     painter.line_segment(
                         [
-                            egui::pos2(canvas_rect.left() + x as f32, canvas_rect.top()),
-                            egui::pos2(canvas_rect.left() + x as f32, canvas_rect.bottom()),
+                            egui::pos2(canvas_rect.left() + x, canvas_rect.top()),
+                            egui::pos2(canvas_rect.left() + x, canvas_rect.bottom()),
                         ],
                         egui::Stroke::new(1.0, egui::Color32::from_gray(50)),
                     );
+                    x += grid_spacing;
                 }
-                for y in (0..canvas_rect.height() as i32).step_by(grid_spacing as usize) {
+                let mut y = 0.0;
+                while y < canvas_rect.height() {
                     painter.line_segment(
                         [
-                            egui::pos2(canvas_rect.left(), canvas_rect.top() + y as f32),
-                            egui::pos2(canvas_rect.right(), canvas_rect.top() + y as f32),
+                            egui::pos2(canvas_rect.left(), canvas_rect.top() + y),
+                            egui::pos2(canvas_rect.right(), canvas_rect.top() + y),
                         ],
                         egui::Stroke::new(1.0, egui::Color32::from_gray(50)),
                     );
+                    y += grid_spacing;
                 }
             }
 
-            for widget in &self.widgets {
-                let is_selected = self.selected_widget.as_ref() == Some(&widget.name);
-                let color = if is_selected {
+            for widget in &self.editor.widgets {
+                let is_selected = self.editor.selected == Some(widget.id);
+                let stroke_color = if is_selected {
                     egui::Color32::YELLOW
                 } else {
                     egui::Color32::LIGHT_BLUE
                 };
+                let fill = if is_selected {
+                    egui::Color32::from_rgba_unmultiplied(80, 80, 20, 80)
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(40, 60, 90, 80)
+                };
 
                 let widget_rect = egui::Rect::from_min_size(
                     egui::pos2(
-                        canvas_rect.left() + widget.x * self.zoom,
-                        canvas_rect.top() + widget.y * self.zoom,
+                        canvas_rect.left() + widget.x as f32 * zoom,
+                        canvas_rect.top() + widget.y as f32 * zoom,
                     ),
-                    egui::vec2(widget.width * self.zoom, widget.height * self.zoom),
+                    egui::vec2(widget.width as f32 * zoom, widget.height as f32 * zoom),
                 );
 
+                painter.rect_filled(widget_rect, 2.0, fill);
                 painter.rect_stroke(
                     widget_rect,
                     2.0,
-                    egui::Stroke::new(2.0, color),
+                    egui::Stroke::new(2.0, stroke_color),
                     egui::StrokeKind::Middle,
                 );
                 painter.text(
                     widget_rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    &widget.name,
+                    format!("{}\n{}", widget.name, widget.gadget.as_str()),
                     egui::FontId::default(),
                     egui::Color32::WHITE,
                 );
             }
 
-            ui.label(format!("Zoom: {:.0}%", self.zoom * 100.0));
+            if response.clicked() {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    let local_x = (pos.x - canvas_rect.left()) / zoom;
+                    let local_y = (pos.y - canvas_rect.top()) / zoom;
+                    self.editor.select_at_point(local_x, local_y);
+                }
+            }
         });
+
+        let mut new_layout = false;
+        let mut delete_selected = false;
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::Delete) {
+                delete_selected = true;
+            }
+            if i.modifiers.command && i.key_pressed(egui::Key::N) {
+                new_layout = true;
+            }
+        });
+        if delete_selected {
+            self.editor.delete_selected();
+        }
+        if new_layout {
+            self.editor.new_layout();
+        }
     }
 }
 
 impl GUIEditApp {
-    fn new_layout(&mut self) {
-        info!("Creating new layout");
-        self.current_layout = None;
-        self.widgets.clear();
-        self.selected_widget = None;
-    }
-
     fn open_layout(&mut self) {
         info!("Opening layout");
+        let picked = rfd::FileDialog::new()
+            .add_filter("Window Layout", &["wnd"])
+            .add_filter("All Files", &["*"])
+            .pick_file();
+        let Some(path) = picked else {
+            return;
+        };
+        match self.editor.read_from_path(&path) {
+            Ok(()) => info!("Loaded {}", path.display()),
+            Err(e) => error!("Failed to open {}: {e}", path.display()),
+        }
     }
 
     fn save_layout(&mut self) {
         info!("Saving layout");
+        if let Some(path) = self.editor.current_path.clone() {
+            if let Err(e) = self.editor.write_to_path(&path) {
+                error!("Failed to save {}: {e}", path.display());
+            }
+        } else {
+            self.save_layout_as();
+        }
     }
 
     fn save_layout_as(&mut self) {
         info!("Save layout as");
-    }
-
-    fn add_widget(&mut self, widget_type: &str) {
-        let count = self
-            .widgets
-            .iter()
-            .filter(|w| w.widget_type == widget_type)
-            .count();
-        let widget = WidgetInfo {
-            name: format!("{}{}", widget_type, count + 1),
-            widget_type: widget_type.to_string(),
-            x: 50.0,
-            y: 50.0,
-            width: 100.0,
-            height: 30.0,
+        let picked = rfd::FileDialog::new()
+            .add_filter("Window Layout", &["wnd"])
+            .set_file_name("Untitled.wnd")
+            .save_file();
+        let Some(path) = picked else {
+            return;
         };
-        self.widgets.push(widget);
-    }
-
-    fn delete_selected(&mut self) {
-        if let Some(selected) = &self.selected_widget {
-            self.widgets.retain(|w| &w.name != selected);
-            self.selected_widget = None;
+        if let Err(e) = self.editor.write_to_path(&path) {
+            error!("Failed to save {}: {e}", path.display());
         }
     }
 }

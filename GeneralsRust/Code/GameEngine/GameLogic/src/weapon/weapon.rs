@@ -432,7 +432,7 @@ impl Weapon {
                 self.ammo_in_clip = self.ammo_in_clip.saturating_sub(1);
                 self.max_shot_count = self.max_shot_count.saturating_sub(1);
 
-                if self.ammo_in_clip <= 0 && self.template.get_auto_reloads_clip() {
+                if self.ammo_in_clip == 0 && self.template.get_auto_reloads_clip() {
                     self.reload_ammo(current_frame);
                     return Ok((true, None));
                 }
@@ -481,7 +481,7 @@ impl Weapon {
                 self.ammo_in_clip = self.ammo_in_clip.saturating_sub(1);
                 self.max_shot_count = self.max_shot_count.saturating_sub(1);
 
-                if self.ammo_in_clip <= 0 && self.template.get_auto_reloads_clip() {
+                if self.ammo_in_clip == 0 && self.template.get_auto_reloads_clip() {
                     self.reload_ammo(current_frame);
                     return Ok((true, None));
                 }
@@ -496,7 +496,7 @@ impl Weapon {
         }
 
         // Verify we have ammunition (matches C++ debug asserts lines 2566-2568)
-        if self.ammo_in_clip <= 0 {
+        if self.ammo_in_clip == 0 {
             return Ok((false, None));
         }
 
@@ -595,7 +595,7 @@ impl Weapon {
         }
 
         // Check if we need to reload (matches C++ lines 2627-2668)
-        if self.ammo_in_clip <= 0 {
+        if self.ammo_in_clip == 0 {
             if self.template.get_auto_reloads_clip() {
                 self.reload_ammo(current_frame);
                 reloaded = true;

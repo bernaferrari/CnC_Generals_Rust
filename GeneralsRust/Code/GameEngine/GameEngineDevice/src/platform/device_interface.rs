@@ -276,13 +276,11 @@ impl DeviceInterface {
 
         // Add platform-specific features
         for feature in [
-            PlatformFeature::DirectSound,
             PlatformFeature::Wasapi,
             PlatformFeature::Alsa,
             PlatformFeature::PulseAudio,
             PlatformFeature::CoreAudio,
             PlatformFeature::OpenAL,
-            PlatformFeature::DirectX,
             PlatformFeature::Vulkan,
             PlatformFeature::Metal,
             PlatformFeature::OpenGL,

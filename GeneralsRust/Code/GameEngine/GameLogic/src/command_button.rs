@@ -145,6 +145,12 @@ impl CommandButton {
         }
     }
 
+    /// Override the mapped GUI command type (tests and synthetic buttons).
+    pub fn with_command_type(mut self, command_type: crate::commands::command::CommandType) -> Self {
+        self.command_type = command_type;
+        self
+    }
+
     pub fn from_common(id: CommandButtonId, button: &common_buttons::CommandButton) -> Self {
         let tooltip = if !button.descriptive_text.is_empty() {
             button.descriptive_text.clone()

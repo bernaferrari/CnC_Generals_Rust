@@ -1,5 +1,6 @@
 //! Core application framework for game development tools
 
+use crate::chrome::Chrome;
 use crate::{GameTool, ThemeType, ToolConfig, UIError};
 use anyhow::Result;
 use eframe::egui;
@@ -14,6 +15,7 @@ pub struct ToolApp {
     theme_manager: ThemeManager,
     hot_reload: Arc<RwLock<crate::hot_reload::HotReloadManager>>,
     performance_monitor: PerformanceMonitor,
+    chrome: Chrome,
 }
 
 impl ToolApp {
@@ -33,7 +35,18 @@ impl ToolApp {
             theme_manager,
             hot_reload,
             performance_monitor: PerformanceMonitor::new(),
+            chrome: Chrome::new(),
         })
+    }
+
+    /// Shared chrome (menu bar, palette, status, dock layout).
+    pub fn chrome(&self) -> &Chrome {
+        &self.chrome
+    }
+
+    /// Mutable chrome for tools that need to update status/selection.
+    pub fn chrome_mut(&mut self) -> &mut Chrome {
+        &mut self.chrome
     }
 
     /// Run the application
@@ -96,101 +109,30 @@ impl eframe::App for ToolApp {
             }
         }
 
-        // Main menu bar
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // File menu
-                ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
-                        // Handle new file
-                    }
-                    if ui.button("Open...").clicked() {
-                        // Handle open file
-                    }
-                    if ui.button("Save").clicked() {
-                        // Handle save
-                    }
-                    ui.separator();
-                    if ui.button("Exit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
+        self.sync_chrome_view_state();
 
-                // Edit menu
-                ui.menu_button("Edit", |ui| {
-                    if ui.button("Undo").clicked() {
-                        // Handle undo
-                    }
-                    if ui.button("Redo").clicked() {
-                        // Handle redo
-                    }
-                    ui.separator();
-                    if ui.button("Preferences...").clicked() {
-                        // Handle preferences
-                    }
-                });
-
-                // View menu
-                ui.menu_button("View", |ui| {
-                    ui.menu_button("Theme", |ui| {
-                        for theme in [
-                            ThemeType::Dark,
-                            ThemeType::Light,
-                            ThemeType::CnCClassic,
-                            ThemeType::Modern,
-                        ] {
-                            if ui
-                                .selectable_label(
-                                    self.config.theme == theme,
-                                    format!("{:?}", theme),
-                                )
-                                .clicked()
-                            {
-                                self.config.theme = theme;
-                                self.theme_manager.set_theme(theme);
-                                self.theme_manager.apply_theme(ctx);
-                            }
-                        }
-                    });
-
-                    ui.separator();
-                    ui.checkbox(&mut self.config.hot_reload_enabled, "Hot Reload");
-                });
-
-                // Tool-specific menu items
+        let fps = self.performance_monitor.get_fps();
+        let mem_usage = self.performance_monitor.get_memory_usage();
+        let command = self.chrome.show_shell(
+            ctx,
+            |ui| {
                 if let Err(e) = self.tool.menu_bar(ui) {
                     warn!("Tool menu error: {}", e);
                 }
+            },
+            |ui| {
+                ui.label(format!("FPS: {:.0}", fps));
+            },
+            |ui| {
+                ui.label(format!("Memory: {:.1} MB", mem_usage));
+            },
+        );
 
-                // Help menu
-                ui.menu_button("Help", |ui| {
-                    if ui.button("About").clicked() {
-                        // Show about dialog
-                    }
-                });
+        if let Some(cmd) = command {
+            self.handle_chrome_command(ctx, &cmd);
+        }
 
-                // Performance info (right-aligned)
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let fps = self.performance_monitor.get_fps();
-                    ui.label(format!("FPS: {:.0}", fps));
-                });
-            });
-        });
-
-        // Status bar
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Ready");
-
-                // Right-aligned status info
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mem_usage = self.performance_monitor.get_memory_usage();
-                    ui.label(format!("Memory: {:.1} MB", mem_usage));
-                });
-            });
-        });
-
-        // Main tool content
+        // Center viewport: remaining space after chrome docks.
         if let Err(e) = self.tool.update(ctx, frame) {
             error!("Tool update error: {}", e);
         }
@@ -206,6 +148,81 @@ impl eframe::App for ToolApp {
                 info!("Shutting down tool: {}", self.config.name);
             }
         });
+    }
+}
+
+impl ToolApp {
+    fn sync_chrome_view_state(&mut self) {
+        let theme = self.config.theme;
+        self.chrome
+            .menu_bar
+            .set_item_checked("view.theme.dark", theme == ThemeType::Dark);
+        self.chrome
+            .menu_bar
+            .set_item_checked("view.theme.light", theme == ThemeType::Light);
+        self.chrome
+            .menu_bar
+            .set_item_checked("view.theme.cnc_classic", theme == ThemeType::CnCClassic);
+        self.chrome
+            .menu_bar
+            .set_item_checked("view.theme.modern", theme == ThemeType::Modern);
+        self.chrome
+            .menu_bar
+            .set_item_checked("view.hot_reload", self.config.hot_reload_enabled);
+        self.chrome.menu_bar.set_item_checked(
+            "view.palette",
+            self.chrome.layout.show_left_palette,
+        );
+        self.chrome.menu_bar.set_item_checked(
+            "view.properties",
+            self.chrome.layout.show_right_properties,
+        );
+    }
+
+    fn handle_chrome_command(&mut self, ctx: &egui::Context, cmd: &str) {
+        match cmd {
+            "file.exit" => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            "view.theme.dark" => self.apply_theme(ctx, ThemeType::Dark),
+            "view.theme.light" => self.apply_theme(ctx, ThemeType::Light),
+            "view.theme.cnc_classic" => self.apply_theme(ctx, ThemeType::CnCClassic),
+            "view.theme.modern" => self.apply_theme(ctx, ThemeType::Modern),
+            "view.hot_reload" => {
+                self.config.hot_reload_enabled = !self.config.hot_reload_enabled;
+            }
+            "view.palette" => {
+                self.chrome.layout.show_left_palette = !self.chrome.layout.show_left_palette;
+            }
+            "view.properties" => {
+                self.chrome.layout.show_right_properties =
+                    !self.chrome.layout.show_right_properties;
+            }
+            "view.zoom_in" => {
+                let zoom = self.chrome.status_bar.zoom();
+                self.chrome.status_bar.set_zoom(zoom * 1.25);
+            }
+            "view.zoom_out" => {
+                let zoom = self.chrome.status_bar.zoom();
+                self.chrome.status_bar.set_zoom(zoom / 1.25);
+            }
+            "view.zoom_reset" => {
+                self.chrome.status_bar.set_zoom(1.0);
+            }
+            "help.about" => {
+                self.chrome.status_bar.set_message(format!(
+                    "{} v{}",
+                    self.config.name, self.config.version
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_theme(&mut self, ctx: &egui::Context, theme: ThemeType) {
+        self.config.theme = theme;
+        self.theme_manager.set_theme(theme);
+        self.theme_manager.apply_theme(ctx);
     }
 }
 

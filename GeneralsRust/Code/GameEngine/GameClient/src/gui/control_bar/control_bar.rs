@@ -101,6 +101,75 @@ pub struct UpgradeCameoState {
     pub is_visible: bool,
 }
 
+/// Resolve portrait upgrade-cameo art.
+///
+/// C++ `ControlBar.cpp` `setPortraitByObject`:
+/// ```
+/// const UpgradeTemplate *ut = TheUpgradeCenter->findUpgrade(upgradeName);
+/// m_rightHUDUpgradeCameos[i]->winSetEnabledImage(0, ut->getButtonImage());
+/// ```
+/// `UpgradeTemplate::ButtonImage` is the mapped-image name. CommandButton
+/// `ButtonImage` with matching `Upgrade=` is the shipped CommandSet fallback
+/// when the template image was not registered. Unknown upgrades keep the
+/// upgrade name as a fail-closed placeholder.
+fn resolve_upgrade_cameo_button_image(
+    upgrade_name: &str,
+    context_commands: Option<&[CommandButton]>,
+) -> String {
+    let trimmed = upgrade_name.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    // 1) C++ TheUpgradeCenter->findUpgrade + getButtonImage()
+    let logic_image = with_upgrade_center(|center| {
+        center
+            .find_upgrade(trimmed)
+            .map(|template| template.get_button_image_name().as_str().trim().to_string())
+    });
+    if let Some(image) = logic_image {
+        if !image.is_empty() {
+            return image;
+        }
+    }
+
+    // 2) Common INI UpgradeTemplate.ButtonImage (same Upgrade.ini field)
+    if let Some(center) = game_engine::common::ini::ini_upgrade::get_upgrade_center() {
+        let key = game_engine::common::ascii_string::AsciiString::from(trimmed);
+        if let Some(template) = center.find_template(&key) {
+            let image = template.button_image.as_str().trim();
+            if !image.is_empty() {
+                return image.to_string();
+            }
+        }
+    }
+
+    // 3) CommandButton.ButtonImage where Upgrade= matches
+    if let Some(control_bar) = get_ini_control_bar() {
+        for (_, button) in control_bar.iter_resolved_buttons() {
+            if button.upgrade.eq_ignore_ascii_case(trimmed)
+                && !button.button_image.trim().is_empty()
+            {
+                return button.button_image.clone();
+            }
+        }
+    }
+
+    // 4) Presentation-synced CommandSet buttons already on the bar
+    if let Some(commands) = context_commands {
+        for button in commands {
+            if button.upgrade.eq_ignore_ascii_case(trimmed)
+                && !button.button_image.trim().is_empty()
+            {
+                return button.button_image.clone();
+            }
+        }
+    }
+
+    // Fail-closed: keep the upgrade name when no shipped art is registered.
+    trimmed.to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct SciencePurchaseState {
     pub rank1_buttons: Vec<ScienceButtonState>,
@@ -3182,7 +3251,10 @@ impl ControlBar {
     /// Feed upgrade cameos, special-power ready, and rally residual from PresentationFrame.
     ///
     /// Prefer this over live OBJECT_REGISTRY / template graph for dual-tick host paths.
-    /// Fail-closed: cameo images are name placeholders (not full CommandSet INI art).
+    /// Cameo art matches C++ `ControlBar::setPortraitByObject`:
+    /// `TheUpgradeCenter->findUpgrade(name)->getButtonImage()`, with CommandSet
+    /// / CommandButton `ButtonImage` as a shipped-data fallback. Fail-closed:
+    /// empty image when a template exists without art, otherwise the upgrade name.
     pub fn sync_upgrades_and_specials_from_presentation(
         &mut self,
         applied_upgrades: &[String],
@@ -3190,11 +3262,16 @@ impl ControlBar {
         special_power_ready: bool,
         special_power_cooldown_remaining: f32,
     ) {
+        let context_commands = self
+            .context
+            .read()
+            .ok()
+            .map(|ctx| ctx.available_commands.clone());
         let mut cameos: Vec<UpgradeCameoState> = applied_upgrades
             .iter()
             .map(|name| UpgradeCameoState {
                 upgrade_name: name.clone(),
-                button_image: name.clone(),
+                button_image: resolve_upgrade_cameo_button_image(name, context_commands.as_deref()),
                 is_completed: true,
                 is_visible: true,
             })
@@ -4169,5 +4246,98 @@ mod tests {
 
         ControlBar::apply_place_beacon_button_enabled(&place_button, true);
         assert!(place_button.unwrap().borrow().is_enabled());
+    }
+
+    #[test]
+    fn upgrade_cameo_uses_command_button_image_not_upgrade_name() {
+        const UPGRADE: &str = "Upgrade_TestCameoImageLookup";
+        const IMAGE: &str = "SNTestCameoArt";
+        const BUTTON: &str = "Command_TestCameoImageLookup";
+
+        game_engine::common::ini::ini_command_button::initialize_control_bar();
+        {
+            let mut bar = game_engine::common::ini::ini_command_button::get_control_bar_mut()
+                .expect("INI control bar");
+            let button = bar.new_command_button(BUTTON.to_string());
+            button.upgrade = UPGRADE.to_string();
+            button.button_image = IMAGE.to_string();
+        }
+
+        let mut control_bar = ControlBar::new();
+        control_bar.sync_upgrades_and_specials_from_presentation(
+            &[UPGRADE.to_string()],
+            None,
+            false,
+            0.0,
+        );
+
+        let cameos = &control_bar.get_portrait_state().upgrade_cameos;
+        assert_eq!(cameos.len(), 1);
+        assert_eq!(cameos[0].upgrade_name, UPGRADE);
+        assert_eq!(cameos[0].button_image, IMAGE);
+        assert_ne!(cameos[0].button_image, UPGRADE);
+    }
+
+    #[test]
+    fn upgrade_cameo_uses_upgrade_template_button_image() {
+        const UPGRADE: &str = "Upgrade_TestTemplateCameoImage";
+        const IMAGE: &str = "SSTestTemplateCameo";
+
+        game_engine::common::ini::ini_upgrade::initialize_upgrade_center();
+        {
+            let mut center = game_engine::common::ini::ini_upgrade::get_upgrade_center_mut()
+                .expect("INI upgrade center");
+            let template = center.new_template(
+                game_engine::common::ascii_string::AsciiString::from(UPGRADE),
+            );
+            template.button_image = game_engine::common::ascii_string::AsciiString::from(IMAGE);
+        }
+
+        // C++ path: TheUpgradeCenter->findUpgrade()->getButtonImage()
+        {
+            use game_engine::common::ini::{INIError, INI};
+            use gamelogic::upgrade::center::with_upgrade_center_mut;
+            let source = format!("{UPGRADE}\nButtonImage = {IMAGE}\nEnd\n");
+            let mut ini = INI::new();
+            ini.with_inline_source(&source, |ini| {
+                ini.read_line()?;
+                with_upgrade_center_mut(|center| {
+                    center
+                        .parse_upgrade_definition(ini)
+                        .map_err(|_| INIError::InvalidData)
+                })
+            })
+            .expect("register GameLogic upgrade ButtonImage");
+        }
+
+        let mut control_bar = ControlBar::new();
+        control_bar.sync_upgrades_and_specials_from_presentation(
+            &[UPGRADE.to_string()],
+            None,
+            false,
+            0.0,
+        );
+
+        let cameos = &control_bar.get_portrait_state().upgrade_cameos;
+        assert_eq!(cameos.len(), 1);
+        assert_eq!(cameos[0].upgrade_name, UPGRADE);
+        assert_eq!(cameos[0].button_image, IMAGE);
+        assert_ne!(cameos[0].button_image, UPGRADE);
+    }
+
+    #[test]
+    fn unknown_upgrade_cameo_keeps_fail_closed_name_placeholder() {
+        const UPGRADE: &str = "Upgrade_UnknownCameoNoArtRegistered";
+        let mut control_bar = ControlBar::new();
+        control_bar.sync_upgrades_and_specials_from_presentation(
+            &[UPGRADE.to_string()],
+            None,
+            false,
+            0.0,
+        );
+        let cameos = &control_bar.get_portrait_state().upgrade_cameos;
+        assert_eq!(cameos.len(), 1);
+        assert_eq!(cameos[0].upgrade_name, UPGRADE);
+        assert_eq!(cameos[0].button_image, UPGRADE);
     }
 }

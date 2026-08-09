@@ -50,18 +50,33 @@ fn es_source() -> &'static str {
 }
 
 pub fn honesty_host_selection_hud_disabled_fow_method_names_residual_wave1113() -> bool {
-    let names = LIVE_HOST_SELECTION_HUD_DISABLED_FOW_METHOD_NAMES_WAVE1113;
-    let ok = residual_name_index(names, "draw_selection_anims_from_presentation").is_some()
-        && residual_name_index(names, "Wave 1113").is_some();
+    // Self-table membership is inflation (host_wave_inflation). Scan shipped HUD fn.
+    debug_assert!(super::host_wave_inflation::self_table_honesty_is_inflation());
+    let ui = ui_source();
+    let ok = super::host_wave_inflation::shipped_fn_contains(
+        ui,
+        "fn draw_selection_anims_from_presentation",
+        &[
+            "presentation_unit_catalog",
+            "entry.disabled",
+            "ObjectShroudStatus::Fogged",
+            "ObjectShroudStatus::Shrouded",
+        ],
+    );
     residual_action_store(ResidualHostSelectionHudDisabledFowAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
 pub fn honesty_host_selection_hud_disabled_fow_nav_commands_residual_wave1113() -> bool {
-    let steps = LIVE_HOST_SELECTION_HUD_DISABLED_FOW_NAV_STEPS_WAVE1113;
-    let ok = residual_name_index(steps, "LIVE_HOST_SELECTION_HUD_DISABLED_FOW").is_some()
-        && residual_name_index(steps, "SELECTION_HUD_DISABLED_FAIL_CLOSED").is_some();
+    // Nav honesty: shipped selection HUD must fail-closed on disabled + non-local FOW.
+    debug_assert!(super::host_wave_inflation::self_table_honesty_is_inflation());
+    let ui = ui_source();
+    let ok = super::host_wave_inflation::shipped_fn_contains(
+        ui,
+        "fn draw_selection_anims_from_presentation",
+        &["fogged && !is_local", "entry.disabled", "continue"],
+    );
     residual_action_store(ResidualHostSelectionHudDisabledFowAction::NavCommands);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

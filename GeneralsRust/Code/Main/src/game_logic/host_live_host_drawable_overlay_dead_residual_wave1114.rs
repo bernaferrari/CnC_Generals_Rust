@@ -53,18 +53,49 @@ fn es_source() -> &'static str {
 }
 
 pub fn honesty_host_drawable_overlay_dead_method_names_residual_wave1114() -> bool {
-    let names = LIVE_HOST_DRAWABLE_OVERLAY_DEAD_METHOD_NAMES_WAVE1114;
-    let ok = residual_name_index(names, "draw_health_bar").is_some()
-        && residual_name_index(names, "Wave 1114").is_some();
+    // Self-table membership is inflation (host_wave_inflation). Scan shipped draw fns.
+    debug_assert!(super::host_wave_inflation::self_table_honesty_is_inflation());
+    let dr = dr_source();
+    let ok = super::host_wave_inflation::shipped_fn_contains(
+        dr,
+        "fn draw_health_bar",
+        &["presentation_health_pct <= 0.0"],
+    ) && super::host_wave_inflation::shipped_fn_contains(
+        dr,
+        "fn draw_veterancy",
+        &["presentation_health_pct <= 0.0"],
+    ) && super::host_wave_inflation::shipped_fn_contains(
+        dr,
+        "pub fn draw_healing",
+        &["presentation_health_pct <= 0.0"],
+    ) && super::host_wave_inflation::shipped_fn_contains(
+        dr,
+        "pub fn draw_ammo",
+        &["presentation_health_pct <= 0.0"],
+    );
     residual_action_store(ResidualHostDrawableOverlayDeadAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
 pub fn honesty_host_drawable_overlay_dead_nav_commands_residual_wave1114() -> bool {
-    let steps = LIVE_HOST_DRAWABLE_OVERLAY_DEAD_NAV_STEPS_WAVE1114;
-    let ok = residual_name_index(steps, "LIVE_HOST_DRAWABLE_OVERLAY_DEAD").is_some()
-        && residual_name_index(steps, "OVERLAY_DEAD_FAIL_CLOSED").is_some();
+    // Nav honesty: shipped draw_icon_ui must still dispatch the overlay draw fns.
+    debug_assert!(super::host_wave_inflation::self_table_honesty_is_inflation());
+    let dr = dr_source();
+    let ok = match super::host_wave_inflation::shipped_fn_window(
+        dr,
+        "    pub fn draw_icon_ui(&mut self)",
+        6000,
+    ) {
+        Some(icon) => {
+            icon.contains("self.draw_health_bar")
+                && icon.contains("self.draw_construct_percent")
+                && icon.contains("self.draw_ammo")
+                && icon.contains("self.draw_veterancy")
+                && icon.contains("self.draw_healing")
+        }
+        None => false,
+    };
     residual_action_store(ResidualHostDrawableOverlayDeadAction::NavCommands);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

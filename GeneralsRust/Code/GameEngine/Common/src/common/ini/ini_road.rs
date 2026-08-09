@@ -746,11 +746,20 @@ pub fn parse_terrain_road_definition_from_ini(ini: &mut INI) -> INIResult<()> {
         .to_string();
 
     let mut roads = get_terrain_roads_mut();
-    if roads.find_road(&name).is_some() || roads.find_bridge(&name).is_some() {
+    if roads.find_bridge(&name).is_some() {
         return Err(INIError::InvalidData);
     }
 
-    let road = roads.new_road(AsciiString::from(name.as_str()));
+    // C++ `parseTerrainRoadDefinition` reuses a same-kind definition when a
+    // later INI layer overrides it.  Startup also legitimately encounters the
+    // same archive-backed file through the preload and map-loader paths.
+    let road = if roads.find_road(&name).is_some() {
+        roads
+            .find_road_mut(&name)
+            .expect("road existed immediately before mutable lookup")
+    } else {
+        roads.new_road(AsciiString::from(name.as_str()))
+    };
     loop {
         ini.read_line()?;
         if ini.is_eof() {
@@ -785,11 +794,17 @@ pub fn parse_terrain_bridge_definition_from_ini(ini: &mut INI) -> INIResult<()> 
         .to_string();
 
     let mut roads = get_terrain_roads_mut();
-    if roads.find_bridge(&name).is_some() || roads.find_road(&name).is_some() {
+    if roads.find_road(&name).is_some() {
         return Err(INIError::InvalidData);
     }
 
-    let bridge = roads.new_bridge(AsciiString::from(name.as_str()));
+    let bridge = if roads.find_bridge(&name).is_some() {
+        roads
+            .find_bridge_mut(&name)
+            .expect("bridge existed immediately before mutable lookup")
+    } else {
+        roads.new_bridge(AsciiString::from(name.as_str()))
+    };
     loop {
         ini.read_line()?;
         if ini.is_eof() {

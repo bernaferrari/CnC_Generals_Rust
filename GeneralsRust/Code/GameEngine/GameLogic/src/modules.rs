@@ -904,33 +904,52 @@ pub trait ContainModuleInterfaceExt {
 }
 
 impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
+    // C++ ContainModuleInterface methods never silently no-op on a "busy" container.
+    // `try_lock()` returned false / skipped add under contention, which breaks OCL
+    // `containInsideSourceObject` (treats a valid container as invalid and destroys
+    // the spawn) and UI/script enter checks. Critical paths therefore block on
+    // `lock()` like C++ direct calls.
+    //
+    // Poison is fail-closed: validity/reads report empty/false, mutations do not
+    // panic and do not pretend success.
+    //
+    // Deadlock note: std::sync::Mutex is not reentrant. A same-thread re-lock
+    // exists in OverlordContain::create_payload, which calls
+    // `owner.get_contain()` + Ext (`is_valid_container_for` / `add_to_contain`)
+    // while the same mutex is already held via `on_owner_created` /
+    // `Object::update` → `contain.lock()`. TransportContain / HelixContain call
+    // `self` methods instead and are safe. That Overlord path is a Rust-only
+    // re-entry (C++ called `this->addToContain`); it currently no-ops with
+    // try_lock and would block forever with lock(). Fix belongs in
+    // overlord_contain.rs (call `self` like Transport/Helix). OCL/UI callers
+    // do not hold this mutex, so blocking lock() is the C++-closer behavior.
+
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        if let Ok(guard) = self.try_lock() {
-            guard.is_valid_container_for(obj, check_capacity)
-        } else {
-            false
+        match self.lock() {
+            Ok(guard) => guard.is_valid_container_for(obj, check_capacity),
+            Err(_) => false,
         }
     }
 
     fn add_to_contain(&self, obj: &Object) {
-        if let Ok(mut guard) = self.try_lock() {
+        // Poison / failed lock: fail-closed. Do not add and do not panic;
+        // callers observe the object remaining uncontained.
+        if let Ok(mut guard) = self.lock() {
             let _ = guard.add_to_contain(obj);
         }
     }
 
     fn get_contained_objects(&self) -> Vec<ObjectID> {
-        if let Ok(guard) = self.try_lock() {
-            guard.get_contained_objects().to_vec()
-        } else {
-            Vec::new()
+        match self.lock() {
+            Ok(guard) => guard.get_contained_objects().to_vec(),
+            Err(_) => Vec::new(),
         }
     }
 
     fn get_contained_count(&self) -> usize {
-        if let Ok(guard) = self.try_lock() {
-            guard.get_contained_count()
-        } else {
-            0
+        match self.lock() {
+            Ok(guard) => guard.get_contained_count(),
+            Err(_) => 0,
         }
     }
 
@@ -3166,14 +3185,21 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         let _ = stunned;
     }
 
-    /// Allow object to fall under gravity
+    /// Allow object to fall under gravity.
+    /// C++ PhysicsBehavior::setAllowToFall — sets ALLOW_TO_FALL (default unset/false).
     fn set_allow_to_fall(&mut self, allow: bool) {
         let _ = allow;
     }
 
     /// Whether this object is currently allowed to fall under gravity.
+    /// C++ PhysicsBehavior::getAllowToFall — defaults false (flag not set).
     fn get_allow_to_fall(&self) -> bool {
-        true
+        false
+    }
+
+    /// Readable alias for [`Self::get_allow_to_fall`].
+    fn allow_to_fall(&self) -> bool {
+        self.get_allow_to_fall()
     }
 
     /// Clear current acceleration (matches C++ clearAcceleration).
@@ -3257,6 +3283,7 @@ pub trait PhysicsBehaviorExt {
     fn set_allow_airborne_friction(&self, allow: bool);
     fn set_allow_to_fall(&self, allow: bool);
     fn get_allow_to_fall(&self) -> bool;
+    fn allow_to_fall(&self) -> bool;
     fn set_turning(&self, turning: i32);
     fn set_angles(&self, yaw: Real, pitch: Real, roll: Real);
     fn apply_angular_velocity(&self, angular_velocity: &Vec3D);
@@ -3357,8 +3384,12 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
         if let Ok(guard) = self.try_lock() {
             guard.get_allow_to_fall()
         } else {
-            true
+            false
         }
+    }
+
+    fn allow_to_fall(&self) -> bool {
+        self.get_allow_to_fall()
     }
 
     fn set_turning(&self, turning: i32) {
@@ -4551,6 +4582,160 @@ impl FlammableUpdateExt for Arc<Mutex<dyn BehaviorModuleInterface>> {
     fn try_to_ignite(&self, _ctx: &mut crate::common::UpdateContext<'_>) {
         if let Ok(mut guard) = self.lock() {
             guard.try_to_ignite_flammable();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct TestContain {
+        ids: Vec<ObjectID>,
+        max: usize,
+    }
+
+    impl ContainModuleInterface for TestContain {
+        fn can_contain(&self, _object_id: ObjectID) -> bool {
+            self.ids.len() < self.max
+        }
+
+        fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+            if !self.can_contain(object_id) {
+                return Err("container full".into());
+            }
+            self.ids.push(object_id);
+            Ok(())
+        }
+
+        fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+            self.ids.retain(|id| *id != object_id);
+            Ok(())
+        }
+
+        fn get_contained_objects(&self) -> &[ObjectID] {
+            &self.ids
+        }
+
+        fn get_contained_count(&self) -> usize {
+            self.ids.len()
+        }
+
+        fn get_max_capacity(&self) -> usize {
+            self.max
+        }
+
+        fn is_valid_container_for(&self, _obj: &Object, check_capacity: bool) -> bool {
+            if check_capacity {
+                self.ids.len() < self.max
+            } else {
+                true
+            }
+        }
+    }
+
+    #[test]
+    fn ext_add_to_contain_increases_contained_count() {
+        let passenger = Object::new_test(42, 100.0);
+        let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(TestContain {
+            ids: Vec::new(),
+            max: 4,
+        }));
+
+        assert!(contain.is_valid_container_for(&passenger, true));
+        assert_eq!(contain.get_contained_count(), 0);
+        assert!(contain.get_contained_objects().is_empty());
+
+        contain.add_to_contain(&passenger);
+
+        assert_eq!(contain.get_contained_count(), 1);
+        assert_eq!(contain.get_contained_objects(), vec![42]);
+        assert!(contain.is_valid_container_for(&passenger, true));
+    }
+
+    #[test]
+    fn ext_poison_is_fail_closed() {
+        let passenger = Object::new_test(7, 100.0);
+        let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(TestContain {
+            ids: Vec::new(),
+            max: 4,
+        }));
+        let poisoned = Arc::clone(&contain);
+        let join = std::thread::spawn(move || {
+            let _guard = poisoned.lock().expect("lock for poison");
+            panic!("intentional contain mutex poison");
+        })
+        .join();
+        assert!(join.is_err(), "worker must poison the mutex");
+
+        assert!(
+            !contain.is_valid_container_for(&passenger, true),
+            "poisoned is_valid_container_for must fail-closed"
+        );
+        assert_eq!(contain.get_contained_count(), 0);
+        assert!(contain.get_contained_objects().is_empty());
+        contain.add_to_contain(&passenger);
+        assert_eq!(
+            contain.get_contained_count(),
+            0,
+            "poisoned add_to_contain must not pretend success"
+        );
+    }
+
+    fn contain_ext_impl_source() -> &'static str {
+        const SRC: &str = include_str!("modules.rs");
+        const MARKER: &str =
+            "impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {";
+        let start = SRC
+            .find(MARKER)
+            .expect("ContainModuleInterfaceExt impl missing");
+        let after = &SRC[start + MARKER.len()..];
+        let end = after.find("\nimpl ").unwrap_or(after.len());
+        &SRC[start..start + MARKER.len() + end]
+    }
+
+    fn method_body<'a>(block: &'a str, signature: &str) -> &'a str {
+        let start = block
+            .find(signature)
+            .unwrap_or_else(|| panic!("missing method {signature}"));
+        let rest = &block[start..];
+        let brace = rest.find('{').unwrap_or_else(|| panic!("{signature} body"));
+        let bytes = rest.as_bytes();
+        let mut depth = 0usize;
+        for (idx, byte) in bytes.iter().enumerate().skip(brace) {
+            match *byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &rest[brace..=idx];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("unclosed body for {signature}");
+    }
+
+    #[test]
+    fn ext_critical_methods_use_blocking_lock_not_try_lock() {
+        let block = contain_ext_impl_source();
+        for signature in [
+            "fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool",
+            "fn add_to_contain(&self, obj: &Object)",
+            "fn get_contained_objects(&self) -> Vec<ObjectID>",
+            "fn get_contained_count(&self) -> usize",
+        ] {
+            let body = method_body(block, signature);
+            assert!(
+                body.contains(".lock()"),
+                "{signature} must use blocking lock(), body={body}"
+            );
+            assert!(
+                !body.contains(".try_lock()"),
+                "{signature} must not use try_lock(), body={body}"
+            );
         }
     }
 }

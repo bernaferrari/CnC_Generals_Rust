@@ -5,7 +5,6 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // Core types from the C++ version
 pub type Real = f32;
@@ -865,6 +864,18 @@ impl GameClientRandomVariable {
                 self.low + (self.high - self.low) * 0.5
             }
         }
+    }
+
+    /// Set a low/high range used by chrome + `_writeSingleParticleSystem` export.
+    /// Equal endpoints become a Constant; otherwise Uniform.
+    pub fn set_range(&mut self, low: Real, high: Real) {
+        self.low = low;
+        self.high = high;
+        self.distribution = if (low - high).abs() <= f32::EPSILON {
+            DistributionType::Constant
+        } else {
+            DistributionType::Uniform
+        };
     }
 }
 

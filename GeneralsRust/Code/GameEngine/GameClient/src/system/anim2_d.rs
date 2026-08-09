@@ -436,3 +436,55 @@ fn argb_to_rgba_u8(color: u32, alpha: f32) -> [f32; 4] {
     let a = (a * alpha).clamp(0.0, 1.0);
     [r, g, b, a]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::display::image::{get_mapped_image_collection, ICoord2D, Image};
+    use game_engine::common::ascii_string::AsciiString;
+    use game_engine::common::ini::Anim2DTemplate;
+
+    #[test]
+    fn get_current_frame_width_height_uses_image_natural_size() {
+        const FRAME_NAME: &str = "Anim2DTestFrame64x48";
+        const MISSING_NAME: &str = "Anim2DTestFrameMissingImage_NoSuchMappedImage";
+
+        let mut image = Image::with_name(FRAME_NAME);
+        image.set_image_size(ICoord2D::new(64, 48));
+        {
+            let collection = get_mapped_image_collection();
+            let mut collection = collection.write();
+            collection.remove_image(FRAME_NAME);
+            collection.remove_image(MISSING_NAME);
+            collection.add_image(image);
+        }
+
+        let mut template = Anim2DTemplate::new(AsciiString::from("Anim2DSizeParity"));
+        template.allocate_images(1);
+        template
+            .store_image_name(Some(FRAME_NAME.to_string()))
+            .expect("store frame image name");
+        let anim = Anim2D::new(Arc::new(RwLock::new(template)), None);
+        {
+            let guard = anim.lock();
+            assert_eq!(guard.get_current_frame_width(), 64);
+            assert_eq!(guard.get_current_frame_height(), 48);
+        }
+
+        let mut missing = Anim2DTemplate::new(AsciiString::from("Anim2DMissingImage"));
+        missing.allocate_images(1);
+        missing
+            .store_image_name(Some(MISSING_NAME.to_string()))
+            .expect("store missing frame name");
+        let missing_anim = Anim2D::new(Arc::new(RwLock::new(missing)), None);
+        {
+            let guard = missing_anim.lock();
+            assert_eq!(guard.get_current_frame_width(), 0);
+            assert_eq!(guard.get_current_frame_height(), 0);
+        }
+
+        get_mapped_image_collection()
+            .write()
+            .remove_image(FRAME_NAME);
+    }
+}

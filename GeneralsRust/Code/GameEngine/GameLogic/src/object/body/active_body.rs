@@ -1245,10 +1245,12 @@ impl ActiveBody {
 
 impl BodyModuleInterface for ActiveBody {
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
-        // Wave 291: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
+        // C++ ActiveBody::attemptDamage always applies local HP damage and records
+        // lastDamageInfo (including death type). Owner/registry lookups already
+        // no-op when the dual-world registry is empty; do not skip the hull path.
+        // OCL diesOnBadLand / WaveGuide use DAMAGE_WATER + DEATH_FLOODED via this
+        // path instead of Object::kill().
+        damage_info.sync_from_input();
 
         self.validate_armor_and_damage_fx()?;
 
@@ -1489,6 +1491,10 @@ impl BodyModuleInterface for ActiveBody {
             }
 
             if should_overwrite_last_damage {
+                // Keep compatibility fields (death_type / damage_type) in lockstep
+                // with input so last death type (e.g. DEATH_FLOODED) is readable
+                // from either DamageInfo.death_type or input.death_type.
+                damage_info.sync_from_input();
                 if let Ok(mut state) = self.state.write() {
                     state.last_damage_info = Some(damage_info.clone());
                     state.last_damage_cleared = false;
@@ -2471,6 +2477,31 @@ mod tests {
         assert!(body.set_indestructible(false).is_ok());
         assert!(!body.is_indestructible());
     }
+
+    #[test]
+    fn attempt_damage_water_death_flooded_records_last_death_type() {
+        use crate::damage::HUGE_DAMAGE_AMOUNT;
+
+        let mut body = create_test_active_body();
+        assert_eq!(body.get_health(), 100.0);
+
+        let mut info = DamageInfo::with_simple(
+            HUGE_DAMAGE_AMOUNT,
+            INVALID_ID,
+            DamageType::Water,
+            DeathType::Flooded,
+        );
+        body.attempt_damage(&mut info)
+            .expect("water+flooded damage must apply");
+
+        assert!(body.get_health() <= 0.0);
+        let last = body
+            .get_last_damage_info()
+            .expect("last damage info must record the killing blow");
+        assert_eq!(last.input.damage_type, DamageType::Water);
+        assert_eq!(last.input.death_type, DeathType::Flooded);
+        assert_eq!(last.death_type, DeathType::Flooded);
+    }
     #[test]
     fn resolves_armor_template_from_template_flags() {
         TheArmorStore::reset();
@@ -2533,5 +2564,40 @@ mod tests {
         if let Some(mut store) = get_damage_fx_store_mut() {
             store.reset();
         }
+    }
+}
+
+#[cfg(test)]
+mod death_flooded_tests {
+    use super::*;
+    use crate::damage::HUGE_DAMAGE_AMOUNT;
+
+    #[test]
+    fn attempt_damage_water_death_flooded_records_last_death_type() {
+        let mut module_data = ActiveBodyModuleData::default();
+        module_data.max_health = 10.0;
+        module_data.initial_health = 10.0;
+        let mut body = ActiveBody::new(module_data);
+
+        assert_eq!(body.get_health(), 10.0);
+        assert!(body.get_last_damage_info().is_none());
+
+        let mut info = DamageInfo::with_simple(
+            HUGE_DAMAGE_AMOUNT,
+            INVALID_ID,
+            DamageType::Water,
+            DeathType::Flooded,
+        );
+        body.attempt_damage(&mut info)
+            .expect("water+flooded damage must apply even without a dual-world registry");
+
+        assert!(body.get_health() <= 0.0);
+        let last = body
+            .get_last_damage_info()
+            .expect("last damage info must record the killing blow");
+        assert_eq!(last.input.damage_type, DamageType::Water);
+        assert_eq!(last.input.death_type, DeathType::Flooded);
+        assert_eq!(last.damage_type, DamageType::Water);
+        assert_eq!(last.death_type, DeathType::Flooded);
     }
 }

@@ -2261,6 +2261,7 @@ impl BasicDrawable {
         }
     }
 
+    /// C++ `Drawable::fadeOut` — start at full opacity and ramp to 0 over `frames`.
     pub fn fade_out(&mut self, frames: u32) {
         self.set_opacity(1.0);
         self.fade_mode = FadingMode::FadingOut;
@@ -2268,11 +2269,58 @@ impl BasicDrawable {
         self.time_to_fade = frames.max(1);
     }
 
+    /// C++ `Drawable::fadeIn` (Drawable.cpp:1059-1065).
+    /// Sets explicit opacity to 0, remaining fade frames, and FADING_IN ramp.
     pub fn fade_in(&mut self, frames: u32) {
         self.set_opacity(0.0);
         self.fade_mode = FadingMode::FadingIn;
         self.time_elapsed_fade = 0;
         self.time_to_fade = frames.max(1);
+    }
+
+    /// C++ `Drawable::friend_getExplicitOpacity`.
+    pub fn get_explicit_opacity(&self) -> f32 {
+        self.explicit_opacity
+    }
+
+    /// C++ `Drawable::getEffectiveOpacity` = explicit * stealth.
+    pub fn get_effective_opacity(&self) -> f32 {
+        (self.explicit_opacity * self.effective_stealth_opacity).clamp(0.0, 1.0)
+    }
+
+    pub fn fading_mode(&self) -> FadingMode {
+        self.fade_mode
+    }
+
+    pub fn time_to_fade(&self) -> u32 {
+        self.time_to_fade
+    }
+
+    pub fn time_elapsed_fade(&self) -> u32 {
+        self.time_elapsed_fade
+    }
+
+    pub fn is_fading(&self) -> bool {
+        self.fade_mode != FadingMode::None
+    }
+
+    /// One C++ `Drawable::updateDrawable` fade tick. Public so tests and
+    /// callers can advance the opacity ramp without a full render pass.
+    pub fn update_fade(&mut self) {
+        if self.fade_mode == FadingMode::None {
+            return;
+        }
+        let numerator = if self.fade_mode == FadingMode::FadingIn {
+            self.time_elapsed_fade as f32
+        } else {
+            (self.time_to_fade.saturating_sub(self.time_elapsed_fade)) as f32
+        };
+        let denom = self.time_to_fade.max(1) as f32;
+        self.set_opacity((numerator / denom).clamp(0.0, 1.0));
+        self.time_elapsed_fade = self.time_elapsed_fade.saturating_add(1);
+        if self.time_elapsed_fade > self.time_to_fade {
+            self.fade_mode = FadingMode::None;
+        }
     }
 
     pub fn set_second_material_pass_opacity(&mut self, opacity: f32) {
@@ -4112,18 +4160,7 @@ impl Drawable for BasicDrawable {
     }
 
     fn update(&mut self, _delta_time: f32) {
-        if self.fade_mode != FadingMode::None {
-            let numerator = if self.fade_mode == FadingMode::FadingIn {
-                self.time_elapsed_fade as f32
-            } else {
-                (self.time_to_fade.saturating_sub(self.time_elapsed_fade)) as f32
-            };
-            self.set_opacity((numerator / self.time_to_fade as f32).clamp(0.0, 1.0));
-            self.time_elapsed_fade = self.time_elapsed_fade.saturating_add(1);
-            if self.time_elapsed_fade > self.time_to_fade {
-                self.fade_mode = FadingMode::None;
-            }
-        }
+        self.update_fade();
 
         if self.terrain_decal_type != TerrainDecalType::None {
             if self.decal_opacity_fade_rate != 0.0 {
@@ -5495,6 +5532,51 @@ mod tests {
         assert!(drawable.is_visible());
         assert!(!drawable.is_selected());
         assert_eq!(drawable.get_opacity(), 1.0);
+    }
+
+    #[test]
+    fn fade_in_reaches_full_opacity_after_requested_frames() {
+        let mut drawable = BasicDrawable::new(DrawableId(10));
+        drawable.fade_in(10);
+
+        assert_eq!(drawable.fading_mode(), FadingMode::FadingIn);
+        assert_eq!(drawable.time_to_fade(), 10);
+        assert_eq!(drawable.time_elapsed_fade(), 0);
+        assert_near(drawable.get_explicit_opacity(), 0.0);
+        assert_near(drawable.get_opacity(), 0.0);
+        assert!(drawable.is_fading());
+
+        // C++ updateDrawable applies elapsed first (starts at 0 → opacity 0),
+        // then increments. Completes when elapsed > timeToFade, so fade_in(N)
+        // needs N+1 ticks to reach full opacity. After N ticks opacity is (N-1)/N.
+        for i in 0..10 {
+            drawable.update(0.0);
+            assert_eq!(drawable.fading_mode(), FadingMode::FadingIn);
+            assert_near(drawable.get_explicit_opacity(), i as f32 / 10.0);
+        }
+
+        drawable.update(0.0);
+        assert_near(drawable.get_explicit_opacity(), 1.0);
+        assert_near(drawable.get_opacity(), 1.0);
+        assert_eq!(drawable.fading_mode(), FadingMode::None);
+        assert!(!drawable.is_fading());
+    }
+
+    #[test]
+    fn fade_out_reaches_zero_opacity_after_requested_frames() {
+        let mut drawable = BasicDrawable::new(DrawableId(11));
+        drawable.fade_out(10);
+        assert_near(drawable.get_explicit_opacity(), 1.0);
+        assert_eq!(drawable.fading_mode(), FadingMode::FadingOut);
+
+        for i in 0..10 {
+            drawable.update(0.0);
+            assert_near(drawable.get_explicit_opacity(), (10 - i) as f32 / 10.0);
+        }
+
+        drawable.update(0.0);
+        assert_near(drawable.get_explicit_opacity(), 0.0);
+        assert_eq!(drawable.fading_mode(), FadingMode::None);
     }
 
     #[test]

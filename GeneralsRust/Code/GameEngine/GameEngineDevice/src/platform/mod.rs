@@ -109,9 +109,7 @@ impl Platform {
     #[must_use]
     pub fn supports_feature(self, feature: PlatformFeature) -> bool {
         match (self, feature) {
-            (Self::Windows, PlatformFeature::DirectSound) => true,
             (Self::Windows, PlatformFeature::Wasapi) => true,
-            (Self::Windows, PlatformFeature::DirectX) => true,
             (Self::Linux, PlatformFeature::Alsa) => true,
             (Self::Linux, PlatformFeature::PulseAudio) => true,
             (Self::Linux, PlatformFeature::Vulkan) => true,
@@ -128,6 +126,7 @@ impl Platform {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlatformFeature {
     // Audio features
+    /// Legacy compatibility label. The WGPU/Kira production path does not expose it.
     DirectSound,
     Wasapi,
     Alsa,
@@ -136,6 +135,7 @@ pub enum PlatformFeature {
     OpenAL,
 
     // Graphics features
+    /// Legacy compatibility label. Rendering is provided by WGPU instead.
     DirectX,
     Vulkan,
     Metal,

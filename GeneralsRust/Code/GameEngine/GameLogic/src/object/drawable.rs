@@ -10,8 +10,11 @@ use crate::common::*;
 use crate::helpers::TheAudio;
 use crate::helpers::{TheGameLogic, TheGlobalData};
 use crate::object::body::body_module::BodyDamageType;
-use crate::object::draw::draw_module::{DrawModule, ObjectDrawInterface, RGBColor};
-use crate::object::draw::TerrainDecalType;
+use crate::effects::FXList;
+use crate::object::draw::draw_module::{
+    DebrisDrawInterface, DrawModule, ObjectDrawInterface, RGBColor, ShadowType,
+};
+use crate::object::draw::{TerrainDecalType, W3DDebrisDraw, W3DDebrisDrawModuleData};
 use crate::player::ThePlayerList;
 use game_engine::bit_flags::create_model_condition_flags;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
@@ -606,6 +609,64 @@ where
     });
 }
 
+fn with_debris_draw_interface_mut<F>(module: &mut dyn Module, func: F)
+where
+    F: FnOnce(&mut dyn DebrisDrawInterface),
+{
+    with_draw_module_mut(module, |draw| {
+        if let Some(interface) = draw.get_debris_draw_interface_mut() {
+            func(interface);
+        }
+    });
+}
+
+/// Animation names applied by OCL `doStuffToObj` via `DebrisDrawInterface::setAnimNames`.
+#[derive(Clone, Copy, Debug)]
+pub struct DebrisDrawAnims<'a> {
+    pub initial: &'a str,
+    pub flying: &'a str,
+    pub final_anim: &'a str,
+    pub final_fx: Option<&'a FXList>,
+}
+
+fn packed_color_from_i32(value: i32) -> Color {
+    let packed = value as u32;
+    Color::new(
+        (packed & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 24) & 0xFF) as u8,
+    )
+}
+
+fn shadow_type_from_bits(bits: u32) -> ShadowType {
+    if bits == 0 {
+        ShadowType::None
+    } else if (bits & SHADOW_VOLUME) != 0 {
+        ShadowType::Volume
+    } else if (bits & SHADOW_DECAL) != 0 {
+        ShadowType::Decal
+    } else {
+        // Projection / alpha / additive still request a shadow; Decal is the closest GameLogic type.
+        ShadowType::Decal
+    }
+}
+
+/// Apply OCL debris model/anim configuration to a drawable.
+///
+/// Mirrors C++ `doStuffToObj` walking `obj->getDrawable()->getDrawModules()` and calling
+/// `getDebrisDrawInterface()->setModelName` / `setAnimNames`. An empty draw-module list is a
+/// no-op, matching C++ iterating a possibly empty NULL-terminated module array.
+pub fn apply_debris_draw(
+    drawable: &mut Drawable,
+    model: &str,
+    color: i32,
+    shadow: u32,
+    anims: Option<DebrisDrawAnims<'_>>,
+) -> usize {
+    drawable.apply_debris_draw(model, color, shadow, anims)
+}
+
 const AC_LOOP: u32 = 0x00000001;
 const VERY_TRANSPARENT_MATERIAL_PASS_OPACITY: Real = 0.001;
 const MATERIAL_PASS_OPACITY_FADE_SCALAR: Real = 0.8;
@@ -661,6 +722,22 @@ impl DrawableModuleHandle {
             let mut result = None;
             let mut func = Some(func);
             with_object_draw_interface_mut(module, |draw| {
+                if let Some(func) = func.take() {
+                    result = Some(func(draw));
+                }
+            });
+            result
+        })
+    }
+
+    pub fn with_debris_draw_interface<F, R>(&self, func: F) -> Option<R>
+    where
+        F: FnOnce(&mut dyn DebrisDrawInterface) -> R,
+    {
+        self.entry.with_module(|module| {
+            let mut result = None;
+            let mut func = Some(func);
+            with_debris_draw_interface_mut(module, |draw| {
                 if let Some(func) = func.take() {
                     result = Some(func(draw));
                 }
@@ -1391,6 +1468,74 @@ impl Drawable {
         DrawableModuleHandle::new(entry)
     }
 
+    /// C++ `Drawable::getDrawModules()` — DRAW-interface modules (possibly empty).
+    pub fn draw_modules(&self) -> Vec<DrawableModuleHandle> {
+        self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
+    }
+
+    /// Iterate every registered DRAW module, matching C++ `getDrawModules()` walks.
+    pub fn for_each_draw_module_mut<F>(&self, mut func: F)
+    where
+        F: FnMut(&mut dyn DrawModule),
+    {
+        for module_handle in self.draw_modules() {
+            module_handle.with_module(|module| {
+                with_draw_module_mut(module, |draw| func(draw));
+            });
+        }
+    }
+
+    /// Iterate draw modules that expose `DebrisDrawInterface`.
+    ///
+    /// Mirrors C++:
+    /// `for (DrawModule** dm = getDrawModules(); *dm; ++dm) if (DebrisDrawInterface* di = (*dm)->getDebrisDrawInterface())`
+    pub fn for_each_debris_draw_interface<F>(&self, mut func: F)
+    where
+        F: FnMut(&mut dyn DebrisDrawInterface),
+    {
+        for module_handle in self.draw_modules() {
+            let _ = module_handle.with_debris_draw_interface(|di| func(di));
+        }
+    }
+
+    /// Attach a `W3DDebrisDraw` module so OCL/tests can set model/anim names.
+    pub fn attach_w3d_debris_draw(&mut self) -> DrawableModuleHandle {
+        let data = W3DDebrisDrawModuleData::new();
+        self.add_module(
+            ModuleInterfaceType::DRAW,
+            AsciiString::from("W3DDebrisDraw"),
+            AsciiString::from("W3DDebrisDraw"),
+            Arc::new(W3DDebrisDrawModuleData::new()),
+            Box::new(W3DDebrisDraw::new(data)),
+        )
+    }
+
+    /// Apply OCL debris model/anim configuration (C++ `doStuffToObj` debris draw walk).
+    pub fn apply_debris_draw(
+        &mut self,
+        model: &str,
+        color: i32,
+        shadow: u32,
+        anims: Option<DebrisDrawAnims<'_>>,
+    ) -> usize {
+        let color = packed_color_from_i32(color);
+        let shadow_type = shadow_type_from_bits(shadow);
+        let mut applied = 0usize;
+        self.for_each_debris_draw_interface(|di| {
+            di.set_model_name(AsciiString::from(model), color, shadow_type);
+            if let Some(anims) = anims {
+                di.set_anim_names(
+                    AsciiString::from(anims.initial),
+                    AsciiString::from(anims.flying),
+                    AsciiString::from(anims.final_anim),
+                    anims.final_fx,
+                );
+            }
+            applied += 1;
+        });
+        applied
+    }
+
     /// Enable or disable sway effects (used by topple logic).
     pub fn set_swaying_enabled(&mut self, enabled: bool) {
         self.swaying_enabled = enabled;
@@ -1632,6 +1777,10 @@ impl Drawable {
         delta_time: Real,
         frame_number: u32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // C++ Drawable::updateDrawable always advances fade even when other
+        // client work is skipped (frozen / lod frequency).
+        self.update_fade();
+
         // Skip update if frozen or not time to update
         if self.frozen || (frame_number - self.last_update_frame) < self.update_frequency {
             return Ok(());
@@ -2877,6 +3026,77 @@ impl Drawable {
         }
     }
 
+    /// C++ FadingMode stored as u32 for xfer parity (Drawable.cpp:5068).
+    pub const FADING_NONE: u32 = 0;
+    pub const FADING_IN: u32 = 1;
+    pub const FADING_OUT: u32 = 2;
+
+    /// C++ `Drawable::setDrawableOpacity` — sets explicit/override alpha.
+    pub fn set_drawable_opacity(&mut self, opacity: Real) {
+        self.alpha = opacity.clamp(0.0, 1.0);
+    }
+
+    /// C++ `Drawable::friend_getExplicitOpacity`.
+    pub fn get_explicit_opacity(&self) -> Real {
+        self.alpha
+    }
+
+    /// C++ `Drawable::getEffectiveOpacity` = explicit * stealth pulse.
+    pub fn get_effective_opacity(&self) -> Real {
+        (self.alpha * self.effective_stealth_opacity).clamp(0.0, 1.0)
+    }
+
+    pub fn fading_mode(&self) -> u32 {
+        self.fade_mode
+    }
+
+    pub fn time_to_fade(&self) -> UnsignedInt {
+        self.time_to_fade
+    }
+
+    pub fn time_elapsed_fade(&self) -> UnsignedInt {
+        self.time_elapsed_fade
+    }
+
+    pub fn is_fading(&self) -> bool {
+        self.fade_mode != Self::FADING_NONE
+    }
+
+    /// C++ `Drawable::fadeIn` (Drawable.cpp:1059-1065).
+    /// OCL GenericObjectCreationNugget calls this when `FadeIn` is set.
+    pub fn fade_in(&mut self, frames: UnsignedInt) {
+        self.set_drawable_opacity(0.0);
+        self.fade_mode = Self::FADING_IN;
+        self.time_elapsed_fade = 0;
+        self.time_to_fade = frames.max(1);
+    }
+
+    /// C++ `Drawable::fadeOut` (Drawable.cpp:1048-1054).
+    pub fn fade_out(&mut self, frames: UnsignedInt) {
+        self.set_drawable_opacity(1.0);
+        self.fade_mode = Self::FADING_OUT;
+        self.time_elapsed_fade = 0;
+        self.time_to_fade = frames.max(1);
+    }
+
+    /// One C++ `updateDrawable` fade tick: ramp opacity, then increment elapsed.
+    pub fn update_fade(&mut self) {
+        if self.fade_mode == Self::FADING_NONE {
+            return;
+        }
+        let numerator = if self.fade_mode == Self::FADING_IN {
+            self.time_elapsed_fade as Real
+        } else {
+            self.time_to_fade.saturating_sub(self.time_elapsed_fade) as Real
+        };
+        let denom = self.time_to_fade.max(1) as Real;
+        self.set_drawable_opacity((numerator / denom).clamp(0.0, 1.0));
+        self.time_elapsed_fade = self.time_elapsed_fade.saturating_add(1);
+        if self.time_elapsed_fade > self.time_to_fade {
+            self.fade_mode = Self::FADING_NONE;
+        }
+    }
+
     /// Set effective stealth opacity using C++ pulse semantics.
     /// `pulse_factor` is clamped [0..1], and `explicit_opacity` updates the stealth floor when set.
     pub fn set_effective_opacity(&mut self, pulse_factor: Real, explicit_opacity: Option<Real>) {
@@ -3767,6 +3987,8 @@ pub trait DrawableArcExt {
     fn set_model_condition_state(&self, state: ModelConditionFlags);
     fn set_drawable_hidden(&self, hidden: bool);
     fn is_drawable_effectively_hidden(&self) -> bool;
+    fn fade_in(&self, frames: UnsignedInt);
+    fn fade_out(&self, frames: UnsignedInt);
     fn set_swaying_enabled(&self, enabled: bool);
     fn clear_model_condition_flags(&self, clear: ModelConditionFlags);
     fn clear_model_condition_state(&self, state: ModelConditionFlags);
@@ -3977,6 +4199,18 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
         }
     }
 
+    fn fade_in(&self, frames: UnsignedInt) {
+        if let Ok(mut guard) = self.write() {
+            guard.fade_in(frames);
+        }
+    }
+
+    fn fade_out(&self, frames: UnsignedInt) {
+        if let Ok(mut guard) = self.write() {
+            guard.fade_out(frames);
+        }
+    }
+
     fn set_swaying_enabled(&self, enabled: bool) {
         if let Ok(mut guard) = self.write() {
             guard.set_swaying_enabled(enabled);
@@ -4080,6 +4314,69 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
         } else {
             Vec::new()
         }
+    }
+}
+
+#[cfg(test)]
+mod fade_in_tests {
+    use super::*;
+    use crate::common::INVALID_ID;
+
+    #[test]
+    fn fade_in_reaches_full_opacity_after_requested_frames() {
+        let mut drawable = Drawable::new(
+            42,
+            INVALID_ID,
+            "FadeUnit".to_string(),
+            DrawableType::Animated,
+        );
+        drawable.fade_in(10);
+
+        assert_eq!(drawable.fading_mode(), Drawable::FADING_IN);
+        assert_eq!(drawable.time_to_fade(), 10);
+        assert_eq!(drawable.time_elapsed_fade(), 0);
+        assert!((drawable.get_explicit_opacity() - 0.0).abs() < 0.0001);
+        assert!(drawable.is_fading());
+
+        for i in 0..10 {
+            drawable.update_fade();
+            assert_eq!(drawable.fading_mode(), Drawable::FADING_IN);
+            let expected = i as f32 / 10.0;
+            assert!(
+                (drawable.get_explicit_opacity() - expected).abs() < 0.0001,
+                "tick {i}: opacity {} expected {expected}",
+                drawable.get_explicit_opacity()
+            );
+        }
+
+        drawable.update_fade();
+        assert!((drawable.get_explicit_opacity() - 1.0).abs() < 0.0001);
+        assert!((drawable.get_effective_opacity() - 1.0).abs() < 0.0001);
+        assert_eq!(drawable.fading_mode(), Drawable::FADING_NONE);
+        assert!(!drawable.is_fading());
+    }
+
+    #[test]
+    fn fade_out_reaches_zero_opacity_after_requested_frames() {
+        let mut drawable = Drawable::new(
+            43,
+            INVALID_ID,
+            "FadeOutUnit".to_string(),
+            DrawableType::Static,
+        );
+        drawable.fade_out(10);
+        assert!((drawable.get_explicit_opacity() - 1.0).abs() < 0.0001);
+        assert_eq!(drawable.fading_mode(), Drawable::FADING_OUT);
+
+        for i in 0..10 {
+            drawable.update_fade();
+            let expected = (10 - i) as f32 / 10.0;
+            assert!((drawable.get_explicit_opacity() - expected).abs() < 0.0001);
+        }
+
+        drawable.update_fade();
+        assert!((drawable.get_explicit_opacity() - 0.0).abs() < 0.0001);
+        assert_eq!(drawable.fading_mode(), Drawable::FADING_NONE);
     }
 }
 
@@ -4291,5 +4588,104 @@ mod shadow_status_tests {
             DrawableType::Animated,
         );
         assert!(drawable.get_shadows_enabled());
+    }
+}
+
+#[cfg(test)]
+mod debris_draw_tests {
+    use super::*;
+    use crate::common::INVALID_ID;
+    use crate::object::draw::W3DDebrisDraw;
+
+    fn make_drawable() -> Drawable {
+        Drawable::new(
+            77,
+            INVALID_ID,
+            "DebrisChunk".to_string(),
+            DrawableType::Static,
+        )
+    }
+
+    fn read_debris_model(drawable: &Drawable) -> Option<String> {
+        drawable
+            .module_by_name(&AsciiString::from("W3DDebrisDraw"))
+            .and_then(|handle| {
+                handle.with_module_downcast::<W3DDebrisDraw, _, _>(|draw| {
+                    draw.model_name().as_str().to_string()
+                })
+            })
+    }
+
+    #[test]
+    fn apply_debris_draw_is_noop_when_no_draw_modules() {
+        let mut drawable = make_drawable();
+        assert!(drawable.draw_modules().is_empty());
+        let applied = apply_debris_draw(&mut drawable, "EXDebrisChunk", 0, SHADOW_DECAL, None);
+        assert_eq!(applied, 0);
+        assert!(read_debris_model(&drawable).is_none());
+    }
+
+    #[test]
+    fn debris_draw_iteration_sets_model_name() {
+        let mut drawable = make_drawable();
+        drawable.attach_w3d_debris_draw();
+
+        let color = Color::new(0x66, 0x33, 0xFF, 0x00);
+        drawable.for_each_debris_draw_interface(|di| {
+            di.set_model_name(
+                AsciiString::from("EXDebrisChunk"),
+                color,
+                ShadowType::Decal,
+            );
+        });
+
+        let handle = drawable
+            .module_by_name(&AsciiString::from("W3DDebrisDraw"))
+            .expect("W3DDebrisDraw attached");
+        handle
+            .with_module_downcast::<W3DDebrisDraw, _, _>(|draw| {
+                assert_eq!(draw.model_name().as_str(), "EXDebrisChunk");
+                assert_eq!(draw.model_color(), color);
+                assert_eq!(draw.shadow_type(), ShadowType::Decal);
+            })
+            .expect("downcast W3DDebrisDraw");
+    }
+
+    #[test]
+    fn apply_debris_draw_sets_model_and_anims() {
+        let mut drawable = make_drawable();
+        drawable.attach_w3d_debris_draw();
+
+        let color = Color::new(0x11, 0x22, 0x33, 0x44);
+        let applied = apply_debris_draw(
+            &mut drawable,
+            "EXRockChunk",
+            color.to_argb_u32() as i32,
+            SHADOW_VOLUME,
+            Some(DebrisDrawAnims {
+                initial: "AnimInit",
+                flying: "AnimFly",
+                final_anim: "AnimLand",
+                final_fx: None,
+            }),
+        );
+        assert_eq!(applied, 1);
+        assert_eq!(
+            read_debris_model(&drawable).as_deref(),
+            Some("EXRockChunk")
+        );
+
+        drawable
+            .module_by_name(&AsciiString::from("W3DDebrisDraw"))
+            .expect("W3DDebrisDraw attached")
+            .with_module_downcast::<W3DDebrisDraw, _, _>(|draw| {
+                assert_eq!(draw.model_name().as_str(), "EXRockChunk");
+                assert_eq!(draw.model_color(), color);
+                assert_eq!(draw.shadow_type(), ShadowType::Volume);
+                assert_eq!(draw.anim_initial().as_str(), "AnimInit");
+                assert_eq!(draw.anim_flying().as_str(), "AnimFly");
+                assert_eq!(draw.anim_final().as_str(), "AnimLand");
+            })
+            .expect("downcast W3DDebrisDraw");
     }
 }

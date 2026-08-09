@@ -704,13 +704,9 @@ pub fn simulate_loading_screen_set_map(map_name: &str) -> bool {
     RESIDUAL_LOADING_SCREEN.with(|screen| {
         let mut screen = screen.borrow_mut();
         screen.set_map_name(map_name);
-        if let Ok(mut guard) = RESIDUAL_LOADING_MAP.lock() {
-            *guard = map_name.to_string();
-        } else {
-            *RESIDUAL_LOADING_MAP
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = map_name.to_string();
-        }
+        *RESIDUAL_LOADING_MAP
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = map_name.to_string();
         residual_loading_action_store(ResidualLoadingScreenAction::SetMap);
         residual_loading_screen_map_name().as_deref() == Some(map_name)
     })

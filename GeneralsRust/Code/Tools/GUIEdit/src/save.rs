@@ -264,10 +264,7 @@ fn write_window(out: &mut String, filename: &str, window: &WndWindow, indent: us
             window.tooltip_text
         ));
     }
-    out.push_str(&format!(
-        "{data}TOOLTIPDELAY = {};\n",
-        window.tooltip_delay
-    ));
+    out.push_str(&format!("{data}TOOLTIPDELAY = {};\n", window.tooltip_delay));
     if !window.text.is_empty() {
         out.push_str(&format!("{data}TEXT = \"{}\";\n", window.text));
     }
@@ -370,30 +367,57 @@ fn write_gadget_data(out: &mut String, data: &str, gadget: Option<&GadgetData>) 
     match gadget {
         GadgetData::ListBox(lb) => {
             out.push_str(&format!("{data}LISTBOXDATA = LENGTH: {},\n", lb.length));
-            out.push_str(&format!("{data}              AUTOSCROLL: {},\n", lb.auto_scroll));
+            out.push_str(&format!(
+                "{data}              AUTOSCROLL: {},\n",
+                lb.auto_scroll
+            ));
             out.push_str(&format!(
                 "{data}              SCROLLIFATEND: {},\n",
                 lb.scroll_if_at_end
             ));
-            out.push_str(&format!("{data}              AUTOPURGE: {},\n", lb.auto_purge));
-            out.push_str(&format!("{data}              SCROLLBAR: {},\n", lb.scroll_bar));
-            out.push_str(&format!("{data}              MULTISELECT: {},\n", lb.multi_select));
+            out.push_str(&format!(
+                "{data}              AUTOPURGE: {},\n",
+                lb.auto_purge
+            ));
+            out.push_str(&format!(
+                "{data}              SCROLLBAR: {},\n",
+                lb.scroll_bar
+            ));
+            out.push_str(&format!(
+                "{data}              MULTISELECT: {},\n",
+                lb.multi_select
+            ));
             out.push_str(&format!("{data}              COLUMNS: {},\n", lb.columns));
             if lb.columns > 1 {
                 for pct in &lb.column_width_pct {
                     out.push_str(&format!("{data}              COLUMNSWIDTH%: {},\n", pct));
                 }
             }
-            out.push_str(&format!("{data}              FORCESELECT: {};\n", lb.force_select));
+            out.push_str(&format!(
+                "{data}              FORCESELECT: {};\n",
+                lb.force_select
+            ));
             for (token, slots) in &lb.extra_draw {
                 write_draw_data(out, data, token, slots);
             }
         }
         GadgetData::ComboBox(cb) => {
-            out.push_str(&format!("{data}COMBOBOXDATA = ISEDITABLE: {},\n", cb.is_editable));
-            out.push_str(&format!("{data}              MAXCHARS: {},\n", cb.max_chars));
-            out.push_str(&format!("{data}              MAXDISPLAY: {},\n", cb.max_display));
-            out.push_str(&format!("{data}              ASCIIONLY: {},\n", cb.ascii_only));
+            out.push_str(&format!(
+                "{data}COMBOBOXDATA = ISEDITABLE: {},\n",
+                cb.is_editable
+            ));
+            out.push_str(&format!(
+                "{data}              MAXCHARS: {},\n",
+                cb.max_chars
+            ));
+            out.push_str(&format!(
+                "{data}              MAXDISPLAY: {},\n",
+                cb.max_display
+            ));
+            out.push_str(&format!(
+                "{data}              ASCIIONLY: {},\n",
+                cb.ascii_only
+            ));
             out.push_str(&format!(
                 "{data}              LETTERSANDNUMBERS: {};\n",
                 cb.letters_and_numbers
@@ -417,7 +441,10 @@ fn write_gadget_data(out: &mut String, data: &str, gadget: Option<&GadgetData>) 
         }
         GadgetData::TextEntry(te) => {
             out.push_str(&format!("{data}TEXTENTRYDATA = MAXLEN: {},\n", te.max_len));
-            out.push_str(&format!("{data}                SECRETTEXT: {},\n", te.secret_text));
+            out.push_str(&format!(
+                "{data}                SECRETTEXT: {},\n",
+                te.secret_text
+            ));
             out.push_str(&format!(
                 "{data}                NUMERICALONLY: {},\n",
                 te.numerical_only
@@ -426,18 +453,36 @@ fn write_gadget_data(out: &mut String, data: &str, gadget: Option<&GadgetData>) 
                 "{data}                ALPHANUMERICALONLY: {},\n",
                 te.alphanumerical_only
             ));
-            out.push_str(&format!("{data}                ASCIIONLY: {};\n", te.ascii_only));
+            out.push_str(&format!(
+                "{data}                ASCIIONLY: {};\n",
+                te.ascii_only
+            ));
         }
         GadgetData::TabControl(tc) => {
             out.push_str(&format!(
                 "{data}TABCONTROLDATA = TABORIENTATION: {},\n",
                 tc.tab_orientation
             ));
-            out.push_str(&format!("{data}                 TABEDGE: {},\n", tc.tab_edge));
-            out.push_str(&format!("{data}                 TABWIDTH: {},\n", tc.tab_width));
-            out.push_str(&format!("{data}                 TABHEIGHT: {},\n", tc.tab_height));
-            out.push_str(&format!("{data}                 TABCOUNT: {},\n", tc.tab_count));
-            out.push_str(&format!("{data}                 PANEBORDER: {},\n", tc.pane_border));
+            out.push_str(&format!(
+                "{data}                 TABEDGE: {},\n",
+                tc.tab_edge
+            ));
+            out.push_str(&format!(
+                "{data}                 TABWIDTH: {},\n",
+                tc.tab_width
+            ));
+            out.push_str(&format!(
+                "{data}                 TABHEIGHT: {},\n",
+                tc.tab_height
+            ));
+            out.push_str(&format!(
+                "{data}                 TABCOUNT: {},\n",
+                tc.tab_count
+            ));
+            out.push_str(&format!(
+                "{data}                 PANEBORDER: {},\n",
+                tc.pane_border
+            ));
             out.push_str(&format!(
                 "{data}                 PANEDISABLED: {},",
                 NUM_TAB_PANES
@@ -476,7 +521,9 @@ fn parse_rgba_after_label(line: &str, label: &str) -> Result<[u8; 4], SaveError>
         .map(|(_, r)| r)
         .ok_or(SaveError::InvalidInput)?;
     let cleaned = rest.replace([',', ';'], " ");
-    let mut nums = cleaned.split_whitespace().filter_map(|s| s.parse::<u8>().ok());
+    let mut nums = cleaned
+        .split_whitespace()
+        .filter_map(|s| s.parse::<u8>().ok());
     Ok([
         nums.next().ok_or(SaveError::InvalidInput)?,
         nums.next().ok_or(SaveError::InvalidInput)?,
@@ -510,7 +557,9 @@ fn parse_four_u8(line: &str, key: &str) -> Result<[u8; 4], SaveError> {
         .map(|(_, r)| r)
         .ok_or(SaveError::InvalidInput)?;
     let cleaned = rest.replace([',', ';'], " ");
-    let mut nums = cleaned.split_whitespace().filter_map(|s| s.parse::<u8>().ok());
+    let mut nums = cleaned
+        .split_whitespace()
+        .filter_map(|s| s.parse::<u8>().ok());
     Ok([
         nums.next().ok_or(SaveError::InvalidInput)?,
         nums.next().ok_or(SaveError::InvalidInput)?,
@@ -629,11 +678,7 @@ where
             let named = gadget_draw_token(line);
             if let Some(token) = named {
                 if extra_draw_name.as_deref() != Some(token) {
-                    finish_extra_draw(
-                        &mut window,
-                        extra_draw_name.take(),
-                        extra_draw_slots.take(),
-                    );
+                    finish_extra_draw(&mut window, extra_draw_name.take(), extra_draw_slots.take());
                     extra_draw_name = Some(token.to_string());
                     extra_draw_slots = Some(std::array::from_fn(|_| DrawDataSlot::default()));
                     extra_draw_i = 0;
@@ -727,7 +772,10 @@ fn parse_named_i32(line: &str, key: &str) -> Option<i32> {
         .find_map(|t| t.parse::<i32>().ok())
 }
 
-fn parse_listbox_data<'a, I>(first: &str, lines: &mut std::iter::Peekable<I>) -> Result<ListBoxDataEdit, SaveError>
+fn parse_listbox_data<'a, I>(
+    first: &str,
+    lines: &mut std::iter::Peekable<I>,
+) -> Result<ListBoxDataEdit, SaveError>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -773,7 +821,10 @@ where
     Ok(lb)
 }
 
-fn parse_combobox_data<'a, I>(first: &str, lines: &mut std::iter::Peekable<I>) -> Result<ComboBoxDataEdit, SaveError>
+fn parse_combobox_data<'a, I>(
+    first: &str,
+    lines: &mut std::iter::Peekable<I>,
+) -> Result<ComboBoxDataEdit, SaveError>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -805,7 +856,10 @@ where
     Ok(cb)
 }
 
-fn parse_text_entry_data<'a, I>(first: &str, lines: &mut std::iter::Peekable<I>) -> Result<TextEntryDataEdit, SaveError>
+fn parse_text_entry_data<'a, I>(
+    first: &str,
+    lines: &mut std::iter::Peekable<I>,
+) -> Result<TextEntryDataEdit, SaveError>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -836,7 +890,10 @@ where
     Ok(te)
 }
 
-fn parse_tab_control_data<'a, I>(first: &str, lines: &mut std::iter::Peekable<I>) -> Result<TabControlDataEdit, SaveError>
+fn parse_tab_control_data<'a, I>(
+    first: &str,
+    lines: &mut std::iter::Peekable<I>,
+) -> Result<TabControlDataEdit, SaveError>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -862,7 +919,10 @@ where
         } else if line.starts_with("PANEBORDER:") {
             tc.pane_border = parse_named_i32(line, "PANEBORDER:").unwrap_or(0);
         } else if line.contains("PANEDISABLED:") {
-            let rest = line.split_once("PANEDISABLED:").map(|(_, r)| r).unwrap_or("");
+            let rest = line
+                .split_once("PANEDISABLED:")
+                .map(|(_, r)| r)
+                .unwrap_or("");
             let nums: Vec<i32> = rest
                 .split(|c: char| c == ',' || c == ';')
                 .filter_map(|t| t.trim().parse::<i32>().ok())
@@ -903,7 +963,12 @@ fn parse_font_token(line: &str) -> Result<(String, i32, i32), SaveError> {
     let name = rhs
         .split_once("NAME:")
         .and_then(|(_, rest)| rest.split_once("SIZE:"))
-        .map(|(n, _)| n.trim().trim_matches(|c| c == '"' || c == ',').trim().to_string())
+        .map(|(n, _)| {
+            n.trim()
+                .trim_matches(|c| c == '"' || c == ',')
+                .trim()
+                .to_string()
+        })
         .filter(|s| !s.is_empty())
         .ok_or(SaveError::InvalidInput)?;
     let size = rhs
@@ -929,7 +994,9 @@ fn parse_two_ints(line: &str, key: &str) -> Result<(i32, i32), SaveError> {
         .map(|(_, r)| r)
         .ok_or(SaveError::InvalidInput)?;
     let cleaned = rest.replace([',', ';'], " ");
-    let mut nums = cleaned.split_whitespace().filter_map(|s| s.parse::<i32>().ok());
+    let mut nums = cleaned
+        .split_whitespace()
+        .filter_map(|s| s.parse::<i32>().ok());
     let a = nums.next().ok_or(SaveError::InvalidInput)?;
     let b = nums.next().ok_or(SaveError::InvalidInput)?;
     Ok((a, b))
@@ -998,7 +1065,9 @@ mod tests {
         assert_eq!(parsed.windows[0].children[0].window_type, "PUSHBUTTON");
         assert_eq!(parsed.windows[0].children[0].ul_x, 64);
         assert_eq!(parsed.windows[0].children[0].br_x, 120);
-        assert!(text.contains("ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 255 255 255 255, BORDERCOLOR: 0 0 0 0,"));
+        assert!(text.contains(
+            "ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 255 255 255 255, BORDERCOLOR: 0 0 0 0,"
+        ));
         assert!(text.contains("HILITEDRAWDATA"));
         assert_eq!(parsed.windows[0].enabled_draw.len(), MAX_DRAW_DATA);
         assert_eq!(parsed.windows[0].enabled_draw[0].image, "NoImage");
@@ -1018,12 +1087,19 @@ mod tests {
             color: [9, 10, 11, 12],
             border: [13, 14, 15, 16],
         };
-        let text = save_layout("B.wnd", &WndLayout {
-            windows: vec![root],
-            ..WndLayout::default()
-        });
-        assert!(text.contains("ENABLEDDRAWDATA = IMAGE: ButtonEnabled, COLOR: 1 2 3 4, BORDERCOLOR: 5 6 7 8,"));
-        assert!(text.contains("IMAGE: ButtonEnabled8, COLOR: 9 10 11 12, BORDERCOLOR: 13 14 15 16;"));
+        let text = save_layout(
+            "B.wnd",
+            &WndLayout {
+                windows: vec![root],
+                ..WndLayout::default()
+            },
+        );
+        assert!(text.contains(
+            "ENABLEDDRAWDATA = IMAGE: ButtonEnabled, COLOR: 1 2 3 4, BORDERCOLOR: 5 6 7 8,"
+        ));
+        assert!(
+            text.contains("IMAGE: ButtonEnabled8, COLOR: 9 10 11 12, BORDERCOLOR: 13 14 15 16;")
+        );
         let parsed = parse_layout(&text).expect("parse");
         assert_eq!(parsed.windows[0].enabled_draw[0].image, "ButtonEnabled");
         assert_eq!(parsed.windows[0].enabled_draw[0].color, [1, 2, 3, 4]);
@@ -1037,10 +1113,13 @@ mod tests {
         root.font_name = "Arial".to_string();
         root.font_size = 12;
         root.font_bold = 1;
-        let text = save_layout("Title.wnd", &WndLayout {
-            windows: vec![root],
-            ..WndLayout::default()
-        });
+        let text = save_layout(
+            "Title.wnd",
+            &WndLayout {
+                windows: vec![root],
+                ..WndLayout::default()
+            },
+        );
         assert!(text.contains("FONT = NAME: \"Arial\", SIZE: 12, BOLD: 1;"));
         let parsed = parse_layout(&text).expect("parse");
         assert_eq!(parsed.windows[0].font_name, "Arial");
@@ -1265,9 +1344,7 @@ mod tests {
         assert!(text.contains("TOOLTIPTEXT = \"GUI:OkTip\";"));
         assert!(text.contains("TOOLTIPDELAY = 12;"));
         assert!(text.contains("TEXT = \"GUI:Ok\";"));
-        assert!(text.contains(
-            "TEXTCOLOR = ENABLED:  1 2 3 4, ENABLEDBORDER:  5 6 7 8,"
-        ));
+        assert!(text.contains("TEXTCOLOR = ENABLED:  1 2 3 4, ENABLEDBORDER:  5 6 7 8,"));
         assert!(text.contains("DISABLED: 9 10 11 12, DISABLEDBORDER: 13 14 15 16,"));
         assert!(text.contains("HILITE:   17 18 19 20, HILITEBORDER:   21 22 23 24;"));
         let parsed = parse_layout(&text).expect("parse text fields");
@@ -1282,10 +1359,13 @@ mod tests {
         assert_eq!(w.text_color_hilite, [17, 18, 19, 20]);
         assert_eq!(w.text_border_hilite, [21, 22, 23, 24]);
         assert!(
-            save_layout("Ok.wnd", &WndLayout {
-                windows: vec![WndWindow::user("Bare", 0, 0, 10, 10)],
-                ..WndLayout::default()
-            })
+            save_layout(
+                "Ok.wnd",
+                &WndLayout {
+                    windows: vec![WndWindow::user("Bare", 0, 0, 10, 10)],
+                    ..WndLayout::default()
+                }
+            )
             .contains("TOOLTIPDELAY = -1;"),
             "C++ always writes TOOLTIPDELAY (default -1)"
         );

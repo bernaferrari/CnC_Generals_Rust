@@ -1387,6 +1387,10 @@ pub mod host_usa_pilot;
 pub mod host_usa_tanks;
 pub mod host_w3d_main_menu_init_residual_wave168;
 mod host_wave_guide;
+pub mod host_wave_inflation;
+pub use host_wave_inflation::{
+    residual_pack_cannot_set_playable_claim, self_table_honesty_is_inflation,
+};
 pub mod host_weapon_laser;
 pub mod host_window_video_residual_wave154;
 pub mod locomotor_bootstrap;

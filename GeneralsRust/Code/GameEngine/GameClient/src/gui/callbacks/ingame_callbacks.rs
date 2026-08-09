@@ -1103,14 +1103,10 @@ pub fn simulate_in_game_chat_toggle() -> bool {
 /// Residual: ButtonClear without text entry widget.
 pub fn simulate_in_game_chat_clear_button_gadget_selected() -> bool {
     let _ = simulate_in_game_chat_bind_controls();
-    if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
-        guard.clear();
-    } else {
-        RESIDUAL_CHAT_TEXT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-    }
+    RESIDUAL_CHAT_TEXT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     // also clear ui saved text residual
     let state_handle = chat_ui_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -1137,11 +1133,7 @@ pub fn simulate_in_game_chat_set_type(ord: u8) -> bool {
 
 /// Residual: set entry text without live text entry.
 pub fn simulate_in_game_chat_set_text(text: &str) -> bool {
-    if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
-        *guard = text.to_string();
-    } else {
-        *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = text.to_string();
-    }
+    *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = text.to_string();
     let state_handle = chat_ui_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.saved_text = text.to_string();
@@ -1155,11 +1147,7 @@ pub fn simulate_in_game_chat_submit(message: &str) -> bool {
     }
     with_chat_callbacks_mut(|chat| {
         chat.receive_network_message(0, message.to_string(), 0, false);
-        if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
-            *guard = message.to_string();
-        } else {
-            *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = message.to_string();
-        }
+        *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = message.to_string();
         residual_chat_action_store(ResidualInGameChatAction::Submit);
         true
     })
@@ -1173,14 +1161,10 @@ pub fn simulate_in_game_chat_reset() -> bool {
         chat.history.clear();
         RESIDUAL_CHAT_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
         RESIDUAL_CHAT_TYPE.store(1, std::sync::atomic::Ordering::Relaxed);
-        if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
-            guard.clear();
-        } else {
-            RESIDUAL_CHAT_TEXT
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clear();
-        }
+        RESIDUAL_CHAT_TEXT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         residual_chat_action_store(ResidualInGameChatAction::Reset);
         true
     })

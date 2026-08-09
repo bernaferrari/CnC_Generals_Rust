@@ -282,6 +282,11 @@ impl ObjectCreationList {
     pub fn get_nugget_count(&self) -> usize {
         self.nuggets.len()
     }
+
+    /// Nuggets in definition order (parse/create inspection).
+    pub fn nuggets(&self) -> &[Arc<dyn ObjectCreationNugget>] {
+        &self.nuggets
+    }
 }
 
 impl Default for ObjectCreationList {
@@ -557,47 +562,32 @@ fn apply_nugget_property(nugget: &mut GenericObjectCreationNugget, key: &str, va
             }
         }
         "MINFORCEPITCH" => {
-            if let Ok(parsed) = value
-                .split_whitespace()
-                .next()
-                .unwrap_or_default()
-                .parse::<f32>()
-            {
+            if let Some(parsed) = parse_angle_token(value) {
                 nugget.min_pitch = parsed;
             }
         }
         "MAXFORCEPITCH" => {
-            if let Ok(parsed) = value
-                .split_whitespace()
-                .next()
-                .unwrap_or_default()
-                .parse::<f32>()
-            {
+            if let Some(parsed) = parse_angle_token(value) {
                 nugget.max_pitch = parsed;
             }
         }
         "YAWRATE" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_angular_velocity_token(value) {
                 nugget.yaw_rate = parsed;
             }
         }
         "ROLLRATE" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_angular_velocity_token(value) {
                 nugget.roll_rate = parsed;
             }
         }
         "PITCHRATE" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_angular_velocity_token(value) {
                 nugget.pitch_rate = parsed;
             }
         }
         "SPINRATE" => {
-            if let Ok(parsed) = value
-                .split_whitespace()
-                .next()
-                .unwrap_or_default()
-                .parse::<f32>()
-            {
+            if let Some(parsed) = parse_angular_velocity_token(value) {
                 nugget.spin_rate = parsed;
             }
         }
@@ -739,30 +729,18 @@ fn apply_nugget_property(nugget: &mut GenericObjectCreationNugget, key: &str, va
                 nugget.ok_to_change_model_color = parsed;
             }
         }
-        "MINLODREQUIRED" => match value.trim().to_ascii_uppercase().as_str() {
-            "LOW" | "STATIC_GAME_LOD_LOW" => {
-                nugget.min_lod_required = super::nuggets::StaticGameLODLevel::Low
+        "MINLODREQUIRED" => {
+            let token = value.split_whitespace().next().unwrap_or("");
+            let stripped = token
+                .strip_prefix("STATIC_GAME_LOD_")
+                .or_else(|| token.strip_prefix("static_game_lod_"))
+                .unwrap_or(token);
+            if let Some(level) = super::nuggets::StaticGameLODLevel::from_str(stripped) {
+                nugget.min_lod_required = level;
             }
-            "MEDIUM" | "STATIC_GAME_LOD_MEDIUM" => {
-                nugget.min_lod_required = super::nuggets::StaticGameLODLevel::Medium
-            }
-            "HIGH" | "STATIC_GAME_LOD_HIGH" => {
-                nugget.min_lod_required = super::nuggets::StaticGameLODLevel::High
-            }
-            _ => {}
-        },
+        }
         "SHADOW" => {
-            let upper = value.to_ascii_uppercase();
-            nugget.shadow_type = if upper.contains("SHADOW_VOLUME") {
-                super::nuggets::ShadowType::Volume
-            } else if upper.contains("SHADOW_ADDITIVE_DECAL")
-                || upper.contains("SHADOW_ALPHA_DECAL")
-                || upper.contains("SHADOW_DECAL")
-            {
-                super::nuggets::ShadowType::Additive
-            } else {
-                super::nuggets::ShadowType::None
-            };
+            nugget.shadow_type = parse_shadow_type_bits(value);
         }
         "BOUNCESOUND" => nugget.bounce_sound = value.trim().to_string(),
         "PARTICLESYSTEM" => {
@@ -777,6 +755,33 @@ fn parse_first_real(value: &str) -> Option<f32> {
         .split_whitespace()
         .next()
         .and_then(|token| token.parse::<f32>().ok())
+}
+
+fn parse_angle_token(value: &str) -> Option<f32> {
+    let token = value.split_whitespace().next()?;
+    game_engine::common::ini::INI::parse_angle_real(token).ok()
+}
+
+fn parse_angular_velocity_token(value: &str) -> Option<f32> {
+    let token = value.split_whitespace().next()?;
+    game_engine::common::ini::INI::parse_angular_velocity_real(token).ok()
+}
+
+fn parse_shadow_type_bits(value: &str) -> u32 {
+    let mut flags = 0u32;
+    for token in value.split_whitespace() {
+        match token.to_ascii_uppercase().as_str() {
+            "SHADOW_DECAL" => flags |= SHADOW_DECAL,
+            "SHADOW_VOLUME" => flags |= SHADOW_VOLUME,
+            "SHADOW_PROJECTION" => flags |= SHADOW_PROJECTION,
+            "SHADOW_DYNAMIC_PROJECTION" => flags |= SHADOW_DYNAMIC_PROJECTION,
+            "SHADOW_DIRECTIONAL_PROJECTION" => flags |= SHADOW_DIRECTIONAL_PROJECTION,
+            "SHADOW_ALPHA_DECAL" => flags |= SHADOW_ALPHA_DECAL,
+            "SHADOW_ADDITIVE_DECAL" => flags |= SHADOW_ADDITIVE_DECAL,
+            _ => {}
+        }
+    }
+    flags
 }
 
 fn parse_first_int(value: &str) -> Option<i32> {
@@ -1055,7 +1060,7 @@ fn apply_delivery_property(
             }
         }
         "EXITPITCHRATE" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_angular_velocity_token(value) {
                 nugget.data.exit_pitch_rate = parsed;
             }
         }
@@ -1169,7 +1174,7 @@ fn apply_attack_property(
 fn apply_force_property(nugget: &mut ApplyRandomForceNugget, key: &str, value: &str) {
     match key.to_ascii_uppercase().as_str() {
         "SPINRATE" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_angular_velocity_token(value) {
                 nugget.spin_rate = parsed;
             }
         }
@@ -1184,12 +1189,12 @@ fn apply_force_property(nugget: &mut ApplyRandomForceNugget, key: &str, value: &
             }
         }
         "MINFORCEPITCH" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_angle_token(value) {
                 nugget.min_pitch = parsed;
             }
         }
         "MAXFORCEPITCH" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_angle_token(value) {
                 nugget.max_pitch = parsed;
             }
         }
@@ -1596,6 +1601,140 @@ End
             .and_then(|s| s.find_object_creation_list("OCL_Advanced"))
             .expect("OCL_Advanced missing after parse");
         assert_eq!(ocl.get_nugget_count(), 4);
+    }
+
+    #[test]
+    fn test_parse_create_object_fire_weapon_attack_force_and_payload_fields() {
+        let data = r#"
+ObjectCreationList OCL_AllNuggetHeaders
+  CreateObject
+    ObjectNames = AmericaInfantryRanger
+    Count = 2
+    Disposition = ON_GROUND_ALIGNED
+  End
+  FireWeapon
+    Weapon = NeutronMissileWeapon
+  End
+  Attack
+    NumberOfShots = 9
+    WeaponSlot = PRIMARY
+    DeliveryDecalRadius = 200
+    DeliveryDecal
+      Texture = SCCScudStorm_GLA
+      Style = SHADOW_ALPHA_DECAL
+    End
+  End
+  ApplyRandomForce
+    SpinRate = 120
+    MinForceMagnitude = 60
+    MaxForceMagnitude = 100
+    MinForcePitch = 70
+    MaxForcePitch = 90
+  End
+  DeliverPayload
+    Transport = AmericaJetAurora
+    StartAtPreferredHeight = Yes
+    StartAtMaxSpeed = No
+    FormationSize = 3
+    FormationSpacing = 25
+    WeaponConvergenceFactor = 0.5
+    WeaponErrorRadius = 12
+    DelayDeliveryMax = 1000
+    Payload = AmericaJetAuroraBomb 2
+    PutInContainer = AmericaParachute
+    DeliveryDistance = 250
+    DeliveryDecalRadius = 150
+    DeliveryDecal
+      Texture = SCCA10Strike_USA
+      Style = SHADOW_ALPHA_DECAL
+    End
+  End
+End
+"#;
+
+        let count = load_object_creation_lists_from_str(data)
+            .expect("failed to parse mixed OCL headers");
+        assert_eq!(count, 1);
+
+        let store = get_object_creation_list_store();
+        let ocl = store
+            .as_ref()
+            .and_then(|s| s.find_object_creation_list("OCL_AllNuggetHeaders"))
+            .expect("OCL_AllNuggetHeaders missing after parse");
+        assert_eq!(ocl.get_nugget_count(), 5);
+
+        let create = ObjectCreationNugget::as_any(ocl.nuggets()[0].as_ref())
+            .downcast_ref::<GenericObjectCreationNugget>()
+            .expect("CreateObject nugget");
+        assert_eq!(create.names, vec!["AmericaInfantryRanger".to_string()]);
+        assert_eq!(create.debris_to_generate, 2);
+        assert!(create
+            .disposition
+            .has(DebrisDisposition::ON_GROUND_ALIGNED));
+
+        let fire = ObjectCreationNugget::as_any(ocl.nuggets()[1].as_ref())
+            .downcast_ref::<FireWeaponNugget>()
+            .expect("FireWeapon nugget");
+        assert_eq!(fire.weapon.as_deref(), Some("NeutronMissileWeapon"));
+
+        let attack = ObjectCreationNugget::as_any(ocl.nuggets()[2].as_ref())
+            .downcast_ref::<AttackNugget>()
+            .expect("Attack nugget");
+        assert_eq!(attack.number_of_shots, 9);
+        assert_eq!(attack.weapon_slot, crate::weapon::WeaponSlotType::Primary);
+        assert_eq!(attack.delivery_decal_radius, 200.0);
+        assert_eq!(
+            attack.delivery_decal_template.texture_name.as_str(),
+            "SCCScudStorm_GLA"
+        );
+        assert_eq!(
+            attack.delivery_decal_template.shadow_type,
+            SHADOW_ALPHA_DECAL
+        );
+
+        let force = ObjectCreationNugget::as_any(ocl.nuggets()[3].as_ref())
+            .downcast_ref::<ApplyRandomForceNugget>()
+            .expect("ApplyRandomForce nugget");
+        assert!((force.min_mag - 60.0).abs() < f32::EPSILON);
+        assert!((force.max_mag - 100.0).abs() < f32::EPSILON);
+        let expected_spin =
+            game_engine::common::ini::INI::parse_angular_velocity_real("120").unwrap();
+        let expected_min_pitch = game_engine::common::ini::INI::parse_angle_real("70").unwrap();
+        let expected_max_pitch = game_engine::common::ini::INI::parse_angle_real("90").unwrap();
+        assert!((force.spin_rate - expected_spin).abs() < 1e-6);
+        assert!((force.min_pitch - expected_min_pitch).abs() < 1e-6);
+        assert!((force.max_pitch - expected_max_pitch).abs() < 1e-6);
+
+        let payload = ObjectCreationNugget::as_any(ocl.nuggets()[4].as_ref())
+            .downcast_ref::<DeliverPayloadNugget>()
+            .expect("DeliverPayload nugget");
+        assert_eq!(payload.transport_name, "AmericaJetAurora");
+        assert!(payload.start_at_preferred_height);
+        assert!(!payload.start_at_max_speed);
+        assert_eq!(payload.formation_size, 3);
+        assert!((payload.formation_spacing - 25.0).abs() < f32::EPSILON);
+        assert!((payload.convergence_factor - 0.5).abs() < f32::EPSILON);
+        assert!((payload.error_radius - 12.0).abs() < f32::EPSILON);
+        assert_eq!(payload.delay_delivery_frames_max, 30);
+        assert_eq!(payload.payload.len(), 1);
+        assert_eq!(payload.payload[0].payload_name, "AmericaJetAuroraBomb");
+        assert_eq!(payload.payload[0].payload_count, 2);
+        assert_eq!(payload.put_in_container_name, "AmericaParachute");
+        assert!((payload.data.dist_to_target - 250.0).abs() < f32::EPSILON);
+        assert!((payload.data.delivery_decal_radius - 150.0).abs() < f32::EPSILON);
+        assert_eq!(
+            payload.data.delivery_decal_template.texture_name.as_str(),
+            "SCCA10Strike_USA"
+        );
+
+        let ctx = crate::object_creation_list::live_creation_context();
+        let obj = crate::object::Object::new_test(501, 100.0);
+        let primary = Coord3D::new(0.0, 0.0, 0.0);
+        let secondary = Coord3D::new(10.0, 20.0, 0.0);
+        // Live factory may lack templates; Neutral fallback means we no longer
+        // skip solely because the source has no controlling player.
+        let _ = ocl.create_with_angle(&ctx, Some(&obj), &primary, &secondary, 0.0, 0);
+        let _ = ocl.create_with_objects(&ctx, &obj, None, 0);
     }
 
     #[test]

@@ -69,10 +69,26 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use world_builder::chrome::EditorChrome;
 
     #[test]
     fn test_world_builder_creation() {
         let world_builder = WorldBuilderTool::new();
         assert!(world_builder.is_ok());
+    }
+
+    #[test]
+    fn chrome_menu_contains_file_open() {
+        let chrome = EditorChrome::new();
+        assert!(chrome.menu_contains("File", "Open"));
+        let tool = WorldBuilderTool::new().expect("tool");
+        assert!(tool.chrome().menu_contains("File", "Open"));
+    }
+
+    #[test]
+    fn selecting_scorch_tool_sets_current_tool() {
+        let mut tool = WorldBuilderTool::new().expect("tool");
+        assert!(tool.set_current_tool("scorch"));
+        assert_eq!(tool.current_tool_id(), "scorch");
     }
 }

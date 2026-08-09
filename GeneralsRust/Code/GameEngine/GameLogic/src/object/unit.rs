@@ -107,12 +107,10 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-/// Unit-specific data and behavior
-#[derive(Debug)]
-#[allow(dead_code)]
-
 /// ID-keyed unit handles for AI resolve (borrow for the duration of an op).
 /// Transitional: factory/tests register Arcs; not a second gameplay authority.
+#[derive(Debug)]
+#[allow(dead_code)]
 struct UnitRegistry {
     units: std::collections::HashMap<ObjectID, Weak<RwLock<Unit>>>,
 }

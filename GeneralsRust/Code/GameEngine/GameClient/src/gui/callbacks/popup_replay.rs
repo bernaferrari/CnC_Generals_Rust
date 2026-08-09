@@ -653,14 +653,9 @@ pub fn simulate_popup_replay_set_name(name: &str) -> bool {
     let state_handle = popup_replay_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_popup_replay_control_ids(&mut state);
-    if let Ok(mut guard) = RESIDUAL_POPUP_REPLAY_NAME.lock() {
-        *guard = name.to_string();
-    } else {
-        let mut guard = RESIDUAL_POPUP_REPLAY_NAME
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *guard = name.to_string();
-    }
+    *RESIDUAL_POPUP_REPLAY_NAME
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = name.to_string();
     residual_popup_replay_action_store(ResidualPopupReplayAction::SetName);
     residual_popup_replay_name() == name
 }
@@ -686,14 +681,10 @@ pub fn simulate_popup_replay_back_button_gadget_selected() -> bool {
     ensure_popup_replay_control_ids(&mut state);
     residual_popup_replay_action_store(ResidualPopupReplayAction::Back);
     RESIDUAL_POPUP_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut guard) = RESIDUAL_POPUP_REPLAY_NAME.lock() {
-        guard.clear();
-    } else {
-        RESIDUAL_POPUP_REPLAY_NAME
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-    }
+    RESIDUAL_POPUP_REPLAY_NAME
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     true
 }
 

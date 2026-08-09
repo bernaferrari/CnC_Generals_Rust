@@ -806,10 +806,8 @@ impl PathfindingSystem {
     }
 
     pub fn process_queue(&mut self, max_per_frame: usize) -> usize {
-        // Wave 262: empty dual-world → zero.
-        if dual_world_registry_unavailable() {
-            return 0;
-        }
+        // Terrain/queue drain is valid with zero objects (C++ pathfinder on empty maps).
+        // Fail-closed object lookups happen per queued ObjectID below.
 
         // C++: if (!m_isMapReady) return;
         if !self.is_map_ready {
@@ -995,7 +993,13 @@ impl PathfindingSystem {
         // Persist for callers that read is_tunneling during this path.
         // Note: PathfindingSystem is &self here — use interior via cell local only.
         let is_dozer = Self::object_is_dozer(request.object_id);
-        let obj_id_for_force = request.object_id;
+        let dozer_id = request.object_id;
+        // Snapshot obstacle owners before A* so dozerHack does not re-lock pathfinder.
+        let obstacle_owners: HashMap<(i32, i32), ObjectID> = if is_dozer {
+            self.snapshot_cell_obstacle_ids()
+        } else {
+            HashMap::new()
+        };
 
         // C++ examineNeighboringCells: allyFixedCount → +3*COST_DIAGONAL;
         // C++ examineNeighboringCells: allyFixedCount → +3*COST_DIAGONAL;
@@ -1048,22 +1052,19 @@ impl PathfindingSystem {
 
         // Run A* pathfinding
         let pathfinder = self.pathfinder.lock().unwrap();
-        let force_pass = |cell: GridCoord| -> bool {
-            // Dozer hack only — tunneling is m_isTunneling inside A* (starts_tunneling).
-            if is_dozer {
-                let is_obs = self
-                    .pathfinder
-                    .lock()
-                    .ok()
-                    .map(|pf| pf.get_cell_type(cell) == Some(PathfindCellType::Obstacle))
-                    .unwrap_or(false);
-                if !is_obs {
-                    return false;
-                }
-                let _ = obj_id_for_force;
-                return true;
+        // force_passable stays Some (never None) so find_path_ex6 goal-obstacle
+        // early-out matches prior host behavior. DozerHack is dozer_obstacle_ok.
+        let force_pass = |_cell: GridCoord| -> bool { false };
+        // C++ examineNeighboringCells 6207-6226: KINDOF_DOZER + CELL_OBSTACLE +
+        // findObjectByID && relationship != ENEMIES. Missing obstacle → false.
+        let dozer_obstacle_ok = |coord: GridCoord| -> bool {
+            if !is_dozer {
+                return false;
             }
-            false
+            let Some(&obs_id) = obstacle_owners.get(&(coord.x, coord.y)) else {
+                return false;
+            };
+            Self::dozer_hack_allows_obstacle(dozer_id, obs_id)
         };
         // C++ examineCellsCallback: abort line on enemyFixed / allyFixedCount.
         let line_ok = |cell: GridCoord| -> bool {
@@ -1097,7 +1098,12 @@ impl PathfindingSystem {
             }
             true
         };
-        let grid_path = pathfinder.find_path_ex5(
+        let dozer_ok_ref: Option<&dyn Fn(GridCoord) -> bool> = if is_dozer {
+            Some(&dozer_obstacle_ok as &dyn Fn(GridCoord) -> bool)
+        } else {
+            None
+        };
+        let grid_path = pathfinder.find_path_ex6(
             start,
             goal,
             request.surfaces,
@@ -1113,6 +1119,7 @@ impl PathfindingSystem {
             seed_line,
             tunneling,
             Some(&cell_allowed as &dyn Fn(GridCoord) -> bool),
+            dozer_ok_ref,
         );
 
         drop(pathfinder); // Release lock
@@ -1383,20 +1390,19 @@ impl PathfindingSystem {
                 }
             }
 
-            let _ = self.check_change_layers(cell);
-            for (i, (dx, dy)) in deltas.iter().enumerate() {
-                if i >= 4 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
-                    if !self.is_tunneling {
-                        if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
-                            || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
-                        {
-                            continue;
-                        }
+            // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
+            if let Some(link) = self.check_change_layers(cell) {
+                if !closed.contains(&(link.x, link.y)) {
+                    let key = (link.x, link.y);
+                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
+                        g_score.insert(key, g);
+                        let f = g + heuristic(link);
+                        open.push(std::cmp::Reverse((f, g, link.x, link.y)));
                     }
                 }
+            }
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridCoord::new(nx, ny);
@@ -1404,6 +1410,10 @@ impl PathfindingSystem {
                     continue;
                 }
                 if is_human && !self.in_logical_extent(nc) {
+                    continue;
+                }
+                // C++ 6181-6185: skip diagonal only if BOTH adjacent flags false.
+                if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
                 {
@@ -1414,6 +1424,7 @@ impl PathfindingSystem {
                         continue;
                     }
                 }
+                neighbor_flags[i] = true;
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
                 let key = (nx, ny);
@@ -1647,9 +1658,22 @@ impl PathfindingSystem {
                 continue;
             }
             cell_count += 1;
-            let _ = self.check_change_layers(cell);
+            // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
+            if let Some(link) = self.check_change_layers(cell) {
+                if !closed.contains(&(link.x, link.y)) {
+                    let key = (link.x, link.y);
+                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
+                        g_score.insert(key, g);
+                        if link.x != cx || link.y != cy {
+                            came_from.insert(key, (cx, cy));
+                        }
+                        open.push(std::cmp::Reverse((g, g, link.x, link.y)));
+                    }
+                }
+            }
 
             // Expand neighbors with attackDistance costs (C++ examineNeighboringCells).
+            let mut neighbor_flags = [false; 8];
             for (i, &(dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
@@ -1660,16 +1684,9 @@ impl PathfindingSystem {
                 if is_human && !self.in_logical_extent(nc) {
                     continue;
                 }
-                // Diagonal corner cut
-                if i >= 4 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
-                    if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
-                        || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
-                    {
-                        continue;
-                    }
+                // C++ 6181-6185: one open orthogonal neighborFlag is enough.
+                if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
+                    continue;
                 }
                 {
                     let Ok(pf) = self.pathfinder.lock() else {
@@ -1679,6 +1696,7 @@ impl PathfindingSystem {
                         continue;
                     }
                 }
+                neighbor_flags[i] = true;
 
                 let mut step = if i >= 4 {
                     COST_DIAGONAL as i32
@@ -1862,10 +1880,8 @@ impl PathfindingSystem {
         victim_id: Option<ObjectID>,
         victim_pos: &Coord3D,
     ) -> bool {
-        // Wave 262: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
+        // Grid Bresenham + cell obstacle IDs run even with an empty registry.
+        // KINDOF / container / slaver lookups skip when attacker INVALID_ID.
 
         // Global switch TheAI->getAiData()->m_attackUsesLineOfSight
         let los_enabled = crate::ai::THE_AI
@@ -2199,18 +2215,19 @@ impl PathfindingSystem {
             }
 
             // put on closed and expand neighbors
-            let _ = self.check_change_layers(cell);
-            for (i, (dx, dy)) in deltas.iter().enumerate() {
-                if i >= 4 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
-                    if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
-                        || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
-                    {
-                        continue;
+            // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
+            if let Some(link) = self.check_change_layers(cell) {
+                if !closed.contains(&(link.x, link.y)) {
+                    let key = (link.x, link.y);
+                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
+                        g_score.insert(key, g);
+                        open.push(std::cmp::Reverse((g, g, link.x, link.y)));
+                        cell_count += 1;
                     }
                 }
+            }
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridCoord::new(nx, ny);
@@ -2218,6 +2235,10 @@ impl PathfindingSystem {
                     continue;
                 }
                 if is_human && !self.in_logical_extent(nc) {
+                    continue;
+                }
+                // C++ 6181-6185: one open orthogonal neighborFlag is enough.
+                if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
                 {
@@ -2228,6 +2249,7 @@ impl PathfindingSystem {
                         continue;
                     }
                 }
+                neighbor_flags[i] = true;
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
                 let key = (nx, ny);
@@ -2852,10 +2874,68 @@ impl PathfindingSystem {
     }
 
     /// Get cell type at world position.
+    ///
+    /// Ground A* grid via `GridCoord::from_world` (floor). Prefer
+    /// `get_cell_type_at_layer` for C++ `getCell(layer, REAL_TO_INT(x/size))`.
     pub fn get_cell_type(&self, pos: &Coord3D) -> Option<PathfindCellType> {
         let coord = GridCoord::from_world(pos);
         let pathfinder = self.pathfinder.lock().ok()?;
         pathfinder.get_cell_type(coord)
+    }
+
+    /// C++ `REAL_TO_INT(pos / PATHFIND_CELL_SIZE)` — truncate toward zero.
+    ///
+    /// Distinct from `GridCoord::from_world` (`REAL_TO_INT_FLOOR`).
+    /// diesOnBadLand (ObjectCreationList.cpp) uses this index with `getCell`.
+    #[inline]
+    pub fn world_to_cell_trunc(pos: &Coord3D) -> GridCoord {
+        GridCoord::new(
+            (pos.x / PATHFIND_CELL_SIZE_F) as i32,
+            (pos.y / PATHFIND_CELL_SIZE_F) as i32,
+        )
+    }
+
+    /// C++ `Pathfinder::getCell(layer, cellX, cellY)->getType()`.
+    ///
+    /// Out of extent or missing elevated-layer cell → `None` (caller treats as
+    /// `CELL_IMPASSABLE`). Ground uses the A* grid. Non-Ground/Top looks up
+    /// `BridgeLayer` (`m_layers`) at the same indices.
+    pub fn get_cell_type_at_cell(
+        &self,
+        layer: PathfindLayerEnum,
+        cell_x: i32,
+        cell_y: i32,
+    ) -> Option<PathfindCellType> {
+        let coord = GridCoord::new(cell_x, cell_y);
+        if !self.is_valid_coord(coord) {
+            return None;
+        }
+        if !matches!(
+            layer,
+            PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid
+        ) {
+            let layer_id = layer as u32;
+            let bridge = self.bridges.iter().find(|b| {
+                b.contains(coord) && (b.layer_id == layer_id || layer == PathfindLayerEnum::Top)
+            });
+            return match bridge {
+                Some(b) if b.destroyed => Some(PathfindCellType::BridgeImpassable),
+                Some(_) => Some(PathfindCellType::Clear),
+                None => None,
+            };
+        }
+        let pathfinder = self.pathfinder.lock().ok()?;
+        pathfinder.get_cell_type(coord)
+    }
+
+    /// C++ `getCell(layer, REAL_TO_INT(pos.x/SIZE), REAL_TO_INT(pos.y/SIZE))`.
+    pub fn get_cell_type_at_layer(
+        &self,
+        pos: &Coord3D,
+        layer: PathfindLayerEnum,
+    ) -> Option<PathfindCellType> {
+        let c = Self::world_to_cell_trunc(pos);
+        self.get_cell_type_at_cell(layer, c.x, c.y)
     }
 
     /// Pure zone connectivity (C++ zone1 == zone2 / UNINITIALIZED → true).
@@ -3182,10 +3262,8 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         path_diameter: i32,
     ) -> i32 {
-        // Wave 262: empty dual-world → zero.
-        if dual_world_registry_unavailable() {
-            return 0;
-        }
+        // Grid cell types / fence flags work with an empty registry.
+        // Missing pos-unit object: treat as non-crushable (that cell only).
 
         if path_diameter <= 0 {
             return 0;
@@ -3844,16 +3922,50 @@ impl PathfindingSystem {
 
     /// C++ obj->isKindOf(KINDOF_DOZER).
     fn object_is_dozer(object_id: ObjectID) -> bool {
-        // Wave 262: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
+        // Missing object → not a dozer (callback None).
         if object_id == INVALID_ID {
             return false;
         }
         OBJECT_REGISTRY
             .with_object(object_id, |g| g.is_kind_of(KindOf::Dozer))
+            .unwrap_or(false)
+    }
+
+    /// Snapshot CELL_OBSTACLE owners so A* dozerHack does not re-lock pathfinder.
+    fn snapshot_cell_obstacle_ids(&self) -> HashMap<(i32, i32), ObjectID> {
+        let Ok(pf) = self.pathfinder.lock() else {
+            return HashMap::new();
+        };
+        let mut owners = HashMap::new();
+        for x in 0..self.width {
+            for y in 0..self.height {
+                let c = GridCoord::new(x as i32, y as i32);
+                if pf.get_cell_type(c) != Some(PathfindCellType::Obstacle) {
+                    continue;
+                }
+                if let Some(id) = pf.get_cell_obstacle_id(c) {
+                    if id != INVALID_ID {
+                        owners.insert((c.x, c.y), id);
+                    }
+                }
+            }
+        }
+        owners
+    }
+
+    /// C++ dozerHack: obstacle object exists AND relationship != ENEMIES.
+    /// Missing obstacle object → false (fail-closed, not dozerHack).
+    fn dozer_hack_allows_obstacle(dozer_id: ObjectID, obstacle_id: ObjectID) -> bool {
+        if dozer_id == INVALID_ID || obstacle_id == INVALID_ID {
+            return false;
+        }
+        OBJECT_REGISTRY
+            .with_object(dozer_id, |dozer| {
+                OBJECT_REGISTRY.with_object(obstacle_id, |obstacle| {
+                    dozer.relationship_to(obstacle) != Relationship::Enemies
+                })
+            })
+            .flatten()
             .unwrap_or(false)
     }
 
@@ -4337,6 +4449,34 @@ impl PathfindingSystem {
         }
         // C++ fetches getCell(connectLayer or GROUND, x, y) at same indices.
         Some(parent)
+    }
+
+    /// C++ checkChangeLayers insert: same-xy connect-layer cell if not closed.
+    ///
+    /// Callers enqueue the result at the parent's `costSoFar` (0 extra cost)
+    /// before expanding orthogonal/diagonal neighbors.
+    pub fn change_layer_open_link(
+        &self,
+        parent: GridCoord,
+        closed: &HashSet<(i32, i32)>,
+    ) -> Option<GridCoord> {
+        let link = self.check_change_layers(parent)?;
+        if closed.contains(&(link.x, link.y)) {
+            None
+        } else {
+            Some(link)
+        }
+    }
+
+    /// C++ `examineNeighboringCells` firstDiagonal check (AIPathfind.cpp:6181-6185).
+    ///
+    /// `adjacent = {0,1,2,3,0}`. Skip diagonal only when BOTH adjacent
+    /// orthogonal `neighborFlags` are false — one open orthogonal is enough.
+    #[inline]
+    fn skip_diagonal_if_squeezed(i: usize, neighbor_flags: &[bool; 8]) -> bool {
+        const FIRST_DIAGONAL: usize = 4;
+        const ADJACENT: [usize; 5] = [0, 1, 2, 3, 0];
+        i >= FIRST_DIAGONAL && !neighbor_flags[ADJACENT[i - 4]] && !neighbor_flags[ADJACENT[i - 3]]
     }
 
     /// Stamp connectLayer on a cell (bridge ground-connect / wall link).
@@ -4907,21 +5047,21 @@ impl PathfindingSystem {
             }
 
             // Expand neighbors (C++ examineNeighboringCells orthogonal+diagonal).
-            let _ = self.check_change_layers(cell);
-            for (i, (dx, dy)) in deltas.iter().enumerate() {
-                if i >= 4 {
-                    // corner cut: both orthogonal legs passable
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
-                    if !self.is_tunneling {
-                        if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
-                            || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
-                        {
-                            continue;
+            // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
+            if let Some(link) = self.check_change_layers(cell) {
+                if !closed.contains(&(link.x, link.y)) {
+                    let key = (link.x, link.y);
+                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
+                        g_score.insert(key, g);
+                        if link.x != cx || link.y != cy {
+                            came_from.insert(key, (cx, cy));
                         }
+                        open.push(std::cmp::Reverse((g, g, link.x, link.y)));
                     }
                 }
+            }
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridCoord::new(nx, ny);
@@ -4929,6 +5069,10 @@ impl PathfindingSystem {
                     continue;
                 }
                 if is_human && !self.in_logical_extent(nc) {
+                    continue;
+                }
+                // C++ 6181-6185: one open orthogonal neighborFlag is enough.
+                if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
                 {
@@ -4939,6 +5083,7 @@ impl PathfindingSystem {
                         continue;
                     }
                 }
+                neighbor_flags[i] = true;
                 let step = if i >= 4 { 14 } else { 10 }; // diagonal ~1.4
                 let ng = g + step;
                 let key = (nx, ny);
@@ -5874,11 +6019,6 @@ impl PathfindingSystem {
     /// Footprint scan of goal/pos occupancy. Populates ally/enemy fixed counts.
     /// Returns false if off-map or blocked by non-AI ally fixed unit.
     pub fn check_for_movement(&self, obj_id: ObjectID, info: &mut CheckMovementInfo) -> bool {
-        // Wave 262: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         info.ally_fixed_count = 0;
         info.ally_moving = false;
         info.ally_goal = false;
@@ -7702,22 +7842,28 @@ impl PathfindingSystem {
                 continue;
             }
             let parent = GridCoord::new(cx, cy);
-            let _ = self.check_change_layers(parent);
-            for (i, (dx, dy)) in deltas.iter().enumerate() {
-                if i >= 4 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
-                    if !pf.is_passable(GridCoord::new(cx + dx, cy), surfaces, is_crusher)
-                        || !pf.is_passable(GridCoord::new(cx, cy + dy), surfaces, is_crusher)
-                    {
-                        continue;
+            // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
+            if let Some(link) = self.check_change_layers(parent) {
+                if !closed.contains(&(link.x, link.y)) {
+                    let key = (link.x, link.y);
+                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
+                        g_score.insert(key, g);
+                        let f = g + heuristic(link);
+                        open.push(std::cmp::Reverse((f, g, link.x, link.y)));
+                        cell_count += 1;
                     }
                 }
+            }
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridCoord::new(nx, ny);
                 if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                // C++ 6181-6185: one open orthogonal neighborFlag is enough.
+                if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
                 {
@@ -7728,6 +7874,7 @@ impl PathfindingSystem {
                         continue;
                     }
                 }
+                neighbor_flags[i] = true;
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
                 let key = (nx, ny);
@@ -7839,29 +7986,25 @@ impl PathfindingSystem {
             if cell_count > MAX_CELL_COUNT {
                 continue;
             }
-            // C++ checkChangeLayers(parent)
-            let _ = self.check_change_layers(parent);
-
-            for (i, (dx, dy)) in deltas.iter().enumerate() {
-                // C++: diagonal requires orthogonal neighbors open (corner cut).
-                if i >= 4 {
-                    let ox = parent.x + dx;
-                    let oy = parent.y;
-                    let ox2 = parent.x;
-                    let oy2 = parent.y + dy;
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
-                    if !pf.is_passable(GridCoord::new(ox, oy), surfaces, is_crusher)
-                        || !pf.is_passable(GridCoord::new(ox2, oy2), surfaces, is_crusher)
-                    {
-                        continue;
-                    }
+            // C++ checkChangeLayers(parent): enqueue connect-layer same-xy at parent cost.
+            if let Some(link) = self.check_change_layers(parent) {
+                if !closed.contains(&(link.x, link.y)) {
+                    closed.insert((link.x, link.y));
+                    open.push_back(link);
+                    cell_count += 1;
                 }
+            }
+
+            let mut neighbor_flags = [false; 8];
+            for (i, (dx, dy)) in deltas.iter().enumerate() {
                 let nx = parent.x + dx;
                 let ny = parent.y + dy;
                 let nc = GridCoord::new(nx, ny);
                 if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                    continue;
+                }
+                // C++ 6181-6185: one open orthogonal neighborFlag is enough.
+                if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
                 {
@@ -7872,6 +8015,7 @@ impl PathfindingSystem {
                         continue;
                     }
                 }
+                neighbor_flags[i] = true;
                 closed.insert((nx, ny));
                 open.push_back(nc);
                 cell_count += 1;
@@ -10308,6 +10452,136 @@ mod tests {
     }
 
     #[test]
+    fn get_cell_type_at_layer_ground_truncates_toward_zero() {
+        let mut system = PathfindingSystem::new(8, 8);
+        system.new_map();
+        // Stamp cell (1,*) Water and cell (2,*) Cliff via world coords.
+        // 15/10 → 1, 25/10 → 2.
+        system.set_cell_type(&Coord3D::new(15.0, 5.0, 0.0), PathfindCellType::Water);
+        system.set_cell_type(&Coord3D::new(25.0, 5.0, 0.0), PathfindCellType::Cliff);
+        // 19.9 / 10 = 1.99 → truncate/REAL_TO_INT = 1, not round-to-2.
+        let pos = Coord3D::new(19.9, 5.0, 0.0);
+        assert_eq!(
+            PathfindingSystem::world_to_cell_trunc(&pos),
+            GridCoord::new(1, 0)
+        );
+        assert_eq!(
+            system.get_cell_type_at_layer(&pos, PathfindLayerEnum::Ground),
+            Some(PathfindCellType::Water),
+            "19.9/10 must hit cell 1, not 2"
+        );
+        // Truncate toward zero (not floor): -0.1/10 → 0, floor would be -1 (None).
+        let neg = Coord3D::new(-0.1, 5.0, 0.0);
+        assert_eq!(
+            PathfindingSystem::world_to_cell_trunc(&neg),
+            GridCoord::new(0, 0)
+        );
+        assert_eq!(
+            system.get_cell_type_at_layer(&neg, PathfindLayerEnum::Ground),
+            Some(PathfindCellType::Clear)
+        );
+    }
+
+    #[test]
+    fn get_cell_type_at_layer_missing_cell_is_none() {
+        // None = C++ getCell NULL → CELL_IMPASSABLE for diesOnBadLand.
+        let system = PathfindingSystem::new(8, 8);
+        assert!(system
+            .get_cell_type_at_cell(PathfindLayerEnum::Ground, -1, 0)
+            .is_none());
+        assert!(system
+            .get_cell_type_at_cell(PathfindLayerEnum::Ground, 99, 99)
+            .is_none());
+        // Top with no BridgeLayer cell → None (impassable).
+        assert!(system
+            .get_cell_type_at_layer(&Coord3D::new(15.0, 15.0, 0.0), PathfindLayerEnum::Top)
+            .is_none());
+    }
+
+    #[test]
+    fn get_cell_type_at_layer_top_uses_bridge_bounds() {
+        let mut system = PathfindingSystem::new(16, 16);
+        system.add_bridge((GridCoord::new(2, 2), GridCoord::new(5, 5)));
+        assert_eq!(
+            system.get_cell_type_at_cell(PathfindLayerEnum::Top, 3, 3),
+            Some(PathfindCellType::Clear)
+        );
+        assert!(system
+            .get_cell_type_at_cell(PathfindLayerEnum::Top, 10, 10)
+            .is_none());
+    }
+
+    #[test]
+    fn check_change_layers_enqueues_same_xy_when_not_closed() {
+        let system = PathfindingSystem::new(16, 16);
+        let cell = GridCoord::new(4, 5);
+        system.set_connect_layer(cell, PathfindLayerEnum::Top);
+        let closed = HashSet::new();
+        assert_eq!(
+            system.change_layer_open_link(cell, &closed),
+            Some(cell),
+            "connect-layer same-xy cell must be enqueued at parent cost"
+        );
+        let mut closed = HashSet::new();
+        closed.insert((4, 5));
+        assert!(
+            system.change_layer_open_link(cell, &closed).is_none(),
+            "already-closed connect-layer cell is not re-enqueued"
+        );
+    }
+
+    #[test]
+    fn check_change_layers_not_discarded_in_production() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/ai/pathfind_complete.rs"
+        ));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        assert!(
+            !prod.contains("let _ = self.check_change_layers"),
+            "production loops must enqueue checkChangeLayers, not discard it"
+        );
+        assert!(
+            prod.matches("if let Some(link) = self.check_change_layers")
+                .count()
+                >= 5,
+            "examineNeighboringCells-like loops must enqueue check_change_layers link"
+        );
+    }
+
+    #[test]
+    fn diagonal_squeeze_one_orthogonal_open_allows_diagonal() {
+        // C++ 6181-6185: one neighborFlag orthogonal true → allow diagonal.
+        // 2x2 crack: (1,0) blocked, (0,1) open → (0,0)→(1,1) cost 14.
+        let mut system = PathfindingSystem::new(4, 4);
+        system.new_map();
+        system.set_cell_type(&Coord3D::new(15.0, 5.0, 0.0), PathfindCellType::Impassable);
+        let from = Coord3D::new(5.0, 5.0, 0.0);
+        let to = Coord3D::new(15.0, 15.0, 0.0);
+        let cost = system.check_path_cost(SURFACE_GROUND, false, &from, &to);
+        assert!(
+            (cost - COST_DIAGONAL as f32).abs() < 0.01,
+            "one open orthogonal must allow diagonal COST_DIAGONAL=14, got {cost}"
+        );
+    }
+
+    #[test]
+    fn diagonal_squeeze_both_orthogonals_blocked_no_path() {
+        let mut system = PathfindingSystem::new(4, 4);
+        system.new_map();
+        system.set_cell_type(&Coord3D::new(15.0, 5.0, 0.0), PathfindCellType::Impassable);
+        system.set_cell_type(&Coord3D::new(5.0, 15.0, 0.0), PathfindCellType::Impassable);
+        let from = Coord3D::new(5.0, 5.0, 0.0);
+        let to = Coord3D::new(15.0, 15.0, 0.0);
+        let cost = system.check_path_cost(SURFACE_GROUND, false, &from, &to);
+        const MAX_COST: f32 = 0x7fff_0000u32 as f32;
+        assert_eq!(
+            cost, MAX_COST,
+            "both orthogonals blocked → no diagonal squeeze"
+        );
+    }
+
+    #[test]
     fn connect_layer_on_pathfind_cell() {
         let mut pf = crate::ai::pathfind_astar::AStarPathfinder::new(8, 8);
         let c = GridCoord::new(2, 2);
@@ -12295,7 +12569,8 @@ mod tests {
                 && (prod.contains("find_path_ex2")
                     || prod.contains("find_path_ex3")
                     || prod.contains("find_path_ex4")
-                    || prod.contains("find_path_ex5")),
+                    || prod.contains("find_path_ex5")
+                    || prod.contains("find_path_ex6")),
             "internalFindPath must pass downhill_only into A*"
         );
     }
@@ -12315,10 +12590,12 @@ mod tests {
         assert!(
             prod.contains("start_is_obstacle")
                 && prod.contains("object_is_dozer")
+                && prod.contains("dozer_obstacle_ok")
                 && (prod.contains("find_path_ex3")
                     || prod.contains("find_path_ex4")
-                    || prod.contains("find_path_ex5")),
-            "internalFindPath must set tunneling from obstacle start and dozer force-pass"
+                    || prod.contains("find_path_ex5")
+                    || prod.contains("find_path_ex6")),
+            "internalFindPath must set tunneling from obstacle start and dozerHack"
         );
     }
 
@@ -12341,7 +12618,9 @@ mod tests {
         let prod = complete.split("#[cfg(test)]").next().expect("production");
         assert!(
             prod.contains("seed_line")
-                && (prod.contains("find_path_ex4") || prod.contains("find_path_ex5"))
+                && (prod.contains("find_path_ex4")
+                    || prod.contains("find_path_ex5")
+                    || prod.contains("find_path_ex6"))
                 && prod.contains("line_ok"),
             "internalFindPath must enable examineCellsCallback line seed"
         );
@@ -12365,7 +12644,8 @@ mod tests {
         ));
         let prod = complete.split("#[cfg(test)]").next().expect("production");
         assert!(
-            prod.contains("find_path_ex5") && prod.contains("tunneling"),
+            (prod.contains("find_path_ex5") || prod.contains("find_path_ex6"))
+                && prod.contains("tunneling"),
             "internalFindPath must pass starts_tunneling into A*"
         );
     }
@@ -12518,5 +12798,149 @@ mod tests {
             !system.is_attack_view_blocked_by_obstacle(INVALID_ID, &from, None, &to),
             "transparent obstacle must not block"
         );
+    }
+
+    fn register_test_object(
+        id: ObjectID,
+        kinds: &[KindOf],
+        team: Option<std::sync::Arc<std::sync::RwLock<crate::team::Team>>>,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::object::Object>> {
+        let mut template = crate::common::types::DefaultThingTemplate::new(format!("PfTest{id}"));
+        for kind in kinds {
+            template.add_kind_of(*kind);
+        }
+        let mut obj = crate::object::Object::new_test(id, 100.0);
+        obj.set_template_for_test(std::sync::Arc::new(template));
+        if let Some(team) = team {
+            obj.set_team(Some(team)).expect("set_team");
+        }
+        let arc = std::sync::Arc::new(std::sync::RwLock::new(obj));
+        OBJECT_REGISTRY.register_object(id, &arc);
+        arc
+    }
+
+    #[test]
+    fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
+        // C++ AIPathfind.cpp:6207-6226 examineNeighboringCells dozerHack:
+        // KINDOF_DOZER + CELL_OBSTACLE + obstacle exists && !ENEMIES.
+        let _lock = crate::object::registry::test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        const DOZER_ID: ObjectID = 0x00D0_7E01;
+        const ALLY_OBS_ID: ObjectID = 0x00D0_7E02;
+        const ENEMY_OBS_ID: ObjectID = 0x00D0_7E03;
+        const MISSING_OBS_ID: ObjectID = 0x00D0_7E04;
+        const DOZER_TEAM: u32 = 0x00D0_7E11;
+        const ENEMY_TEAM: u32 = 0x00D0_7E12;
+
+        let dozer_team = std::sync::Arc::new(std::sync::RwLock::new(crate::team::Team::new(
+            "DozerHackTeam".into(),
+            DOZER_TEAM,
+        )));
+        let enemy_team = std::sync::Arc::new(std::sync::RwLock::new(crate::team::Team::new(
+            "DozerHackEnemy".into(),
+            ENEMY_TEAM,
+        )));
+        dozer_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(ENEMY_TEAM, Relationship::Enemies);
+
+        let _dozer = register_test_object(
+            DOZER_ID,
+            &[KindOf::Dozer],
+            Some(dozer_team.clone()),
+        );
+        let _ally_obs = register_test_object(ALLY_OBS_ID, &[], None);
+        let _enemy_obs =
+            register_test_object(ENEMY_OBS_ID, &[], Some(enemy_team.clone()));
+        struct Unreg(ObjectID);
+        impl Drop for Unreg {
+            fn drop(&mut self) {
+                OBJECT_REGISTRY.unregister_object(self.0);
+            }
+        }
+        let _u0 = Unreg(DOZER_ID);
+        let _u1 = Unreg(ALLY_OBS_ID);
+        let _u2 = Unreg(ENEMY_OBS_ID);
+        // Keep dozer on its team for the enemy case; ally/neutral obstacle has no team
+        // → relationship Neutral (not ENEMIES) → dozerHack allowed.
+
+        // Full-height wall so line-seed cannot skip the obstacle (2x2 diagonal
+        // seed would otherwise enqueue the Clear goal). One Obstacle gap for dozerHack.
+        let mut system = PathfindingSystem::new(8, 4);
+        system.new_map();
+        let start = GridCoord::new(0, 1);
+        let goal = GridCoord::new(4, 1);
+        let obs = GridCoord::new(2, 1);
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            for x in 0..8 {
+                for y in 0..4 {
+                    pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
+                }
+            }
+            for y in 0..4 {
+                pf.set_cell_type(GridCoord::new(2, y), PathfindCellType::Impassable);
+            }
+            pf.set_cell_type(obs, PathfindCellType::Obstacle);
+            pf.set_cell_obstacle_id(obs, ALLY_OBS_ID, false, false);
+        }
+
+        let from = start.to_world(PathfindLayerEnum::Ground);
+        let to = goal.to_world(PathfindLayerEnum::Ground);
+        let mk = |object_id: ObjectID| PathRequest {
+            object_id,
+            from,
+            to,
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: false,
+        };
+
+        let dozer_path = system.find_path(mk(DOZER_ID));
+        assert!(
+            dozer_path.success,
+            "dozer must step on non-enemy CELL_OBSTACLE: {:?}",
+            dozer_path.waypoints
+        );
+
+        system.path_cache.lock().unwrap().clear();
+        let infantry = system.find_path(mk(INVALID_ID));
+        assert!(
+            !infantry.success,
+            "non-dozer cannot step on CELL_OBSTACLE"
+        );
+
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            pf.set_cell_obstacle_id(obs, ENEMY_OBS_ID, false, false);
+        }
+        system.path_cache.lock().unwrap().clear();
+        let enemy_path = system.find_path(mk(DOZER_ID));
+        assert!(
+            !enemy_path.success,
+            "dozer must not dozerHack an ENEMIES obstacle"
+        );
+
+        {
+            let mut pf = system.pathfinder.lock().unwrap();
+            pf.set_cell_obstacle_id(obs, MISSING_OBS_ID, false, false);
+        }
+        system.path_cache.lock().unwrap().clear();
+        let missing = system.find_path(mk(DOZER_ID));
+        assert!(
+            !missing.success,
+            "missing obstacle object must fail-closed (not dozerHack)"
+        );
+
+        OBJECT_REGISTRY.unregister_object(DOZER_ID);
+        OBJECT_REGISTRY.unregister_object(ALLY_OBS_ID);
+        OBJECT_REGISTRY.unregister_object(ENEMY_OBS_ID);
     }
 }

@@ -27,8 +27,8 @@ use crate::tunnel_tracker::TunnelTracker;
 use crate::upgrade::{PlayerUpgradeManager, Upgrade, UpgradeTemplate};
 use game_engine::common::global_data;
 use game_engine::common::ini::ensure_player_templates_loaded;
-use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::rts::player_template::get_player_template_store;
+use game_engine::common::name_key_generator::{NameKeyGenerator, NAMEKEY_INVALID};
+use game_engine::common::rts::player_template::{get_player_template_store, MAX_MP_STARTING_UNITS};
 use game_engine::common::rts::science::get_science_store;
 use game_engine::common::rts::score_keeper::{
     KindOf as ScoreKindOf, KindOfMaskType as ScoreKindOfMaskType,
@@ -1086,10 +1086,13 @@ impl SpecialPowerReadyTimer {
 /// Player template interface
 #[derive(Debug, Clone)]
 pub struct PlayerTemplate {
+    /// C++ `m_nameKey` — copied from Common `PlayerTemplate::name_key`.
+    pub name_key: NameKeyType,
     pub name: String,
     pub side: String,
     pub base_side: String,
     pub display_name: String,
+    /// C++ `m_playableSide`. Default `false` matches `PlayerTemplate::PlayerTemplate()`.
     pub playable: bool,
     pub is_observer: bool,
     pub old_faction: bool,
@@ -1129,18 +1132,26 @@ pub struct PlayerTemplate {
 
 impl PlayerTemplate {
     pub fn new(name: String) -> Self {
+        // C++ constructs with `NAMEKEY_INVALID` then `setNameKey` after `initFromINI`.
+        // Bind the namekey here so `new(name)` matches Common's post-parse end-state.
+        let name_key = if name.is_empty() {
+            NAMEKEY_INVALID
+        } else {
+            NameKeyGenerator::name_to_key(&name)
+        };
         Self {
+            name_key,
             name,
             side: String::new(),
             base_side: String::new(),
             display_name: String::new(),
-            playable: true,
+            playable: false,
             is_observer: false,
             old_faction: false,
             starting_money: Money::new(),
             preferred_color: 0,
             starting_building: String::new(),
-            starting_units: vec![String::new(); 10],
+            starting_units: vec![String::new(); MAX_MP_STARTING_UNITS],
             score_screen_image: String::new(),
             score_screen_music: String::new(),
             load_screen_image: String::new(),
@@ -1184,6 +1195,7 @@ impl PlayerTemplate {
         &mut self,
         template: &game_engine::common::rts::player_template::PlayerTemplate,
     ) {
+        self.name_key = template.name_key;
         self.name = template.name.clone();
         self.side = template.side.clone();
         self.base_side = template.base_side.clone();
@@ -1194,7 +1206,10 @@ impl PlayerTemplate {
         self.starting_money = template.starting_money.clone();
         self.preferred_color = template.preferred_color;
         self.starting_building = template.starting_building.clone();
+        // C++ `m_startingUnits[MAX_MP_STARTING_UNITS]` is a fixed array.
         self.starting_units = template.starting_units.clone();
+        self.starting_units
+            .resize(MAX_MP_STARTING_UNITS, String::new());
         self.score_screen_image = template.score_screen_image.clone();
         self.score_screen_music = template.score_screen_music.clone();
         self.load_screen_image = template.load_screen_image.clone();
@@ -1248,14 +1263,23 @@ impl PlayerTemplate {
             })
             .collect();
 
+        // C++ `parseScienceVector` → `friend_lookupScience` stores NAMEKEY as
+        // ScienceType. Resolve via the store when present; otherwise use the
+        // same namekey so from_common still copies INI sciences.
         self.intrinsic_sciences.clear();
-        if let Some(store) = get_science_store() {
-            for name in &template.intrinsic_sciences {
-                let science = store.get_science_from_internal_name(name);
-                if science != SCIENCE_INVALID {
-                    self.intrinsic_sciences.push(science);
-                }
+        for name in template.get_intrinsic_sciences() {
+            if name.is_empty() || name.eq_ignore_ascii_case("None") {
+                continue;
             }
+            let looked_up = get_science_store()
+                .map(|store| store.get_science_from_internal_name(name))
+                .unwrap_or(SCIENCE_INVALID);
+            let science = if looked_up != SCIENCE_INVALID {
+                looked_up
+            } else {
+                NameKeyGenerator::name_to_key(name) as ScienceType
+            };
+            self.intrinsic_sciences.push(science);
         }
     }
 
@@ -1277,12 +1301,120 @@ impl PlayerTemplate {
         &self.side
     }
 
+    /// C++ `getNameKey` (asserts non-invalid in debug).
+    pub fn get_name_key(&self) -> NameKeyType {
+        debug_assert_ne!(self.name_key, NAMEKEY_INVALID, "bad namekey");
+        self.name_key
+    }
+
+    /// C++ `getName()` → `KEYNAME(m_nameKey)`
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    /// C++ `getDisplayName()`
+    pub fn get_display_name(&self) -> &str {
+        if self.display_name.is_empty() {
+            &self.name
+        } else {
+            &self.display_name
+        }
+    }
+
+    /// C++ `getBaseSide()`
+    pub fn get_base_side(&self) -> &str {
+        &self.base_side
+    }
+
+    /// C++ `getStartingBuilding()`
+    pub fn get_starting_building(&self) -> &str {
+        &self.starting_building
+    }
+
+    /// C++ `getStartingUnit(Int i)` — empty if `i < 0` or `i >= MAX_MP_STARTING_UNITS`.
+    pub fn get_starting_unit(&self, i: i32) -> &str {
+        if i < 0 || (i as usize) >= MAX_MP_STARTING_UNITS {
+            return "";
+        }
+        self.starting_units
+            .get(i as usize)
+            .map(String::as_str)
+            .unwrap_or("")
+    }
+
+    /// C++ `getMoney()`
+    pub fn get_money(&self) -> &Money {
+        &self.starting_money
+    }
+
+    /// C++ `getPreferredColor()` — packed 0xRRGGBB.
+    pub fn get_preferred_color(&self) -> u32 {
+        self.preferred_color
+    }
+
+    /// C++ `isObserver()` → `m_observer`
+    pub fn is_observer(&self) -> bool {
+        self.is_observer
+    }
+
+    /// C++ `isOldFaction()`
+    pub fn is_old_faction(&self) -> bool {
+        self.old_faction
+    }
+
+    /// C++ `isPlayableSide()` → `m_playableSide` only.
+    ///
+    /// Zero Hour UI/ladder call sites additionally skip `side == "Boss"`. That
+    /// filter is **not** part of this method; see [`is_playable_side_excluding_boss`].
+    pub fn is_playable_side(&self) -> bool {
+        self.playable
+    }
+
+    /// ZH shell/ladder filter: playable and not the hidden Boss side.
+    ///
+    /// C++ applies this at the call site, not on `PlayerTemplate::isPlayableSide`.
+    pub fn is_playable_side_excluding_boss(&self) -> bool {
+        self.is_playable_side() && self.side != "Boss"
+    }
+
+    /// C++ `getIntrinsicSciences()`
     pub fn get_intrinsic_sciences(&self) -> &ScienceVec {
         &self.intrinsic_sciences
     }
 
+    /// C++ `getIntrinsicSciencePurchasePoints()`
     pub fn get_intrinsic_science_purchase_points(&self) -> Int {
         self.intrinsic_science_purchase_points
+    }
+
+    /// C++ `getPurchaseScienceCommandSetRank1()`
+    pub fn get_purchase_science_command_set_rank1(&self) -> &str {
+        &self.purchase_science_command_set_rank1
+    }
+
+    /// C++ `getPurchaseScienceCommandSetRank3()`
+    pub fn get_purchase_science_command_set_rank3(&self) -> &str {
+        &self.purchase_science_command_set_rank3
+    }
+
+    /// C++ `getPurchaseScienceCommandSetRank8()`
+    pub fn get_purchase_science_command_set_rank8(&self) -> &str {
+        &self.purchase_science_command_set_rank8
+    }
+
+    /// C++ `getSpecialPowerShortcutCommandSet()`
+    pub fn get_special_power_shortcut_command_set(&self) -> &str {
+        &self.special_power_shortcut_command_set
+    }
+
+    /// C++ `getSpecialPowerShortcutWinName()`
+    pub fn get_special_power_shortcut_win_name(&self) -> &str {
+        &self.special_power_shortcut_win_name
+    }
+
+    /// C++ `getSpecialPowerShortcutButtonCount()`
+    pub fn get_special_power_shortcut_button_count(&self) -> Int {
+        self.special_power_shortcut_button_count
     }
 
     pub fn get_score_screen(&self) -> &str {
@@ -1293,20 +1425,91 @@ impl PlayerTemplate {
         &self.score_screen_music
     }
 
+    /// C++ `getLoadScreen()`
+    pub fn get_load_screen(&self) -> &str {
+        &self.load_screen_image
+    }
+
+    /// C++ `getLoadScreenMusic()`
+    pub fn get_load_screen_music(&self) -> &str {
+        &self.load_screen_music
+    }
+
+    /// C++ `getBeaconTemplate()`
+    pub fn get_beacon_template(&self) -> &str {
+        &self.beacon_name
+    }
+
+    /// C++ `getTooltip()`
+    pub fn get_tooltip(&self) -> &str {
+        &self.army_tooltip
+    }
+
+    /// C++ `getGeneralFeatures()`
+    pub fn get_general_features(&self) -> &str {
+        &self.features
+    }
+
+    /// C++ `getMedallionNormal()`
+    pub fn get_medallion_normal(&self) -> &str {
+        &self.medallion_regular
+    }
+
+    /// C++ `getMedallionHilite()`
+    pub fn get_medallion_hilite(&self) -> &str {
+        &self.medallion_hilite
+    }
+
+    /// C++ `getMedallionSelected()`
+    pub fn get_medallion_selected(&self) -> &str {
+        &self.medallion_select
+    }
+
     pub fn get_side_icon_image(&self) -> &str {
         &self.side_icon_image
     }
 
-    pub fn production_cost_changes(&self) -> &HashMap<NameKeyType, Real> {
+    pub fn get_head_water_mark(&self) -> &str {
+        &self.head_water_mark
+    }
+
+    pub fn get_flag_water_mark(&self) -> &str {
+        &self.flag_water_mark
+    }
+
+    pub fn get_enabled_image(&self) -> &str {
+        &self.enabled_image
+    }
+
+    pub fn get_general_image(&self) -> &str {
+        &self.general_image
+    }
+
+    /// C++ `getProductionCostChanges()`
+    pub fn get_production_cost_changes(&self) -> &HashMap<NameKeyType, Real> {
         &self.production_cost_changes
     }
 
-    pub fn production_time_changes(&self) -> &HashMap<NameKeyType, Real> {
+    /// C++ `getProductionTimeChanges()`
+    pub fn get_production_time_changes(&self) -> &HashMap<NameKeyType, Real> {
         &self.production_time_changes
     }
 
-    pub fn production_veterancy_levels(&self) -> &HashMap<NameKeyType, VeterancyLevel> {
+    /// C++ `getProductionVeterancyLevels()`
+    pub fn get_production_veterancy_levels(&self) -> &HashMap<NameKeyType, VeterancyLevel> {
         &self.production_veterancy_levels
+    }
+
+    pub fn production_cost_changes(&self) -> &HashMap<NameKeyType, Real> {
+        self.get_production_cost_changes()
+    }
+
+    pub fn production_time_changes(&self) -> &HashMap<NameKeyType, Real> {
+        self.get_production_time_changes()
+    }
+
+    pub fn production_veterancy_levels(&self) -> &HashMap<NameKeyType, VeterancyLevel> {
+        self.get_production_veterancy_levels()
     }
 }
 
@@ -5103,6 +5306,155 @@ mod tests {
         });
 
         assert_ne!(player_crc(&with_bonus), player_crc(&base));
+    }
+
+    #[test]
+    fn player_template_new_defaults_playable_false_like_cpp() {
+        let pt = PlayerTemplate::new("FactionTest".into());
+        assert!(!pt.playable);
+        assert!(!pt.is_playable_side());
+        assert_eq!(pt.get_starting_unit(-1), "");
+        assert_eq!(pt.get_starting_unit(0), "");
+        assert_eq!(pt.get_starting_unit(9), "");
+        assert_eq!(pt.get_starting_unit(10), "");
+        assert_eq!(
+            pt.get_starting_unit(MAX_MP_STARTING_UNITS as i32),
+            ""
+        );
+        assert_eq!(pt.starting_units.len(), MAX_MP_STARTING_UNITS);
+        assert_ne!(pt.name_key, NAMEKEY_INVALID);
+        assert_eq!(pt.get_name_key(), pt.name_key);
+    }
+
+    #[test]
+    fn player_template_is_playable_side_is_playable_flag_only() {
+        let mut pt = PlayerTemplate::new("FactionBoss".into());
+        pt.playable = true;
+        pt.side = "Boss".into();
+        assert!(pt.is_playable_side());
+        assert!(!pt.is_playable_side_excluding_boss());
+
+        pt.playable = false;
+        assert!(!pt.is_playable_side());
+        assert!(!pt.is_playable_side_excluding_boss());
+    }
+
+    #[test]
+    fn player_template_from_common_copies_name_key_playable_and_starting_units() {
+        let mut common =
+            game_engine::common::rts::player_template::PlayerTemplate::new("FactionAmerica".into());
+        common.playable = true;
+        common.side = "America".into();
+        common.starting_building = "AmericaCommandCenter".into();
+        common.starting_units[0] = "AmericaRanger".into();
+        common.starting_units[1] = "AmericaDozer".into();
+        common.starting_units[2] = "AmericaMissileDefender".into();
+
+        let gl = PlayerTemplate::from_common(&common);
+        assert_eq!(gl.name_key, common.name_key);
+        assert_eq!(gl.get_name_key(), common.get_name_key());
+        assert_eq!(gl.name, common.name);
+        assert_eq!(gl.playable, common.playable);
+        assert!(gl.is_playable_side());
+        assert_eq!(gl.starting_units, common.starting_units);
+        assert_eq!(gl.get_starting_unit(0), "AmericaRanger");
+        assert_eq!(gl.get_starting_unit(1), "AmericaDozer");
+        assert_eq!(gl.get_starting_unit(2), "AmericaMissileDefender");
+        assert_eq!(gl.get_starting_unit(3), "");
+        assert_eq!(gl.get_starting_unit(9), "");
+        assert_eq!(gl.get_starting_unit(-1), "");
+        assert_eq!(gl.get_starting_unit(10), "");
+        assert_eq!(gl.starting_building, "AmericaCommandCenter");
+
+        let mut unplayable = common.clone();
+        unplayable.playable = false;
+        unplayable.name_key = 42;
+        let gl_unplayable = PlayerTemplate::from_common(&unplayable);
+        assert_eq!(gl_unplayable.name_key, 42);
+        assert!(!gl_unplayable.playable);
+        assert!(!gl_unplayable.is_playable_side());
+        assert_eq!(gl_unplayable.starting_units, unplayable.starting_units);
+    }
+
+    #[test]
+    fn player_template_from_common_copies_sciences_production_and_shortcut_fields() {
+        let mut common =
+            game_engine::common::rts::player_template::PlayerTemplate::new("FactionChina".into());
+        common.intrinsic_sciences = vec![
+            "SCIENCE_CHINA".into(),
+            "SCIENCE_RedGuardTraining".into(),
+        ];
+        common.intrinsic_science_purchase_points = 3;
+        let tank_key = NameKeyGenerator::name_to_key("ChinaTankOverlord");
+        let gatling_key = NameKeyGenerator::name_to_key("ChinaVehicleTroopCrawler");
+        common.production_cost_changes.insert(tank_key, 0.8);
+        common.production_time_changes.insert(tank_key, 0.5);
+        common.production_veterancy_levels.insert(
+            gatling_key,
+            game_engine::common::game_common::VeterancyLevel::Veteran,
+        );
+        common.special_power_shortcut_command_set = "SCIENCE_CHINA_SHORTCUT".into();
+        common.special_power_shortcut_win_name = "ControlBar.wnd:SpecialPowerShortcutChina".into();
+        common.special_power_shortcut_button_count = 5;
+        common.purchase_science_command_set_rank1 = "SCIENCE_CHINA_RANK1".into();
+        common.purchase_science_command_set_rank3 = "SCIENCE_CHINA_RANK3".into();
+        common.purchase_science_command_set_rank8 = "SCIENCE_CHINA_RANK8".into();
+        common.score_screen_image = "ChinaScoreScreen".into();
+        common.load_screen_music = "Load_China".into();
+        common.beacon_name = "ChinaBeacon".into();
+
+        let gl = PlayerTemplate::from_common(&common);
+
+        assert_eq!(gl.get_intrinsic_science_purchase_points(), 3);
+        assert_eq!(
+            gl.get_intrinsic_sciences(),
+            &vec![
+                NameKeyGenerator::name_to_key("SCIENCE_CHINA") as ScienceType,
+                NameKeyGenerator::name_to_key("SCIENCE_RedGuardTraining") as ScienceType,
+            ]
+        );
+        assert_eq!(
+            gl.get_production_cost_changes().get(&tank_key).copied(),
+            Some(0.8)
+        );
+        assert_eq!(
+            gl.get_production_time_changes().get(&tank_key).copied(),
+            Some(0.5)
+        );
+        assert_eq!(
+            gl.get_production_veterancy_levels()
+                .get(&gatling_key)
+                .copied(),
+            Some(VeterancyLevel::Veteran)
+        );
+        assert_eq!(
+            gl.get_special_power_shortcut_command_set(),
+            "SCIENCE_CHINA_SHORTCUT"
+        );
+        assert_eq!(
+            gl.get_special_power_shortcut_win_name(),
+            "ControlBar.wnd:SpecialPowerShortcutChina"
+        );
+        assert_eq!(gl.get_special_power_shortcut_button_count(), 5);
+        assert_eq!(
+            gl.get_purchase_science_command_set_rank1(),
+            "SCIENCE_CHINA_RANK1"
+        );
+        assert_eq!(
+            gl.get_purchase_science_command_set_rank3(),
+            "SCIENCE_CHINA_RANK3"
+        );
+        assert_eq!(
+            gl.get_purchase_science_command_set_rank8(),
+            "SCIENCE_CHINA_RANK8"
+        );
+        assert_eq!(gl.get_score_screen(), "ChinaScoreScreen");
+        assert_eq!(gl.get_load_screen_music(), "Load_China");
+        assert_eq!(gl.get_beacon_template(), "ChinaBeacon");
+        assert_eq!(gl.get_starting_unit(-1), "");
+        assert_eq!(gl.get_starting_unit(10), "");
+        assert_eq!(gl.get_starting_unit(MAX_MP_STARTING_UNITS as i32), "");
+        assert!(!gl.is_playable_side());
     }
 }
 

@@ -513,23 +513,21 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
     }
 
     fn get_radar_priority(&self) -> crate::common::RadarPriorityType {
-        // Convert engine RadarPriorityType to game logic RadarPriorityType.
-        // The engine uses Invalid/Low/Medium/High/Critical while
-        // the logic uses Invalid/NotOnRadar/Structure/Unit/LocalUnitOnly.
+        // Both layers now preserve the C++ RadarPriorityType discriminants.
         match self.inner.get_radar_priority() {
             game_engine::common::thing::thing_template::RadarPriorityType::Invalid => {
                 crate::common::RadarPriorityType::Invalid
             }
-            game_engine::common::thing::thing_template::RadarPriorityType::Low => {
+            game_engine::common::thing::thing_template::RadarPriorityType::NotOnRadar => {
                 crate::common::RadarPriorityType::NotOnRadar
             }
-            game_engine::common::thing::thing_template::RadarPriorityType::Medium => {
+            game_engine::common::thing::thing_template::RadarPriorityType::Structure => {
                 crate::common::RadarPriorityType::Structure
             }
-            game_engine::common::thing::thing_template::RadarPriorityType::High => {
+            game_engine::common::thing::thing_template::RadarPriorityType::Unit => {
                 crate::common::RadarPriorityType::Unit
             }
-            game_engine::common::thing::thing_template::RadarPriorityType::Critical => {
+            game_engine::common::thing::thing_template::RadarPriorityType::LocalUnitOnly => {
                 crate::common::RadarPriorityType::LocalUnitOnly
             }
         }
@@ -604,7 +602,7 @@ pub fn set_game_logic_random_seed(new_seed: [u32; 6]) {
 #[macro_export]
 macro_rules! GameLogicRandomValue {
     ($lo:expr, $hi:expr) => {
-        crate::helpers::get_game_logic_random_value($lo as i32, $hi as i32)
+        $crate::helpers::get_game_logic_random_value($lo as i32, $hi as i32)
     };
 }
 
@@ -612,7 +610,7 @@ macro_rules! GameLogicRandomValue {
 #[macro_export]
 macro_rules! GameLogicRandomValueReal {
     ($lo:expr, $hi:expr) => {
-        crate::helpers::get_game_logic_random_value_real($lo, $hi)
+        $crate::helpers::get_game_logic_random_value_real($lo, $hi)
     };
 }
 
@@ -620,7 +618,7 @@ macro_rules! GameLogicRandomValueReal {
 #[macro_export]
 macro_rules! GameClientRandomValueReal {
     ($lo:expr, $hi:expr) => {
-        crate::helpers::game_client_random_value_real($lo, $hi)
+        $crate::helpers::game_client_random_value_real($lo, $hi)
     };
 }
 
@@ -628,7 +626,7 @@ macro_rules! GameClientRandomValueReal {
 #[macro_export]
 macro_rules! MAKE_OBJECT_STATUS_MASK {
     ($status:expr) => {
-        crate::common::ObjectStatusMaskType::from_status($status)
+        $crate::common::ObjectStatusMaskType::from_status($status)
     };
 }
 
@@ -1899,6 +1897,216 @@ impl TheParticleSystemManager {
             manager.set_particle_system_emission_volume_cylinder_radius(id, radius);
         }
     }
+
+    /// Name-based OCL attach: findTemplate + createParticleSystem + attachToObject.
+    ///
+    /// Distinct from [`Self::attach_particle_system_to_object`], which takes an
+    /// already-created system id. Fail-closed if manager/template is missing.
+    pub fn attach_named_particle_system_to_object(
+        &self,
+        name: &str,
+        object_id: ObjectID,
+    ) -> Option<u32> {
+        attach_particle_system_to_object(name, object_id)
+    }
+}
+
+/// C++ ObjectCreationList.cpp GenericObjectCreationNugget::doStuffToObj:
+/// `TheParticleSystemManager->findTemplate(name)` + `createParticleSystem` +
+/// `sys->attachToObject(obj)`.
+///
+/// Stable GameLogic-callable entry for OCL. Fail-closed: empty name, missing
+/// manager, or unknown template returns `None` (never panics).
+pub fn attach_particle_system_to_object(name: &str, object_id: ObjectID) -> Option<u32> {
+    if name.is_empty() {
+        return None;
+    }
+    let manager = get_particle_system_manager()?;
+    let template_id = manager.find_template(name)?;
+    let system_id = manager.create_particle_system(template_id)?;
+    manager.attach_particle_system_to_object(system_id, object_id);
+    Some(system_id)
+}
+
+#[cfg(test)]
+mod particle_attach_support {
+    use super::*;
+    use crate::common::types::ParticleSystemManagerInterface;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[derive(Debug)]
+    pub struct RecordingParticleManager {
+        templates: Mutex<HashMap<String, u32>>,
+        next_template_id: AtomicU32,
+        next_system_id: AtomicU32,
+        /// system_id -> attached object_id
+        attached: Mutex<HashMap<u32, ObjectID>>,
+        attach_count: AtomicU32,
+        last_attached_object: AtomicU32,
+    }
+
+    impl RecordingParticleManager {
+        pub fn new() -> Self {
+            Self {
+                templates: Mutex::new(HashMap::new()),
+                next_template_id: AtomicU32::new(1),
+                next_system_id: AtomicU32::new(1),
+                attached: Mutex::new(HashMap::new()),
+                attach_count: AtomicU32::new(0),
+                last_attached_object: AtomicU32::new(0),
+            }
+        }
+
+        pub fn register_template(&self, name: &str) -> u32 {
+            let mut map = self.templates.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(&id) = map.get(name) {
+                return id;
+            }
+            let id = self.next_template_id.fetch_add(1, Ordering::Relaxed);
+            map.insert(name.to_string(), id);
+            id
+        }
+
+        pub fn attach_count(&self) -> u32 {
+            self.attach_count.load(Ordering::Relaxed)
+        }
+
+        pub fn attached_object(&self, system_id: u32) -> Option<ObjectID> {
+            self.attached.lock().ok()?.get(&system_id).copied()
+        }
+
+        pub fn last_attached_object(&self) -> Option<ObjectID> {
+            let id = self.last_attached_object.load(Ordering::Relaxed);
+            if id == 0 {
+                None
+            } else {
+                Some(id)
+            }
+        }
+    }
+
+    impl ParticleSystemManagerInterface for RecordingParticleManager {
+        fn find_template(&self, name: &str) -> Option<u32> {
+            self.templates.lock().ok()?.get(name).copied()
+        }
+
+        fn create_particle_system(&self, template_id: u32) -> Option<u32> {
+            let known = self
+                .templates
+                .lock()
+                .ok()?
+                .values()
+                .any(|&id| id == template_id);
+            if !known {
+                return None;
+            }
+            Some(self.next_system_id.fetch_add(1, Ordering::Relaxed))
+        }
+
+        fn create_attached_particle_system_id(
+            &self,
+            template_id: u32,
+            object_id: ObjectID,
+        ) -> Option<u32> {
+            let id = self.create_particle_system(template_id)?;
+            self.attach_particle_system_to_object(id, object_id);
+            Some(id)
+        }
+
+        fn find_particle_system(&self, _system_id: u32) -> Option<Box<dyn std::any::Any>> {
+            None
+        }
+
+        fn set_particle_system_position(&self, _system_id: u32, _position: &Coord3D) {}
+
+        fn get_particle_system_position(&self, _system_id: u32) -> Option<Coord3D> {
+            None
+        }
+
+        fn attach_particle_system_to_object(&self, system_id: u32, object_id: ObjectID) {
+            if let Ok(mut map) = self.attached.lock() {
+                map.insert(system_id, object_id);
+                self.attach_count.fetch_add(1, Ordering::Relaxed);
+                self.last_attached_object.store(object_id, Ordering::Relaxed);
+            }
+        }
+
+        fn attach_particle_system_to_drawable(&self, _system_id: u32, _drawable_id: ObjectID) {}
+
+        fn set_particle_system_transform(&self, _system_id: u32, _transform: &Matrix3D) {}
+
+        fn destroy_particle_system(&self, _system_id: u32) {}
+
+        fn get_particle_system_emission_volume_type(
+            &self,
+            _system_id: u32,
+        ) -> Option<EmissionVolumeType> {
+            None
+        }
+
+        fn set_particle_system_emission_volume_sphere_radius(
+            &self,
+            _system_id: u32,
+            _radius: Real,
+        ) {
+        }
+
+        fn set_particle_system_emission_volume_cylinder_radius(
+            &self,
+            _system_id: u32,
+            _radius: Real,
+        ) {
+        }
+    }
+
+    static TEST_MGR: OnceLock<Arc<RecordingParticleManager>> = OnceLock::new();
+
+    pub fn ensure_test_manager() -> Option<Arc<RecordingParticleManager>> {
+        let mgr = TEST_MGR.get_or_init(|| {
+            let m = Arc::new(RecordingParticleManager::new());
+            let _ = super::register_particle_system_manager(m.clone());
+            m
+        });
+        mgr.register_template("__ocl_particle_test_sentinel__");
+        if super::get_particle_system_manager()?
+            .find_template("__ocl_particle_test_sentinel__")
+            .is_some()
+        {
+            Some(Arc::clone(mgr))
+        } else {
+            None
+        }
+    }
+}
+
+/// Register a dummy particle template on the in-process test recorder.
+/// Returns `false` if a different particle manager is already installed.
+#[cfg(test)]
+pub fn register_test_particle_template(name: &str) -> bool {
+    match particle_attach_support::ensure_test_manager() {
+        Some(mgr) => {
+            mgr.register_template(name);
+            true
+        }
+        None => false,
+    }
+}
+
+#[cfg(test)]
+pub fn test_particle_attach_count() -> u32 {
+    particle_attach_support::ensure_test_manager()
+        .map(|m| m.attach_count())
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+pub fn test_particle_attached_object_id(system_id: u32) -> Option<ObjectID> {
+    particle_attach_support::ensure_test_manager()?.attached_object(system_id)
+}
+
+#[cfg(test)]
+pub fn test_last_attached_object_id() -> Option<ObjectID> {
+    particle_attach_support::ensure_test_manager()?.last_attached_object()
 }
 
 #[derive(Clone, Debug)]
@@ -2964,6 +3172,16 @@ impl TheGameLODManager {
     /// Get slow death scale factor (matches GameLOD.ini DynamicGameLOD::SlowDeathScale)
     pub fn get_slow_death_scale() -> Real {
         game_engine::common::game_lod::get_slow_death_scale() as Real
+    }
+
+    /// C++ `TheGameLODManager->isDebrisSkipped()`.
+    pub fn is_debris_skipped() -> bool {
+        game_engine::common::ini::is_debris_skipped()
+    }
+
+    /// Set the runtime debris skip mask used by `isDebrisSkipped`.
+    pub fn set_dynamic_debris_skip_mask(mask: i32) {
+        game_engine::common::ini::set_dynamic_debris_skip_mask(mask);
     }
 }
 
@@ -4153,6 +4371,31 @@ impl ThePartitionManager {
             0.0
         };
         true
+    }
+
+    /// Mirrors C++ PartitionManager::getShroudStatusForPlayer(playerIndex, loc).
+    /// Returns `CELLSHROUD_SHROUDED` for invalid players or unknown cells.
+    pub fn get_shroud_status_for_player(
+        &self,
+        player_index: Int,
+        loc: &Coord3D,
+    ) -> game_engine::common::system::radar::CellShroudStatus {
+        use crate::system::shroud_manager::ShroudState;
+        use game_engine::common::system::radar::CellShroudStatus;
+
+        // C++: if (playerIndex < 0) return CELLSHROUD_SHROUDED;
+        if player_index < 0 {
+            return CellShroudStatus::Shrouded;
+        }
+
+        let Ok(shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+            return CellShroudStatus::Shrouded;
+        };
+        match shroud.get_shroud_state(player_index as u32, loc) {
+            ShroudState::Visible => CellShroudStatus::Clear,
+            ShroudState::Explored => CellShroudStatus::Fogged,
+            ShroudState::Hidden => CellShroudStatus::Shrouded,
+        }
     }
 
     /// Mirrors C++ ThePartitionManager->doShroudReveal().
@@ -5995,5 +6238,39 @@ mod tests {
 
         let mut logic = get_game_logic().lock().unwrap();
         logic.set_game_mode(previous_mode);
+    }
+
+    #[test]
+    fn attach_particle_system_to_object_dummy_name_does_not_panic() {
+        let result = std::panic::catch_unwind(|| {
+            super::attach_particle_system_to_object("OclDummyNoSuchParticleTemplate", 12345)
+        });
+        assert!(result.is_ok(), "dummy particle template must fail-closed");
+        assert_eq!(result.unwrap(), None);
+
+        let empty = std::panic::catch_unwind(|| super::attach_particle_system_to_object("", 1));
+        assert!(empty.is_ok());
+        assert_eq!(empty.unwrap(), None);
+    }
+
+    #[test]
+    fn attach_particle_system_to_object_records_parent_object_id() {
+        let Some(_) = super::particle_attach_support::ensure_test_manager() else {
+            // Another manager already owns the OnceLock; dummy path still fail-closed.
+            assert!(super::attach_particle_system_to_object("MissingOclParticle", 7).is_none());
+            return;
+        };
+        assert!(super::register_test_particle_template("OclTestSmoke"));
+        let before = super::test_particle_attach_count();
+        let object_id = 42_424u32;
+        let system_id = super::attach_particle_system_to_object("OclTestSmoke", object_id)
+            .expect("registered test template should create+attach");
+        assert_eq!(super::test_particle_attach_count(), before + 1);
+        assert_eq!(
+            super::test_particle_attached_object_id(system_id),
+            Some(object_id)
+        );
+        assert!(super::attach_particle_system_to_object("StillMissingOclParticle", object_id)
+            .is_none());
     }
 }

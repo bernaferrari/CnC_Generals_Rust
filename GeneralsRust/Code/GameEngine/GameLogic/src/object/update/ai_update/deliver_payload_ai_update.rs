@@ -857,9 +857,7 @@ impl DeliverPayloadAIUpdate {
             if let Some(item) = TheGameLogic::find_object_by_id(item_id) {
                 if self.data.fire_weapon {
                     if let Ok(mut owner_guard) = owner.as_ref().unwrap().write() {
-                        let pos = self
-                            .data
-                            .drop_world_pos(self.target_pos, Coord3D::ZERO);
+                        let pos = self.data.drop_world_pos(self.target_pos, Coord3D::ZERO);
                         let _ = owner_guard.fire_current_weapon_at_position(&pos);
                     }
                     let _ = TheGameLogic::destroy_object_by_id(item_id);

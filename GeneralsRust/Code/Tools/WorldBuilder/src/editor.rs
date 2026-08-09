@@ -5,10 +5,13 @@ use crate::objects::ObjectManager;
 use crate::scripting::ScriptEditor;
 use crate::terrain::TerrainEditor;
 use crate::tools::ToolManager;
-use crate::ui::WorldBuilderUI;
+use crate::ui::{
+    apply_chrome_view_command, world_to_cell, ChromeCommand, EditorChrome, WbToolId, WorldBuilderUI,
+};
 
 use anyhow::Result;
 use eframe::egui;
+use game_engine::map_object::{Coord3D, MapObject, MAP_XY_FACTOR};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -17,6 +20,9 @@ use ui_framework::{
     GameTool, ThemeType, ToolConfig, Viewport3D,
 };
 use uuid::Uuid;
+use world_builder::scorch_tool::{
+    mouse_down_scorch, DEFAULT_SCORCHMARK_RADIUS, SCORCH_1,
+};
 
 /// Main World Builder tool implementation
 pub struct WorldBuilderTool {
@@ -34,11 +40,14 @@ pub struct WorldBuilderTool {
     ui: WorldBuilderUI,
     viewport: Viewport3D,
     dialog_manager: DialogManager,
+    chrome: EditorChrome,
 
     // State
     is_initialized: bool,
     dirty: bool, // Has unsaved changes
     last_save_path: Option<PathBuf>,
+    /// Scorch map objects for C++ `ScorchTool::mouseDown` / `pickScorch`.
+    scorch_objects: Vec<MapObject>,
 
     // Performance
     frame_count: u64,
@@ -68,15 +77,59 @@ impl WorldBuilderTool {
             ui: WorldBuilderUI::new(),
             viewport: Viewport3D::new(),
             dialog_manager: DialogManager::new(),
+            chrome: EditorChrome::new(),
 
             is_initialized: false,
             dirty: false,
             last_save_path: None,
+            scorch_objects: Vec::new(),
 
             frame_count: 0,
             last_fps_update: std::time::Instant::now(),
             current_fps: 0.0,
         })
+    }
+
+    /// Switch the live editor tool (palette / Tools menu / tests).
+    pub fn set_current_tool(&mut self, tool_id: &str) -> bool {
+        if !self.chrome.select_tool_id(tool_id) {
+            return false;
+        }
+        let _ = self.chrome.take_command();
+        if !self.tool_manager.has_tool(tool_id) {
+            return false;
+        }
+        self.tool_manager.set_active_tool(tool_id);
+        true
+    }
+
+    pub fn current_tool_id(&self) -> &str {
+        self.chrome.selected_tool_id()
+    }
+
+    pub fn current_tool_name(&self) -> &str {
+        self.chrome.selected_tool_name()
+    }
+
+    pub fn chrome(&self) -> &EditorChrome {
+        &self.chrome
+    }
+
+    pub fn scorch_objects(&self) -> &[MapObject] {
+        &self.scorch_objects
+    }
+
+    /// C++ `ScorchTool::mouseDown` when the scorch tool is current.
+    pub fn scorch_mouse_down(&mut self, loc: Coord3D) -> Option<usize> {
+        if self.chrome.selected_tool() != WbToolId::Scorch {
+            return None;
+        }
+        Some(mouse_down_scorch(
+            &mut self.scorch_objects,
+            loc,
+            DEFAULT_SCORCHMARK_RADIUS,
+            SCORCH_1,
+        ))
     }
 
     /// Create a new map
@@ -93,6 +146,7 @@ impl WorldBuilderTool {
         self.script_editor.clear();
 
         let map_guard = map_arc.read().unwrap();
+        self.chrome.set_map_name(map_guard.name());
         log::info!(
             "Created new map: {}x{}",
             map_guard.width(),
@@ -120,6 +174,7 @@ impl WorldBuilderTool {
         let map_guard = map_arc.read().unwrap();
         self.object_manager.load_objects(&map_guard)?;
         self.script_editor.load_scripts(&map_guard)?;
+        self.chrome.set_map_name(map_guard.name());
         drop(map_guard);
 
         log::info!("Successfully loaded map: {}", path.display());
@@ -200,11 +255,84 @@ impl WorldBuilderTool {
         // Update 3D viewport
         self.viewport.update(ui)?;
 
+        self.update_hover_and_scorch(ui);
+
         // Handle tool-specific viewport interaction
         if let Some(active_tool) = self.tool_manager.active_tool_mut() {
             active_tool.handle_viewport_input(&mut self.viewport, ui)?;
         }
 
+        Ok(())
+    }
+
+    fn update_hover_and_scorch(&mut self, ui: &mut egui::Ui) {
+        let rect = ui.max_rect();
+        let hover = ui.input(|i| i.pointer.hover_pos());
+        let clicked = ui.input(|i| i.pointer.primary_pressed());
+        if let Some(pos) = hover {
+            if rect.contains(pos) {
+                let world_x = pos.x - rect.min.x;
+                let world_y = pos.y - rect.min.y;
+                let world_z = 0.0;
+                let cell = world_to_cell(world_x, world_y, MAP_XY_FACTOR);
+                self.chrome
+                    .set_hover_coords(Some(cell), Some((world_x, world_y, world_z)));
+                if clicked {
+                    self.scorch_mouse_down(Coord3D::new(world_x, world_y, world_z));
+                }
+            }
+        }
+    }
+
+    fn apply_chrome_command(&mut self, ctx: &egui::Context, command: ChromeCommand) -> Result<()> {
+        match command {
+            ChromeCommand::FileNew => {
+                self.ui.show_new_map_dialog();
+            }
+            ChromeCommand::FileOpen => {
+                self.dialog_manager.open_dialog(
+                    "load_map".to_string(),
+                    Box::new(FileDialog::new(FileDialogType::Open, "map")),
+                );
+            }
+            ChromeCommand::FileSave => {
+                if let Err(e) = self.save_map() {
+                    log::error!("Failed to save map: {}", e);
+                }
+            }
+            ChromeCommand::FileSaveAs => {
+                self.dialog_manager.open_dialog(
+                    "save_map_as".to_string(),
+                    Box::new(FileDialog::new(FileDialogType::SaveAs, "map")),
+                );
+            }
+            ChromeCommand::FileExit => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            ChromeCommand::EditUndo => {
+                if let Err(e) = self.terrain_editor.undo() {
+                    log::error!("Undo failed: {}", e);
+                }
+            }
+            ChromeCommand::EditRedo => {
+                if let Err(e) = self.terrain_editor.redo() {
+                    log::error!("Redo failed: {}", e);
+                }
+            }
+            ChromeCommand::SelectTool(tool) => {
+                let _ = self.set_current_tool(tool.as_str());
+            }
+            ChromeCommand::ViewToggle(_) | ChromeCommand::HelpAbout => {
+                apply_chrome_view_command(&mut self.chrome, &command);
+            }
+        }
+        Ok(())
+    }
+
+    fn drain_chrome_commands(&mut self, ctx: &egui::Context) -> Result<()> {
+        while let Some(command) = self.chrome.take_command() {
+            self.apply_chrome_command(ctx, command)?;
+        }
         Ok(())
     }
 
@@ -274,6 +402,24 @@ impl GameTool for WorldBuilderTool {
         self.dialog_manager.update(ctx);
         self.process_dialogs()?;
 
+        self.chrome.set_map_name(self.current_map_name());
+        self.chrome.set_unsaved(self.has_unsaved_changes());
+
+        if let Some(settings) = self.ui.process_new_map_dialog(ctx) {
+            if let Err(e) = self.new_map(settings) {
+                log::error!("Failed to create map: {}", e);
+            }
+        }
+        self.ui.show_about_dialog(ctx, &mut self.chrome);
+
+        // C++-matching File/Edit/View/Tools/Help (in addition to ToolApp chrome).
+        egui::TopBottomPanel::top("wb_main_menu").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                self.ui.show_main_menu(ui, &mut self.chrome);
+            });
+        });
+        self.drain_chrome_commands(ctx)?;
+
         // Main editor layout
         egui::SidePanel::left("tool_panel")
             .resizable(true)
@@ -281,11 +427,13 @@ impl GameTool for WorldBuilderTool {
             .show(ctx, |ui| {
                 self.ui.show_tool_panel(
                     ui,
+                    &mut self.chrome,
                     &mut self.tool_manager,
                     &mut self.terrain_editor,
                     &mut self.object_manager,
                 );
             });
+        self.drain_chrome_commands(ctx)?;
 
         egui::SidePanel::right("properties_panel")
             .resizable(true)
@@ -295,147 +443,51 @@ impl GameTool for WorldBuilderTool {
                     .show_properties_panel(ui, &mut self.object_manager, &self.tool_manager);
             });
 
-        egui::TopBottomPanel::bottom("status_bar")
-            .resizable(false)
-            .default_height(25.0)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    // Map info
-                    ui.label(format!("Map: {}", self.current_map_name()));
-
-                    ui.separator();
-
-                    // Tool status
-                    if let Some(tool) = self.tool_manager.active_tool() {
-                        ui.label(format!("Tool: {}", tool.name()));
-                    }
-
-                    ui.separator();
-
-                    // Dirty flag
-                    if self.has_unsaved_changes() {
-                        ui.colored_label(egui::Color32::YELLOW, "Unsaved Changes");
-                    } else {
-                        ui.label("Saved");
-                    }
-
-                    // Right-aligned status
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(format!("FPS: {:.0}", self.current_fps));
-
-                        if let Some(ref map_arc) = self.current_map {
-                            let map = map_arc.read().unwrap();
-                            ui.label(format!("Size: {}x{}", map.width(), map.height()));
-                        }
+        if self.chrome.show_status_bar {
+            egui::TopBottomPanel::bottom("wb_status_bar")
+                .resizable(false)
+                .default_height(25.0)
+                .show(ctx, |ui| {
+                    let map_size = self.current_map.as_ref().map(|map_arc| {
+                        let map = map_arc.read().unwrap();
+                        (map.width(), map.height())
                     });
+                    self.ui
+                        .show_status_bar(ui, &self.chrome, self.current_fps, map_size);
                 });
-            });
+        }
 
         // Main viewport area
         let viewport_result = egui::CentralPanel::default().show(ctx, |ui| {
-            // Viewport toolbar
             ui.horizontal(|ui| {
-                self.ui
-                    .show_viewport_toolbar(ui, &mut self.viewport, &mut self.tool_manager);
+                self.ui.show_viewport_toolbar(
+                    ui,
+                    &mut self.viewport,
+                    &mut self.tool_manager,
+                    &mut self.chrome,
+                );
             });
 
             ui.separator();
 
-            // 3D viewport
             self.update_viewport(ui)
         });
 
-        // Handle viewport result
         viewport_result.inner?;
 
-        // Update editors
-        if let Some(ref map) = self.current_map {
+        if let Some(ref _map) = self.current_map {
             self.terrain_editor.update()?;
             self.object_manager.update()?;
             self.script_editor.update()?;
         }
 
-        // Update tools
         self.tool_manager.update()?;
 
         Ok(())
     }
 
     fn menu_bar(&mut self, ui: &mut eframe::egui::Ui) -> Result<()> {
-        // File menu (additional items)
-        ui.menu_button("Map", |ui| {
-            if ui.button("New Map...").clicked() {
-                // Open new map dialog
-                self.ui.show_new_map_dialog();
-            }
-
-            if ui.button("Load Map...").clicked() {
-                // Open load dialog
-                self.dialog_manager.open_dialog(
-                    "load_map".to_string(),
-                    Box::new(FileDialog::new(FileDialogType::Open, "map")),
-                );
-            }
-
-            ui.separator();
-
-            if ui.button("Save Map").clicked() {
-                if let Err(e) = self.save_map() {
-                    log::error!("Failed to save map: {}", e);
-                }
-            }
-
-            if ui.button("Save Map As...").clicked() {
-                self.dialog_manager.open_dialog(
-                    "save_map_as".to_string(),
-                    Box::new(FileDialog::new(FileDialogType::SaveAs, "map")),
-                );
-            }
-
-            ui.separator();
-
-            if ui.button("Export...").clicked() {
-                // Export map for game engine
-            }
-        });
-
-        // Tools menu
-        ui.menu_button("Tools", |ui| {
-            for tool_id in self.tool_manager.available_tools() {
-                let tool_name = self
-                    .tool_manager
-                    .get_tool_name(&tool_id)
-                    .unwrap_or(&tool_id);
-                if ui.button(tool_name).clicked() {
-                    self.tool_manager.set_active_tool(&tool_id);
-                }
-            }
-
-            ui.separator();
-
-            if ui.button("Validate Map").clicked() {
-                // Run map validation
-            }
-        });
-
-        // View menu
-        ui.menu_button("Viewport", |ui| {
-            if ui.button("Reset Camera").clicked() {
-                self.viewport
-                    .set_camera(glam::Vec3::new(0.0, 50.0, 100.0), glam::Vec3::ZERO);
-            }
-
-            ui.separator();
-
-            if ui.button("Wireframe").clicked() {
-                // Toggle wireframe mode
-            }
-
-            if ui.button("Show Grid").clicked() {
-                // Toggle grid display
-            }
-        });
-
+        self.ui.show_main_menu(ui, &mut self.chrome);
         Ok(())
     }
 
@@ -507,5 +559,58 @@ impl Default for ViewportSettings {
             show_wireframe: false,
             background_color: [0.2, 0.2, 0.3],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::map_object::Coord3D;
+
+    #[test]
+    fn chrome_menu_contains_file_open() {
+        let tool = WorldBuilderTool::new().expect("WorldBuilderTool::new");
+        assert!(
+            tool.chrome().menu_contains("File", "Open"),
+            "editor chrome must expose File/Open"
+        );
+    }
+
+    #[test]
+    fn selecting_scorch_tool_sets_current_tool() {
+        let mut tool = WorldBuilderTool::new().expect("WorldBuilderTool::new");
+        assert_eq!(tool.current_tool_id(), "pointer");
+        assert!(tool.set_current_tool("scorch"));
+        assert_eq!(tool.current_tool_id(), "scorch");
+        assert_eq!(tool.current_tool_name(), "Scorch");
+        assert_eq!(tool.tool_manager.active_tool_id(), Some("scorch"));
+        assert_eq!(
+            tool.tool_manager.get_tool_name("scorch"),
+            Some("Scorch")
+        );
+    }
+
+    #[test]
+    fn scorch_mouse_down_only_when_scorch_is_current() {
+        let mut tool = WorldBuilderTool::new().expect("WorldBuilderTool::new");
+        assert!(tool
+            .scorch_mouse_down(Coord3D::new(14.0, 26.0, 3.0))
+            .is_none());
+        assert!(tool.scorch_objects().is_empty());
+
+        assert!(tool.set_current_tool("scorch"));
+        let idx = tool
+            .scorch_mouse_down(Coord3D::new(14.0, 26.0, 3.0))
+            .expect("place scorch");
+        assert_eq!(idx, 0);
+        assert_eq!(tool.scorch_objects().len(), 1);
+        assert!(tool.scorch_objects()[0].is_scorch());
+        assert!(tool.scorch_objects()[0].is_selected());
+
+        let again = tool
+            .scorch_mouse_down(Coord3D::new(12.0, 26.0, 3.0))
+            .expect("pick existing");
+        assert_eq!(again, 0);
+        assert_eq!(tool.scorch_objects().len(), 1);
     }
 }

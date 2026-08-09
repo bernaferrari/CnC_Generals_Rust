@@ -347,13 +347,14 @@ pub enum BuildableStatus {
 }
 
 /// Radar priority types
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RadarPriorityType {
     Invalid = 0,
-    Low,
-    Medium,
-    High,
-    Critical,
+    NotOnRadar,
+    Structure,
+    Unit,
+    LocalUnitOnly,
 }
 
 /// Editor sorting types, preserving C++ Common/ThingSort.h discriminants.
@@ -2792,8 +2793,14 @@ impl ThingTemplate {
 
                 // --- Occlusion ---
                 "OcclusionDelay" => {
-                    // C++ uses parseDurationUnsignedInt -- frames at 30 FPS
-                    if let Ok(v) = trimmed.parse::<u32>() {
+                    // C++ uses INI::parseDurationUnsignedInt: object INI values are
+                    // millisecond durations (optionally suffixed with `ms` / `s`),
+                    // while the stored value is in 30 Hz logic frames.  Treating the
+                    // raw token as a frame count makes retail values 30 times too
+                    // large and keeps occluders alive far beyond their C++ lifetime.
+                    if let Ok(v) =
+                        crate::common::ini::ini::INI::parse_duration_unsigned_int(trimmed)
+                    {
                         self.occlusion_delay = v;
                     }
                 }
@@ -2927,11 +2934,14 @@ fn parse_editor_sorting(s: &str) -> EditorSortingType {
 }
 
 fn parse_radar_priority(s: &str) -> RadarPriorityType {
-    match s.trim() {
-        "Low" => RadarPriorityType::Low,
-        "Medium" => RadarPriorityType::Medium,
-        "High" => RadarPriorityType::High,
-        "Critical" => RadarPriorityType::Critical,
+    // `RadarPriorityNames` in C++ uses symbolic gameplay categories, not a
+    // low-to-critical scale.  This is present on most retail object templates
+    // and determines whether/how an object appears on the minimap.
+    match s.trim().to_ascii_uppercase().as_str() {
+        "NOT_ON_RADAR" => RadarPriorityType::NotOnRadar,
+        "STRUCTURE" => RadarPriorityType::Structure,
+        "UNIT" => RadarPriorityType::Unit,
+        "LOCAL_UNIT_ONLY" => RadarPriorityType::LocalUnitOnly,
         _ => RadarPriorityType::Invalid,
     }
 }
@@ -2959,25 +2969,34 @@ fn lookup_module_interface_mask(
 }
 
 fn parse_buildable_status(s: &str) -> BuildableStatus {
-    match s.trim() {
-        "IgnorePrerequisites" => BuildableStatus::IgnorePrerequisites,
-        "No" => BuildableStatus::No,
-        "OnlyByAI" => BuildableStatus::OnlyByAi,
+    // C++ `BuildableStatusNames` spells the multi-word values with
+    // underscores.  Accept the old Rust spellings too so editor fixtures
+    // remain valid, but preserve the retail INI representation.
+    match s.trim().to_ascii_uppercase().as_str() {
+        "IGNORE_PREREQUISITES" | "IGNOREPREREQUISITES" => BuildableStatus::IgnorePrerequisites,
+        "NO" => BuildableStatus::No,
+        "ONLY_BY_AI" | "ONLYBYAI" => BuildableStatus::OnlyByAi,
         _ => BuildableStatus::Yes,
     }
 }
 
 fn parse_build_completion(s: &str) -> BuildCompletionType {
-    match s.trim() {
-        "PlacedByPlayer" => BuildCompletionType::PlacedByPlayer,
+    // C++ `BuildCompletionNames` uses `PLACED_BY_PLAYER` and
+    // `APPEARS_AT_RALLY_POINT`; the latter is the constructor default.
+    match s.trim().to_ascii_uppercase().as_str() {
+        "PLACED_BY_PLAYER" | "PLACEDBYPLAYER" => BuildCompletionType::PlacedByPlayer,
         _ => BuildCompletionType::AppearsAtRallyPoint,
     }
 }
 
 fn parse_shadow_type(s: &str) -> ShadowType {
-    match s.trim() {
-        "VOLUME" | "Volume" => ShadowType::Volume,
-        "DECAL" | "Decal" => ShadowType::Decal,
+    // `ThingTemplate.cpp` parses this field with `TheShadowNames`, whose
+    // retail tokens are `SHADOW_VOLUME` and `SHADOW_DECAL` (rather than the
+    // shortened enum labels).  Keep accepting the latter for hand-authored
+    // Rust fixtures, but make the game data spellings first-class.
+    match s.trim().to_ascii_uppercase().as_str() {
+        "SHADOW_VOLUME" | "VOLUME" => ShadowType::Volume,
+        "SHADOW_DECAL" | "DECAL" => ShadowType::Decal,
         _ => ShadowType::None,
     }
 }
@@ -3069,6 +3088,71 @@ mod tests {
         let result = template.parse_object_fields_from_ini(&properties);
 
         assert!(matches!(result, Err(message) if message.contains("NotARealObjectField")));
+    }
+
+    #[test]
+    fn occlusion_delay_uses_cpp_duration_frame_conversion() {
+        let mut template = ThingTemplate::new();
+
+        // C++ INI::parseDurationUnsignedInt stores a 500 ms duration as 15
+        // logic frames, rather than the literal integer 500.
+        let properties = HashMap::from([("OcclusionDelay".to_string(), "500ms".to_string())]);
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("known C++ field should parse");
+        assert_eq!(template.get_occlusion_delay(), 15);
+
+        let properties = HashMap::from([("OcclusionDelay".to_string(), "1s".to_string())]);
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("duration suffix should parse");
+        assert_eq!(template.get_occlusion_delay(), 30);
+    }
+
+    #[test]
+    fn shadow_parser_accepts_retail_cpp_shadow_tokens() {
+        // These are the tokens in GameClient/Shadow.h's TheShadowNames table
+        // and in the extracted Zero Hour object INIs.
+        assert_eq!(parse_shadow_type("SHADOW_VOLUME"), ShadowType::Volume);
+        assert_eq!(parse_shadow_type("shadow_decal"), ShadowType::Decal);
+        assert_eq!(parse_shadow_type("NONE"), ShadowType::None);
+    }
+
+    #[test]
+    fn radar_priority_parser_preserves_cpp_radar_categories() {
+        let mut template = ThingTemplate::new();
+        for (token, expected) in [
+            ("NOT_ON_RADAR", RadarPriorityType::NotOnRadar),
+            ("STRUCTURE", RadarPriorityType::Structure),
+            ("UNIT", RadarPriorityType::Unit),
+            ("LOCAL_UNIT_ONLY", RadarPriorityType::LocalUnitOnly),
+        ] {
+            let properties = HashMap::from([("RadarPriority".to_string(), token.to_string())]);
+            template
+                .parse_object_fields_from_ini(&properties)
+                .expect("retail radar priority should parse");
+            assert_eq!(template.get_radar_priority(), expected);
+        }
+    }
+
+    #[test]
+    fn build_parsers_accept_retail_cpp_enum_tokens() {
+        assert_eq!(
+            parse_build_completion("PLACED_BY_PLAYER"),
+            BuildCompletionType::PlacedByPlayer
+        );
+        assert_eq!(
+            parse_build_completion("APPEARS_AT_RALLY_POINT"),
+            BuildCompletionType::AppearsAtRallyPoint
+        );
+        assert_eq!(
+            parse_buildable_status("Ignore_Prerequisites"),
+            BuildableStatus::IgnorePrerequisites
+        );
+        assert_eq!(
+            parse_buildable_status("Only_By_AI"),
+            BuildableStatus::OnlyByAi
+        );
     }
 
     #[test]
@@ -3810,10 +3894,10 @@ impl Snapshotable for ThingTemplate {
         let mut radar_u8 = self.radar_priority as u8;
         xfer.xfer_unsigned_byte(&mut radar_u8).map_err(xfer_err)?;
         self.radar_priority = match radar_u8 {
-            1 => RadarPriorityType::Low,
-            2 => RadarPriorityType::Medium,
-            3 => RadarPriorityType::High,
-            4 => RadarPriorityType::Critical,
+            1 => RadarPriorityType::NotOnRadar,
+            2 => RadarPriorityType::Structure,
+            3 => RadarPriorityType::Unit,
+            4 => RadarPriorityType::LocalUnitOnly,
             _ => RadarPriorityType::Invalid,
         };
 

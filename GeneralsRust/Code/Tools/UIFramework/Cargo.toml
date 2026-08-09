@@ -32,9 +32,13 @@ notify = { workspace = true }
 rfd = { workspace = true }
 image = { workspace = true }
 
+# Optional GPUI host (macOS tools stay on the default egui path)
+gpui = { version = "0.2.2", optional = true }
+
 [features]
 default = ["3d_viewport", "asset_browser", "property_panels"]
 3d_viewport = []
 asset_browser = []
 property_panels = []
 hot_reload = []
+gpui = ["dep:gpui"]
