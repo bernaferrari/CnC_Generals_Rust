@@ -29,8 +29,24 @@ use std::sync::Mutex;
 // Constants matching C++ defines
 // ---------------------------------------------------------------------------
 
-/// Alignment boundary for all allocations (C++: MEM_BOUND_ALIGNMENT = 4).
-pub const MEM_BOUND_ALIGNMENT: usize = 4;
+/// Alignment boundary for all allocations.
+///
+/// C++ used `MEM_BOUND_ALIGNMENT = 4` on Win32 (32-bit pointers; see the
+/// `@todo srj -- make this work for 8` note in GameMemory.cpp). Headers embed
+/// pointer fields, so on 64-bit Rust `Layout::from_size_align(..., 4)` followed
+/// by a cast to `BlockHeader` is formally unsound. The port honors pointer
+/// alignment: `max(align_of::<usize>(), 8)`.
+///
+/// User-visible pool allocation sizes may therefore round up slightly vs C++
+/// (e.g. a 4-byte request becomes 8). That is OK.
+pub const MEM_BOUND_ALIGNMENT: usize = {
+    let ptr_align = std::mem::align_of::<usize>();
+    if ptr_align > 8 {
+        ptr_align
+    } else {
+        8
+    }
+};
 
 /// Max sub-pools per DynamicMemoryAllocator (C++: MAX_DYNAMICMEMORYALLOCATOR_SUBPOOLS = 8).
 pub const MAX_DMA_SUBPOOLS: usize = 8;
@@ -114,12 +130,18 @@ fn memset32(ptr: *mut u8, value: u32, bytes_to_fill: usize) {
 // Raw system allocation (matches C++ sysAllocateDoNotZero / sysFree)
 // ---------------------------------------------------------------------------
 
+/// Build the system `Layout` used for every raw allocation/free.
+/// Size is rounded up to `MEM_BOUND_ALIGNMENT` so it is a valid multiple of align.
+fn sys_layout(num_bytes: usize) -> Layout {
+    let num_bytes = round_up_mem_bound(num_bytes.max(1));
+    Layout::from_size_align(num_bytes, MEM_BOUND_ALIGNMENT).expect("invalid sys layout")
+}
+
 fn sys_allocate(num_bytes: usize) -> *mut u8 {
     if num_bytes == 0 {
         return std::ptr::null_mut();
     }
-    let layout =
-        Layout::from_size_align(num_bytes, MEM_BOUND_ALIGNMENT).expect("invalid sys layout");
+    let layout = sys_layout(num_bytes);
     let ptr = unsafe { alloc(layout) };
     if ptr.is_null() {
         panic!("Out of memory: sys_allocate failed for {} bytes", num_bytes);
@@ -136,8 +158,7 @@ unsafe fn sys_free(ptr: *mut u8, num_bytes: usize) {
     if ptr.is_null() {
         return;
     }
-    let layout = Layout::from_size_align(num_bytes, MEM_BOUND_ALIGNMENT)
-        .expect("invalid sys layout on free");
+    let layout = sys_layout(num_bytes);
     #[cfg(debug_assertions)]
     {
         memset32(ptr, debug_consts::GARBAGE_FILL_VALUE, layout.size());
@@ -152,8 +173,11 @@ unsafe fn sys_free(ptr: *mut u8, num_bytes: usize) {
 
 /// Header placed before each user data region.
 /// In C++, this was `MemoryPoolSingleBlock` allocated inline with the user data.
-/// Here we use a `repr(C)` struct to ensure layout compatibility.
-#[repr(C)]
+///
+/// `align(8)` matches `MEM_BOUND_ALIGNMENT` on this 64-bit target so pointer
+/// fields (`owning_blob` / `next` / `prev`) can be stored without misaligned
+/// writes. C++ headers were 4-aligned on 32-bit; that is not valid here.
+#[repr(C, align(8))]
 struct BlockHeader {
     /// Pointer back to the owning blob (NULL for raw/DMA blocks).
     owning_blob: *mut MemoryPoolBlob,
@@ -176,7 +200,8 @@ struct BlockHeader {
 
 impl BlockHeader {
     /// Calculate the raw block size needed for a given logical (user) size.
-    /// Matches C++ MemoryPoolSingleBlock::calcRawBlockSize.
+    /// Matches C++ MemoryPoolSingleBlock::calcRawBlockSize, then rounds the
+    /// total so consecutive blob blocks stay `MEM_BOUND_ALIGNMENT`-aligned.
     fn calc_raw_block_size(logical_size: usize) -> usize {
         let aligned = round_up_mem_bound(logical_size);
         let mut s = std::mem::size_of::<BlockHeader>() + aligned;
@@ -184,7 +209,9 @@ impl BlockHeader {
         {
             s += debug_consts::WALLSIZE * 2;
         }
-        s
+        // sizeof(BlockHeader) is already a multiple of 8 via `repr(C, align(8))`,
+        // WALLSIZE is 0 or 8, and `aligned` is rounded — this is a safety net.
+        round_up_mem_bound(s)
     }
 
     /// Get a pointer to user data (just past the header + front wall).
@@ -292,6 +319,14 @@ impl BlockHeader {
     }
 }
 
+// Header is pointer-containing: align/size must be compatible with MEM_BOUND_ALIGNMENT.
+const _: () = {
+    assert!(MEM_BOUND_ALIGNMENT >= 8);
+    assert!(MEM_BOUND_ALIGNMENT % 8 == 0);
+    assert!(std::mem::align_of::<BlockHeader>() >= MEM_BOUND_ALIGNMENT);
+    assert!(std::mem::size_of::<BlockHeader>() % MEM_BOUND_ALIGNMENT == 0);
+};
+
 // ---------------------------------------------------------------------------
 // MemoryPoolBlob - matches C++ MemoryPoolBlob
 // ---------------------------------------------------------------------------
@@ -325,8 +360,7 @@ impl MemoryPoolBlob {
         self.raw_block_size = BlockHeader::calc_raw_block_size(allocation_size);
 
         let total_bytes = self.raw_block_size * allocation_count;
-        self.layout =
-            Layout::from_size_align(total_bytes, MEM_BOUND_ALIGNMENT).expect("invalid blob layout");
+        self.layout = sys_layout(total_bytes);
         self.block_data = sys_allocate(total_bytes);
 
         self.prev_blob = ptr::null_mut();
@@ -933,7 +967,7 @@ pub struct MemoryPoolFactory {
 }
 
 impl MemoryPoolFactory {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             pools: HashMap::new(),
             pool_list_head: ptr::null_mut(),
@@ -1123,10 +1157,29 @@ impl Drop for MemoryPoolFactory {
 // Global singletons (matching C++ TheMemoryPoolFactory, TheDynamicMemoryAllocator)
 // ---------------------------------------------------------------------------
 
-/// Wrapper to make raw DMA pointer Send-safe.
-/// The Mutex already provides exclusive access, so this is sound.
+/// Wrapper around a factory-owned DMA raw pointer.
+///
+/// Stored only inside `Mutex<Option<DmaPtr>>` (`THE_DMA`). The mutex is the
+/// exclusive-access gate; this type is intentionally `!Sync`.
 struct DmaPtr(*mut DynamicMemoryAllocator);
+
+// SAFETY: `DmaPtr` is a raw pointer to a `DynamicMemoryAllocator` allocated
+// and owned by `MemoryPoolFactory`. It is stored only in `THE_DMA: Mutex<...>`,
+// so the pointer is never read or written without exclusive mutex ownership.
+// The pointed-to DMA is not freed while a `DmaPtr` still exists (`shutdown`
+// clears `THE_DMA` first). Sending the pointer to another thread is therefore
+// just transferring exclusive ownership of that handle. Not `Sync`: two
+// threads must not dereference the same raw DMA pointer concurrently.
 unsafe impl Send for DmaPtr {}
+
+// SAFETY: `MemoryPoolFactory` holds `*mut MemoryPool` / `*mut DynamicMemoryAllocator`
+// into allocations it owns (and a `HashMap<String, *mut MemoryPool>` of the
+// same pointers). It lives in `THE_FACTORY: Mutex<MemoryPoolFactory>`, so
+// every access is exclusive. Sending the factory moves exclusive ownership of
+// those allocations; heap addresses stay valid across the move. Not `Sync`:
+// the intrusive lists and raw pointers are mutated without interior locks.
+// Do not weaken this allocator or replace the raw pointers without a matching
+// ownership model.
 unsafe impl Send for MemoryPoolFactory {}
 
 lazy_static::lazy_static! {
@@ -1222,6 +1275,54 @@ pub fn find_pool(pool_name: &str) -> Option<*mut MemoryPool> {
     factory.find_memory_pool(pool_name)
 }
 
+/// Recover the block-header address sitting before `user`.
+/// Hidden: alignment tests verify this pointer is `MEM_BOUND_ALIGNMENT`-aligned.
+#[doc(hidden)]
+pub fn debug_block_header_from_user(user: *mut u8) -> *mut u8 {
+    BlockHeader::from_user_data(user) as *mut u8
+}
+
+/// Write (and restore) the header's pointer fields recovered from `user`.
+///
+/// Returns true iff the header and each pointer field are aligned to
+/// `align_of::<*mut u8>()` / `MEM_BOUND_ALIGNMENT` and the stores read back.
+/// Hidden: proves `BlockHeader` pointer fields can be written without a
+/// misaligned pointer (the original `Layout` align-4 bug).
+#[doc(hidden)]
+pub unsafe fn debug_write_header_pointer_fields(user: *mut u8) -> bool {
+    if user.is_null() {
+        return false;
+    }
+    let block = BlockHeader::from_user_data(user);
+    let ptr_align = std::mem::align_of::<*mut u8>();
+    if (block as usize) % MEM_BOUND_ALIGNMENT != 0 {
+        return false;
+    }
+    if (block as usize) % std::mem::align_of::<BlockHeader>() != 0 {
+        return false;
+    }
+    let next_field = ptr::addr_of_mut!((*block).next);
+    let prev_field = ptr::addr_of_mut!((*block).prev);
+    let blob_field = ptr::addr_of_mut!((*block).owning_blob);
+    if (next_field as usize) % ptr_align != 0
+        || (prev_field as usize) % ptr_align != 0
+        || (blob_field as usize) % ptr_align != 0
+    {
+        return false;
+    }
+    let saved_next = ptr::read(next_field);
+    let saved_prev = ptr::read(prev_field);
+    let saved_blob = ptr::read(blob_field);
+    ptr::write(next_field, block);
+    ptr::write(prev_field, block);
+    ptr::write(blob_field, saved_blob);
+    let ok = ptr::read(next_field) == block && ptr::read(prev_field) == block;
+    ptr::write(next_field, saved_next);
+    ptr::write(prev_field, saved_prev);
+    ptr::write(blob_field, saved_blob);
+    ok
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1232,10 +1333,30 @@ mod tests {
 
     #[test]
     fn test_round_up_mem_bound() {
-        assert_eq!(round_up_mem_bound(1), 4);
-        assert_eq!(round_up_mem_bound(4), 4);
-        assert_eq!(round_up_mem_bound(5), 8);
+        assert_eq!(MEM_BOUND_ALIGNMENT, std::mem::align_of::<usize>().max(8));
+        assert_eq!(round_up_mem_bound(0), 0);
+        assert_eq!(round_up_mem_bound(1), MEM_BOUND_ALIGNMENT);
+        assert_eq!(round_up_mem_bound(4), MEM_BOUND_ALIGNMENT);
+        assert_eq!(round_up_mem_bound(5), MEM_BOUND_ALIGNMENT);
+        assert_eq!(round_up_mem_bound(7), MEM_BOUND_ALIGNMENT);
         assert_eq!(round_up_mem_bound(8), 8);
+        assert_eq!(round_up_mem_bound(9), 16);
+        assert_eq!(round_up_mem_bound(12), 16);
+        assert_eq!(round_up_mem_bound(16), 16);
+    }
+
+    #[test]
+    fn test_block_header_align_matches_bound() {
+        assert!(std::mem::align_of::<BlockHeader>() >= MEM_BOUND_ALIGNMENT);
+        assert_eq!(std::mem::size_of::<BlockHeader>() % MEM_BOUND_ALIGNMENT, 0);
+        assert_eq!(
+            BlockHeader::calc_raw_block_size(1) % MEM_BOUND_ALIGNMENT,
+            0
+        );
+        assert_eq!(
+            BlockHeader::calc_raw_block_size(12) % MEM_BOUND_ALIGNMENT,
+            0
+        );
     }
 
     #[test]
@@ -1252,6 +1373,7 @@ mod tests {
 
             let p1 = (*pool).allocate_block();
             assert!(!p1.is_null());
+            assert_eq!(p1 as usize % MEM_BOUND_ALIGNMENT, 0);
             assert_eq!((*pool).get_used_block_count(), 1);
 
             // Verify zeroed.
@@ -1267,24 +1389,69 @@ mod tests {
     fn test_pool_overflow() {
         let mut factory = MemoryPoolFactory::new();
         factory.init();
-        let pool = factory.create_memory_pool("OverflowPool", 32, 4, 4);
+        let pool = factory.create_memory_pool("OverflowPool", 32, 8, 8);
         assert!(!pool.is_null());
 
         unsafe {
             // Allocate more than initial count.
             let mut ptrs = Vec::new();
-            for _ in 0..8 {
+            for _ in 0..16 {
                 let p = (*pool).allocate_block();
                 assert!(!p.is_null());
+                assert_eq!(p as usize % MEM_BOUND_ALIGNMENT, 0);
                 ptrs.push(p);
             }
-            assert_eq!((*pool).get_used_block_count(), 8);
-            assert!((*pool).get_total_block_count() >= 8);
+            assert_eq!((*pool).get_used_block_count(), 16);
+            assert!((*pool).get_total_block_count() >= 16);
 
             for p in ptrs {
                 (*pool).free_block(p);
             }
             assert_eq!((*pool).get_used_block_count(), 0);
+        }
+    }
+
+    #[test]
+    fn test_user_pointers_aligned_to_mem_bound() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        // Odd logical size rounds up; user pointer must still be aligned.
+        let pool = factory.create_memory_pool("AlignPool", 1, 8, 8);
+        unsafe {
+            assert_eq!((*pool).get_allocation_size(), MEM_BOUND_ALIGNMENT);
+            let mut ptrs = Vec::new();
+            for _ in 0..8 {
+                let p = (*pool).allocate_block_do_not_zero();
+                assert!(!p.is_null());
+                assert_eq!(p as usize % MEM_BOUND_ALIGNMENT, 0);
+                // User region is pointer-aligned: store a usize without UB.
+                ptr::write(p as *mut usize, 0x1111_2222_3333_4444);
+                assert_eq!(ptr::read(p as *mut usize), 0x1111_2222_3333_4444);
+                ptrs.push(p);
+            }
+            for p in ptrs {
+                (*pool).free_block(p);
+            }
+        }
+    }
+
+    #[test]
+    fn test_header_pointer_fields_aligned_write() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        let pool = factory.create_memory_pool("HdrPtrPool", 16, 8, 8);
+        unsafe {
+            let p = (*pool).allocate_block();
+            let block = BlockHeader::from_user_data(p);
+            assert_eq!(block as usize % MEM_BOUND_ALIGNMENT, 0);
+            assert_eq!(block as usize % std::mem::align_of::<BlockHeader>(), 0);
+            assert!(debug_write_header_pointer_fields(p));
+            // Debug walls still intact after the pointer-field probe.
+            #[cfg(debug_assertions)]
+            {
+                assert!((*block).verify());
+            }
+            (*pool).free_block(p);
         }
     }
 
@@ -1299,14 +1466,18 @@ mod tests {
             // Small allocation goes to sub-pool.
             let p1 = (*dma).allocate_bytes(32);
             assert!(!p1.is_null());
+            assert_eq!(p1 as usize % MEM_BOUND_ALIGNMENT, 0);
             // Verify zeroed.
             let slice = std::slice::from_raw_parts(p1, 32);
             assert!(slice.iter().all(|&b| b == 0));
+            assert!(debug_write_header_pointer_fields(p1));
             (*dma).free_bytes(p1);
 
             // Large allocation (bigger than any sub-pool) goes raw.
             let p2 = (*dma).allocate_bytes(2048);
             assert!(!p2.is_null());
+            assert_eq!(p2 as usize % MEM_BOUND_ALIGNMENT, 0);
+            assert!(debug_write_header_pointer_fields(p2));
             (*dma).free_bytes(p2);
         }
     }
@@ -1328,7 +1499,7 @@ mod tests {
     fn test_factory_destroy_pool() {
         let mut factory = MemoryPoolFactory::new();
         factory.init();
-        let pool = factory.create_memory_pool("DestroyPool", 64, 4, 4);
+        let pool = factory.create_memory_pool("DestroyPool", 64, 8, 8);
         assert!(factory.find_memory_pool("DestroyPool").is_some());
         factory.destroy_memory_pool(pool);
         assert!(factory.find_memory_pool("DestroyPool").is_none());
@@ -1338,7 +1509,7 @@ mod tests {
     fn test_fill_pattern_on_free() {
         let mut factory = MemoryPoolFactory::new();
         factory.init();
-        let pool = factory.create_memory_pool("FillPool", 64, 4, 4);
+        let pool = factory.create_memory_pool("FillPool", 64, 8, 8);
         unsafe {
             let p = (*pool).allocate_block();
             // Write something.
@@ -1359,7 +1530,7 @@ mod tests {
         {
             let mut factory = MemoryPoolFactory::new();
             factory.init();
-            let pool = factory.create_memory_pool("WallPool", 64, 4, 4);
+            let pool = factory.create_memory_pool("WallPool", 64, 8, 8);
             unsafe {
                 let p = (*pool).allocate_block();
                 let block = BlockHeader::from_user_data(p);

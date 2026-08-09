@@ -144,6 +144,8 @@ pub mod map_frame_scenario;
 pub mod playability_integration;
 pub mod presentation_frame;
 pub mod release_candidate;
+// shell_smoke pulls ~800 residual/wave audit modules; keep out of the shipped bin.
+#[cfg(any(test, feature = "host-residuals"))]
 pub mod shell_smoke;
 pub mod skirmish_config;
 

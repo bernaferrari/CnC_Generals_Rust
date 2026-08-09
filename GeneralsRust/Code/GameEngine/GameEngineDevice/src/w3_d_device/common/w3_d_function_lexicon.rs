@@ -2,6 +2,7 @@
 // Ported from C++ W3DFunctionLexicon.h and FunctionLexicon.h
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 
 /// Name key type (matches C++ `NameKeyType`)
@@ -80,11 +81,75 @@ fn name_to_key(name: &str) -> NameKeyType {
     with_name_key_state(|state| state.name_to_key(name))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FunctionPtr(pub *const ());
+/// Function pointer stored in the W3D lexicon tables.
+///
+/// Stores a real `fn()` (or none). Callers construct via [`FunctionPtr::from_fn`]
+/// so the value cannot be forged from an arbitrary integer and later
+/// `transmute`d. `fn()` is already `Send + Sync` — no `unsafe impl`.
+///
+/// `Eq`/`Hash` use the code address so duplicate-registration checks can
+/// compare entries the same way the previous `*const ()` wrapper did.
+#[derive(Debug, Clone, Copy)]
+pub struct FunctionPtr(Option<fn()>);
 
-unsafe impl Send for FunctionPtr {}
-unsafe impl Sync for FunctionPtr {}
+impl PartialEq for FunctionPtr {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ptr() == other.as_ptr()
+    }
+}
+
+impl Eq for FunctionPtr {}
+
+impl Hash for FunctionPtr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.as_ptr() as usize).hash(state);
+    }
+}
+
+impl FunctionPtr {
+    /// Wrap a typed unit function pointer.
+    pub fn from_fn(f: fn()) -> Self {
+        Self(Some(f))
+    }
+
+    /// Reconstruct from a raw address (C++ FunctionLexicon static tables).
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be `0` (null) or the address of a live `fn()` that remains
+    /// valid for the rest of the process (typical for C++ static callback
+    /// tables and Rust function items). Passing a non-function address is
+    /// undefined behavior if the result is later invoked via
+    /// [`FunctionPtr::as_unit_fn`].
+    pub unsafe fn from_usize(raw: usize) -> Self {
+        if raw == 0 {
+            Self(None)
+        } else {
+            // Safety: caller guarantees `raw` is a valid `fn()` address or 0.
+            Self(Some(std::mem::transmute::<usize, fn()>(raw)))
+        }
+    }
+
+    /// Convert back to a raw function pointer address (null if unset).
+    pub fn as_ptr(self) -> *const () {
+        self.0.map(|f| f as *const ()).unwrap_or(std::ptr::null())
+    }
+
+    /// Create a null function pointer.
+    pub fn null() -> Self {
+        Self(None)
+    }
+
+    /// Check if the function pointer is null.
+    pub fn is_null(self) -> bool {
+        self.0.is_none()
+    }
+
+    /// Convert to a typed unit function pointer (`fn()`).
+    pub fn as_unit_fn(self) -> Option<fn()> {
+        self.0
+    }
+}
 
 /// Function table entry (matches C++ `FunctionLexicon::TableEntry`)
 #[derive(Debug, Clone)]

@@ -138,7 +138,8 @@ pub fn resolve_campaign_map_file(map_name: &str) -> Option<std::path::PathBuf> {
     for root in roots {
         let candidates = [
             root.join(&rel),
-            root.join("windows_game/extracted_big_files/MapsZH").join(&rel),
+            root.join("windows_game/extracted_big_files/MapsZH")
+                .join(&rel),
             root.join("windows_game/extracted_big_files/MapsZH/Maps")
                 .join(&stem)
                 .join(format!("{stem}.map")),
@@ -234,8 +235,7 @@ impl CampaignPlaythroughReport {
     /// generals walk with briefing/score hooks populated.
     pub fn playthrough_ok(&self) -> bool {
         let usa_briefing_ok = self.usa_missions.first().is_some_and(|s| {
-            s.map_name.to_ascii_lowercase().contains("md_usa01")
-                && !s.movie_label.is_empty()
+            s.map_name.to_ascii_lowercase().contains("md_usa01") && !s.movie_label.is_empty()
         });
         let usa_last_ok = self
             .usa_missions
@@ -253,9 +253,10 @@ impl CampaignPlaythroughReport {
             s.map_name.to_ascii_lowercase().contains("md_chi01")
                 && s.movie_label.to_ascii_lowercase().contains("md_china01")
         });
-        let china_last_ok = self.china_missions.last().is_some_and(|s| {
-            s.map_name.to_ascii_lowercase().contains("md_chi05") && s.victorious
-        });
+        let china_last_ok = self
+            .china_missions
+            .last()
+            .is_some_and(|s| s.map_name.to_ascii_lowercase().contains("md_chi05") && s.victorious);
         let training_briefing_ok = self.training_missions.first().is_some_and(|s| {
             !s.location_name_label.is_empty()
                 || !s.briefing_voice.is_empty()

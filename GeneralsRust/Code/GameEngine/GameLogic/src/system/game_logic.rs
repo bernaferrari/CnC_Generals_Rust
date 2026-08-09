@@ -2092,6 +2092,27 @@ pub struct GameLogic {
 
     // C++ parity: m_objectTOC — compact thing-template name→id map for save/load
     object_toc: Vec<ObjectTOCEntry>,
+
+    /// Honesty: last `update()` returned without running a C++-parity tick
+    /// (empty dual-world registry AND empty `objects`). Host may still treat
+    /// `Ok(())` as "frame accepted"; this flag says it was an empty no-op.
+    pub last_update_was_empty_noop: bool,
+    /// Count of empty-world no-op ticks. Not a C++ `m_frame` increment.
+    pub empty_world_tick: UnsignedInt,
+}
+
+impl GameLogic {
+    /// True when the last `update()` skipped C++ phase order (empty world).
+    #[inline]
+    pub fn last_update_was_empty_noop(&self) -> bool {
+        self.last_update_was_empty_noop
+    }
+
+    /// How many empty-world no-op ticks have been accepted. Not `m_frame`.
+    #[inline]
+    pub fn empty_world_tick_count(&self) -> UnsignedInt {
+        self.empty_world_tick
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2178,6 +2199,8 @@ impl Default for GameLogic {
             global_weapon_bonus_set: WeaponBonusSet::new(),
             control_bar_overrides: HashMap::new(),
             object_toc: Vec::new(),
+            last_update_was_empty_noop: false,
+            empty_world_tick: 0,
         }
     }
 }
@@ -2271,6 +2294,7 @@ impl GameLogic {
         }
         self.refresh_global_weapon_bonuses();
         install_energy_integration();
+        crate::system::object_data_provider::install_object_data_provider();
 
         init_build_assistant();
         crate::system::build_assistant_bridge::install_build_assistant_backend();
@@ -2291,6 +2315,7 @@ impl GameLogic {
         if let Err(e) = initialize_script_engine() {
             warn!("Script engine initialization failed: {}", e);
         }
+        crate::system::object_data_provider::ensure_object_data_provider();
     }
 
     /// Reset the GameLogic to default state
@@ -2302,6 +2327,8 @@ impl GameLogic {
         self.frame = 0;
         self.game_time = 0.0;
         self.is_in_update = false;
+        self.last_update_was_empty_noop = false;
+        self.empty_world_tick = 0;
         self.next_object_id = 1;
         self.all_objects.clear();
         self.dead_objects.clear();
@@ -2334,6 +2361,7 @@ impl GameLogic {
         }
         self.refresh_global_weapon_bonuses();
         install_energy_integration();
+        crate::system::object_data_provider::install_object_data_provider();
 
         init_build_assistant();
         crate::system::build_assistant_bridge::install_build_assistant_backend();
@@ -2431,13 +2459,37 @@ impl GameLogic {
     /// - `frame`: The current frame number
     ///
     /// ## Returns
-    /// - `Ok(())` if update succeeded
+    /// - `Ok(())` if update succeeded **or** if this was an empty-world no-op
     /// - `Err(GameLogicError)` if a critical error occurred
+    ///
+    /// Empty dual-world registry + empty `objects` returns `Ok(())` so the host
+    /// frame loop continues, but that is **not** a C++ `GameLogic.cpp` tick.
+    /// Inspect [`last_update_was_empty_noop`] / [`empty_world_tick_count`].
+    ///
+    /// This empty-noop is **only** for the full `update()` tick. It does **not**
+    /// run C++ `GameLogic.cpp` phase order (scripts, terrain, modules, AI,
+    /// partition, destroy list, `m_frame++`, etc.). Callers that ignore the
+    /// accessors will mistake `Ok(())` for a successful crate simulation step.
     pub fn update(&mut self, frame: u32) -> Result<(), GameLogicError> {
-        // Wave 344: empty dual-world → Ok(()). C++ still ticks a populated world.
-        if dual_world_registry_unavailable() && self.objects.is_empty() {
+        // Empty factory-registry store + empty `objects`: skip work but do not
+        // pretend a full C++ tick ran. Host still receives Ok(()) so the frame
+        // loop continues.
+        //
+        // Do **not** call `dual_world_registry_unavailable()` / `OBJECT_REGISTRY.is_empty()`
+        // here: those try_lock GameLogic and fail-open when this mutex is already
+        // held (`update_game_logic` / dual-tick), which hid empty-noop from the
+        // host. Terrain/pathfind APIs keep that helper (fail-open under lock).
+        if crate::object::registry::OBJECT_REGISTRY.store_is_empty() && self.objects.is_empty() {
+            self.last_update_was_empty_noop = true;
+            self.empty_world_tick = self.empty_world_tick.saturating_add(1);
+            trace!(
+                "GameLogic::update(frame={}) - empty_world_tick noop (not a C++ tick) count={}",
+                frame,
+                self.empty_world_tick
+            );
             return Ok(());
         }
+        self.last_update_was_empty_noop = false;
 
         // Prevent re-entrant calls (C++ line 3552: LatchRestore<Bool> inUpdateLatch)
         if self.is_in_update {
@@ -5652,6 +5704,7 @@ fn game_logic_mutex() -> &'static Mutex<GameLogic> {
 
 /// Get the global GameLogic singleton
 pub fn get_game_logic() -> &'static Mutex<GameLogic> {
+    crate::system::object_data_provider::ensure_object_data_provider();
     game_logic_mutex()
 }
 
@@ -5694,7 +5747,14 @@ pub fn update_game_logic() -> Result<(), String> {
     let frame = guard.get_frame();
     guard
         .update(frame)
-        .map_err(|e| format!("GameLogic update failed: {}", e))
+        .map_err(|e| format!("GameLogic update failed: {}", e))?;
+    if guard.last_update_was_empty_noop() {
+        debug!(
+            "GameLogic crate tick was empty-world no-op (count={}); not a C++ GameLogic.cpp frame",
+            guard.empty_world_tick_count()
+        );
+    }
+    Ok(())
 }
 
 /// Convenience helper for callers that need a mutable guard
@@ -5736,6 +5796,87 @@ mod tests {
         assert_eq!(logic.frame, 0);
         assert_eq!(logic.game_time, 0.0);
         assert!(!logic.is_in_update);
+    }
+
+    #[test]
+    fn empty_world_update_is_noop_not_cpp_tick() {
+        let _lock = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let mut logic = GameLogic::new();
+        assert!(!logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 0);
+        logic
+            .update(0)
+            .expect("empty world still returns Ok so host frame loop continues");
+        assert!(
+            logic.last_update_was_empty_noop(),
+            "empty registry+objects must flag a no-op, not a C++ tick"
+        );
+        assert_eq!(logic.empty_world_tick_count(), 1);
+        assert_eq!(
+            logic.get_frame(),
+            0,
+            "empty-noop must not advance C++ m_frame"
+        );
+        logic
+            .update(1)
+            .expect("second empty tick still Ok");
+        assert!(logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 2);
+        logic.reset();
+        assert!(!logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 0);
+    }
+
+    #[test]
+    fn empty_world_singleton_update_game_logic_surfaces_noop() {
+        let _lock = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        reset_game_logic().expect("reset singleton");
+        update_game_logic().expect("empty singleton still Ok");
+        {
+            let logic = get_game_logic().lock().expect("lock");
+            assert!(
+                logic.last_update_was_empty_noop(),
+                "update_game_logic must flag empty-noop even while holding the mutex"
+            );
+            assert_eq!(logic.empty_world_tick_count(), 1);
+        }
+        update_game_logic().expect("second empty singleton tick");
+        let logic = get_game_logic().lock().expect("lock");
+        assert!(logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 2);
+    }
+
+    #[test]
+    fn empty_world_nonempty_update_clears_noop_flag() {
+        let _lock = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let mut logic = GameLogic::new();
+        logic
+            .update(0)
+            .expect("empty world still returns Ok");
+        assert!(logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 1);
+
+        // Cheap non-empty: local object map only (no full register_object).
+        // Pause after the empty-noop check so we clear the flag without a full
+        // C++ phase-order tick.
+        let dummy = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
+        logic.objects.insert(42, dummy);
+        logic.set_game_paused(true, false);
+        logic
+            .update(1)
+            .expect("non-empty update still Ok");
+        assert!(
+            !logic.last_update_was_empty_noop(),
+            "a subsequent non-empty update must clear the empty-noop flag"
+        );
+        assert_eq!(
+            logic.empty_world_tick_count(),
+            1,
+            "non-empty tick must not increment empty_world_tick"
+        );
     }
 
     #[test]

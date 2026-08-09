@@ -302,18 +302,29 @@ pub type LayoutShutdownFn = Box<dyn Fn(&WindowLayout, Option<&dyn Any>)>;
 /// Callback types for window-level events.
 /// PARITY_NOTE: mirrors C++ `GameWinSystemFunc`, `GameWinInputFunc`,
 /// `GameWinTooltipFunc`, `GameWinDrawFunc` resolved from `TheFunctionLexicon`.
-pub type WinSystemFn =
-    Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
-pub type WinInputFn =
-    Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
-pub type WinTooltipFn = Box<dyn Fn(&GameWindow, u32)>;
-pub type WinDrawFn = Box<dyn Fn(&GameWindow, &WindowInstanceData)>;
+///
+/// Stored as `Arc` so [`ScriptCallbackRegistry::create_system_callback`] and
+/// siblings can clone the handler into a `'static` box. That matches C++
+/// function-pointer lexicon semantics: a resolved pointer stays valid if the
+/// table entry is later replaced or dropped.
+pub type WinSystemFn = Arc<
+    dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
+        + Send
+        + Sync,
+>;
+pub type WinInputFn = Arc<
+    dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
+        + Send
+        + Sync,
+>;
+pub type WinTooltipFn = Arc<dyn Fn(&GameWindow, u32) + Send + Sync>;
+pub type WinDrawFn = Arc<dyn Fn(&GameWindow, &WindowInstanceData) + Send + Sync>;
 
 /// Registry that maps callback name strings to handler closures.
 ///
 /// In C++, `TheFunctionLexicon` stores function pointers indexed by
 /// `NameKeyType`. This registry serves the same purpose but uses
-/// string keys and boxed closures for safe Rust.
+/// string keys and `Arc`-owned closures for safe Rust.
 ///
 /// PARITY_NOTE: maps to C++ `FunctionLexicon` lookups:
 ///   `gameWinSystemFunc(key)`, `gameWinInputFunc(key)`,
@@ -392,46 +403,52 @@ impl ScriptCallbackRegistry {
     /// Register a window system callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinSystemFunc()`.
     pub fn register_win_system<
-        F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled + 'static,
+        F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
+            + Send
+            + Sync
+            + 'static,
     >(
         &mut self,
         name: &str,
         callback: F,
     ) {
-        self.win_system.insert(name.to_string(), Box::new(callback));
+        self.win_system.insert(name.to_string(), Arc::new(callback));
     }
 
     /// Register a window input callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinInputFunc()`.
     pub fn register_win_input<
-        F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled + 'static,
+        F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled
+            + Send
+            + Sync
+            + 'static,
     >(
         &mut self,
         name: &str,
         callback: F,
     ) {
-        self.win_input.insert(name.to_string(), Box::new(callback));
+        self.win_input.insert(name.to_string(), Arc::new(callback));
     }
 
     /// Register a window tooltip callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinTooltipFunc()`.
-    pub fn register_win_tooltip<F: Fn(&GameWindow, u32) + 'static>(
+    pub fn register_win_tooltip<F: Fn(&GameWindow, u32) + Send + Sync + 'static>(
         &mut self,
         name: &str,
         callback: F,
     ) {
         self.win_tooltip
-            .insert(name.to_string(), Box::new(callback));
+            .insert(name.to_string(), Arc::new(callback));
     }
 
     /// Register a window draw callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinDrawFunc()`.
-    pub fn register_win_draw<F: Fn(&GameWindow, &WindowInstanceData) + 'static>(
+    pub fn register_win_draw<F: Fn(&GameWindow, &WindowInstanceData) + Send + Sync + 'static>(
         &mut self,
         name: &str,
         callback: F,
     ) {
-        self.win_draw.insert(name.to_string(), Box::new(callback));
+        self.win_draw.insert(name.to_string(), Arc::new(callback));
     }
 
     // -- Lookup helpers --
@@ -1980,15 +1997,8 @@ impl ScriptCallbackRegistry {
         if normalized.is_empty() {
             return None;
         }
-        let cb = self.win_system.get(&normalized)?;
-        // Wrap the &self reference in a new box — the callback is 'static
-        let cb_ref: &'static WinSystemFn = unsafe { std::mem::transmute(cb) };
-        let cb = Box::new(
-            move |win: &GameWindow, msg: WindowMessage, d1: WindowMsgData, d2: WindowMsgData| {
-                cb_ref(win, msg, d1, d2)
-            },
-        );
-        Some(cb)
+        let cb = Arc::clone(self.win_system.get(&normalized)?);
+        Some(Box::new(move |win, msg, d1, d2| cb(win, msg, d1, d2)))
     }
 
     pub fn create_input_callback(
@@ -2001,14 +2011,8 @@ impl ScriptCallbackRegistry {
         if normalized.is_empty() {
             return None;
         }
-        let cb = self.win_input.get(&normalized)?;
-        let cb_ref: &'static WinInputFn = unsafe { std::mem::transmute(cb) };
-        let cb = Box::new(
-            move |win: &GameWindow, msg: WindowMessage, d1: WindowMsgData, d2: WindowMsgData| {
-                cb_ref(win, msg, d1, d2)
-            },
-        );
-        Some(cb)
+        let cb = Arc::clone(self.win_input.get(&normalized)?);
+        Some(Box::new(move |win, msg, d1, d2| cb(win, msg, d1, d2)))
     }
 
     pub fn create_tooltip_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, u32)>> {
@@ -2016,10 +2020,8 @@ impl ScriptCallbackRegistry {
         if normalized.is_empty() {
             return None;
         }
-        let cb = self.win_tooltip.get(&normalized)?;
-        let cb_ref: &'static WinTooltipFn = unsafe { std::mem::transmute(cb) };
-        let cb = Box::new(move |win: &GameWindow, time: u32| cb_ref(win, time));
-        Some(cb)
+        let cb = Arc::clone(self.win_tooltip.get(&normalized)?);
+        Some(Box::new(move |win, time| cb(win, time)))
     }
 
     pub fn create_draw_callback(
@@ -2030,10 +2032,8 @@ impl ScriptCallbackRegistry {
         if normalized.is_empty() {
             return None;
         }
-        let cb = self.win_draw.get(&normalized)?;
-        let cb_ref: &'static WinDrawFn = unsafe { std::mem::transmute(cb) };
-        let cb = Box::new(move |win: &GameWindow, inst: &WindowInstanceData| cb_ref(win, inst));
-        Some(cb)
+        let cb = Arc::clone(self.win_draw.get(&normalized)?);
+        Some(Box::new(move |win, inst| cb(win, inst)))
     }
 
     /// Create a complete `GwCallbacks` instance by resolving all four
@@ -2524,7 +2524,98 @@ mod tests {
             WindowMsgHandled::Ignored
         });
         let cb = registry.get_win_system("TestSystem").unwrap();
+        let _ = cb;
         assert!(registry.get_win_system("Nonexistent").is_none());
+    }
+
+    #[test]
+    fn create_system_callback_survives_registry_replace() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut registry = ScriptCallbackRegistry::new();
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let hits_for_cb = hits.clone();
+        registry.register_win_system("OwnedSystem", move |_win, _msg, _d1, _d2| {
+            hits_for_cb.fetch_add(1, Ordering::Relaxed);
+            WindowMsgHandled::Handled
+        });
+
+        let created = registry.create_system_callback("OwnedSystem").unwrap();
+
+        // Replacing the lexicon entry must not invalidate already-resolved
+        // callbacks (C++ function pointers stay valid).
+        registry.register_win_system("OwnedSystem", |_win, _msg, _d1, _d2| {
+            WindowMsgHandled::Ignored
+        });
+
+        let win = GameWindow::new();
+        assert_eq!(
+            created(&win, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(hits.load(Ordering::Relaxed), 1);
+
+        let replacement = registry.create_system_callback("OwnedSystem").unwrap();
+        assert_eq!(
+            replacement(&win, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn create_input_callback_survives_registry_drop() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let created = {
+            let mut registry = ScriptCallbackRegistry::new();
+            let hits_for_cb = hits.clone();
+            registry.register_win_input("OwnedInput", move |_win, _msg, _d1, _d2| {
+                hits_for_cb.fetch_add(1, Ordering::Relaxed);
+                WindowMsgHandled::Handled
+            });
+            registry.create_input_callback("OwnedInput").unwrap()
+            // registry dropped here
+        };
+
+        let win = GameWindow::new();
+        assert_eq!(
+            created(&win, WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn create_tooltip_and_draw_callbacks_survive_registry_replace() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut registry = ScriptCallbackRegistry::new();
+        let tooltip_hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let draw_hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let tooltip_for_cb = tooltip_hits.clone();
+        let draw_for_cb = draw_hits.clone();
+
+        registry.register_win_tooltip("OwnedTooltip", move |_win, time| {
+            tooltip_for_cb.fetch_add(time as usize, Ordering::Relaxed);
+        });
+        registry.register_win_draw("OwnedDraw", move |_win, _inst| {
+            draw_for_cb.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let tooltip = registry.create_tooltip_callback("OwnedTooltip").unwrap();
+        let draw = registry.create_draw_callback("OwnedDraw").unwrap();
+
+        registry.register_win_tooltip("OwnedTooltip", |_win, _time| {});
+        registry.register_win_draw("OwnedDraw", |_win, _inst| {});
+
+        let win = GameWindow::new();
+        let inst = WindowInstanceData::default();
+        tooltip(&win, 7);
+        draw(&win, &inst);
+        assert_eq!(tooltip_hits.load(Ordering::Relaxed), 7);
+        assert_eq!(draw_hits.load(Ordering::Relaxed), 1);
     }
 
     #[test]

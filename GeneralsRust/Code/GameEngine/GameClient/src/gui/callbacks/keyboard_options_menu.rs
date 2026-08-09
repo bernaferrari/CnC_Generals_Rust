@@ -797,9 +797,8 @@ pub fn simulate_keyboard_options_prepare_assign(
 /// Human click-through: OS LeftDown/Up on `ComboBoxCategoryList`
 /// (C++ WindowXlat hit → GBM_SELECTED / combo select). Not `simulate_*` first.
 pub fn drive_os_wnd_keyboard_options_category_like_cpp(category_index: usize) -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window(
-        "KeyboardOptionsMenu.wnd:ComboBoxCategoryList",
-    );
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ComboBoxCategoryList");
     if !clicked {
         return false;
     }

@@ -5,6 +5,7 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -17,48 +18,75 @@ use crate::common::{
 /// Invalid name key constant
 const INVALID_NAME_KEY: NameKeyType = 0;
 
-/// Function pointer type for various callback functions
+/// Function pointer type for various callback functions.
 ///
-/// Since raw pointers don't implement Send + Sync, we need to wrap them
-/// in a safe wrapper that asserts thread safety for function pointers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FunctionPtr(pub usize);
+/// Stores a real `fn()` (or none). Callers construct via [`FunctionPtr::from_fn`]
+/// so the value cannot be forged from an arbitrary integer and later `transmute`d.
+/// `fn()` is already `Send + Sync`.
+///
+/// `Eq`/`Hash` use the code address (same as the previous `usize` wrapper) so
+/// lexicon `validate()` can detect duplicate registrations.
+#[derive(Debug, Clone, Copy)]
+pub struct FunctionPtr(Option<fn()>);
 
-unsafe impl Send for FunctionPtr {}
-unsafe impl Sync for FunctionPtr {}
+impl PartialEq for FunctionPtr {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ptr() == other.as_ptr()
+    }
+}
+
+impl Eq for FunctionPtr {}
+
+impl Hash for FunctionPtr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.as_ptr() as usize).hash(state);
+    }
+}
 
 impl FunctionPtr {
-    /// Create a new function pointer from a raw function pointer
-    pub fn new(func: *const ()) -> Self {
-        Self(func as usize)
+    /// Wrap a typed unit function pointer.
+    pub fn from_fn(f: fn()) -> Self {
+        Self(Some(f))
     }
 
-    /// Convert back to a raw function pointer
+    /// Reconstruct from a raw address (C++ FunctionLexicon static tables).
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be `0` (null) or the address of a live `fn()` that remains valid
+    /// for the rest of the process (typical for C++ static callback tables and Rust
+    /// function items). Passing a non-function address is undefined behavior if the
+    /// result is later invoked via [`FunctionPtr::as_unit_fn`].
+    pub unsafe fn from_usize(raw: usize) -> Self {
+        if raw == 0 {
+            Self(None)
+        } else {
+            // Safety: caller guarantees `raw` is a valid `fn()` address or 0.
+            Self(Some(std::mem::transmute::<usize, fn()>(raw)))
+        }
+    }
+
+    /// Convert back to a raw function pointer address (null if unset).
     pub fn as_ptr(self) -> *const () {
-        self.0 as *const ()
+        self.0.map(|f| f as *const ()).unwrap_or(std::ptr::null())
     }
 
-    /// Create a null function pointer
+    /// Create a null function pointer.
     pub fn null() -> Self {
-        Self(0)
+        Self(None)
     }
 
-    /// Check if the function pointer is null
+    /// Check if the function pointer is null.
     pub fn is_null(self) -> bool {
-        self.0 == 0
+        self.0.is_none()
     }
 
-    /// Convert to a typed unit function pointer (fn()).
-    /// All GameWin/WindowLayout function types are fn(), so this single
+    /// Convert to a typed unit function pointer (`fn()`).
+    ///
+    /// All GameWin/WindowLayout function types are `fn()`, so this single
     /// conversion covers every use site without per-site transmute.
     pub fn as_unit_fn(self) -> Option<fn()> {
-        if self.0 == 0 {
-            None
-        } else {
-            // Safe: function pointers are thin pointers; all fn() types have
-            // the same layout, and FunctionPtr only stores fn() pointers.
-            Some(unsafe { std::mem::transmute(self.0) })
-        }
+        self.0
     }
 }
 
@@ -80,12 +108,16 @@ impl TableEntry {
         }
     }
 
-    /// Create a new table entry from a raw function pointer
-    pub fn with_raw_ptr(name: &str, func: Option<*const ()>) -> Self {
+    /// Create a new table entry from a raw function pointer address.
+    ///
+    /// # Safety
+    ///
+    /// Each non-null pointer must satisfy [`FunctionPtr::from_usize`].
+    pub unsafe fn with_raw_ptr(name: &str, func: Option<*const ()>) -> Self {
         Self {
             key: INVALID_NAME_KEY,
             name: name.to_string(),
-            func: func.map(FunctionPtr::new),
+            func: func.map(|ptr| FunctionPtr::from_usize(ptr as usize)),
         }
     }
 }
@@ -239,6 +271,9 @@ impl FunctionLexicon {
         for (table_idx, table) in &self.tables {
             for entry in table {
                 if let Some(func_ptr) = entry.func {
+                    if func_ptr.is_null() {
+                        continue;
+                    }
                     if let Some((existing_table, existing_name)) = all_functions.get(&func_ptr) {
                         eprintln!(
                             "WARNING! Function lexicon entries match same address! '{:?}:{}' and '{:?}:{}'",
@@ -344,7 +379,7 @@ pub fn get_function_lexicon() -> Arc<Mutex<FunctionLexicon>> {
 #[macro_export]
 macro_rules! function_table_entry {
     ($name:expr, $func:expr) => {
-        TableEntry::new($name, Some(FunctionPtr::new($func as *const ())))
+        TableEntry::new($name, Some(FunctionPtr::from_fn($func as fn())))
     };
     ($name:expr) => {
         TableEntry::new($name, None)
@@ -420,6 +455,33 @@ mod tests {
     // Mock functions for testing
     fn test_function_1() {}
     fn test_function_2() {}
+
+    #[test]
+    fn test_function_ptr_from_fn_roundtrip() {
+        let ptr = FunctionPtr::from_fn(test_function_1);
+        assert!(!ptr.is_null());
+        let recovered = ptr.as_unit_fn().expect("from_fn should be callable");
+        recovered();
+        assert_eq!(ptr.as_unit_fn(), Some(test_function_1 as fn()));
+        assert_eq!(
+            FunctionPtr::from_fn(test_function_1),
+            FunctionPtr::from_fn(test_function_1)
+        );
+        assert_ne!(
+            FunctionPtr::from_fn(test_function_1),
+            FunctionPtr::from_fn(test_function_2)
+        );
+    }
+
+    #[test]
+    fn test_function_ptr_null_and_from_usize_zero() {
+        assert!(FunctionPtr::null().is_null());
+        assert!(FunctionPtr::null().as_unit_fn().is_none());
+        // Safety: 0 is the documented null encoding.
+        let from_zero = unsafe { FunctionPtr::from_usize(0) };
+        assert!(from_zero.is_null());
+        assert!(from_zero.as_ptr().is_null());
+    }
 
     #[test]
     fn test_function_lexicon_creation() {

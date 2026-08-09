@@ -893,10 +893,6 @@ impl Default for BehaviorModuleRegistry {
     }
 }
 
-// Thread safety
-unsafe impl Send for BehaviorModuleRegistry {}
-unsafe impl Sync for BehaviorModuleRegistry {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

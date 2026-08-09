@@ -1984,10 +1984,6 @@ impl SpawnControlInterface for SpawnBehaviorModule {
     }
 }
 
-// Thread safety
-unsafe impl Send for SpawnBehavior {}
-unsafe impl Sync for SpawnBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

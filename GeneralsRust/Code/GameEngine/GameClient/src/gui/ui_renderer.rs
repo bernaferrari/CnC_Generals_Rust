@@ -20,7 +20,7 @@ use cosmic_text::{
 use fontdue::{Font, FontSettings};
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
@@ -192,10 +192,10 @@ pub struct UIRenderer {
     // Bind groups
     uniform_bind_group: BindGroup,
 
-    // Text rendering system
-    font_system: FontSystem,
-    swash_cache: SwashCache,
-    text_buffer: TextBuffer,
+    // Text rendering system. cosmic_text types are `Send + !Sync`; wrap them
+    // so UIRenderer can live in `Arc<RwLock<UIRenderer>>` without a lying
+    // `unsafe impl Sync`.
+    font_runtime: Mutex<FontRuntime>,
     font_cache: HashMap<String, Font>,
 
     // Textures and samplers
@@ -217,6 +217,15 @@ pub struct UIRenderer {
 
     // Performance statistics
     last_frame_stats: RenderStats,
+}
+
+/// cosmic_text layout state. `FontSystem` / `SwashCache` / `TextBuffer` are
+/// `Send + !Sync` (interior `RefCell`). UIRenderer serializes them with
+/// `Mutex<FontRuntime>` instead of an `unsafe impl Sync`.
+struct FontRuntime {
+    font_system: FontSystem,
+    swash_cache: SwashCache,
+    text_buffer: TextBuffer,
 }
 
 /// Rendering performance statistics
@@ -552,9 +561,11 @@ impl UIRenderer {
             vertex_capacity: 65536,
             index_capacity: 98304,
             uniform_bind_group,
-            font_system,
-            swash_cache: SwashCache::new(),
-            text_buffer,
+            font_runtime: Mutex::new(FontRuntime {
+                font_system,
+                swash_cache: SwashCache::new(),
+                text_buffer,
+            }),
             font_cache: HashMap::new(),
             default_texture: default_texture_view,
             default_texture_bind_group,
@@ -985,13 +996,17 @@ impl UIRenderer {
         let mut max_y = i32::MIN;
 
         {
-            let mut text_buffer = self.text_buffer.borrow_with(&mut self.font_system);
+            let runtime = &mut *self
+                .font_runtime
+                .lock()
+                .expect("UIRenderer font runtime poisoned");
+            let mut text_buffer = runtime.text_buffer.borrow_with(&mut runtime.font_system);
             text_buffer.set_metrics(metrics);
             text_buffer.set_size(canvas_width as f32, canvas_height as f32);
             text_buffer.set_wrap(wrap_mode);
             text_buffer.set_text(&text, attrs, Shaping::Advanced);
             text_buffer.shape_until_scroll();
-            text_buffer.draw(&mut self.swash_cache, text_color, |x, y, _w, _h, color| {
+            text_buffer.draw(&mut runtime.swash_cache, text_color, |x, y, _w, _h, color| {
                 let rgba = color.as_rgba();
                 if rgba[3] == 0 {
                     return;
@@ -1329,7 +1344,3 @@ impl UIRenderer {
         Ok(())
     }
 }
-
-// Implement Send and Sync for UIRenderer (needed for multi-threading)
-unsafe impl Send for UIRenderer {}
-unsafe impl Sync for UIRenderer {}

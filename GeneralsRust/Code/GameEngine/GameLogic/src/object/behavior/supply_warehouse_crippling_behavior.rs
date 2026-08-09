@@ -470,10 +470,6 @@ impl Snapshotable for SupplyWarehouseCripplingBehavior {
     }
 }
 
-// Thread safety
-unsafe impl Send for SupplyWarehouseCripplingBehavior {}
-unsafe impl Sync for SupplyWarehouseCripplingBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

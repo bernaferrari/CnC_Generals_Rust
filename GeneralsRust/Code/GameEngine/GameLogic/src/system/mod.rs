@@ -20,6 +20,7 @@ pub mod minimap_fow;
 pub mod network_bridge;
 #[cfg(not(feature = "network"))]
 pub mod network_bridge_stub;
+pub mod object_data_provider;
 pub mod radar_notifier;
 pub mod rank_info;
 pub mod shroud_manager;

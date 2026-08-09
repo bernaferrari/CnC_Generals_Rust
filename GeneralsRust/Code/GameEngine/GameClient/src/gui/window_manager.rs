@@ -114,38 +114,168 @@ use log::warn;
 
 thread_local! {
     static THE_WINDOW_MANAGER: RefCell<WindowManager> = RefCell::new(WindowManager::new());
+    /// Side-effecting `R = ()` ops enqueued when `with_window_manager` re-enters.
+    /// Flushed by the stack owner after the outer `&mut WindowManager` is the only live mut ref.
+    static WINDOW_MANAGER_OP_QUEUE: RefCell<Vec<Box<dyn FnOnce(&mut WindowManager) + 'static>>> =
+        RefCell::new(Vec::new());
+    /// Empty snapshot used when a shared read re-enters while a mutable borrow is live.
+    /// Draw helpers (`win_font_height`, `win_draw_image`, …) ignore `self`; lookups fail-closed.
+    static WINDOW_MANAGER_FAIL_CLOSED: WindowManager = WindowManager::new();
 }
 
-pub fn with_window_manager<R>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
+fn drain_window_manager_ops(manager: &mut WindowManager) {
+    loop {
+        let ops = WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.replace(Vec::new()));
+        if ops.is_empty() {
+            break;
+        }
+        for op in ops {
+            op(manager);
+        }
+    }
+}
+
+/// Queue a `'static` window-manager side effect.
+///
+/// Runs immediately when the singleton is free; otherwise runs when the outer
+/// `with_window_manager` / input dispatch drains the queue.
+pub fn queue_window_manager_op(f: impl FnOnce(&mut WindowManager) + 'static) {
     THE_WINDOW_MANAGER.with(|manager| {
         if let Ok(mut borrow) = manager.try_borrow_mut() {
-            return f(&mut borrow);
+            f(&mut borrow);
+            drain_window_manager_ops(&mut borrow);
+            return;
         }
+        WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.borrow_mut().push(Box::new(f)));
+    });
+}
 
-        // C++ parity: shell/input callbacks can re-enter TheWindowManager while outer
-        // event dispatch already holds the singleton mutably. The original engine uses
-        // a re-entrant global singleton here; Rust's RefCell would panic instead.
-        let ptr = manager.as_ptr();
-        // SAFETY: this mirrors the legacy single-threaded singleton access pattern used
-        // by the shell/window system. It is constrained to the UI thread.
-        unsafe { f(&mut *ptr) }
+/// Access `TheWindowManager` mutably.
+///
+/// On re-entry (RefCell already mutably borrowed) this does **not** create an overlapping
+/// `&mut WindowManager` via `as_ptr()`. Unit (`R = ()`) callbacks are enqueued and run
+/// when the outer borrow drains the queue. Non-unit returns are fail-closed (see
+/// [`window_manager_reentry_fallback`]) without running `f`.
+pub fn with_window_manager<R: 'static>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
+    THE_WINDOW_MANAGER.with(|manager| match manager.try_borrow_mut() {
+        Ok(mut borrow) => {
+            let result = f(&mut borrow);
+            drain_window_manager_ops(&mut borrow);
+            result
+        }
+        Err(_) => window_manager_reentry(f),
     })
 }
 
 pub fn with_window_manager_ref<R>(f: impl FnOnce(&WindowManager) -> R) -> R {
-    THE_WINDOW_MANAGER.with(|manager| {
-        if let Ok(borrow) = manager.try_borrow() {
-            return f(&borrow);
+    THE_WINDOW_MANAGER.with(|manager| match manager.try_borrow() {
+        Ok(borrow) => f(&borrow),
+        Err(_) => {
+            // Mutable borrow is live. Do not alias `&WindowManager` with that `&mut`.
+            // Fail-closed: empty snapshot. Font/image draw helpers ignore `self`.
+            WINDOW_MANAGER_FAIL_CLOSED.with(|dummy| f(dummy))
         }
-
-        // C++ parity: shell/window draw callbacks read TheWindowManager while the outer
-        // frame traversal is already mutably iterating it. Rust's RefCell would panic
-        // here, but the legacy engine treats this as a re-entrant singleton read.
-        let ptr = manager.as_ptr();
-        // SAFETY: this path only exposes `&WindowManager`, never `&mut WindowManager`.
-        // It is used to mirror legacy singleton read access during draw traversal.
-        unsafe { f(&*ptr) }
     })
+}
+
+fn window_manager_reentry<R: 'static>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
+    use std::any::TypeId;
+    use std::mem;
+
+    if TypeId::of::<R>() == TypeId::of::<()>() {
+        // Enqueue the unit op. The stack owner drains this queue before returning
+        // from the outer `with_window_manager` (and after input callbacks).
+        //
+        // SAFETY: `f` is treated as `'static` for TLS storage. Callers that re-enter
+        // with `R = ()` must capture only data that outlives the outer
+        // `with_window_manager` call (owned values / `Rc` / `'static`). `WindowLayout`
+        // helpers clone `Rc`s for this reason. The queue is drained before that outer
+        // call returns to *its* caller.
+        let op: Box<dyn FnOnce(&mut WindowManager) + 'static> = unsafe {
+            mem::transmute::<
+                Box<dyn FnOnce(&mut WindowManager) + '_>,
+                Box<dyn FnOnce(&mut WindowManager) + 'static>,
+            >(Box::new(move |manager| {
+                let _: R = f(manager);
+            }))
+        };
+        WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.borrow_mut().push(op));
+        // SAFETY: `R` is `()` (checked via TypeId).
+        return unsafe { mem::transmute_copy(&()) };
+    }
+
+    // Non-unit re-entry cannot be queued. Drop `f` and return a fail-closed default.
+    drop(f);
+    window_manager_reentry_fallback::<R>()
+}
+
+/// Fail-closed values for re-entrant `with_window_manager` when `R != ()`.
+///
+/// Documented defaults: `false`, `0`, `None`, `WindowInputReturnCode::NotUsed`,
+/// `Err(WindowError::GeneralFailure)`. Unknown `R` panics so we never invent a
+/// bit-pattern for an arbitrary type.
+fn window_manager_reentry_fallback<R: 'static>() -> R {
+    use std::any::TypeId;
+    use std::mem;
+
+    fn ret_if<R: 'static, T: 'static>(value: T) -> Option<R> {
+        if TypeId::of::<R>() == TypeId::of::<T>() {
+            // SAFETY: TypeId matched, so R == T.
+            Some(unsafe { mem::transmute_copy::<T, R>(&value) })
+        } else {
+            None
+        }
+    }
+
+    if let Some(v) = ret_if::<R, bool>(false) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, i32>(0) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, u32>(0) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, usize>(0) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, (i32, i32)>((0, 0)) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, (u32, u32)>((0, 0)) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, WindowInputReturnCode>(WindowInputReturnCode::NotUsed) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, Option<Rc<RefCell<GameWindow>>>>(None) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, Option<(i32, i32)>>(None) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, Option<bool>>(None) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, WindowResult<()>>(Err(WindowError::GeneralFailure)) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, WindowResult<Rc<RefCell<GameWindow>>>>(Err(
+        WindowError::GeneralFailure,
+    )) {
+        return v;
+    }
+    if let Some(v) = ret_if::<R, WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)>>(Err(
+        WindowError::GeneralFailure,
+    )) {
+        return v;
+    }
+
+    panic!(
+        "re-entrant with_window_manager cannot fail-closed a value of type {}; \
+         use a unit callback so the op can be queued",
+        std::any::type_name::<R>()
+    );
 }
 
 /// OS mouse → `TheWindowManager` hit-test + gadget input.
@@ -331,8 +461,11 @@ impl WindowLayout {
     /// Hide or show all windows in this layout
     pub fn hide(&self, hide: bool) {
         for window_rc in &self.windows {
-            with_window_manager(|manager| {
-                let _ = manager.hide_window(window_rc, hide);
+            // Clone the Rc so a re-entrant call can queue this op without
+            // capturing a borrow into `self.windows`.
+            let window = window_rc.clone();
+            queue_window_manager_op(move |manager| {
+                let _ = manager.hide_window(&window, hide);
             });
         }
         self.hidden.set(hide);
@@ -407,7 +540,11 @@ impl WindowLayout {
 
     /// Bring all windows in this layout to front
     pub fn bring_forward(&mut self) {
-        with_window_manager(|manager| manager.bring_layout_forward(self));
+        if let Some(layout) = self.self_handle.upgrade() {
+            queue_window_manager_op(move |manager| {
+                manager.bring_layout_forward(&layout.borrow());
+            });
+        }
     }
 
     /// Run initialization callback
@@ -440,7 +577,7 @@ impl WindowLayout {
     pub fn destroy_windows(&mut self) {
         let windows = self.windows.clone();
 
-        with_window_manager(|manager| {
+        queue_window_manager_op(move |manager| {
             for window in windows {
                 let _ = manager.destroy_window(window);
             }
@@ -1093,12 +1230,13 @@ impl WindowManager {
                     .map(|new_focus| !Rc::ptr_eq(&old_focus, new_focus))
                     .unwrap_or(true);
                 if changing_focus {
-                    let mut wants_focus = false;
+                    let token = push_payload(WindowMsgPayload::Bool(false));
                     old_focus.borrow_mut().send_system_message(
                         WindowMessage::InputFocus,
                         0,
-                        (&mut wants_focus as *mut bool) as WindowMsgData,
+                        token,
                     );
+                    let _ = pop_payload(token);
                 }
             }
         }
@@ -1110,11 +1248,13 @@ impl WindowManager {
             let mut wants_focus = false;
             let mut focus_probe = Some(new_focus.clone());
             while let Some(window) = focus_probe {
+                let token = push_payload(WindowMsgPayload::Bool(false));
                 window.borrow_mut().send_system_message(
                     WindowMessage::InputFocus,
                     1,
-                    (&mut wants_focus as *mut bool) as WindowMsgData,
+                    token,
                 );
+                wants_focus = matches!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
                 if wants_focus {
                     break;
                 }
@@ -1839,6 +1979,35 @@ impl WindowManager {
         window_ptr: *const GameWindow,
         children: Vec<Rc<RefCell<GameWindow>>>,
     ) {
+        // Prefer the live `Rc` (root / id map / provided children) so modal/focus
+        // cleanup uses `Rc::ptr_eq` after a queued re-entry, not just a raw
+        // pointer captured while `RefMut<GameWindow>` was held.
+        let resolved = self
+            .root_windows
+            .iter()
+            .cloned()
+            .chain(self.window_by_id.values().filter_map(Weak::upgrade))
+            .chain(children.iter().cloned())
+            .find(|window| std::ptr::addr_eq(window.as_ptr(), window_ptr.cast_mut()));
+        if let Some(window) = resolved {
+            self.window_hiding(&window);
+            return;
+        }
+
+        // Pointer may not match `RefCell::as_ptr()` if the hide was queued after
+        // `RefMut` ended. If the provided children belong to the modal window,
+        // that window is the one being hidden.
+        if self.modal_stack.as_ref().is_some_and(|modal| {
+            let modal_children = modal.window.borrow().children().to_vec();
+            children
+                .iter()
+                .any(|child| modal_children.iter().any(|mc| Rc::ptr_eq(mc, child)))
+        }) {
+            if let Some(modal) = self.modal_stack.take() {
+                self.modal_stack = modal.next;
+            }
+        }
+
         if self
             .keyboard_focus
             .as_ref()
@@ -4127,13 +4296,11 @@ impl WindowManager {
         let button_height = 22;
         let has_title = !listbox.borrow().get_text().is_empty();
         let font_height = if has_title {
-            with_window_manager_ref(|manager| {
-                listbox
-                    .borrow()
-                    .get_font()
-                    .map(|font| manager.win_font_height(font))
-                    .unwrap_or(12)
-            })
+            listbox
+                .borrow()
+                .get_font()
+                .map(|font| self.win_font_height(font))
+                .unwrap_or(12)
         } else {
             0
         };
@@ -5266,7 +5433,7 @@ mod tests {
     use super::*;
     use crate::gui::gadgets::{TextAlignment, VerticalAlignment};
     use crate::gui::window_script::{ComboBoxData, StaticTextData};
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -6487,16 +6654,17 @@ mod tests {
             manager.set_focus(Some(&window)).unwrap();
             manager.capture_mouse(&window).unwrap();
 
+            // Re-enters `with_window_manager`; hide is queued and flushed when
+            // this outer borrow returns (no overlapping `&mut`).
             layout.borrow().hide(true);
-
-            assert!(manager.get_focus().is_none());
-            assert!(manager.get_capture().is_none());
-            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
             window
         });
 
         assert!(window.borrow().is_hidden());
         with_window_manager(|manager| {
+            assert!(manager.get_focus().is_none());
+            assert!(manager.get_capture().is_none());
+            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
             manager.destroy_all_windows();
             manager.update();
         });
@@ -6524,17 +6692,18 @@ mod tests {
             manager.capture_mouse(&child).unwrap();
             manager.set_modal(parent.clone()).unwrap();
 
+            // `GameWindow::hide` re-enters `with_window_manager`. Manager-side
+            // focus/capture/modal cleanup is queued and flushed on return.
             parent.borrow_mut().hide(true).unwrap();
-
-            assert!(manager.get_focus().is_none());
-            assert!(manager.get_capture().is_none());
-            assert!(manager.modal_stack.is_none());
-            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
             parent
         });
 
         assert!(parent.borrow().is_hidden());
         with_window_manager(|manager| {
+            assert!(manager.get_focus().is_none());
+            assert!(manager.get_capture().is_none());
+            assert!(manager.modal_stack.is_none());
+            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
             manager.destroy_all_windows();
             manager.update();
         });
@@ -7811,5 +7980,72 @@ mod tests {
 
         assert!(window.borrow().get_layout().is_none());
         assert!(layout.borrow().windows().is_empty());
+    }
+
+    #[test]
+    fn reentrant_with_window_manager_does_not_panic() {
+        let _lock = lock_test_mouse();
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            with_window_manager(|manager| {
+                manager.destroy_all_windows();
+                with_window_manager(|_manager| ());
+            });
+        });
+    }
+
+    #[test]
+    fn reentrant_with_window_manager_unit_op_is_queued_then_flushed() {
+        let _lock = lock_test_mouse();
+        let hits = Rc::new(Cell::new(0));
+        let hits_inner = Rc::clone(&hits);
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            with_window_manager(move |_manager| {
+                hits_inner.set(hits_inner.get() + 1);
+            });
+            // Nested unit op is queued, not run under an overlapping `&mut`.
+            assert_eq!(hits.get(), 0);
+        });
+        assert_eq!(hits.get(), 1);
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+        });
+    }
+
+    #[test]
+    fn reentrant_with_window_manager_value_is_fail_closed() {
+        let _lock = lock_test_mouse();
+        let result = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            with_window_manager(|_manager| true)
+        });
+        assert!(
+            !result,
+            "non-unit re-entry must fail-closed (bool default = false) without aliasing"
+        );
+        let found = with_window_manager(|manager| {
+            with_window_manager(|manager| manager.get_window_by_id(1))
+        });
+        assert!(found.is_none());
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+        });
+    }
+
+    #[test]
+    fn reentrant_with_window_manager_ref_is_fail_closed_without_alias() {
+        let _lock = lock_test_mouse();
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            let _ = manager.create_window(None, 0, 0, 10, 10).unwrap();
+            let count = with_window_manager_ref(|manager| manager.root_window_count());
+            assert_eq!(
+                count, 0,
+                "shared re-entry while mutably borrowed uses the empty fail-closed snapshot"
+            );
+            assert_eq!(manager.root_window_count(), 1);
+            manager.destroy_all_windows();
+        });
     }
 }

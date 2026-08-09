@@ -47,7 +47,7 @@ impl ListBoxItem {
 }
 
 /// Optional data stored per list box item.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListBoxItemData {
     Integer(i32),
     Text(String),
@@ -78,7 +78,7 @@ pub enum ListBoxSelection {
     Multiple(Vec<i32>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListBoxAddEntry {
     pub row: i32,
     pub column: i32,

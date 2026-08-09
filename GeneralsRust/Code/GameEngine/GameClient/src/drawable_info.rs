@@ -1,7 +1,7 @@
 // FILE: drawable_info.rs
 // Ported from C++ DrawableInfo.h
 
-use gamelogic::common::types::{ObjectID, INVALID_ID};
+use gamelogic::common::types::{DrawableID, ObjectID, INVALID_ID};
 
 /// Extra rendering flags for drawable rendering control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,14 +39,27 @@ impl Default for ExtraRenderFlags {
 }
 
 /// Structure binding W3D render objects to Drawables.
-#[derive(Debug)]
+///
+/// C++ `DrawableInfo` stores `Drawable*` / `GhostObject*`. Those raw pointers plus
+/// `unsafe impl Send/Sync` were unsound. Save/load already round-trips the drawable
+/// via id (`findDrawableByID`); the ghost pointer is never xfer'd. This port stores
+/// typed IDs only, so `Send`/`Sync` are auto-derived from `u32` — no `unsafe impl`.
+///
+/// Client code must not treat this as a cross-thread object graph: look up live
+/// drawables/ghosts by id on the client thread.
+///
+/// `DrawableInfo` is auto-`Send` because it contains only IDs (no raw pointers).
+/// A compile_fail `!Send` test would be wrong after this layout change; the
+/// regression to catch is re-introducing `*mut` + `unsafe impl Send/Sync`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DrawableInfo {
-    /// Pointer to the object used for shroud status when no object is available.
+    /// Object used for shroud status when no object is available (C++ `m_shroudStatusObjectID`).
     pub shroud_status_object_id: ObjectID,
-    /// Pointer back to the drawable containing this info (FFI compatibility).
-    pub drawable: *mut std::ffi::c_void,
-    /// Pointer to ghost object used for fogged versions.
-    pub ghost_object: *mut std::ffi::c_void,
+    /// Drawable that owns this info (C++ `m_drawable`, stored as ID not pointer).
+    pub drawable_id: DrawableID,
+    /// Ghost object used for fogged W3D snapshots (C++ `m_ghostObject`, ID not pointer).
+    /// `INVALID_ID` when unset.
+    pub ghost_object_id: ObjectID,
     /// Extra render flags tied to render objects.
     pub flags: ExtraRenderFlags,
 }
@@ -56,10 +69,38 @@ impl DrawableInfo {
     pub fn new() -> Self {
         Self {
             shroud_status_object_id: INVALID_ID,
-            drawable: std::ptr::null_mut(),
-            ghost_object: std::ptr::null_mut(),
+            drawable_id: INVALID_ID,
+            ghost_object_id: INVALID_ID,
             flags: ExtraRenderFlags::default(),
         }
+    }
+
+    /// Bind this info to a drawable id (C++ `m_drawableInfo.m_drawable = this`).
+    pub fn for_drawable(drawable_id: DrawableID) -> Self {
+        Self {
+            drawable_id,
+            ..Self::new()
+        }
+    }
+
+    #[inline]
+    pub fn set_drawable_id(&mut self, drawable_id: DrawableID) {
+        self.drawable_id = drawable_id;
+    }
+
+    #[inline]
+    pub fn clear_drawable(&mut self) {
+        self.drawable_id = INVALID_ID;
+    }
+
+    #[inline]
+    pub fn set_ghost_object_id(&mut self, ghost_object_id: ObjectID) {
+        self.ghost_object_id = ghost_object_id;
+    }
+
+    #[inline]
+    pub fn clear_ghost_object(&mut self) {
+        self.ghost_object_id = INVALID_ID;
     }
 
     #[inline]
@@ -94,5 +135,44 @@ impl Default for DrawableInfo {
     }
 }
 
-unsafe impl Send for DrawableInfo {}
-unsafe impl Sync for DrawableInfo {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_uses_invalid_ids() {
+        let info = DrawableInfo::new();
+        assert_eq!(info.shroud_status_object_id, INVALID_ID);
+        assert_eq!(info.drawable_id, INVALID_ID);
+        assert_eq!(info.ghost_object_id, INVALID_ID);
+        assert_eq!(info.flags, ExtraRenderFlags::IS_NORMAL);
+    }
+
+    #[test]
+    fn stores_typed_ids_not_pointers() {
+        let mut info = DrawableInfo::for_drawable(42);
+        assert_eq!(info.drawable_id, 42);
+        info.set_drawable_id(7);
+        assert_eq!(info.drawable_id, 7);
+        info.clear_drawable();
+        assert_eq!(info.drawable_id, INVALID_ID);
+
+        info.set_ghost_object_id(99);
+        assert_eq!(info.ghost_object_id, 99);
+        info.clear_ghost_object();
+        assert_eq!(info.ghost_object_id, INVALID_ID);
+    }
+
+    #[test]
+    fn auto_send_sync_from_id_fields_without_unsafe_impl() {
+        // DrawableInfo is only ObjectID/DrawableID/flags (all Copy integers).
+        // This compiles if and only if the type is auto Send/Sync — no
+        // `unsafe impl Send/Sync` and no raw pointer fields.
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+        assert_send::<DrawableInfo>();
+        assert_sync::<DrawableInfo>();
+        assert_send::<ExtraRenderFlags>();
+        assert_sync::<ExtraRenderFlags>();
+    }
+}

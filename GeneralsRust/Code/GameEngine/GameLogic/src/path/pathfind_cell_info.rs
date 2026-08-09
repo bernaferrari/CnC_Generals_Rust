@@ -330,8 +330,15 @@ impl PathfindCellInfoPool {
     }
 }
 
+// SAFETY: `free_list` holds `*mut PathfindCellInfo` into `pool` (`Box`es owned
+// by this struct). Those heap addresses do not change when the pool is moved,
+// so sending the pool is sound as long as no outstanding `allocate` pointer is
+// used after the move (callers treat returned pointers as borrows of the
+// pool). `allocate` / `release` / `clear` all require `&mut self`.
+//
+// Not `Sync`: the same raw pointers must not be used from two threads at once.
+// Share the pool only behind exclusive access (`Mutex` / `&mut`).
 unsafe impl Send for PathfindCellInfoPool {}
-unsafe impl Sync for PathfindCellInfoPool {}
 
 #[cfg(test)]
 mod tests {

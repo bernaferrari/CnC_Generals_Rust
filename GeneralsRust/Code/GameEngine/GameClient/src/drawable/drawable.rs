@@ -10,6 +10,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 pub use crate::core::DrawableId;
+use crate::drawable_info::DrawableInfo;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
@@ -1647,7 +1648,8 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
 pub struct BasicDrawable {
     id: DrawableId,
     object_id: Option<u32>,
-    shroud_status_object_id: ObjectID,
+    /// C++ `m_drawableInfo` — W3D user-data binding (IDs, not raw Drawable*).
+    drawable_info: DrawableInfo,
     template_name: Option<String>,
     position: Vector3,
     instance_transform: Matrix4,
@@ -1772,7 +1774,8 @@ impl BasicDrawable {
         Self {
             id,
             object_id: None,
-            shroud_status_object_id: INVALID_ID,
+            // C++ Drawable.cpp: m_drawableInfo.m_drawable = this; m_ghostObject = NULL;
+            drawable_info: DrawableInfo::for_drawable(id.0),
             template_name: None,
             position: Vector3::zero(),
             instance_transform: Matrix4::identity(),
@@ -2167,12 +2170,22 @@ impl BasicDrawable {
 
     /// Get the object used for shroud status when this drawable has no direct object.
     pub fn shroud_status_object_id(&self) -> ObjectID {
-        self.shroud_status_object_id
+        self.drawable_info.shroud_status_object_id
     }
 
     /// Set the object used for shroud status when this drawable has no direct object.
     pub fn set_shroud_status_object_id(&mut self, object_id: ObjectID) {
-        self.shroud_status_object_id = object_id;
+        self.drawable_info.shroud_status_object_id = object_id;
+    }
+
+    /// C++ `Drawable::getDrawableInfo()`.
+    pub fn drawable_info(&self) -> &DrawableInfo {
+        &self.drawable_info
+    }
+
+    /// C++ `Drawable::getDrawableInfo()` mutable.
+    pub fn drawable_info_mut(&mut self) -> &mut DrawableInfo {
+        &mut self.drawable_info
     }
 
     /// Flash contained objects when this drawable is selected.
@@ -3999,6 +4012,7 @@ impl Drawable for BasicDrawable {
 
     fn set_id(&mut self, id: DrawableId) {
         self.id = id;
+        self.drawable_info.set_drawable_id(id.0);
     }
 
     fn get_object_id(&self) -> Option<u32> {
@@ -4740,6 +4754,7 @@ impl Snapshotable for BasicDrawable {
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("{:?}", e))?;
         self.id = DrawableId(id);
+        self.drawable_info.set_drawable_id(id);
 
         // --- condition state (C++ version >= 2, line 4924) ---
         if version >= 2 {
@@ -4965,7 +4980,7 @@ impl Snapshotable for BasicDrawable {
 
         // --- drawable info shroud-status object id (C++ line 5161) ---
         if version >= 5 {
-            xfer.xfer_object_id(&mut self.shroud_status_object_id)
+            xfer.xfer_object_id(&mut self.drawable_info.shroud_status_object_id)
                 .map_err(|e| format!("{:?}", e))?;
         }
 
@@ -5532,6 +5547,10 @@ mod tests {
         assert!(drawable.is_visible());
         assert!(!drawable.is_selected());
         assert_eq!(drawable.get_opacity(), 1.0);
+        // C++ Drawable.cpp: m_drawableInfo.m_drawable = this; m_ghostObject = NULL;
+        assert_eq!(drawable.drawable_info().drawable_id, 1);
+        assert_eq!(drawable.drawable_info().ghost_object_id, INVALID_ID);
+        assert_eq!(drawable.drawable_info().shroud_status_object_id, INVALID_ID);
     }
 
     #[test]
@@ -6399,6 +6418,8 @@ mod tests {
 
         assert_eq!(loaded.get_id(), DrawableId(88));
         assert_eq!(loaded.shroud_status_object_id(), 1234);
+        assert_eq!(loaded.drawable_info().drawable_id, 88);
+        assert_eq!(loaded.drawable_info().ghost_object_id, INVALID_ID);
     }
 
     #[test]

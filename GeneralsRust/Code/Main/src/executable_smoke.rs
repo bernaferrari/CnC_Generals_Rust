@@ -2988,6 +2988,8 @@ mod tests {
         assert!((s.startup_progress - 1.0).abs() < f32::EPSILON);
     }
 
+    // Residual packs live behind cfg(test)/host-residuals; this test is lib-only.
+    #[cfg(any(test, feature = "host-residuals"))]
     #[test]
     fn residual_packs_cannot_set_playable_claim() {
         use crate::game_logic::{

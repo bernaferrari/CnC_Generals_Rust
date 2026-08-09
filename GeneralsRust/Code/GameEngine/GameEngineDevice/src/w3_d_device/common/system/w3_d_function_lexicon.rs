@@ -37,7 +37,10 @@ pub fn load_w3d_tables(lexicon: &mut FunctionLexicon) {
 }
 
 fn draw_func_ptr(func: GameWinDrawFunc) -> FunctionPtr {
-    FunctionPtr(func as *const ())
+    // GameWinDrawFunc is a real function item (`fn(&GameWindow, &WindowInstanceData)`).
+    // Store it as `fn()` for the lexicon table; invoke sites transmute back.
+    // SAFETY: `func` is a live function item, not an arbitrary address.
+    unsafe { FunctionPtr::from_usize(func as *const () as usize) }
 }
 
 fn game_win_draw_table() -> Vec<TableEntry> {

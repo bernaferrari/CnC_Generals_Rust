@@ -3,11 +3,11 @@
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
-use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
-use crate::gui::game_window::Image as WindowImage;
 use crate::gui::challenge_game_info::{
     clear_challenge_game_info, init_challenge_game_info, set_challenge_slot0_and_map,
 };
+use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
+use crate::gui::game_window::Image as WindowImage;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
     get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
@@ -910,7 +910,11 @@ mod tests {
             challenge_map, "maps\\skirmish_only.map",
             "challenge GameInfo must not share skirmish map"
         );
-        let skirmish_map = get_skirmish_setup().game_info().game_info().get_map().to_string();
+        let skirmish_map = get_skirmish_setup()
+            .game_info()
+            .game_info()
+            .get_map()
+            .to_string();
         assert_eq!(
             skirmish_map, "maps\\skirmish_only.map",
             "TheSkirmishGameInfo must stay untouched by ChallengeMenuInit"
@@ -929,7 +933,11 @@ mod tests {
         .unwrap();
         assert_eq!(after.0, "maps\\GC_ChemGeneral.map");
         assert_eq!(after.1, 3);
-        let skirmish_map = get_skirmish_setup().game_info().game_info().get_map().to_string();
+        let skirmish_map = get_skirmish_setup()
+            .game_info()
+            .game_info()
+            .get_map()
+            .to_string();
         assert_eq!(skirmish_map, "maps\\skirmish_only.map");
 
         let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());

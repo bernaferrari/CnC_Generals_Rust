@@ -456,8 +456,7 @@ pub fn drive_os_wnd_difficulty_select_ok_like_cpp() -> bool {
 
 /// Human click-through: OS LeftDown/Up on `DifficultySelect.wnd:ButtonCancel`.
 pub fn drive_os_wnd_difficulty_select_cancel_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonCancel");
+    let clicked = crate::gui::dispatch_os_click_named_window("DifficultySelect.wnd:ButtonCancel");
     if !clicked {
         return false;
     }
@@ -484,9 +483,7 @@ mod os_wnd_tests {
 
     fn install_named_button(name: &str, x: i32, y: i32) {
         with_window_manager(|manager| {
-            let button = manager
-                .create_window(None, x, y, 80, 24)
-                .expect(name);
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
             let _ = button.borrow_mut().hide(false);
         });

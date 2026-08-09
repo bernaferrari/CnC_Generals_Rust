@@ -92,14 +92,15 @@ pub mod gui_callbacks;
 pub mod header_template;
 pub mod ime_manager;
 pub use ime_manager::{
-    drive_os_wnd_ime_clear_candidates_like_cpp, drive_os_wnd_ime_prepare_composition_cycle_like_cpp,
-    drive_os_wnd_ime_result_like_cpp, residual_ime_candidate_count, residual_ime_is_composing,
-    residual_ime_is_enabled, residual_ime_last_action, simulate_ime_candidate_list,
-    simulate_ime_clear_candidates, simulate_ime_disable, simulate_ime_enable,
-    simulate_ime_end_composition, simulate_ime_prepare_composition_cycle, simulate_ime_reset,
-    simulate_ime_result_string, simulate_ime_start_composition, simulate_ime_update_composition,
-    ResidualImeAction,
+    drive_os_wnd_ime_clear_candidates_like_cpp,
+    drive_os_wnd_ime_prepare_composition_cycle_like_cpp, drive_os_wnd_ime_result_like_cpp,
+    residual_ime_candidate_count, residual_ime_is_composing, residual_ime_is_enabled,
+    residual_ime_last_action, simulate_ime_candidate_list, simulate_ime_clear_candidates,
+    simulate_ime_disable, simulate_ime_enable, simulate_ime_end_composition,
+    simulate_ime_prepare_composition_cycle, simulate_ime_reset, simulate_ime_result_string,
+    simulate_ime_start_composition, simulate_ime_update_composition, ResidualImeAction,
 };
+pub mod challenge_game_info;
 pub mod ingame_ui;
 pub mod integrated_ui_system;
 pub mod lan_preferences;
@@ -110,7 +111,6 @@ pub mod menu_flags;
 pub mod menus;
 pub mod process_animate_window;
 pub mod shell;
-pub mod challenge_game_info;
 pub mod skirmish_preferences;
 pub mod skirmish_setup;
 pub mod ui_globals;
@@ -143,14 +143,15 @@ pub use game_window::{
     gadget_list_box_get_num_columns, gadget_list_box_get_selected,
     gadget_list_box_get_top_visible_entry, gadget_list_box_is_full,
     gadget_list_box_set_audio_feedback, gadget_list_box_set_bottom_visible_entry,
-    gadget_list_box_set_colors, gadget_list_box_set_top_visible_entry, write_input_focus_response,
-    GameWindow, WindowCallbacks, WindowDrawData, WindowError, WindowId, WindowInputReturnCode,
-    WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled, WindowRegion, WindowResult,
-    WindowState, WindowStatus, WindowTextColors, WindowWidget, GCM_ADD_ENTRY, GCM_DEL_ALL,
-    GCM_DEL_ENTRY, GCM_EDIT_DONE, GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_GET_TEXT, GCM_SELECTED,
-    GCM_SET_ITEM_DATA, GCM_SET_SELECTION, GCM_SET_TEXT, GCM_UPDATE_TEXT, GLM_DOUBLE_CLICKED,
-    GLM_RIGHT_CLICKED, GLM_SELECTED, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
-    WIN_COLOR_UNDEFINED,
+    gadget_list_box_set_colors, gadget_list_box_set_top_visible_entry, is_window_msg_payload,
+    payload, pop_payload, push_payload, replace_payload, with_payload,
+    with_payload_mut, write_input_focus_response, GameWindow, WindowCallbacks, WindowDrawData,
+    WindowError, WindowId, WindowInputReturnCode, WindowInstanceData, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowMsgPayload, WindowRegion, WindowResult, WindowState, WindowStatus,
+    WindowTextColors, WindowWidget, GCM_ADD_ENTRY, GCM_DEL_ALL, GCM_DEL_ENTRY, GCM_EDIT_DONE,
+    GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_GET_TEXT, GCM_SELECTED, GCM_SET_ITEM_DATA,
+    GCM_SET_SELECTION, GCM_SET_TEXT, GCM_UPDATE_TEXT, GLM_DOUBLE_CLICKED, GLM_RIGHT_CLICKED,
+    GLM_SELECTED, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
 };
 pub use game_window_transitions::GameWindowTransitionsHandler;
 
@@ -170,6 +171,11 @@ pub use font::{
 pub use header_template::{get_header_template_manager, HeaderTemplate, HeaderTemplateManager};
 
 // Re-export shell system types for convenience
+pub use challenge_game_info::{
+    challenge_game_info_exists, clear_challenge_game_info, ensure_challenge_game_info,
+    init_challenge_game_info, restore_map_and_template, set_challenge_slot0_and_map,
+    snapshot_map_and_template, with_challenge_game_info, with_challenge_game_info_mut,
+};
 pub use custom_match_preferences::CustomMatchPreferencesStore;
 pub use lan_preferences::LanPreferences;
 pub use lan_setup::get_lan_setup;
@@ -179,8 +185,9 @@ pub use shell::{
     drive_os_wnd_start_china_campaign_like_cpp, drive_os_wnd_start_gla_campaign_like_cpp,
     drive_os_wnd_start_usa_campaign_like_cpp, get_shell, last_os_wnd_widget_tree_click_ok,
     note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok, residual_last_campaign_difficulty,
-    residual_shell_map_is_on, residual_shell_map_last_action, reveal_main_menu_first_input_like_cpp,
-    show_shell_map_if_available, simulate_main_menu_campaign_side_button_gadget_selected,
+    residual_shell_map_is_on, residual_shell_map_last_action,
+    reveal_main_menu_first_input_like_cpp, show_shell_map_if_available,
+    simulate_main_menu_campaign_side_button_gadget_selected,
     simulate_main_menu_campaign_start_residual,
     simulate_main_menu_challenge_button_gadget_selected,
     simulate_main_menu_credits_button_gadget_selected,
@@ -196,11 +203,6 @@ pub use shell::{
     try_with_shell_mut, AnimateWindowManager, AnimationType, Color, Coord2D, GameDifficulty,
     LayoutState, ResidualShellMapAction, Shell, ShellError, ShellMenuScheme,
     ShellMenuSchemeManager, ShowSide, WindowLayout as ShellWindowLayout, WindowRect,
-};
-pub use challenge_game_info::{
-    challenge_game_info_exists, clear_challenge_game_info, ensure_challenge_game_info,
-    init_challenge_game_info, set_challenge_slot0_and_map, snapshot_map_and_template,
-    restore_map_and_template, with_challenge_game_info, with_challenge_game_info_mut,
 };
 pub use skirmish_preferences::SkirmishPreferences;
 pub use skirmish_setup::get_skirmish_setup;

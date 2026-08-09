@@ -1,5 +1,6 @@
 //! ScoreScreen.cpp callback port.
 
+use crate::cd_check::check_for_cd_at_game_start;
 use crate::core::script_action_handler::{
     is_script_display_movie_playing, play_script_display_movie,
 };
@@ -11,16 +12,15 @@ use crate::gui::campaign_manager::{
 use crate::gui::challenge_generals::get_challenge_generals;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::shell::Shell;
-use crate::cd_check::check_for_cd_at_game_start;
 use crate::gui::{
     get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
     write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowStatus,
 };
 use crate::message_stream::{get_message_stream, GameMessageType};
-use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::recorder::{get_recorder, RecorderMode};
 use game_engine::common::skirmish_battle_honors::{
     SkirmishBattleHonors, BATTLE_HONOR_CAMPAIGN_CHINA, BATTLE_HONOR_CAMPAIGN_GLA,
@@ -286,11 +286,7 @@ fn start_next_campaign_game() {
         // C++ rematch: init/clearSlotList/reset/enterGame then set map+slot0.
         crate::gui::challenge_game_info::init_challenge_game_info();
         let template_num = get_challenge_generals()
-            .and_then(|m| {
-                m.lock()
-                    .ok()
-                    .map(|g| g.current_player_template_num())
-            })
+            .and_then(|m| m.lock().ok().map(|g| g.current_player_template_num()))
             .unwrap_or_else(|| {
                 get_campaign_manager().get_xfer_challenge_generals_player_template_num()
             });
@@ -1538,8 +1534,7 @@ pub fn simulate_score_screen_prepare_ok() -> bool {
 /// (C++ WindowXlat hit → GBM_SELECTED → CheckForCDAtGameStart(startNextCampaignGame)).
 /// Not `simulate_*` first.
 pub fn drive_os_wnd_score_screen_continue_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonContinue");
+    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonContinue");
     if !clicked {
         return false;
     }
@@ -1572,8 +1567,7 @@ pub fn drive_os_wnd_score_screen_ok_like_cpp() -> bool {
 
 /// Human click-through: OS LeftDown/Up on `ScoreScreen.wnd:ButtonSaveReplay`.
 pub fn drive_os_wnd_score_screen_save_replay_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonSaveReplay");
+    let clicked = crate::gui::dispatch_os_click_named_window("ScoreScreen.wnd:ButtonSaveReplay");
     if !clicked {
         return false;
     }
@@ -1605,9 +1599,7 @@ mod os_wnd_tests {
 
     fn install_named_button(name: &str, x: i32, y: i32) {
         with_window_manager(|manager| {
-            let button = manager
-                .create_window(None, x, y, 80, 24)
-                .expect(name);
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
             let _ = button.borrow_mut().hide(false);
         });
@@ -1657,9 +1649,7 @@ mod os_wnd_tests {
             residual_score_screen_last_action(),
             ResidualScoreScreenAction::Continue
         );
-        let current_map = get_campaign_manager()
-            .get_current_map()
-            .unwrap_or_default();
+        let current_map = get_campaign_manager().get_current_map().unwrap_or_default();
         if current_map.is_empty() {
             return;
         }

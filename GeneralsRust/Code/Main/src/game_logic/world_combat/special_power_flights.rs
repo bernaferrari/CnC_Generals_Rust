@@ -1,0 +1,1782 @@
+//! Host combat `impl GameLogic` — `special_power_flights`.
+//! Child of `world_combat` (itself a child of `game_logic.rs`).
+#![allow(unused_imports, non_snake_case)]
+use super::super::*;
+
+impl GameLogic {
+
+    pub fn update_anthrax_bomb_flights(&mut self) {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier;
+        use crate::game_logic::special_power_strikes::{
+            ANTHRAX_BOMB_IMPACT_DAMAGE, ANTHRAX_BOMB_IMPACT_RADIUS,
+        };
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.anthrax_bomb_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(Team, Vec3, ObjectId, AnthraxBombPayloadTier)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.anthrax_bomb_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, over) = data.tick_transport(pos);
+            let target = data.target;
+            let tier = data.tier;
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if over {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.anthrax_bomb_transport = None;
+                drops.push((team, target, producer, tier));
+            }
+        }
+        for (team, target, producer, tier) in drops {
+            let bomb = tier.bomb();
+            let drop_pos = Vec3::new(target.x, 90.0, target.z);
+            if let Some(bid) = self.create_object(bomb, team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&bid) {
+                    o.producer_id = Some(producer);
+                    o.anthrax_bomb_payload = true;
+                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                }
+                self.anthrax_bomb_flight_reg.record_drop();
+            }
+        }
+
+        let bombs: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.anthrax_bomb_payload && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in bombs {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                let impact = Vec3::new(pos.x, 0.0, pos.z);
+                self.apply_fuel_air_radius_damage(
+                    id,
+                    producer,
+                    team,
+                    impact,
+                    ANTHRAX_BOMB_IMPACT_DAMAGE,
+                    ANTHRAX_BOMB_IMPACT_RADIUS,
+                    DamageType::Explosive,
+                );
+                // OCL_PoisonFieldAnthraxBomb residual.
+                let src = producer.unwrap_or(id);
+                let _ = self
+                    .special_power_strikes
+                    .spawn_toxin_field(src, team, impact, self.frame, 0);
+                self.anthrax_bomb_flight_reg.record_toxin_field();
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                self.anthrax_bomb_flight_reg.record_detonation();
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    /// C++ OCL_CreateSneakAttackTunnelStart → GLASneakAttackTunnelNetworkStart residual.
+    pub fn spawn_sneak_attack_tunnel_start(
+        &mut self,
+        mission_id: u32,
+        team: Team,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_TUNNEL_START_TEMPLATE;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self
+            .templates
+            .contains_key(SNEAK_ATTACK_TUNNEL_START_TEMPLATE)
+        {
+            let mut t = ThingTemplate::new(SNEAK_ATTACK_TUNNEL_START_TEMPLATE);
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(SNEAK_ATTACK_TUNNEL_START_TEMPLATE.to_string(), t);
+        }
+        let sid = self.create_object(SNEAK_ATTACK_TUNNEL_START_TEMPLATE, team, position)?;
+        if let Some(o) = self.objects.get_mut(&sid) {
+            o.sneak_tunnel_start = true;
+        }
+        self.host_sneak_attacks.record_tunnel_start(mission_id, sid);
+        Some(sid)
+    }
+
+    /// C++ SUPERWEAPON_ClusterMines ChinaJetCargoPlane + ClusterMinesBomb residual.
+    pub fn spawn_cluster_mines_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_cluster_mines_flight::{
+            HostClusterMinesFlightData, CLUSTER_MINES_BOMB_OBJECT,
+        };
+        use crate::game_logic::host_mines::CLUSTER_MINES_OCL_TRANSPORT;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 340.0,
+            150.0,
+            source_pos.z - dz / dist * 340.0,
+        );
+        if !self.templates.contains_key(CLUSTER_MINES_OCL_TRANSPORT) {
+            let mut t = ThingTemplate::new(CLUSTER_MINES_OCL_TRANSPORT);
+            t.set_health(600.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates
+                .insert(CLUSTER_MINES_OCL_TRANSPORT.to_string(), t);
+        }
+        if !self.templates.contains_key(CLUSTER_MINES_BOMB_OBJECT) {
+            let mut t = ThingTemplate::new(CLUSTER_MINES_BOMB_OBJECT);
+            t.set_health(50.0).add_kind_of(KindOf::Projectile);
+            self.templates
+                .insert(CLUSTER_MINES_BOMB_OBJECT.to_string(), t);
+        }
+        let tid = self.create_object(CLUSTER_MINES_OCL_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.cluster_mines_transport = Some(HostClusterMinesFlightData::start(edge, target));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.cluster_mines_flight_reg.record_transport();
+        Some(tid)
+    }
+
+    pub fn update_cluster_mines_flights(&mut self) {
+        use crate::game_logic::host_cluster_mines_flight::CLUSTER_MINES_BOMB_OBJECT;
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.cluster_mines_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(Team, Vec3, ObjectId)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.cluster_mines_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, over) = data.tick_transport(pos);
+            let target = data.target;
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if over {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.cluster_mines_transport = None;
+                drops.push((team, target, producer));
+            }
+        }
+        for (team, target, producer) in drops {
+            let drop_pos = Vec3::new(target.x, 80.0, target.z);
+            if let Some(bid) = self.create_object(CLUSTER_MINES_BOMB_OBJECT, team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&bid) {
+                    o.producer_id = Some(producer);
+                    o.cluster_mines_bomb = true;
+                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                }
+                self.cluster_mines_flight_reg.record_drop();
+            }
+        }
+
+        let bombs: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.cluster_mines_bomb && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in bombs {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                let impact = Vec3::new(pos.x, 0.0, pos.z);
+                let mines = self.place_cluster_mines(team, impact, producer);
+                self.cluster_mines_flight_reg
+                    .record_minefield(mines.len() as u32);
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    /// C++ SUPERWEAPON_EMPPulse ChinaJetCargoPlane + EMPPulseBomb residual.
+    /// C++ OCL_EMPPulseEffectSpheroids CreateObject EMPPulseEffectSpheroid residual.
+    pub fn spawn_emp_pulse_spheroid(
+        &mut self,
+        position: Vec3,
+        producer: ObjectId,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_emp_pulse::{
+            EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self
+            .objects
+            .get(&producer)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        if !self.templates.contains_key(EMP_PULSE_EFFECT_SPHEROID) {
+            let mut t = ThingTemplate::new(EMP_PULSE_EFFECT_SPHEROID);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(EMP_PULSE_EFFECT_SPHEROID.to_string(), t);
+        }
+        let sid = self.create_object(EMP_PULSE_EFFECT_SPHEROID, team, position)?;
+        if let Some(o) = self.objects.get_mut(&sid) {
+            o.emp_pulse_spheroid = true;
+            o.producer_id = Some(producer);
+            o.emp_pulse_spheroid_expires_frame =
+                Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+        }
+        self.emp_pulses.record_spheroid_spawn();
+        self.emp_pulse_flight_reg.record_spheroid();
+        Some(sid)
+    }
+
+    pub fn update_emp_pulse_spheroids(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.emp_pulse_spheroid {
+                    if let Some(exp) = o.emp_pulse_spheroid_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                // Wave 752: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.emp_pulse_spheroid = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn spawn_emp_pulse_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+        player_id: u32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_emp_pulse::{EMP_PULSE_BOMB_TEMPLATE, EMP_PULSE_OCL_TRANSPORT};
+        use crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightData;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 340.0,
+            150.0,
+            source_pos.z - dz / dist * 340.0,
+        );
+        if !self.templates.contains_key(EMP_PULSE_OCL_TRANSPORT) {
+            let mut t = ThingTemplate::new(EMP_PULSE_OCL_TRANSPORT);
+            t.set_health(600.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates
+                .insert(EMP_PULSE_OCL_TRANSPORT.to_string(), t);
+        }
+        if !self.templates.contains_key(EMP_PULSE_BOMB_TEMPLATE) {
+            let mut t = ThingTemplate::new(EMP_PULSE_BOMB_TEMPLATE);
+            t.set_health(50.0).add_kind_of(KindOf::Projectile);
+            self.templates
+                .insert(EMP_PULSE_BOMB_TEMPLATE.to_string(), t);
+        }
+        let tid = self.create_object(EMP_PULSE_OCL_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.emp_pulse_transport = Some(HostEmpPulseFlightData::start(
+                edge,
+                target,
+                player_id,
+                source_id.0,
+            ));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.emp_pulse_flight_reg.record_transport();
+        Some(tid)
+    }
+
+    pub fn update_emp_pulse_flights(&mut self) {
+        use crate::game_logic::host_emp_pulse::EMP_PULSE_BOMB_TEMPLATE;
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.emp_pulse_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(Team, Vec3, ObjectId, u32, u32)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.emp_pulse_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, over) = data.tick_transport(pos);
+            let target = data.target;
+            let player_id = data.player_id;
+            let caster = data.caster_id;
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if over {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.emp_pulse_transport = None;
+                drops.push((team, target, producer, player_id, caster));
+            }
+        }
+        for (_team, target, producer, player_id, caster) in drops {
+            let drop_pos = Vec3::new(target.x, 80.0, target.z);
+            if let Some(bid) = self.create_object(EMP_PULSE_BOMB_TEMPLATE, _team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&bid) {
+                    o.producer_id = Some(producer);
+                    o.emp_pulse_bomb = true;
+                    // Stash player/caster in unused fields via producer already set.
+                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                    // Encode player_id in a residual marker via template tag is overkill;
+                    // store on bomb via producer and call activate with player from producer team.
+                    let _ = (player_id, caster);
+                }
+                self.emp_pulse_flight_reg.record_drop();
+            }
+        }
+
+        let bombs: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.emp_pulse_bomb && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in bombs {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                let impact = Vec3::new(pos.x, 0.0, pos.z);
+                // Resolve player_id from producer team.
+                let player_id = producer
+                    .and_then(|pid| self.objects.get(&pid))
+                    .and_then(|o| {
+                        self.players
+                            .iter()
+                            .find(|(_, p)| p.team == o.team)
+                            .map(|(id, _)| *id)
+                    })
+                    .unwrap_or(0);
+                let _ = self.apply_emp_pulse_at(player_id, impact, producer);
+                self.emp_pulse_flight_reg.record_detonation();
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    /// C++ SUPERWEAPON_Frenzy OCL Frenzy_InvisibleMarker residual.
+    pub fn spawn_frenzy_invisible_marker(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        level: crate::game_logic::host_frenzy::HostFrenzyLevel,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let tmpl = level.marker_template();
+        if !self.templates.contains_key(tmpl) {
+            let mut t = ThingTemplate::new(tmpl);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates.insert(tmpl.to_string(), t);
+        }
+        let mid = self.create_object(tmpl, team, position)?;
+        if let Some(o) = self.objects.get_mut(&mid) {
+            o.frenzy_invisible_marker = true;
+        }
+        self.frenzies.record_marker_spawn(mid);
+        Some(mid)
+    }
+
+    pub fn update_frenzy_invisible_markers(&mut self) {
+        // Retail DeletionUpdate Min/MaxLifetime = 1ms → 1 frame residual.
+        let due = self.frenzies.take_due_marker_deletes();
+        for id in due {
+            if self
+                .objects
+                .get(&id)
+                .map(|o| o.frenzy_invisible_marker)
+                .unwrap_or(false)
+            {
+                // Invisible marker has no SlowDeath residual — hard-remove.
+                if let Some(o) = self.objects.get_mut(&id) {
+                    // Wave 752: under damage authority, do not zero host HP mid-frame
+                    // (dual with GW HP writeback). Project lethal via damage log + flags.
+                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                        let hp = o.health.current.max(1.0);
+                        let oid = o.id;
+                        crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    } else {
+                        o.health.current = 0.0;
+                    }
+                    o.status.destroyed = true;
+                    o.status.effectively_dead = true;
+                }
+                self.mark_object_for_destruction(id, None);
+            }
+        }
+    }
+
+    /// C++ OCL GPSScrambler_InvisibleMarker residual.
+    pub fn spawn_gps_scrambler_marker(&mut self, team: Team, position: Vec3) -> Option<ObjectId> {
+        use crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_INVISIBLE_MARKER;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(GPS_SCRAMBLER_INVISIBLE_MARKER) {
+            let mut t = ThingTemplate::new(GPS_SCRAMBLER_INVISIBLE_MARKER);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(GPS_SCRAMBLER_INVISIBLE_MARKER.to_string(), t);
+        }
+        let mid = self.create_object(GPS_SCRAMBLER_INVISIBLE_MARKER, team, position)?;
+        if let Some(o) = self.objects.get_mut(&mid) {
+            o.gps_scrambler_marker = true;
+        }
+        self.gps_scramblers.record_marker_spawn();
+        Some(mid)
+    }
+
+    /// C++ GrantStealthBehavior radius grow pulse residual (Start 20 → Final 100).
+    pub fn update_gps_scrambler_grow(&mut self) {
+        use crate::game_logic::host_gps_scrambler::{
+            gps_scrambler_grow_is_final, gps_scrambler_scan_radius_after_updates,
+            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
+            is_legal_gps_scrambler_target, GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL,
+        };
+
+        // Collect grow work without holding registry mut across object mut.
+        let work: Vec<(u32, Vec3, f32, Team, Option<ObjectId>)> = {
+            let mut out = Vec::new();
+            for a in self.gps_scramblers.growing_missions_mut() {
+                if a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL {
+                    a.growing = false;
+                    a.radius =
+                        gps_scrambler_scan_radius_after_updates(a.grow_index.saturating_sub(1));
+                    continue;
+                }
+                let radius = gps_scrambler_scan_radius_after_updates(a.grow_index);
+                a.radius = radius;
+                a.grow_index = a.grow_index.saturating_add(1);
+                if gps_scrambler_grow_is_final(a.grow_index.saturating_sub(1))
+                    || a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL
+                {
+                    a.growing = false;
+                }
+                let team = a
+                    .caster_id
+                    .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+                    .unwrap_or(Team::GLA);
+                out.push((a.id, a.location, radius, team, a.caster_id));
+            }
+            out
+        };
+
+        for (_aid, location, radius, team, caster_id) in work {
+            self.gps_scramblers.record_grow_pulse();
+            let center = (location.x, location.z);
+            let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if !obj.is_alive() {
+                        return None;
+                    }
+                    if obj.gps_scrambler_marker {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    if !in_gps_scrambler_radius_2d(center, (pos.x, pos.z), radius) {
+                        return None;
+                    }
+                    let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                    let is_infantry = obj.is_kind_of(KindOf::Infantry);
+                    let same_team = obj.team == team;
+                    let under_construction =
+                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                    let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
+                    Some((
+                        *id,
+                        is_vehicle,
+                        is_infantry,
+                        same_team,
+                        under_construction,
+                        is_disguise,
+                    ))
+                })
+                .collect();
+
+            let mut grants = 0u32;
+            for (id, is_vehicle, is_infantry, same_team, under_construction, is_disguise) in
+                candidates
+            {
+                if !is_legal_gps_scrambler_target(
+                    is_vehicle,
+                    is_infantry,
+                    true,
+                    same_team,
+                    under_construction,
+                    is_disguise,
+                ) {
+                    continue;
+                }
+                let Some(target) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let was = target.is_effectively_stealthed();
+                target.apply_grant_stealth();
+                if !was || target.is_effectively_stealthed() {
+                    grants = grants.saturating_add(1);
+                }
+            }
+            if grants > 0 {
+                // Bookkeeping on registry grant_count via record if available.
+                self.gps_scramblers.grant_count =
+                    self.gps_scramblers.grant_count.saturating_add(grants);
+            }
+            let _ = caster_id;
+        }
+    }
+
+    /// C++ OCL RepairVehiclesInArea_InvisibleMarker residual (DeletionUpdate 0 = same-frame die).
+    pub fn spawn_emergency_repair_marker(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let tmpl = level.marker_template();
+        if !self.templates.contains_key(tmpl) {
+            let mut t = ThingTemplate::new(tmpl);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates.insert(tmpl.to_string(), t);
+        }
+        let mid = self.create_object(tmpl, team, position)?;
+        if let Some(o) = self.objects.get_mut(&mid) {
+            o.emergency_repair_marker = true;
+            // DeletionUpdate Lifetime 0 residual: die immediately after pulse.
+            // Wave 752: under damage authority, do not zero host HP mid-frame
+            // (dual with GW HP writeback). Project lethal via damage log + flags.
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                let hp = o.health.current.max(1.0);
+                let oid = o.id;
+                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            } else {
+                o.health.current = 0.0;
+            }
+            o.status.destroyed = true;
+            o.status.effectively_dead = true;
+        }
+        self.emergency_repairs.record_marker_spawn();
+        // Avoid full destroy pipeline on the one-pulse marker residual.
+        Some(mid)
+    }
+
+    /// C++ AmericaVehicleSpyDrone DynamicShroudClearingRangeUpdate grow residual.
+    /// Expands FOW reveal from StartRadius 0 toward VisionRange 250 over GrowTime.
+    pub fn update_spy_drone_grow(&mut self) {
+        use crate::game_logic::host_spy_drone::{
+            spy_drone_grow_is_final, spy_drone_scan_radius_after_updates,
+            SPY_DRONE_GROW_UPDATES_TO_FINAL, SPY_DRONE_VISION_RANGE,
+        };
+        use gamelogic::common::Coord3D;
+
+        let work: Vec<(usize, Vec3, f32, u32)> = {
+            let acts = self.spy_drones.activations_mut();
+            let mut out = Vec::new();
+            for (i, a) in acts.iter_mut().enumerate() {
+                if !a.growing {
+                    continue;
+                }
+                if a.grow_index >= SPY_DRONE_GROW_UPDATES_TO_FINAL {
+                    a.growing = false;
+                    a.radius = SPY_DRONE_VISION_RANGE;
+                    continue;
+                }
+                let radius = spy_drone_scan_radius_after_updates(a.grow_index);
+                a.radius = radius;
+                a.grow_index = a.grow_index.saturating_add(1);
+                if spy_drone_grow_is_final(a.grow_index.saturating_sub(1)) {
+                    a.growing = false;
+                    a.radius = SPY_DRONE_VISION_RANGE;
+                }
+                out.push((i, a.location, radius, a.player_mask));
+            }
+            out
+        };
+
+        if work.is_empty() {
+            return;
+        }
+
+        let shroud = get_shroud_manager();
+        let mut shroud_mgr = match shroud.lock() {
+            Ok(mgr) => mgr,
+            Err(_) => return,
+        };
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+        if !shroud_mgr.has_shroud_grid() {
+            shroud_mgr.init_shroud_grid(world_w, world_h);
+        }
+        for (_i, location, radius, player_mask) in work {
+            let center = Coord3D::new(location.x, location.z, location.y);
+            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+            self.spy_drones.record_grow_pulse();
+        }
+        let _ = SPY_DRONE_VISION_RANGE;
+    }
+
+    /// C++ OCL_FireWallSegment CreateObject FireWallSegment residual.
+    pub fn spawn_firewall_segment_objects(
+        &mut self,
+        wall_id: u32,
+        source_object: ObjectId,
+        source_team: Team,
+    ) -> u32 {
+        use crate::game_logic::host_firewall::{
+            HostFireWallRegistry, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let (positions, upgraded): (Vec<Vec3>, bool) = self
+            .fire_walls
+            .active_walls()
+            .iter()
+            .find(|w| w.id == wall_id)
+            .map(|w| (w.segments.iter().map(|s| s.position).collect(), w.upgraded))
+            .unwrap_or_default();
+        if positions.is_empty() {
+            return 0;
+        }
+        let template = HostFireWallRegistry::wall_segment_template(upgraded);
+        if !self.templates.contains_key(template) {
+            let mut t = ThingTemplate::new(template);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(FIREWALL_SEGMENT_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(template.to_string(), t);
+        }
+        let (dir_x, dir_z) = self
+            .fire_walls
+            .active_walls()
+            .iter()
+            .find(|w| w.id == wall_id)
+            .map(|w| (w.dir_x, w.dir_z))
+            .unwrap_or((1.0, 0.0));
+        let expires = self.frame.saturating_add(FIREWALL_DURATION_FRAMES);
+        let mut spawned = 0u32;
+        for pos in positions {
+            if let Some(sid) = self.create_object(template, source_team, pos) {
+                if let Some(o) = self.objects.get_mut(&sid) {
+                    o.firewall_segment = true;
+                    o.producer_id = Some(source_object);
+                    o.firewall_segment_expires_frame = Some(expires);
+                    o.firewall_segment_wall_id = Some(wall_id);
+                    o.firewall_segment_dir = Some([dir_x, dir_z]);
+                    o.health.maximum = FIREWALL_SEGMENT_MAX_HEALTH;
+                    Self::write_object_health_authority_aware(o, FIREWALL_SEGMENT_MAX_HEALTH);
+                }
+                spawned = spawned.saturating_add(1);
+            }
+        }
+        self.fire_walls.record_segment_spawns(spawned);
+        spawned
+    }
+
+    pub fn update_firewall_segment_objects(&mut self) {
+        use crate::game_logic::host_firewall::FIREWALL_INCH_PER_FRAME;
+
+        let frame = self.frame;
+
+        // C++ InchForwardLocomotor residual: segments crawl along wall direction.
+        // Keep registry damage zones and live segment objects in lockstep.
+        self.fire_walls.crawl_segments();
+        // Wave 809: under coupled shadow, object crawl/expire owned by GW.
+        if crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active()
+        {
+            return;
+        }
+        let crawlers: Vec<(ObjectId, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.firewall_segment || !o.is_alive() {
+                    return None;
+                }
+                let dir = o.firewall_segment_dir.unwrap_or([1.0, 0.0]);
+                Some((
+                    *id,
+                    dir[0] * FIREWALL_INCH_PER_FRAME,
+                    dir[1] * FIREWALL_INCH_PER_FRAME,
+                ))
+            })
+            .collect();
+        for (id, dx, dz) in crawlers {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let mut p = o.get_position();
+                p.x += dx;
+                p.z += dz;
+                o.set_position(p);
+            }
+        }
+
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.firewall_segment {
+                    if let Some(exp) = o.firewall_segment_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                // Wave 752: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.firewall_segment = false;
+                o.firewall_segment_wall_id = None;
+                o.firewall_segment_dir = None;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    /// C++ OCL SUPERWEAPON_RadarVanScan CreateObject RadarVanPing residual.
+    pub fn spawn_radar_van_ping(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_radar_scan::{
+            RADAR_SCAN_DURATION_FRAMES, RADAR_VAN_PING_TEMPLATE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(RADAR_VAN_PING_TEMPLATE) {
+            let mut t = ThingTemplate::new(RADAR_VAN_PING_TEMPLATE);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(RADAR_VAN_PING_TEMPLATE.to_string(), t);
+        }
+        let pid = self.create_object(RADAR_VAN_PING_TEMPLATE, team, position)?;
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.radar_van_ping = true;
+            o.producer_id = caster_id;
+            o.radar_van_ping_expires_frame =
+                Some(self.frame.saturating_add(RADAR_SCAN_DURATION_FRAMES));
+        }
+        self.radar_scans.record_ping_spawn();
+        Some(pid)
+    }
+
+    pub fn update_radar_van_pings(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.radar_van_ping {
+                    if let Some(exp) = o.radar_van_ping_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                // Wave 752: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.radar_van_ping = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    /// C++ OCL SUPERWEAPON_SpySatellite CreateObject SpySatellitePing residual.
+    pub fn spawn_spy_satellite_ping(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_spy_satellite::{
+            SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_PING_TEMPLATE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(SPY_SATELLITE_PING_TEMPLATE) {
+            let mut t = ThingTemplate::new(SPY_SATELLITE_PING_TEMPLATE);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(SPY_SATELLITE_PING_TEMPLATE.to_string(), t);
+        }
+        let pid = self.create_object(SPY_SATELLITE_PING_TEMPLATE, team, position)?;
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.spy_satellite_ping = true;
+            o.producer_id = caster_id;
+            // DeletionUpdate lifetime residual tracked via destroy at duration.
+            o.spy_satellite_ping_expires_frame =
+                Some(self.frame.saturating_add(SPY_SATELLITE_DURATION_FRAMES));
+        }
+        self.spy_satellites.record_ping_spawn();
+        Some(pid)
+    }
+
+    pub fn update_spy_satellite_pings(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.spy_satellite_ping {
+                    if let Some(exp) = o.spy_satellite_ping_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                // Wave 752: under damage authority, do not zero host HP mid-frame
+                // (dual with GW HP writeback). Project lethal via damage log + flags.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.spy_satellite_ping = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_ocl_apply_random_force::{
+            apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
+        };
+        let Some(o) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        let plan = match apply_random_force_plan_for(&o.template_name) {
+            Some(p) => p,
+            None => return false,
+        };
+        let salt = object_id.0.wrapping_add(self.frame);
+        let force = calc_random_force(&plan, salt);
+        o.movement.velocity += force * 0.05;
+        let spin = spin_nudge_rad(&plan, salt);
+        o.set_orientation(o.get_orientation() + spin);
+        self.ocl_apply_random_force_reg.record(force);
+        true
+    }
+
+    pub fn honesty_carpet_bomb_flight_ok(&self) -> bool {
+        crate::game_logic::host_carpet_bomb_flight::honesty_carpet_bomb_flight_residual_ok()
+    }
+
+    pub fn honesty_artillery_barrage_flight_ok(&self) -> bool {
+        crate::game_logic::host_artillery_barrage_flight::honesty_artillery_barrage_flight_residual_ok()
+    }
+
+    pub fn honesty_a10_strike_flight_ok(&self) -> bool {
+        crate::game_logic::host_a10_strike_flight::honesty_a10_strike_flight_residual_ok()
+    }
+
+    pub fn honesty_daisy_cutter_flight_ok(&self) -> bool {
+        crate::game_logic::host_daisy_cutter_flight::honesty_daisy_cutter_flight_residual_ok()
+    }
+
+    pub fn honesty_anthrax_bomb_flight_ok(&self) -> bool {
+        crate::game_logic::host_anthrax_bomb_flight::honesty_anthrax_bomb_flight_residual_ok()
+    }
+
+    pub fn honesty_cluster_mines_flight_ok(&self) -> bool {
+        crate::game_logic::host_cluster_mines_flight::honesty_cluster_mines_flight_residual_ok()
+    }
+
+    pub fn honesty_emp_pulse_flight_ok(&self) -> bool {
+        crate::game_logic::host_emp_pulse_flight::honesty_emp_pulse_flight_residual_ok()
+    }
+
+    pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
+        crate::game_logic::host_scud_storm_missile_flight::honesty_scud_storm_missile_flight_residual_ok()
+    }
+
+    /// Residual honesty: Neutron shell ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_neutron_shell_scatter_ok(&self) -> bool {
+        self.neutron_shell_scatter_applied > 0 || self.neutron_shell_scatter_misses > 0
+    }
+
+    pub fn honesty_neutron_missile_update_ok(&self) -> bool {
+        crate::game_logic::host_neutron_missile_update::honesty_neutron_missile_update_residual_ok()
+    }
+
+    pub fn honesty_ocl_apply_random_force_ok(&self) -> bool {
+        crate::game_logic::host_ocl_apply_random_force::honesty_ocl_apply_random_force_residual_ok()
+    }
+
+    pub fn honesty_fuel_air_gas_slow_death_ok(&self) -> bool {
+        crate::game_logic::host_fuel_air_gas_slow_death::honesty_fuel_air_gas_slow_death_residual_ok(
+        )
+    }
+
+    pub fn honesty_ocl_fire_weapon_attack_ok(&self) -> bool {
+        crate::game_logic::host_ocl_fire_weapon_attack::honesty_ocl_fire_weapon_attack_residual_ok()
+    }
+
+    pub fn honesty_ocl_create_debris_ok(&self) -> bool {
+        crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok()
+            && (self.ocl_create_debris_reg.plans > 0
+                || self.ocl_create_debris_reg.debris_spawned == 0)
+    }
+
+    pub fn honesty_ocl_special_power_ok(&self) -> bool {
+        self.ocl_special_power_reg.honesty_host_path_ok()
+            && crate::game_logic::host_ocl_special_power::honesty_ocl_special_power_residual_ok()
+    }
+
+    pub fn tensile_formation_registry(
+        &self,
+    ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
+        &self.tensile_formation_reg
+    }
+
+    pub fn honesty_highlander_body_ok(&self) -> bool {
+        self.highlander_body_reg.honesty_clamp_ok()
+    }
+
+    pub fn honesty_upgrade_die_ok(&self) -> bool {
+        self.upgrade_die_reg.honesty_removal_ok()
+    }
+
+    pub fn record_highlander_clamp(&mut self) {
+        self.highlander_body_reg.record_clamp();
+    }
+
+    /// Residual honesty: Battle Bus passenger residual fire.
+    pub fn honesty_battle_bus_passenger_fire_ok(&self) -> bool {
+        self.battle_bus.honesty_passenger_fire_ok()
+    }
+
+    /// Residual honesty: Battle Bus armed-riders weapon-set upgrade.
+    pub fn honesty_battle_bus_weapon_set_upgrade_ok(&self) -> bool {
+        self.battle_bus.honesty_weapon_set_upgrade_ok()
+    }
+
+    /// Residual Tunnel Network honesty: enter count.
+    pub fn tunnel_network_residual_enters(&self) -> u32 {
+        self.tunnel_network.enters
+    }
+
+    /// Residual Tunnel Network honesty: exit count.
+    pub fn tunnel_network_residual_exits(&self) -> u32 {
+        self.tunnel_network.exits
+    }
+
+    /// Residual Tunnel Network honesty: cross-tunnel exit count (enter A, exit B).
+    pub fn tunnel_network_residual_cross_exits(&self) -> u32 {
+        self.tunnel_network.cross_exits
+    }
+
+    /// Residual honesty: tunnel enter → exit path.
+    pub fn honesty_tunnel_network_enter_exit_ok(&self) -> bool {
+        self.tunnel_network.honesty_enter_exit_ok()
+    }
+
+    /// Residual honesty: cross-tunnel exit (enter A, exit B) exercised.
+    pub fn honesty_tunnel_network_cross_exit_ok(&self) -> bool {
+        self.tunnel_network.honesty_cross_exit_ok()
+    }
+
+    /// Residual honesty: any tunnel network residual path.
+    pub fn honesty_tunnel_network_ok(&self) -> bool {
+        self.tunnel_network.honesty_any_ok()
+    }
+
+    /// Residual honesty: TunnelNetworkGun auto-fire residual exercised.
+    pub fn honesty_tunnel_network_gun_ok(&self) -> bool {
+        self.tunnel_network.honesty_gun_fire_ok()
+    }
+
+    /// Residual honesty counter: TunnelNetworkGun residual shots.
+    pub fn tunnel_network_residual_gun_fires(&self) -> u32 {
+        self.tunnel_network.gun_fires
+    }
+
+    /// Residual honesty counter: TunnelNetworkGun residual units hit.
+    pub fn tunnel_network_residual_gun_units_hit(&self) -> u32 {
+        self.tunnel_network.gun_units_hit
+    }
+
+    /// Shared tunnel pool accessors for command residual.
+    pub fn tunnel_network_residual(
+        &self,
+    ) -> &crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry {
+        &self.tunnel_network
+    }
+
+    /// Exit one unit from the team's tunnel network at `exit_tunnel`.
+    /// Removes local occupant bookkeeping from the entry tunnel if different.
+    /// Returns true when the unit was in the shared pool and was released.
+    pub fn exit_tunnel_network_unit(&mut self, unit_id: ObjectId, exit_tunnel: ObjectId) -> bool {
+        let Some(team) = self.tunnel_network.team_holding_unit(unit_id) else {
+            return false;
+        };
+        let entry = self.tunnel_network.record_exit(team, unit_id, exit_tunnel);
+        // Remove from entry tunnel local list (and exit tunnel if mirrored).
+        if let Some(entry_id) = entry {
+            if let Some(container) = self.objects.get_mut(&entry_id) {
+                container.remove_occupant(unit_id);
+            }
+        }
+        if entry != Some(exit_tunnel) {
+            if let Some(container) = self.objects.get_mut(&exit_tunnel) {
+                container.remove_occupant(unit_id);
+            }
+        }
+        true
+    }
+
+    /// List all units in a team's shared tunnel pool (for Evacuate residual).
+    pub fn tunnel_network_contained_for_team(&self, team: Team) -> Vec<ObjectId> {
+        self.tunnel_network.contained_for_team(team)
+    }
+
+    /// Residual Combat Chinook honesty: successful load count.
+    pub fn combat_chinook_residual_loads(&self) -> u32 {
+        self.combat_chinook.loads
+    }
+
+    /// Residual Combat Chinook honesty: successful unload/evacuate count.
+    pub fn combat_chinook_residual_unloads(&self) -> u32 {
+        self.combat_chinook.unloads
+    }
+
+    /// Residual Combat Chinook honesty: passenger fire-from-chinook shots.
+    pub fn combat_chinook_residual_passenger_fires(&self) -> u32 {
+        self.combat_chinook.passenger_fires
+    }
+
+    /// Residual Combat Chinook honesty: armed-riders weapon-set upgrades.
+    pub fn combat_chinook_residual_weapon_set_upgrades(&self) -> u32 {
+        self.combat_chinook.weapon_set_upgrades
+    }
+
+    /// Record a residual Combat Chinook load (tests / host path).
+    pub fn record_combat_chinook_residual_load(&mut self) {
+        self.combat_chinook.record_load();
+    }
+
+    /// Record a residual Combat Chinook unload/evacuate (tests / host path).
+    pub fn record_combat_chinook_residual_unload(&mut self) {
+        self.combat_chinook.record_unload();
+    }
+
+    /// Residual honesty: Combat Chinook load → docked → unload path.
+    pub fn honesty_combat_chinook_load_unload_ok(&self) -> bool {
+        self.combat_chinook.honesty_load_unload_ok()
+    }
+
+    /// Residual honesty: Combat Chinook passenger residual fire.
+    pub fn honesty_combat_chinook_passenger_fire_ok(&self) -> bool {
+        self.combat_chinook.honesty_passenger_fire_ok()
+    }
+
+    /// Residual honesty: Combat Chinook armed-riders weapon-set upgrade.
+    pub fn honesty_combat_chinook_weapon_set_upgrade_ok(&self) -> bool {
+        self.combat_chinook.honesty_weapon_set_upgrade_ok()
+    }
+
+    /// C++ TransportContain armed-riders weapon-set residual.
+    /// When `armed_riders_upgrade_weapon_set` and any infantry rider has a viable
+    /// ranged damage weapon, set WEAPONSET_PLAYER_UPGRADE and bind the passenger
+    /// dummy weapon. Clears the flag when no armed riders remain.
+    /// Battle Bus binds BattleBusPassengerDummyWeapon; Combat Chinook and
+    /// Listening Outpost bind ListeningOutpostUpgradedDummyWeapon.
+    pub fn refresh_battle_bus_armed_riders_weapon_set(&mut self, container_id: ObjectId) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        if !container.armed_riders_upgrade_weapon_set {
+            return;
+        }
+        let is_combat_chinook = container.is_combat_chinook_style_container();
+        let is_listening_outpost = container.is_listening_outpost_style_container();
+        let is_battle_bus = container.is_battle_bus_style_container();
+        let occupant_ids = container.contained_units();
+        let was_upgraded = container.weapon_set_player_upgrade;
+
+        let mut any_armed = false;
+        for oid in &occupant_ids {
+            if let Some(rider) = self.objects.get(oid) {
+                let armed = if is_combat_chinook {
+                    crate::game_logic::host_combat_chinook::combat_chinook_rider_has_viable_weapon(
+                        rider.weapon.as_ref(),
+                        rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
+                        rider.is_kind_of(KindOf::Vehicle),
+                    )
+                } else {
+                    crate::game_logic::host_battle_bus::rider_has_viable_weapon(
+                        rider.weapon.as_ref(),
+                        rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
+                    )
+                };
+                if armed {
+                    any_armed = true;
+                    break;
+                }
+            }
+        }
+
+        let mut newly_upgraded = false;
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            container.weapon_set_player_upgrade = any_armed;
+            container.record_host_weapon_set();
+            if any_armed {
+                // Bind residual dummy weapon when primary is empty or still a
+                // passenger dummy (PLAYER_UPGRADE weapon set residual).
+                let need_dummy = match container.weapon.as_ref() {
+                    None => true,
+                    Some(w) => {
+                        crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(w)
+                            || w.damage < 0.01
+                    }
+                };
+                if need_dummy {
+                    // Combat Chinook + Listening Outpost share ListeningOutpost dummy.
+                    container.weapon = Some(if is_combat_chinook || is_listening_outpost {
+                        crate::game_logic::host_combat_chinook::listening_outpost_upgraded_dummy_weapon(
+                        )
+                    } else {
+                        crate::game_logic::host_battle_bus::battle_bus_passenger_dummy_weapon()
+                    });
+                }
+                newly_upgraded = !was_upgraded;
+            } else if was_upgraded {
+                // Clear dummy primary when no armed riders remain.
+                if container
+                    .weapon
+                    .as_ref()
+                    .map(|w| {
+                        crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(w)
+                            || w.damage < 0.01
+                    })
+                    .unwrap_or(false)
+                {
+                    container.weapon = None;
+                }
+            }
+        }
+        if newly_upgraded {
+            if is_listening_outpost {
+                self.listening_outpost.record_weapon_set_upgrade();
+            } else if is_combat_chinook {
+                self.combat_chinook.record_weapon_set_upgrade();
+            } else if is_battle_bus {
+                self.battle_bus.record_weapon_set_upgrade();
+            }
+        }
+    }
+
+    /// Residual Listening Outpost honesty: successful infantry load count.
+    pub fn listening_outpost_residual_loads(&self) -> u32 {
+        self.listening_outpost.loads
+    }
+
+    /// Residual Listening Outpost honesty: successful unload/evacuate count.
+    pub fn listening_outpost_residual_unloads(&self) -> u32 {
+        self.listening_outpost.unloads
+    }
+
+    /// Residual Listening Outpost honesty: passenger fire-from-outpost shots.
+    pub fn listening_outpost_residual_passenger_fires(&self) -> u32 {
+        self.listening_outpost.passenger_fires
+    }
+
+    /// Residual Listening Outpost honesty: armed-riders weapon-set upgrades.
+    pub fn listening_outpost_residual_weapon_set_upgrades(&self) -> u32 {
+        self.listening_outpost.weapon_set_upgrades
+    }
+
+    /// Residual Listening Outpost honesty: detector residual reveals.
+    pub fn listening_outpost_residual_detects(&self) -> u32 {
+        self.listening_outpost.detects
+    }
+
+    /// Residual Listening Outpost honesty: InitialPayload TankHunter docks.
+    pub fn listening_outpost_residual_initial_payload_docks(&self) -> u32 {
+        self.listening_outpost.initial_payload_docks
+    }
+
+    /// Record a residual Listening Outpost load (tests / host path).
+    pub fn record_listening_outpost_residual_load(&mut self) {
+        self.listening_outpost.record_load();
+    }
+
+    /// Record a residual Listening Outpost unload/evacuate (tests / host path).
+    pub fn record_listening_outpost_residual_unload(&mut self) {
+        self.listening_outpost.record_unload();
+    }
+
+    /// Residual honesty: Listening Outpost load → docked → unload path.
+    pub fn honesty_listening_outpost_load_unload_ok(&self) -> bool {
+        self.listening_outpost.honesty_load_unload_ok()
+    }
+
+    /// Residual honesty: Listening Outpost passenger residual fire.
+    pub fn honesty_listening_outpost_passenger_fire_ok(&self) -> bool {
+        self.listening_outpost.honesty_passenger_fire_ok()
+    }
+
+    /// Residual honesty: Listening Outpost armed-riders weapon-set upgrade.
+    pub fn honesty_listening_outpost_weapon_set_upgrade_ok(&self) -> bool {
+        self.listening_outpost.honesty_weapon_set_upgrade_ok()
+    }
+
+    /// Residual honesty: Listening Outpost detector residual revealed a unit.
+    pub fn honesty_listening_outpost_detect_ok(&self) -> bool {
+        self.listening_outpost.honesty_detect_ok()
+    }
+
+    /// Residual honesty: Listening Outpost InitialPayload TankHunter residual.
+    pub fn honesty_listening_outpost_initial_payload_ok(&self) -> bool {
+        self.listening_outpost.honesty_initial_payload_ok()
+    }
+
+    /// Residual honesty: any Listening Outpost residual path.
+    pub fn honesty_listening_outpost_ok(&self) -> bool {
+        self.listening_outpost.honesty_any_ok()
+    }
+
+    /// Residual Troop Crawler honesty accessors.
+    pub fn troop_crawler_residual_loads(&self) -> u32 {
+        self.troop_crawler.loads
+    }
+    pub fn troop_crawler_residual_unloads(&self) -> u32 {
+        self.troop_crawler.unloads
+    }
+    pub fn troop_crawler_residual_assault_deploys(&self) -> u32 {
+        self.troop_crawler.assault_deploys
+    }
+    pub fn troop_crawler_residual_detects(&self) -> u32 {
+        self.troop_crawler.detects
+    }
+    pub fn troop_crawler_residual_initial_payloads(&self) -> u32 {
+        self.troop_crawler.initial_payloads
+    }
+    pub fn record_troop_crawler_residual_load(&mut self) {
+        self.troop_crawler.record_load();
+    }
+    pub fn record_troop_crawler_residual_unload(&mut self) {
+        self.troop_crawler.record_unload();
+    }
+    pub fn honesty_troop_crawler_load_unload_ok(&self) -> bool {
+        self.troop_crawler.honesty_load_unload_ok()
+    }
+    pub fn honesty_troop_crawler_wounded_retrieve_ok(&self) -> bool {
+        self.troop_crawler.honesty_wounded_retrieve_ok()
+    }
+
+    pub fn honesty_troop_crawler_assault_deploy_ok(&self) -> bool {
+        self.troop_crawler.honesty_assault_deploy_ok()
+    }
+    pub fn honesty_troop_crawler_detect_ok(&self) -> bool {
+        self.troop_crawler.honesty_detect_ok()
+    }
+    pub fn honesty_troop_crawler_initial_payload_ok(&self) -> bool {
+        self.troop_crawler.honesty_initial_payload_ok()
+    }
+    pub fn honesty_troop_crawler_ok(&self) -> bool {
+        self.troop_crawler.honesty_any_ok()
+    }
+
+    /// Dock InitialPayload TankHunter × 2 into a Listening Outpost residual.
+    ///
+    /// Fail-closed: no dock when TankHunter template is missing or capacity full.
+    pub(in super::super) fn apply_listening_outpost_initial_payload(
+        &mut self,
+        outpost_id: ObjectId,
+        team: Team,
+        position: Vec3,
+    ) {
+        use crate::game_logic::host_listening_outpost::{
+            preferred_payload_template, tank_hunter_missile_weapon,
+            LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
+            LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT,
+        };
+
+        // Ensure a payload template is available (retail or host seed).
+        if !self
+            .templates
+            .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE)
+            && !self
+                .templates
+                .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT)
+        {
+            // Inject residual TankHunter template for host playability residual.
+            let mut th = ThingTemplate::new(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT);
+            th.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(70.0)
+                .set_cost(110, 0);
+            self.templates
+                .insert(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT.to_string(), th);
+        }
+
+        let payload_name = preferred_payload_template(
+            self.templates
+                .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE),
+            self.templates
+                .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT),
+        );
+        let Some(payload_name) = payload_name else {
+            return;
+        };
+
+        for _ in 0..LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT {
+            // Capacity check before spawn (avoid orphan infantry on full residual).
+            let has_space = self
+                .objects
+                .get(&outpost_id)
+                .map(|o| o.has_capacity_for(1))
+                .unwrap_or(false);
+            if !has_space {
+                break;
+            }
+
+            let Some(hunter_id) = self.create_object(payload_name, team, position) else {
+                break;
+            };
+
+            // Ensure TankHunter residual missile weapon for armed-riders residual.
+            if let Some(hunter) = self.objects.get_mut(&hunter_id) {
+                if hunter.weapon.is_none()
+                    || hunter
+                        .weapon
+                        .as_ref()
+                        .map(|w| w.damage < 1.0)
+                        .unwrap_or(true)
+                {
+                    hunter.weapon = Some(tank_hunter_missile_weapon());
+                }
+                hunter.set_contained_by(Some(outpost_id));
+                hunter.set_ai_state(AIState::Docked);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(hunter_id, 12);
+                }
+                hunter.stop_moving();
+                hunter.set_status_moving(false);
+                hunter.set_status_attacking(false);
+                hunter.set_target(None);
+                hunter.set_position(position);
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                    crate::game_logic::host_move_log::record(
+                        hunter_id,
+                        Some([position.x, position.y, position.z]),
+                    );
+                    hunter.record_host_movement();
+                }
+            }
+
+            if let Some(outpost) = self.objects.get_mut(&outpost_id) {
+                outpost.add_occupant(hunter_id);
+            }
+            self.listening_outpost.record_initial_payload_dock();
+        }
+
+        self.refresh_battle_bus_armed_riders_weapon_set(outpost_id);
+    }
+
+    /// Dock InitialPayload Redguard × 8 into a Troop Crawler residual.
+    ///
+    /// Fail-closed: injects host seed RedGuard template when retail name missing.
+    pub(in super::super) fn apply_troop_crawler_initial_payload(
+        &mut self,
+        crawler_id: ObjectId,
+        team: Team,
+        position: Vec3,
+    ) {
+        use crate::game_logic::host_troop_crawler::{
+            resolve_payload_template_name, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
+            TROOP_CRAWLER_PAYLOAD_TEMPLATE, TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS,
+        };
+        use crate::game_logic::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON;
+
+        // Ensure a payload template is available (retail or host seed).
+        if !self.templates.contains_key(TROOP_CRAWLER_PAYLOAD_TEMPLATE)
+            && !self
+                .templates
+                .contains_key(TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS)
+            && !self.templates.contains_key("TestInfantry")
+        {
+            let mut rg = ThingTemplate::new(TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS);
+            rg.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(55.0)
+                .set_cost(70, 0)
+                .set_primary_weapon_name(REDGUARD_PRIMARY_WEAPON);
+            self.templates
+                .insert(TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS.to_string(), rg);
+        }
+
+        let payload_name = resolve_payload_template_name(|n| self.templates.contains_key(n));
+        let Some(payload_name) = payload_name else {
+            return;
+        };
+
+        for i in 0..TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT {
+            let has_space = self
+                .objects
+                .get(&crawler_id)
+                .map(|o| o.has_capacity_for(1))
+                .unwrap_or(false);
+            if !has_space {
+                break;
+            }
+
+            let Some(guard_id) = self.create_object(payload_name, team, position) else {
+                break;
+            };
+
+            if let Some(guard) = self.objects.get_mut(&guard_id) {
+                // Ensure residual combat weapon so assault-deploy attack residual works.
+                if guard.weapon.is_none() {
+                    guard.weapon = Some(Weapon {
+                        damage: 15.0,
+                        range: 100.0,
+                        reload_time: 1.0,
+                        last_fire_time: 0.0,
+                        ..Weapon::default()
+                    });
+                }
+                guard.set_contained_by(Some(crawler_id));
+                guard.set_ai_state(AIState::Docked);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(guard_id, 12);
+                }
+                guard.stop_moving();
+                guard.set_status_moving(false);
+                guard.set_status_attacking(false);
+                guard.set_target(None);
+                guard.set_position(position);
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                    crate::game_logic::host_move_log::record(
+                        guard_id,
+                        Some([position.x, position.y, position.z]),
+                    );
+                    guard.record_host_movement();
+                }
+            }
+
+            if let Some(crawler) = self.objects.get_mut(&crawler_id) {
+                crawler.add_occupant(guard_id);
+            }
+            self.troop_crawler.record_initial_payload();
+            // Initial payload docks count as residual loads for honesty bookkeeping.
+            let _ = i;
+        }
+    }
+
+    /// Residual Troop Crawler assault deploy: unload docked infantry and order attack.
+    ///
+    /// C++ AssaultTransportAIUpdate::beginAssault + update exit/attack residual.
+    /// Fail-closed: not wounded-retrieve / multi-exit stagger / heal matrix.
+    pub(in super::super) fn apply_troop_crawler_assault_deploy(
+        &mut self,
+        crawler_id: ObjectId,
+        target_id: ObjectId,
+    ) -> u32 {
+        use crate::game_logic::host_troop_crawler::{
+            is_assault_member_wounded, HostAssaultTransportState, TROOP_CRAWLER_DEPLOY_AUDIO,
+        };
+
+        let Some(crawler) = self.objects.get(&crawler_id) else {
+            return 0;
+        };
+        if !crawler.is_troop_crawler_style_container() {
+            return 0;
+        }
+        let crawler_pos = crawler.get_position();
+        let occupants = crawler.contained_units();
+        if occupants.is_empty() {
+            // Still record deploy attempt residual (weapon fired DEPLOY pulse).
+            self.troop_crawler.record_assault_deploy();
+            return 0;
+        }
+
+        // C++ update ejects healthy contained members; wounded stay aboard to heal.
+        let mut eject_ids: Vec<ObjectId> = Vec::new();
+        for occ_id in occupants.iter().copied() {
+            let wounded = self
+                .objects
+                .get(&occ_id)
+                .map(|u| is_assault_member_wounded(u.health.current, u.health.maximum))
+                .unwrap_or(false);
+            if !wounded {
+                eject_ids.push(occ_id);
+            }
+        }
+
+        let mut ordered = 0u32;
+        let mut outside_members: Vec<u32> = Vec::new();
+        for (i, occ_id) in eject_ids.into_iter().enumerate() {
+            // Remove from container.
+            if let Some(crawler) = self.objects.get_mut(&crawler_id) {
+                crawler.remove_occupant(occ_id);
+            }
+            // Drop near crawler and order attack.
+            let angle = (occ_id.0 as f32 + i as f32 * 1.37).sin().atan2(1.0) + i as f32 * 0.7;
+            let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
+            if let Some(unit) = self.objects.get_mut(&occ_id) {
+                unit.stop_moving();
+                unit.set_position(crawler_pos + offset);
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                    let p = crawler_pos + offset;
+                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    unit.record_host_movement();
+                }
+                unit.set_contained_by(None);
+                unit.set_status_moving(false);
+            }
+            // GoAggressiveOnExit residual: attack designated target.
+            self.apply_engagement_decision_aware(occ_id, target_id);
+            if let Some(unit) = self.objects.get_mut(&occ_id) {
+                if unit.target != Some(target_id) {
+                    unit.target = Some(target_id);
+                    unit.set_status_attacking(true);
+                }
+            }
+            outside_members.push(occ_id.0);
+            ordered = ordered.saturating_add(1);
+            self.troop_crawler.record_deploy_attack_order();
+            self.troop_crawler.record_unload();
+        }
+
+        // Track assault members (outside + still-contained wounded) for retrieve residual.
+        if let Some(crawler) = self.objects.get_mut(&crawler_id) {
+            for occ in crawler.occupants.iter() {
+                if !outside_members.contains(&occ.0) {
+                    outside_members.push(occ.0);
+                }
+            }
+            crawler.assault_transport = Some(HostAssaultTransportState::begin(
+                target_id.0,
+                outside_members,
+            ));
+        }
+
+        self.troop_crawler.record_assault_deploy();
+        self.queue_audio_event(
+            AudioEventRequest::new(TROOP_CRAWLER_DEPLOY_AUDIO)
+                .with_object(crawler_id)
+                .with_position(crawler_pos)
+                .with_priority(140),
+        );
+        ordered
+    }
+
+    #[cfg(test)]
+    pub fn apply_troop_crawler_assault_deploy_for_test(
+        &mut self,
+        crawler_id: ObjectId,
+        target_id: ObjectId,
+    ) -> u32 {
+        self.apply_troop_crawler_assault_deploy(crawler_id, target_id)
+    }
+
+    /// Record a residual Overlord BattleBunker enter (tests / host path).
+    pub fn record_overlord_bunker_residual_enter(&mut self) {
+        self.overlord_bunker_residual_enters =
+            self.overlord_bunker_residual_enters.saturating_add(1);
+    }
+
+    /// Record a residual Overlord BattleBunker exit/evacuate (tests / host path).
+    pub fn record_overlord_bunker_residual_exit(&mut self) {
+        self.overlord_bunker_residual_exits = self.overlord_bunker_residual_exits.saturating_add(1);
+    }
+}

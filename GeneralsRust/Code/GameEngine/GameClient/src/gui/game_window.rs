@@ -47,7 +47,212 @@ const KEY_STATE_RALT: WindowMsgData = 0x0080;
 const GADGET_SIZE: i32 = 16;
 
 /// Window message data type
+///
+/// C++ integer flags, gadget ids, and key states stay as plain `usize` values.
+/// Typed out-params and owned strings are passed as arena tokens produced by
+/// [`push_payload`] / [`with_payload`]. Tokens are never raw pointers.
 pub type WindowMsgData = usize;
+
+/// Owned payload stored in the thread-local window-message arena.
+///
+/// Tokens are indices with a generation tag and a high bit set so random small
+/// integers (`KEY_STATE_*`, gadget ids, `-1`) are never treated as payloads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowMsgPayload {
+    None,
+    Int(i32),
+    UInt(usize),
+    Bool(bool),
+    Text(String),
+    IntList(Vec<i32>),
+    AddEntry(ListBoxAddEntry),
+    CellPosition(ListBoxCellPosition),
+    TextAndColor(ListBoxTextAndColor),
+    ItemData(ListBoxItemData),
+    ItemDataOpt(Option<ListBoxItemData>),
+}
+
+const WINDOW_MSG_TOKEN_TAG: usize = 1usize << (usize::BITS - 1);
+const WINDOW_MSG_INDEX_BITS: u32 = 24;
+const WINDOW_MSG_INDEX_MASK: usize = (1usize << WINDOW_MSG_INDEX_BITS) - 1;
+const WINDOW_MSG_GEN_SHIFT: u32 = WINDOW_MSG_INDEX_BITS;
+const WINDOW_MSG_GEN_MASK: usize = (1usize << (usize::BITS - 1 - WINDOW_MSG_INDEX_BITS)) - 1;
+
+struct WindowMsgPayloadSlot {
+    generation: u32,
+    value: Option<WindowMsgPayload>,
+}
+
+struct WindowMsgPayloadArena {
+    slots: Vec<WindowMsgPayloadSlot>,
+    free: Vec<usize>,
+}
+
+impl WindowMsgPayloadArena {
+    fn new() -> Self {
+        Self {
+            slots: Vec::new(),
+            free: Vec::new(),
+        }
+    }
+
+    fn encode_token(index: usize, generation: u32) -> WindowMsgData {
+        WINDOW_MSG_TOKEN_TAG
+            | (((generation as usize) & WINDOW_MSG_GEN_MASK) << WINDOW_MSG_GEN_SHIFT)
+            | (index & WINDOW_MSG_INDEX_MASK)
+    }
+
+    fn decode_token(data: WindowMsgData) -> Option<(usize, u32)> {
+        if data & WINDOW_MSG_TOKEN_TAG == 0 {
+            return None;
+        }
+        let index = data & WINDOW_MSG_INDEX_MASK;
+        let generation = ((data >> WINDOW_MSG_GEN_SHIFT) & WINDOW_MSG_GEN_MASK) as u32;
+        if generation == 0 {
+            return None;
+        }
+        Some((index, generation))
+    }
+
+    fn bump_generation(current: u32) -> u32 {
+        let next = current.wrapping_add(1);
+        if next == 0 {
+            1
+        } else {
+            next
+        }
+    }
+
+    fn push(&mut self, payload: WindowMsgPayload) -> WindowMsgData {
+        let index = if let Some(index) = self.free.pop() {
+            index
+        } else {
+            let index = self.slots.len();
+            self.slots.push(WindowMsgPayloadSlot {
+                generation: 0,
+                value: None,
+            });
+            index
+        };
+        let slot = &mut self.slots[index];
+        slot.generation = Self::bump_generation(slot.generation);
+        slot.value = Some(payload);
+        Self::encode_token(index, slot.generation)
+    }
+
+    fn get(&self, data: WindowMsgData) -> Option<&WindowMsgPayload> {
+        let (index, generation) = Self::decode_token(data)?;
+        let slot = self.slots.get(index)?;
+        if slot.generation != generation {
+            return None;
+        }
+        slot.value.as_ref()
+    }
+
+    fn get_mut(&mut self, data: WindowMsgData) -> Option<&mut WindowMsgPayload> {
+        let (index, generation) = Self::decode_token(data)?;
+        let slot = self.slots.get_mut(index)?;
+        if slot.generation != generation {
+            return None;
+        }
+        slot.value.as_mut()
+    }
+
+    fn take(&mut self, data: WindowMsgData) -> Option<WindowMsgPayload> {
+        let (index, generation) = Self::decode_token(data)?;
+        let slot = self.slots.get_mut(index)?;
+        if slot.generation != generation {
+            return None;
+        }
+        let value = slot.value.take();
+        slot.generation = Self::bump_generation(slot.generation);
+        self.free.push(index);
+        value
+    }
+}
+
+thread_local! {
+    static WINDOW_MSG_PAYLOAD_ARENA: RefCell<WindowMsgPayloadArena> =
+        RefCell::new(WindowMsgPayloadArena::new());
+}
+
+/// Returns true when `data` is a live typed payload token (not an integer flag).
+pub fn is_window_msg_payload(data: WindowMsgData) -> bool {
+    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow().get(data).is_some())
+}
+
+/// Push an owned payload and return a token suitable for `WindowMsgData`.
+pub fn push_payload(payload: WindowMsgPayload) -> WindowMsgData {
+    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow_mut().push(payload))
+}
+
+/// Clone the payload for `data` if it is a live token.
+pub fn payload(data: WindowMsgData) -> Option<WindowMsgPayload> {
+    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow().get(data).cloned())
+}
+
+/// Take (and free) the payload for `data` if it is a live token.
+pub fn pop_payload(data: WindowMsgData) -> Option<WindowMsgPayload> {
+    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| arena.borrow_mut().take(data))
+}
+
+/// Replace the payload stored at `data`. Returns false if `data` is not a token.
+pub fn replace_payload(data: WindowMsgData, payload: WindowMsgPayload) -> bool {
+    WINDOW_MSG_PAYLOAD_ARENA.with(|arena| {
+        if let Some(slot) = arena.borrow_mut().get_mut(data) {
+            *slot = payload;
+            true
+        } else {
+            false
+        }
+    })
+}
+
+/// Push `payload`, invoke `f`, then pop the token (even if `f` panics).
+pub fn with_payload<R>(payload: WindowMsgPayload, f: impl FnOnce(WindowMsgData) -> R) -> R {
+    let token = push_payload(payload);
+    struct PopOnDrop(WindowMsgData);
+    impl Drop for PopOnDrop {
+        fn drop(&mut self) {
+            let _ = pop_payload(self.0);
+        }
+    }
+    let _guard = PopOnDrop(token);
+    f(token)
+}
+
+/// Push `payload`, invoke `f`, then return both the result and the (possibly updated) payload.
+pub fn with_payload_mut<R>(
+    payload: WindowMsgPayload,
+    f: impl FnOnce(WindowMsgData) -> R,
+) -> (R, Option<WindowMsgPayload>) {
+    let token = push_payload(payload);
+    let result = f(token);
+    (result, pop_payload(token))
+}
+
+/// FFI escape hatch: encode a raw pointer as integer message data.
+///
+/// This does **not** register a typed payload token. Handlers never dereference
+/// this value. Safe gadget code must use [`push_payload`] / [`with_payload`].
+/// Not part of the public GUI API — leftover C++ `WindowMsgData = UnsignedInt`
+/// pointer packing stays crate-private.
+#[inline]
+#[allow(dead_code)]
+pub(crate) unsafe fn window_msg_from_raw_ptr<T>(ptr: *const T) -> WindowMsgData {
+    ptr as usize
+}
+
+fn write_bool_payload(data: WindowMsgData, value: bool) -> bool {
+    replace_payload(data, WindowMsgPayload::Bool(value))
+}
+
+fn payload_text(data: WindowMsgData) -> Option<String> {
+    match payload(data) {
+        Some(WindowMsgPayload::Text(text)) => Some(text),
+        _ => None,
+    }
+}
 
 /// Result type for window operations
 pub type WindowResult<T> = Result<T, WindowError>;
@@ -160,11 +365,17 @@ pub struct ListBoxSelectionResult {
 }
 
 pub fn gadget_list_box_get_selected(listbox: &mut GameWindow, select_list: &mut WindowMsgData) {
-    let _ = listbox.send_system_message(
-        WindowMessage::User(GLM_GET_SELECTION),
-        0,
-        (select_list as *mut WindowMsgData) as WindowMsgData,
-    );
+    let token = push_payload(WindowMsgPayload::None);
+    let _ = listbox.send_system_message(WindowMessage::User(GLM_GET_SELECTION), 0, token);
+    match pop_payload(token) {
+        Some(WindowMsgPayload::Int(index)) => {
+            *select_list = index as isize as WindowMsgData;
+        }
+        Some(payload @ WindowMsgPayload::IntList(_)) => {
+            *select_list = push_payload(payload);
+        }
+        _ => *select_list = 0,
+    }
 }
 
 pub fn gadget_list_box_get_bottom_visible_entry(listbox: &GameWindow) -> i32 {
@@ -325,12 +536,9 @@ pub fn gadget_combo_box_get_text(combo_box: &GameWindow) -> String {
 }
 
 pub fn gadget_combo_box_set_text(combo_box: &mut GameWindow, text: &str) {
-    let text = text.to_string();
-    let _ = combo_box.send_system_message(
-        WindowMessage::User(GCM_SET_TEXT),
-        &text as *const String as WindowMsgData,
-        0,
-    );
+    let _ = with_payload(WindowMsgPayload::Text(text.to_string()), |token| {
+        combo_box.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0)
+    });
 }
 
 pub fn gadget_combo_box_add_entry(
@@ -363,11 +571,11 @@ pub fn gadget_combo_box_reset(combo_box: &mut GameWindow) {
 }
 
 pub fn gadget_combo_box_get_selected_pos(combo_box: &mut GameWindow, selected_index: &mut i32) {
-    let _ = combo_box.send_system_message(
-        WindowMessage::User(GCM_GET_SELECTION),
-        0,
-        selected_index as *mut i32 as WindowMsgData,
-    );
+    let token = push_payload(WindowMsgPayload::Int(-1));
+    let _ = combo_box.send_system_message(WindowMessage::User(GCM_GET_SELECTION), 0, token);
+    if let Some(WindowMsgPayload::Int(value)) = pop_payload(token) {
+        *selected_index = value;
+    }
 }
 
 pub fn gadget_combo_box_set_selected_pos(
@@ -391,13 +599,17 @@ pub fn gadget_combo_box_set_item_data(combo_box: &mut GameWindow, index: i32, da
 }
 
 pub fn gadget_combo_box_get_item_data(combo_box: &mut GameWindow, index: i32) -> WindowMsgData {
-    let mut data = 0;
+    let token = push_payload(WindowMsgPayload::UInt(0));
     let _ = combo_box.send_system_message(
         WindowMessage::User(GCM_GET_ITEM_DATA),
         index as WindowMsgData,
-        &mut data as *mut WindowMsgData as WindowMsgData,
+        token,
     );
-    data
+    match pop_payload(token) {
+        Some(WindowMsgPayload::UInt(value)) => value,
+        Some(WindowMsgPayload::Int(value)) => value as WindowMsgData,
+        _ => 0,
+    }
 }
 
 pub fn gadget_combo_box_get_length(combo_box: &GameWindow) -> i32 {
@@ -687,10 +899,8 @@ pub fn write_input_focus_response(
     data2: WindowMsgData,
     wants_focus: bool,
 ) -> WindowMsgHandled {
-    if data1 != 0 && data2 != 0 {
-        unsafe {
-            *(data2 as *mut bool) = wants_focus;
-        }
+    if data1 != 0 {
+        let _ = write_bool_payload(data2, wants_focus);
     }
     WindowMsgHandled::Handled
 }
@@ -2894,6 +3104,10 @@ impl GameWindow {
             event,
             InputEvent::MouseEnter { .. } | InputEvent::MouseLeave { .. }
         ) && (self.inst_data.style & GWS_MOUSE_TRACK == 0)
+            && !matches!(
+                widget,
+                WindowWidget::HorizontalSlider(_) | WindowWidget::VerticalSlider(_)
+            )
         {
             return WindowMsgHandled::Ignored;
         }
@@ -3177,17 +3391,14 @@ impl GameWindow {
         if let WindowMessage::User(code) = msg {
             match code {
                 GGM_SET_LABEL => {
-                    if data1 != 0 {
-                        let text = unsafe { &*(data1 as *const String) };
-                        let _ = self.set_text(text);
+                    if let Some(text) = payload_text(data1) {
+                        let _ = self.set_text(&text);
                     }
                     return WindowMsgHandled::Handled;
                 }
                 GGM_GET_LABEL => {
-                    if data2 != 0 {
-                        let out = unsafe { &mut *(data2 as *mut String) };
-                        *out = self.get_text().to_string();
-                    }
+                    let _ =
+                        replace_payload(data2, WindowMsgPayload::Text(self.get_text().to_string()));
                     return WindowMsgHandled::Handled;
                 }
                 _ => {}
@@ -3198,17 +3409,12 @@ impl GameWindow {
             if let WindowMessage::User(code) = msg {
                 match code {
                     GCM_GET_TEXT => {
-                        if data2 != 0 {
-                            let text = gadget_combo_box_get_text(self);
-                            unsafe {
-                                *(data2 as *mut String) = text;
-                            }
-                        }
+                        let text = gadget_combo_box_get_text(self);
+                        let _ = replace_payload(data2, WindowMsgPayload::Text(text));
                         return WindowMsgHandled::Handled;
                     }
                     GCM_SET_TEXT => {
-                        if data1 != 0 {
-                            let text = unsafe { &*(data1 as *const String) };
+                        if let Some(text) = payload_text(data1) {
                             let mut set_child = false;
                             if let Some(links) = self.combobox_links {
                                 if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
@@ -3222,18 +3428,17 @@ impl GameWindow {
                             }
                             if !set_child {
                                 if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
-                                    combo.set_text(text.clone());
+                                    combo.set_text(text);
                                 }
                             }
                         }
                         return WindowMsgHandled::Handled;
                     }
                     GCM_ADD_ENTRY => {
-                        let added_index = if data1 != 0 {
-                            let text = unsafe { &*(data1 as *const String) };
+                        let added_index = if let Some(text) = payload_text(data1) {
                             gadget_combo_box_add_entry(
                                 self,
-                                text,
+                                &text,
                                 shell_color_from_packed_arg(data2),
                             )
                         } else {
@@ -3300,27 +3505,23 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GCM_GET_SELECTION => {
-                        if data2 != 0 {
-                            let selected = if let Some(links) = self.combobox_links {
-                                self.find_child_by_id(links.list_box)
-                                    .and_then(|list_box| {
-                                        list_box.borrow().widget().and_then(|widget| match widget {
-                                            WindowWidget::ListBox(listbox) => listbox
-                                                .selected_indices()
-                                                .first()
-                                                .copied()
-                                                .map(|index| index as i32),
-                                            _ => None,
-                                        })
+                        let selected = if let Some(links) = self.combobox_links {
+                            self.find_child_by_id(links.list_box)
+                                .and_then(|list_box| {
+                                    list_box.borrow().widget().and_then(|widget| match widget {
+                                        WindowWidget::ListBox(listbox) => listbox
+                                            .selected_indices()
+                                            .first()
+                                            .copied()
+                                            .map(|index| index as i32),
+                                        _ => None,
                                     })
-                                    .unwrap_or(-1)
-                            } else {
-                                -1
-                            };
-                            unsafe {
-                                *(data2 as *mut i32) = selected;
-                            }
-                        }
+                                })
+                                .unwrap_or(-1)
+                        } else {
+                            -1
+                        };
+                        let _ = replace_payload(data2, WindowMsgPayload::Int(selected));
                         return WindowMsgHandled::Handled;
                     }
                     GCM_SET_ITEM_DATA => {
@@ -3333,22 +3534,18 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GCM_GET_ITEM_DATA => {
-                        if data2 != 0 {
-                            let data =
-                                if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() {
-                                    let index = data1 as i32;
-                                    if index >= 0 {
-                                        combo.item_data_raw(index as usize).unwrap_or(0)
-                                    } else {
-                                        0
-                                    }
-                                } else {
-                                    0
-                                };
-                            unsafe {
-                                *(data2 as *mut WindowMsgData) = data;
+                        let data = if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref()
+                        {
+                            let index = data1 as i32;
+                            if index >= 0 {
+                                combo.item_data_raw(index as usize).unwrap_or(0)
+                            } else {
+                                0
                             }
-                        }
+                        } else {
+                            0
+                        };
+                        let _ = replace_payload(data2, WindowMsgPayload::UInt(data));
                         return WindowMsgHandled::Handled;
                     }
                     _ => {}
@@ -3470,13 +3667,11 @@ impl GameWindow {
             if let WindowMessage::User(code) = msg {
                 match code {
                     GLM_ADD_ENTRY => {
-                        if data1 == 0 {
-                            return WindowMsgHandled::Handled;
-                        }
                         let mut added_index = -1;
-                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                            let entry = unsafe { &*(data1 as *const ListBoxAddEntry) };
-                            added_index = listbox.add_entry(entry.clone());
+                        if let Some(WindowMsgPayload::AddEntry(entry)) = payload(data1) {
+                            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                                added_index = listbox.add_entry(entry);
+                            }
                         }
                         self.update_listbox_scrollbar();
                         return WindowMsgHandled::Value(added_index as WindowMsgData);
@@ -3497,24 +3692,32 @@ impl GameWindow {
                     }
                     GLM_SET_SELECTION => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                            if listbox.selection_mode() == SelectionMode::Multiple
-                                && data1 != 0
-                                && data1 != (-1i32) as WindowMsgData
-                                && data1 > i32::MAX as WindowMsgData
-                            {
-                                let select_list = unsafe {
-                                    std::slice::from_raw_parts(data1 as *const i32, data2)
-                                };
-                                let indices = select_list
-                                    .iter()
-                                    .take_while(|&&index| index >= 0)
-                                    .filter_map(|&index| {
-                                        (index as usize)
-                                            .lt(&listbox.items().len())
-                                            .then_some(index as usize)
-                                    })
-                                    .collect::<Vec<_>>();
-                                listbox.set_selected_indices(&indices);
+                            if listbox.selection_mode() == SelectionMode::Multiple {
+                                if let Some(WindowMsgPayload::IntList(select_list)) = payload(data1)
+                                {
+                                    let indices = select_list
+                                        .iter()
+                                        .take_while(|&&index| index >= 0)
+                                        .filter_map(|&index| {
+                                            (index as usize)
+                                                .lt(&listbox.items().len())
+                                                .then_some(index as usize)
+                                        })
+                                        .collect::<Vec<_>>();
+                                    listbox.set_selected_indices(&indices);
+                                } else {
+                                    let select_index = data1 as i32;
+                                    if select_index < 0
+                                        || select_index as usize >= listbox.items().len()
+                                    {
+                                        listbox.set_selected_indices(&[]);
+                                    } else {
+                                        let _ = listbox.select_index(
+                                            select_index as usize,
+                                            KeyModifiers::none(),
+                                        );
+                                    }
+                                }
                             } else {
                                 let select_index = data1 as i32;
                                 if select_index < 0
@@ -3545,11 +3748,14 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GLM_GET_SELECTION => {
-                        if data2 != 0 {
-                            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                                let out = unsafe { &mut *(data2 as *mut WindowMsgData) };
-                                *out = listbox.cpp_selection_out_value();
-                            }
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_ref() {
+                            let selection = match listbox.get_selection() {
+                                ListBoxSelection::Single(index) => WindowMsgPayload::Int(index),
+                                ListBoxSelection::Multiple(indices) => {
+                                    WindowMsgPayload::IntList(indices)
+                                }
+                            };
+                            let _ = replace_payload(data2, selection);
                         }
                         return WindowMsgHandled::Handled;
                     }
@@ -3560,11 +3766,14 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GLM_GET_TEXT => {
-                        if data1 != 0 && data2 != 0 {
+                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(data1) {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                                let pos = unsafe { &*(data1 as *const ListBoxCellPosition) };
-                                let out = unsafe { &mut *(data2 as *mut ListBoxTextAndColor) };
-                                *out = listbox.get_text_and_color(pos.y, pos.x);
+                                let _ = replace_payload(
+                                    data2,
+                                    WindowMsgPayload::TextAndColor(
+                                        listbox.get_text_and_color(pos.y, pos.x),
+                                    ),
+                                );
                             }
                         }
                         return WindowMsgHandled::Handled;
@@ -3603,23 +3812,25 @@ impl GameWindow {
                         return WindowMsgHandled::Handled;
                     }
                     GLM_GET_ITEM_DATA => {
-                        if data1 != 0 && data2 != 0 {
+                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(data1) {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                                let pos = unsafe { &*(data1 as *const ListBoxCellPosition) };
-                                let out = unsafe { &mut *(data2 as *mut Option<ListBoxItemData>) };
-                                *out = listbox.get_item_data_at(pos.y, pos.x).cloned();
+                                let _ = replace_payload(
+                                    data2,
+                                    WindowMsgPayload::ItemDataOpt(
+                                        listbox.get_item_data_at(pos.y, pos.x).cloned(),
+                                    ),
+                                );
                             }
                         }
                         return WindowMsgHandled::Handled;
                     }
                     GLM_SET_ITEM_DATA => {
-                        if data1 != 0 {
+                        if let Some(WindowMsgPayload::CellPosition(pos)) = payload(data1) {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                                let pos = unsafe { &*(data1 as *const ListBoxCellPosition) };
-                                let data = if data2 == 0 {
-                                    None
-                                } else {
-                                    Some(unsafe { (*(data2 as *const ListBoxItemData)).clone() })
+                                let data = match payload(data2) {
+                                    Some(WindowMsgPayload::ItemData(data)) => Some(data),
+                                    Some(WindowMsgPayload::ItemDataOpt(data)) => data,
+                                    _ => None,
                                 };
                                 let _ = listbox.set_item_data_at(pos.y, pos.x, data);
                             }
@@ -3772,11 +3983,7 @@ impl GameWindow {
                             );
                         }
                     }
-                    if data2 != 0 {
-                        unsafe {
-                            *(data2 as *mut bool) = true;
-                        }
-                    }
+                    let _ = write_bool_payload(data2, true);
                     return WindowMsgHandled::Handled;
                 }
                 WindowMessage::User(code) if code == GBM_SET_SELECTION => {
@@ -3852,11 +4059,7 @@ impl GameWindow {
 
         if msg == WindowMessage::InputFocus {
             let focused = data1 != 0;
-            if data2 != 0 {
-                unsafe {
-                    *(data2 as *mut bool) = focused;
-                }
-            }
+            let _ = write_bool_payload(data2, focused);
             let event = if focused {
                 InputEvent::FocusGained
             } else {
@@ -5100,12 +5303,12 @@ mod tests {
         let mut window = GameWindow::new();
         window.set_widget(WindowWidget::StaticText(StaticText::new(7, 0, 0, 120, 24)));
 
-        let label = "Mission Objective".to_string();
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::User(GGM_SET_LABEL),
-                (&label as *const String) as WindowMsgData,
-                0,
+            with_payload(
+                WindowMsgPayload::Text("Mission Objective".to_string()),
+                |token| {
+                    window.send_system_message(WindowMessage::User(GGM_SET_LABEL), token, 0)
+                },
             ),
             WindowMsgHandled::Handled
         );
@@ -5118,16 +5321,100 @@ mod tests {
             Some("Mission Objective")
         );
 
-        let mut out = String::new();
+        let token = push_payload(WindowMsgPayload::Text(String::new()));
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::User(GGM_GET_LABEL),
-                0,
-                (&mut out as *mut String) as WindowMsgData,
-            ),
+            window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, token),
             WindowMsgHandled::Handled
         );
-        assert_eq!(out, "Mission Objective");
+        assert_eq!(
+            pop_payload(token),
+            Some(WindowMsgPayload::Text("Mission Objective".to_string()))
+        );
+    }
+
+    #[test]
+    fn garbage_window_msg_data_is_not_a_payload_and_does_not_panic() {
+        for garbage in [
+            0usize,
+            1,
+            KEY_STATE_DOWN,
+            (-1i32) as WindowMsgData,
+            i32::MAX as WindowMsgData,
+            0xDEAD_BEEF,
+            usize::MAX,
+            usize::MAX - 7,
+        ] {
+            assert!(!is_window_msg_payload(garbage), "garbage={garbage:#x}");
+            assert_eq!(payload(garbage), None);
+            assert_eq!(pop_payload(garbage), None);
+            assert!(!replace_payload(garbage, WindowMsgPayload::Bool(true)));
+        }
+
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::StaticText(StaticText::new(7, 0, 0, 120, 24)));
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GGM_SET_LABEL), 0xDEAD_BEEF, 0,),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.get_text(), "");
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, 0xDEAD_BEEF,),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 1, 0xDEAD_BEEF),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            write_input_focus_response(1, 0xDEAD_BEEF, true),
+            WindowMsgHandled::Handled
+        );
+    }
+
+    #[test]
+    fn typed_text_payload_roundtrip_works() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::StaticText(StaticText::new(8, 0, 0, 120, 24)));
+
+        assert_eq!(
+            with_payload(WindowMsgPayload::Text("Zero Hour".to_string()), |token| {
+                window.send_system_message(WindowMessage::User(GGM_SET_LABEL), token, 0)
+            }),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.get_text(), "Zero Hour");
+
+        let (handled, out) = with_payload_mut(WindowMsgPayload::Text(String::new()), |token| {
+            window.send_system_message(WindowMessage::User(GGM_GET_LABEL), 0, token)
+        });
+        assert_eq!(handled, WindowMsgHandled::Handled);
+        assert_eq!(out, Some(WindowMsgPayload::Text("Zero Hour".to_string())));
+    }
+
+    #[test]
+    fn write_input_focus_response_uses_payload_token_not_raw_ptr() {
+        let token = push_payload(WindowMsgPayload::Bool(false));
+        assert_eq!(
+            write_input_focus_response(1, token, true),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+
+        let lose_token = push_payload(WindowMsgPayload::Bool(true));
+        assert_eq!(
+            write_input_focus_response(0, lose_token, false),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(pop_payload(lose_token), Some(WindowMsgPayload::Bool(true)));
+
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(31, 0, 0, 16)));
+        let focus_token = push_payload(WindowMsgPayload::Bool(false));
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 1, focus_token),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(pop_payload(focus_token), Some(WindowMsgPayload::Bool(true)));
     }
 
     #[test]
@@ -5159,21 +5446,17 @@ mod tests {
                 });
         }
 
-        let mut accepts_focus = true;
+        let token = push_payload(WindowMsgPayload::Bool(true));
         let mut window = GameWindow::new();
         window.set_id(9);
         window.set_owner(Some(&owner));
         window.set_widget(WindowWidget::StaticText(StaticText::new(9, 0, 0, 120, 24)));
 
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::InputFocus,
-                1,
-                &mut accepts_focus as *mut bool as WindowMsgData,
-            ),
+            window.send_system_message(WindowMessage::InputFocus, 1, token),
             WindowMsgHandled::Ignored
         );
-        assert!(accepts_focus);
+        assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
         assert!(owner_seen.borrow().is_empty());
     }
@@ -5471,13 +5754,10 @@ mod tests {
             combo_widget.add_item(ComboBoxItem::new(1, "Bravo"));
         }
 
-        let text = "Alpha".to_string();
         assert_eq!(
-            combo.send_system_message(
-                WindowMessage::User(GCM_SET_TEXT),
-                &text as *const String as WindowMsgData,
-                0,
-            ),
+            with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+                combo.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0)
+            }),
             WindowMsgHandled::Handled
         );
 
@@ -5494,24 +5774,20 @@ mod tests {
         );
         assert_eq!(combo.combo_box_mut().unwrap().selected_index(), None);
 
-        let mut out = "stale".to_string();
-        let _ = combo.send_system_message(
-            WindowMessage::User(GCM_GET_TEXT),
-            0,
-            &mut out as *mut String as WindowMsgData,
+        let token = push_payload(WindowMsgPayload::Text("stale".to_string()));
+        let _ = combo.send_system_message(WindowMessage::User(GCM_GET_TEXT), 0, token);
+        assert_eq!(
+            pop_payload(token),
+            Some(WindowMsgPayload::Text("Alpha".to_string()))
         );
-        assert_eq!(out, "Alpha");
     }
 
     #[test]
     fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
         let (mut combo, _edit_box, _list_box, _drop_down) = combo_fixture();
-        let alpha = "Alpha".to_string();
-        let _ = combo.send_system_message(
-            WindowMessage::User(GCM_ADD_ENTRY),
-            &alpha as *const String as WindowMsgData,
-            0xFF11_2233,
-        );
+        let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233)
+        });
 
         let raw_data = usize::MAX - 7;
         assert_eq!(
@@ -5519,13 +5795,9 @@ mod tests {
             WindowMsgHandled::Handled
         );
 
-        let mut out = 0;
-        let _ = combo.send_system_message(
-            WindowMessage::User(GCM_GET_ITEM_DATA),
-            0,
-            &mut out as *mut WindowMsgData as WindowMsgData,
-        );
-        assert_eq!(out, raw_data);
+        let token = push_payload(WindowMsgPayload::UInt(0));
+        let _ = combo.send_system_message(WindowMessage::User(GCM_GET_ITEM_DATA), 0, token);
+        assert_eq!(pop_payload(token), Some(WindowMsgPayload::UInt(raw_data)));
     }
 
     #[test]
@@ -5544,18 +5816,12 @@ mod tests {
         }
         combo.set_owner(Some(&owner));
 
-        let alpha = "Alpha".to_string();
-        let bravo = "Bravo".to_string();
-        let _ = combo.send_system_message(
-            WindowMessage::User(GCM_ADD_ENTRY),
-            &alpha as *const String as WindowMsgData,
-            0xFF11_2233,
-        );
-        let _ = combo.send_system_message(
-            WindowMessage::User(GCM_ADD_ENTRY),
-            &bravo as *const String as WindowMsgData,
-            0xFF44_5566,
-        );
+        let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233)
+        });
+        let _ = with_payload(WindowMsgPayload::Text("Bravo".to_string()), |token| {
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF44_5566)
+        });
         list_box.borrow_mut().hide(false).unwrap();
         combo.set_size(120, 80).unwrap();
 
@@ -5599,12 +5865,9 @@ mod tests {
         }
         combo.set_owner(Some(&owner));
 
-        let alpha = "Alpha".to_string();
-        let _ = combo.send_system_message(
-            WindowMessage::User(GCM_ADD_ENTRY),
-            &alpha as *const String as WindowMsgData,
-            0xFF11_2233,
-        );
+        let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233)
+        });
         let _ = combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0);
         list_box.borrow_mut().hide(false).unwrap();
         combo.set_size(120, 80).unwrap();
@@ -6331,27 +6594,20 @@ mod tests {
         window.set_owner(Some(&owner));
         window.set_widget(WindowWidget::CheckBox(CheckBox::new(31, 0, 0, 16)));
 
-        let mut accepts_focus = false;
+        let gain_token = push_payload(WindowMsgPayload::Bool(false));
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::InputFocus,
-                1,
-                &mut accepts_focus as *mut bool as WindowMsgData,
-            ),
+            window.send_system_message(WindowMessage::InputFocus, 1, gain_token),
             WindowMsgHandled::Handled
         );
-        assert!(accepts_focus);
+        assert_eq!(pop_payload(gain_token), Some(WindowMsgPayload::Bool(true)));
         assert!(window.instance_data().state.contains(WindowState::HILITED));
 
+        let lose_token = push_payload(WindowMsgPayload::Bool(true));
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::InputFocus,
-                0,
-                &mut accepts_focus as *mut bool as WindowMsgData,
-            ),
+            window.send_system_message(WindowMessage::InputFocus, 0, lose_token),
             WindowMsgHandled::Handled
         );
-        assert!(!accepts_focus);
+        assert_eq!(pop_payload(lose_token), Some(WindowMsgPayload::Bool(false)));
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
         assert_eq!(
@@ -6388,29 +6644,21 @@ mod tests {
             RadioButtonGroup::new(4),
         )));
 
-        let mut accepts_focus = false;
+        let gain_token = push_payload(WindowMsgPayload::Bool(false));
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::InputFocus,
-                1,
-                &mut accepts_focus as *mut bool as WindowMsgData,
-            ),
+            window.send_system_message(WindowMessage::InputFocus, 1, gain_token),
             WindowMsgHandled::Handled
         );
-        assert!(accepts_focus);
+        assert_eq!(pop_payload(gain_token), Some(WindowMsgPayload::Bool(true)));
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
         window.set_hilite_state(true);
-        accepts_focus = false;
+        let lose_token = push_payload(WindowMsgPayload::Bool(false));
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::InputFocus,
-                0,
-                &mut accepts_focus as *mut bool as WindowMsgData,
-            ),
+            window.send_system_message(WindowMessage::InputFocus, 0, lose_token),
             WindowMsgHandled::Handled
         );
-        assert!(accepts_focus);
+        assert_eq!(pop_payload(lose_token), Some(WindowMsgPayload::Bool(true)));
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
         assert_eq!(
@@ -7026,11 +7274,9 @@ mod tests {
             data: ListBoxItemData::Text("Alpha".to_string()),
             color: Some(ShellColor::new(10, 20, 30, 40)),
         };
-        let result = window.send_system_message(
-            WindowMessage::User(GLM_ADD_ENTRY),
-            (&entry as *const ListBoxAddEntry) as WindowMsgData,
-            0,
-        );
+        let result = with_payload(WindowMsgPayload::AddEntry(entry), |token| {
+            window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0)
+        });
         assert_eq!(result.value_i32(), Some(0));
         assert!(result.is_handled());
 
@@ -7041,53 +7287,57 @@ mod tests {
             data: ListBoxItemData::Text("Bravo".to_string()),
             color: Some(ShellColor::new(50, 60, 70, 80)),
         };
-        let result = window.send_system_message(
-            WindowMessage::User(GLM_ADD_ENTRY),
-            (&entry as *const ListBoxAddEntry) as WindowMsgData,
-            0,
-        );
+        let result = with_payload(WindowMsgPayload::AddEntry(entry), |token| {
+            window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0)
+        });
         assert_eq!(result.value_i32(), Some(0));
 
-        let pos = ListBoxCellPosition { x: 1, y: 0 };
-        let mut text = ListBoxTextAndColor {
+        let pos_token = push_payload(WindowMsgPayload::CellPosition(ListBoxCellPosition {
+            x: 1,
+            y: 0,
+        }));
+        let text_token = push_payload(WindowMsgPayload::TextAndColor(ListBoxTextAndColor {
             text: String::new(),
             color: ShellColor::new(0, 0, 0, 0),
-        };
+        }));
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::User(GLM_GET_TEXT),
-                (&pos as *const ListBoxCellPosition) as WindowMsgData,
-                (&mut text as *mut ListBoxTextAndColor) as WindowMsgData,
-            ),
+            window.send_system_message(WindowMessage::User(GLM_GET_TEXT), pos_token, text_token,),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            text,
-            ListBoxTextAndColor {
+            pop_payload(text_token),
+            Some(WindowMsgPayload::TextAndColor(ListBoxTextAndColor {
                 text: "Bravo".to_string(),
                 color: ShellColor::new(50, 60, 70, 80),
-            }
+            }))
         );
 
-        let item_data = ListBoxItemData::Integer(99);
+        let item_token = push_payload(WindowMsgPayload::ItemData(ListBoxItemData::Integer(99)));
         assert_eq!(
             window.send_system_message(
                 WindowMessage::User(GLM_SET_ITEM_DATA),
-                (&pos as *const ListBoxCellPosition) as WindowMsgData,
-                (&item_data as *const ListBoxItemData) as WindowMsgData,
+                pos_token,
+                item_token,
             ),
             WindowMsgHandled::Handled
         );
-        let mut out_data = None;
+        let _ = pop_payload(item_token);
+        let out_token = push_payload(WindowMsgPayload::ItemDataOpt(None));
         assert_eq!(
             window.send_system_message(
                 WindowMessage::User(GLM_GET_ITEM_DATA),
-                (&pos as *const ListBoxCellPosition) as WindowMsgData,
-                (&mut out_data as *mut Option<ListBoxItemData>) as WindowMsgData,
+                pos_token,
+                out_token,
             ),
             WindowMsgHandled::Handled
         );
-        assert!(matches!(out_data, Some(ListBoxItemData::Integer(99))));
+        assert_eq!(
+            pop_payload(out_token),
+            Some(WindowMsgPayload::ItemDataOpt(Some(
+                ListBoxItemData::Integer(99)
+            )))
+        );
+        let _ = pop_payload(pos_token);
 
         let mut full_window = GameWindow::new();
         let mut full_listbox = ListBox::new(43, 0, 0, 100, 60);
@@ -7101,11 +7351,9 @@ mod tests {
             data: ListBoxItemData::Text("overflow".to_string()),
             color: Some(ShellColor::new(90, 91, 92, 93)),
         };
-        let result = full_window.send_system_message(
-            WindowMessage::User(GLM_ADD_ENTRY),
-            (&entry as *const ListBoxAddEntry) as WindowMsgData,
-            0,
-        );
+        let result = with_payload(WindowMsgPayload::AddEntry(entry), |token| {
+            full_window.send_system_message(WindowMessage::User(GLM_ADD_ENTRY), token, 0)
+        });
         assert_eq!(result.value_i32(), Some(-1));
         assert!(result.is_handled());
     }
@@ -7120,13 +7368,10 @@ mod tests {
         listbox.add_item("charlie");
         window.set_widget(WindowWidget::ListBox(listbox));
 
-        let selections = [0, 2];
         assert_eq!(
-            window.send_system_message(
-                WindowMessage::User(GLM_SET_SELECTION),
-                selections.as_ptr() as WindowMsgData,
-                selections.len(),
-            ),
+            with_payload(WindowMsgPayload::IntList(vec![0, 2]), |token| {
+                window.send_system_message(WindowMessage::User(GLM_SET_SELECTION), token, 2)
+            }),
             WindowMsgHandled::Handled
         );
         assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0, 2]);
@@ -7137,8 +7382,10 @@ mod tests {
 
         let mut selected_out: WindowMsgData = 0;
         gadget_list_box_get_selected(&mut window, &mut selected_out);
-        let selected = unsafe { std::slice::from_raw_parts(selected_out as *const i32, 3) };
-        assert_eq!(selected, &[0, 2, -1]);
+        assert_eq!(
+            pop_payload(selected_out),
+            Some(WindowMsgPayload::IntList(vec![0, 2]))
+        );
 
         let mut single_window = GameWindow::new();
         let mut single = ListBox::new(43, 0, 0, 100, 60);
@@ -7146,16 +7393,16 @@ mod tests {
         single.add_item("bravo");
         assert!(single.select_index(1, KeyModifiers::none()));
         single_window.set_widget(WindowWidget::ListBox(single));
-        let mut single_out: WindowMsgData = 0;
+        let single_token = push_payload(WindowMsgPayload::None);
         assert_eq!(
             single_window.send_system_message(
                 WindowMessage::User(GLM_GET_SELECTION),
                 0,
-                (&mut single_out as *mut WindowMsgData) as WindowMsgData,
+                single_token,
             ),
             WindowMsgHandled::Handled
         );
-        assert_eq!(single_out as i32, 1);
+        assert_eq!(pop_payload(single_token), Some(WindowMsgPayload::Int(1)));
     }
 
     #[test]

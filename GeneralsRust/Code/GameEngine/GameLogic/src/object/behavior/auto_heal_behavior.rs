@@ -1356,10 +1356,6 @@ const fn update_sleep_time(frames: UnsignedInt) -> UpdateSleepTime {
     UpdateSleepTime::Frames(frames)
 }
 
-// Thread-safe implementation
-unsafe impl Send for AutoHealBehavior {}
-unsafe impl Sync for AutoHealBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,7 +8,7 @@
 //! and validate network commands.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use super::handles::ObjectHandle;
 
@@ -231,20 +231,45 @@ pub trait ObjectDataProvider: Send + Sync {
 /// the Common crate cannot depend on GameLogic, so we inject an
 /// `ObjectDataProvider` through this global. GameLogic sets it during
 /// initialization via `set_object_data_provider()`.
-static mut OBJECT_DATA_PROVIDER: Option<&'static dyn ObjectDataProvider> = None;
-
-/// Set the global object data provider. Called once during GameLogic init.
 ///
-/// # Safety
-/// Must be called from a single-threaded context before any action manager queries.
-pub unsafe fn set_object_data_provider(provider: &'static dyn ObjectDataProvider) {
-    OBJECT_DATA_PROVIDER = Some(provider);
+/// Stored as `RwLock<Option<Arc<...>>>` so GameLogic can install a provider
+/// that reads `OBJECT_REGISTRY` / GameLogic objects, and tests can set/clear
+/// a mock without `static mut`.
+static OBJECT_DATA_PROVIDER: RwLock<Option<Arc<dyn ObjectDataProvider + Send + Sync>>> =
+    RwLock::new(None);
+
+fn write_provider(
+    provider: Option<Arc<dyn ObjectDataProvider + Send + Sync>>,
+) -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
+    match OBJECT_DATA_PROVIDER.write() {
+        Ok(mut guard) => std::mem::replace(&mut *guard, provider),
+        Err(poisoned) => std::mem::replace(&mut *poisoned.into_inner(), provider),
+    }
 }
 
-/// Get a reference to the global object data provider, if one has been installed.
-fn get_provider() -> Option<&'static dyn ObjectDataProvider> {
-    // SAFETY: read-only access; provider is set once during init before any queries.
-    unsafe { OBJECT_DATA_PROVIDER }
+/// Install the global object data provider. Called during GameLogic init.
+///
+/// Replacing an existing provider is allowed (tests, GameLogic reset).
+pub fn set_object_data_provider(provider: Arc<dyn ObjectDataProvider + Send + Sync>) {
+    let _ = write_provider(Some(provider));
+}
+
+/// Remove the installed provider. Queries then use fail-closed defaults.
+pub fn clear_object_data_provider() {
+    let _ = write_provider(None);
+}
+
+/// True when GameLogic (or a test) has installed a provider.
+pub fn object_data_provider_is_set() -> bool {
+    get_provider().is_some()
+}
+
+/// Clone the installed provider, if any. Lock is not held across queries.
+fn get_provider() -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
+    match OBJECT_DATA_PROVIDER.read() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    }
 }
 
 // ================================================================================================
@@ -319,13 +344,23 @@ impl Object {
 
     /// Helper: execute a query against the data provider, returning a fallback
     /// value when no provider is registered (e.g. during unit tests or early init).
+    ///
+    /// Fail-closed defaults (no provider):
+    /// - `is_null` → true (invalid / dead)
+    /// - `is_effectively_dead` → true
+    /// - `is_mobile` → false
+    /// - relationships → Neutral
+    /// - kind-of / status / modules → false / 0
+    /// - health / max health → 100.0
+    /// - controlling player → 0 / Human
+    /// - shroud → Clear
     #[inline]
     fn with_provider<F, T>(&self, f: F, fallback: T) -> T
     where
-        F: FnOnce(&'static dyn ObjectDataProvider) -> T,
+        F: FnOnce(&dyn ObjectDataProvider) -> T,
     {
         match get_provider() {
-            Some(p) => f(p),
+            Some(p) => f(&*p),
             None => fallback,
         }
     }
@@ -1215,6 +1250,105 @@ impl Object {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn provider_test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct MockObjectDataProvider;
+
+    impl ObjectDataProvider for MockObjectDataProvider {
+        fn is_valid_object(&self, id: ObjectHandle) -> bool {
+            id.value() == 42
+        }
+        fn get_relationship(&self, _source: ObjectHandle, _target: ObjectHandle) -> Relationship {
+            Relationship::Allies
+        }
+        fn get_team_relationship(&self, _source: ObjectHandle, _player_id: u32) -> Relationship {
+            Relationship::Enemies
+        }
+        fn is_effectively_dead(&self, id: ObjectHandle) -> bool {
+            id.value() != 42
+        }
+        fn is_mobile(&self, id: ObjectHandle) -> bool {
+            id.value() == 42
+        }
+        fn test_status(&self, _id: ObjectHandle, _status_bit: u32) -> bool {
+            false
+        }
+        fn is_kind_of(&self, id: ObjectHandle, kind_of: u32) -> bool {
+            id.value() == 42 && kind_of == kind_of_bit::VEHICLE
+        }
+        fn is_above_terrain(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn get_health(&self, _id: ObjectHandle) -> f32 {
+            50.0
+        }
+        fn get_max_health(&self, _id: ObjectHandle) -> f32 {
+            200.0
+        }
+        fn get_controlling_player_id(&self, _id: ObjectHandle) -> Option<u32> {
+            Some(7)
+        }
+        fn get_controlling_player_type(&self, _id: ObjectHandle) -> PlayerType {
+            PlayerType::Computer
+        }
+        fn get_shrouded_status(
+            &self,
+            _target: ObjectHandle,
+            _viewer_player_id: u32,
+        ) -> ObjectShroudStatus {
+            ObjectShroudStatus::Fogged
+        }
+        fn has_supply_truck_ai(&self, id: ObjectHandle) -> bool {
+            id.value() == 42
+        }
+        fn is_supply_warehouse(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn is_supply_center(&self, _id: ObjectHandle) -> bool {
+            false
+        }
+        fn get_warehouse_boxes(&self, _id: ObjectHandle) -> u32 {
+            3
+        }
+        fn get_supply_boxes(&self, _id: ObjectHandle) -> u32 {
+            1
+        }
+        fn is_available_for_supplying(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn has_dock_update_interface(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn is_railed_transport_dock(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn is_contained(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn is_surrendered(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn get_surrendered_player_index(&self, _id: ObjectHandle) -> Option<u32> {
+            Some(2)
+        }
+        fn has_contain_module(&self, _id: ObjectHandle) -> bool {
+            true
+        }
+        fn get_apparent_controlling_player(
+            &self,
+            _id: ObjectHandle,
+            _viewer_player_id: u32,
+        ) -> Option<u32> {
+            Some(9)
+        }
+    }
 
     #[test]
     fn test_action_manager_creation() {
@@ -1291,13 +1425,18 @@ mod tests {
     fn test_object_null_without_provider() {
         // Without a data provider registered, is_null returns true (fallback)
         // since the provider can't validate the handle.
+        let _guard = provider_test_lock();
+        clear_object_data_provider();
         let obj = Object::from_id(1);
         assert!(obj.is_null());
+        assert!(!object_data_provider_is_set());
     }
 
     #[test]
     fn test_object_fallback_defaults_without_provider() {
         // Without a provider, all methods return safe fallback values.
+        let _guard = provider_test_lock();
+        clear_object_data_provider();
         let obj = Object::from_id(99);
         assert_eq!(obj.get_relationship(&obj), Relationship::Neutral);
         assert!(obj.is_effectively_dead());
@@ -1338,6 +1477,60 @@ mod tests {
         assert_eq!(obj.get_surrendered_player_index(), None);
         assert!(!obj.has_contain_module());
         assert_eq!(obj.get_apparent_controlling_player(0), None);
+    }
+
+    #[test]
+    fn test_object_queries_reach_installed_provider() {
+        let _guard = provider_test_lock();
+        clear_object_data_provider();
+        let live = Object::from_id(42);
+        let other = Object::from_id(1);
+        assert!(live.is_null());
+        assert!(live.is_effectively_dead());
+        assert!(!live.is_mobile());
+
+        set_object_data_provider(Arc::new(MockObjectDataProvider));
+        assert!(object_data_provider_is_set());
+
+        assert!(!live.is_null());
+        assert!(other.is_null());
+        assert!(!live.is_effectively_dead());
+        assert!(live.is_mobile());
+        assert_eq!(live.get_relationship(&other), Relationship::Allies);
+        assert_eq!(live.get_team_relationship(0), Relationship::Enemies);
+        assert!(live.is_kind_of_vehicle());
+        assert!(!live.is_kind_of_infantry());
+        assert!(live.is_above_terrain());
+        assert_eq!(live.get_health(), 50.0);
+        assert_eq!(live.get_max_health(), 200.0);
+        assert_eq!(live.get_controlling_player_id(), 7);
+        assert_eq!(live.get_controlling_player_type(), PlayerType::Computer);
+        assert_eq!(
+            live.get_shrouded_status_for_player(0),
+            ObjectShroudStatus::Fogged
+        );
+        assert!(live.has_supply_truck_ai());
+        assert!(live.is_supply_warehouse());
+        assert!(!live.is_supply_center());
+        assert_eq!(live.get_warehouse_boxes(), 3);
+        assert_eq!(live.get_supply_boxes(), 1);
+        assert!(live.is_available_for_supplying());
+        assert!(live.has_dock_update_interface());
+        assert!(live.is_railed_transport_dock());
+        assert!(live.is_contained());
+        assert!(live.is_surrendered());
+        assert_eq!(live.get_surrendered_player_index(), Some(2));
+        assert!(live.has_contain_module());
+        assert_eq!(live.get_apparent_controlling_player(0), Some(9));
+
+        clear_object_data_provider();
+        assert!(!object_data_provider_is_set());
+        assert!(live.is_null());
+        assert!(live.is_effectively_dead());
+        assert!(!live.is_mobile());
+        assert_eq!(live.get_relationship(&other), Relationship::Neutral);
+        assert_eq!(live.get_health(), 100.0);
+        assert_eq!(live.get_max_health(), 100.0);
     }
 
     #[test]

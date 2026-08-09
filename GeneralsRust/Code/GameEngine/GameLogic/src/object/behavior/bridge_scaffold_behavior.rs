@@ -544,9 +544,6 @@ impl BridgeScaffoldBehavior {
     }
 }
 
-unsafe impl Send for BridgeScaffoldBehavior {}
-unsafe impl Sync for BridgeScaffoldBehavior {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -240,10 +240,6 @@ impl AutoFindHealingUpdateFactory {
     }
 }
 
-// Thread safety
-unsafe impl Send for AutoFindHealingUpdate {}
-unsafe impl Sync for AutoFindHealingUpdate {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

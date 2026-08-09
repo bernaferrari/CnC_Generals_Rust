@@ -101,6 +101,10 @@ pub fn dual_tick_policy() -> DualTickPolicy {
 ///
 /// Returns `Err` when verification mode would have ignored a crate failure, or when
 /// a dual tick is required to fail closed.
+///
+/// Empty-world crate ticks return `Ok(())` and must **not** be treated as a
+/// successful C++ `GameLogic.cpp` phase-order tick. `tick_gamelogic_crate`
+/// logs at debug and counts those no-ops; this helper does not panic on them.
 pub fn apply_post_authority_crate_tick(
     policy: DualTickPolicy,
     tick_crate: impl FnOnce() -> Result<(), String>,

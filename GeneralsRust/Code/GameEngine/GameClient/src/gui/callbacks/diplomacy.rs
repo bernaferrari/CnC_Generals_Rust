@@ -1093,8 +1093,7 @@ pub fn simulate_diplomacy_prepare_ingame() -> bool {
 
 /// Human click-through: OS LeftDown/Up on `Diplomacy.wnd:RadioButtonInGame`.
 pub fn drive_os_wnd_diplomacy_radio_ingame_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonInGame");
+    let clicked = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonInGame");
     if !clicked {
         return false;
     }
@@ -1102,8 +1101,7 @@ pub fn drive_os_wnd_diplomacy_radio_ingame_like_cpp() -> bool {
 }
 
 pub fn drive_os_wnd_diplomacy_radio_buddies_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonBuddies");
+    let clicked = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:RadioButtonBuddies");
     if !clicked {
         return false;
     }
@@ -1143,8 +1141,7 @@ pub fn drive_os_wnd_diplomacy_unmute_like_cpp(slot: i32) -> bool {
 }
 
 pub fn drive_os_wnd_diplomacy_prepare_ingame_like_cpp() -> bool {
-    let clicked_parent =
-        crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:InGameParent");
+    let clicked_parent = crate::gui::dispatch_os_click_named_window("Diplomacy.wnd:InGameParent");
     if clicked_parent {
         let _ = simulate_diplomacy_toggle_show();
     }
@@ -1195,7 +1192,10 @@ mod os_wnd_tests {
     fn os_wnd_diplomacy_mute_hits_button_mute_slot() {
         install_named_button("Diplomacy.wnd:ButtonMute0", 10, 100);
         assert!(drive_os_wnd_diplomacy_mute_like_cpp(0));
-        assert_eq!(residual_diplomacy_last_action(), ResidualDiplomacyAction::Mute);
+        assert_eq!(
+            residual_diplomacy_last_action(),
+            ResidualDiplomacyAction::Mute
+        );
         assert_eq!(residual_diplomacy_mute_slot(), Some(0));
         assert!(!drive_os_wnd_diplomacy_unmute_like_cpp(0));
     }

@@ -21,8 +21,10 @@ use game_engine::common::rts::ScienceType;
 use game_engine::common::system::{Xfer, XferMode, XferStatus, XferVersion};
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
-use std::cell::Cell;
+use std::cell::{Cell, UnsafeCell};
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -813,8 +815,40 @@ pub struct ScriptStats {
     pub cur_update_time: f64,
 }
 
-/// Main Script Engine matching C++ ScriptEngine
+/// Main Script Engine matching C++ ScriptEngine.
+///
+/// Mutable state lives in `UnsafeCell<ScriptEngineInner>` so nested
+/// `CALL_SUBROUTINE` (C++ runs the callee immediately) can re-enter through
+/// `&ScriptEngine` + `lock_inner_mut` without minting a second `&mut ScriptEngine`.
 pub struct ScriptEngine {
+    inner: UnsafeCell<ScriptEngineInner>,
+    /// Mini-RefCell exclusive flag. True while an `InnerMutGuard` is live.
+    mut_live: AtomicBool,
+}
+
+// SAFETY: `inner` is `UnsafeCell<ScriptEngineInner>`. `UnsafeCell<T>` is
+// `Send` iff `T: Send` and is never automatically `Sync`.
+//
+// Send: `ScriptEngineInner` is Send (plain data + `Arc<dyn ScriptActionHandler:
+// Send + Sync>`). Moving the engine is safe when no other alias exists.
+//
+// Sync: the only interior mutation is `lock_inner_mut`, which uses `mut_live`
+// as a same-thread mini-RefCell. Cross-thread exclusive access is provided by
+// the outer `Arc<RwLock<Option<ScriptEngine>>>`. `lock_inner_mut` / `mut_live`
+// run only on the thread that holds that write lock, or on the TLS
+// active-engine thread installed under that write lock. Shared `&ScriptEngine`
+// from other threads is either behind a read lock with no inner mutation, or
+// is not constructed. Same-thread nested CALL_SUBROUTINE is the only interior
+// mutation path.
+unsafe impl Send for ScriptEngine {}
+unsafe impl Sync for ScriptEngine {}
+
+/// Mutable script-engine body. Field layout matches the previous `ScriptEngine`.
+///
+/// Accessed via:
+/// - `Deref` / `DerefMut` when the caller has exclusive `&mut ScriptEngine`
+/// - `lock_inner_mut` when only `&ScriptEngine` is live (TLS nested path)
+pub struct ScriptEngineInner {
     // Template registrations
     action_templates: Vec<ActionTemplate>,
     condition_templates: Vec<ConditionTemplate>,
@@ -892,6 +926,79 @@ pub struct ScriptEngine {
     stats: ScriptStats,
 
     action_handler: Option<Arc<dyn ScriptActionHandler>>,
+}
+
+/// RAII exclusive borrow of `ScriptEngineInner` from a shared `&ScriptEngine`.
+///
+/// Sibling-field split: this guard holds `&Cell<bool>` (the flag) and
+/// `&mut ScriptEngineInner` (the cell contents). Dropping it clears `mut_live`
+/// so nested `lock_inner_mut` can run after the outer section finishes.
+struct InnerMutGuard<'a> {
+    flag: &'a AtomicBool,
+    inner: &'a mut ScriptEngineInner,
+}
+
+impl Drop for InnerMutGuard<'_> {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Release);
+    }
+}
+
+impl Deref for InnerMutGuard<'_> {
+    type Target = ScriptEngineInner;
+    fn deref(&self) -> &ScriptEngineInner {
+        self.inner
+    }
+}
+
+impl DerefMut for InnerMutGuard<'_> {
+    fn deref_mut(&mut self) -> &mut ScriptEngineInner {
+        self.inner
+    }
+}
+
+impl Deref for ScriptEngine {
+    type Target = ScriptEngineInner;
+    fn deref(&self) -> &ScriptEngineInner {
+        if self.mut_live.load(Ordering::Acquire) {
+            panic!(
+                "ScriptEngine already mutably borrowed (nested exclusive access). \
+                 C++ CALL_SUBROUTINE runs immediately; drop lock_inner_mut before dispatch."
+            );
+        }
+        // SAFETY: mut_live is false, so no InnerMutGuard is live. Shared reads of
+        // the UnsafeCell payload are allowed.
+        unsafe { &*self.inner.get() }
+    }
+}
+
+impl DerefMut for ScriptEngine {
+    fn deref_mut(&mut self) -> &mut ScriptEngineInner {
+        // Exclusive `&mut ScriptEngine` — no other references exist.
+        self.inner.get_mut()
+    }
+}
+
+impl ScriptEngine {
+    /// Exclusive inner borrow from `&ScriptEngine` (nested CALL_SUBROUTINE path).
+    ///
+    /// Panics if another `InnerMutGuard` is live (AlreadyBorrowed). Callers must
+    /// drop the guard before `dispatcher.execute_action` / nested
+    /// `with_script_engine_mut`, matching C++ immediate nested execution.
+    fn lock_inner_mut(&self) -> InnerMutGuard<'_> {
+        if self.mut_live.swap(true, Ordering::AcqRel) {
+            panic!(
+                "ScriptEngine::lock_inner_mut: already borrowed. Nested CALL_SUBROUTINE \
+                 must not hold inner mut across dispatcher / with_script_engine_mut."
+            );
+        }
+        InnerMutGuard {
+            flag: &self.mut_live,
+            // SAFETY: mut_live was false; this is the unique exclusive borrow of Inner.
+            // `flag` is a sibling field of `inner`, not an alias of Inner.
+            inner: unsafe { &mut *self.inner.get() },
+        }
+    }
 }
 
 fn xfer_list_ascii_string(xfer: &mut dyn Xfer, list: &mut Vec<String>) -> Result<(), XferStatus> {
@@ -1158,6 +1265,7 @@ impl ScriptEngine {
 
     pub fn new() -> GameLogicResult<Self> {
         let mut engine = Self {
+            inner: UnsafeCell::new(ScriptEngineInner {
             action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),
             condition_templates: Vec::with_capacity(ConditionType::NumItems as usize),
 
@@ -1223,6 +1331,8 @@ impl ScriptEngine {
             stats: ScriptStats::default(),
 
             action_handler: None,
+            }),
+            mut_live: AtomicBool::new(false),
         };
 
         if engine.counters[0].is_none() {
@@ -1257,21 +1367,25 @@ impl ScriptEngine {
     /// calling team and its controlling player as current player, runs the
     /// action chain, then restores prior context.
     pub fn friend_execute_action(
-        &mut self,
+        &self,
         action: &crate::scripting::core::ScriptAction,
         team_name: Option<&str>,
     ) {
-        let saved_team = self.calling_team.take();
-        let saved_player = self.current_player.take();
+        let (saved_team, saved_player) = {
+            let mut inner = self.lock_inner_mut();
+            let saved_team = inner.calling_team.take();
+            let saved_player = inner.current_player.take();
+            inner.calling_team = team_name.map(|s| s.to_string());
+            inner.current_player = None;
+            (saved_team, saved_player)
+        };
 
-        self.calling_team = team_name.map(|s| s.to_string());
-        self.current_player = None;
         if let Some(tname) = team_name {
             if let Ok(mut factory) = get_team_factory().lock() {
                 if let Some(team_arc) = factory.find_team(tname) {
                     if let Ok(team_guard) = team_arc.read() {
                         if let Some(player_id) = team_guard.get_controlling_player_id() {
-                            self.current_player = crate::player::player_list()
+                            let current_player = crate::player::player_list()
                                 .read()
                                 .ok()
                                 .and_then(|list| list.get_player(player_id as i32).cloned())
@@ -1282,13 +1396,15 @@ impl ScriptEngine {
                                         )
                                     })
                                 });
+                            self.lock_inner_mut().current_player = current_player;
                         }
                     }
                 }
             }
         }
 
-        // Use TLS active-engine + dispatcher (no re-lock of the global engine).
+        // TLS active-engine is `&ScriptEngine` only — nested CALL_SUBROUTINE
+        // re-enters via lock_inner_mut, matching C++ immediate executeScript.
         let _active = self.enter_active();
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         let exec_context = std::sync::Arc::new(std::sync::RwLock::new(
@@ -1310,8 +1426,9 @@ impl ScriptEngine {
             log::warn!("friend_execute_action: {}", err);
         }
 
-        self.calling_team = saved_team;
-        self.current_player = saved_player;
+        let mut inner = self.lock_inner_mut();
+        inner.calling_team = saved_team;
+        inner.current_player = saved_player;
     }
 
     pub fn get_condition_team_name(&self) -> Option<&str> {
@@ -1347,7 +1464,7 @@ impl ScriptEngine {
     /// C++ Reference: `SideInfo::getScriptList()` (ScriptEngine::update loops sides and executes
     /// the side's ScriptList + ScriptGroups).
     pub fn set_script_list_for_player(
-        &mut self,
+        &self,
         player_index: usize,
         script_list: Option<Box<ScriptList>>,
     ) -> GameLogicResult<()> {
@@ -1361,7 +1478,7 @@ impl ScriptEngine {
         if let Some(list) = script_list.as_deref_mut() {
             self.initialize_script_runtime_fields_in_list(list);
         }
-        self.side_script_lists[player_index] = script_list;
+        self.lock_inner_mut().side_script_lists[player_index] = script_list;
         Ok(())
     }
 
@@ -1448,17 +1565,20 @@ impl ScriptEngine {
     /// Enable/disable a script by name across all loaded ScriptLists.
     ///
     /// Matches the behavior of C++ `ENABLE_SCRIPT` / `DISABLE_SCRIPT` actions.
-    pub fn set_script_active_by_name(&mut self, script_name: &str, active: bool) -> bool {
+    pub fn set_script_active_by_name(&self, script_name: &str, active: bool) -> bool {
         let mut updated = false;
+        let handler = {
+            let mut inner = self.lock_inner_mut();
+            for slot in &mut inner.side_script_lists {
+                let Some(list) = slot.as_deref_mut() else {
+                    continue;
+                };
+                updated |= Self::set_script_active_in_list(list, script_name, active);
+            }
+            inner.action_handler.clone()
+        };
 
-        for slot in &mut self.side_script_lists {
-            let Some(list) = slot.as_deref_mut() else {
-                continue;
-            };
-            updated |= Self::set_script_active_in_list(list, script_name, active);
-        }
-
-        if let Some(handler) = self.action_handler.as_ref() {
+        if let Some(handler) = handler {
             let _ = handler.enable_script(script_name, active);
         }
 
@@ -1479,7 +1599,7 @@ impl ScriptEngine {
     }
 
     fn execute_named_subroutine_in_chain(
-        &mut self,
+        &self,
         script_head: &mut Script,
         name: &str,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
@@ -1504,7 +1624,7 @@ impl ScriptEngine {
     }
 
     fn execute_named_subroutine_in_list(
-        &mut self,
+        &self,
         list: &mut ScriptList,
         name: &str,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
@@ -1567,7 +1687,7 @@ impl ScriptEngine {
     ///
     /// Installs the TLS active-engine pointer so nested CALL_SUBROUTINE / flag /
     /// timer mutations can re-enter without deadlocking on the global RwLock.
-    pub fn execute_subroutine_by_name(&mut self, name: &str) -> GameLogicResult<bool> {
+    pub fn execute_subroutine_by_name(&self, name: &str) -> GameLogicResult<bool> {
         let Some(_depth_guard) = SubroutineDepthGuard::enter() else {
             return Ok(false);
         };
@@ -1592,7 +1712,7 @@ impl ScriptEngine {
             crate::scripting::executor::ScriptConditionEvaluator::new(exec_context);
 
         for i in 0..Self::MAX_PLAYER_COUNT {
-            let Some(mut script_list) = self.side_script_lists[i].take() else {
+            let Some(mut script_list) = self.lock_inner_mut().side_script_lists[i].take() else {
                 continue;
             };
 
@@ -1602,7 +1722,7 @@ impl ScriptEngine {
                 &mut condition_evaluator,
                 &mut action_dispatcher,
             )?;
-            self.side_script_lists[i] = Some(script_list);
+            self.lock_inner_mut().side_script_lists[i] = Some(script_list);
             if found {
                 return Ok(true);
             }
@@ -1674,12 +1794,12 @@ impl ScriptEngine {
         if add_if_missing && self.num_attack_info < MAX_ATTACK_PRIORITIES {
             let mut info = AttackPriorityInfo::new();
             info.name = name.to_string();
-            if self.attack_priority_info.len() <= self.num_attack_info {
+            let index = self.num_attack_info;
+            if self.attack_priority_info.len() <= index {
                 self.attack_priority_info.push(info);
             } else {
-                self.attack_priority_info[self.num_attack_info] = info;
+                self.attack_priority_info[index] = info;
             }
-            let index = self.num_attack_info;
             self.num_attack_info += 1;
             return self.attack_priority_info.get_mut(index);
         }
@@ -1979,29 +2099,49 @@ impl ScriptEngine {
     }
 
     /// Update script engine
-    pub fn update(&mut self) -> GameLogicResult<()> {
+    pub fn update(&self) -> GameLogicResult<()> {
         #[cfg(feature = "script_profiling")]
         let start_time = Instant::now();
 
-        if self.first_update {
+        // Shared `&self` + TLS so nested CALL_SUBROUTINE can re-enter immediately
+        // without a second `&mut ScriptEngine`.
+        let _active = self.enter_active();
+
+        let first_update = {
+            let mut inner = self.lock_inner_mut();
+            if inner.first_update {
+                inner.first_update = false;
+                true
+            } else {
+                false
+            }
+        };
+        if first_update {
             self.create_named_cache();
-            self.first_update = false;
             log::info!("ScriptEngine first update: named cache populated");
         }
 
-        if self.end_game_timer > 0 {
-            self.end_game_timer -= 1;
-            if self.end_game_timer < 1 {
-                log::info!("End game timer expired, clearing game data");
-                let _ = TheGameLogic::clear_game_data();
+        let end_expired = {
+            let mut inner = self.lock_inner_mut();
+            if inner.end_game_timer > 0 {
+                inner.end_game_timer -= 1;
+                inner.end_game_timer < 1
+            } else {
+                false
             }
+        };
+        if end_expired {
+            log::info!("End game timer expired, clearing game data");
+            let _ = TheGameLogic::clear_game_data();
         }
 
-        if self.close_window_timer >= 0 {
-            self.close_window_timer -= 1;
-            if self.close_window_timer <= 0 {
-                log::info!("Close window timer expired");
-                // In real implementation, this would close UI windows
+        {
+            let mut inner = self.lock_inner_mut();
+            if inner.close_window_timer >= 0 {
+                inner.close_window_timer -= 1;
+                if inner.close_window_timer <= 0 {
+                    log::info!("Close window timer expired");
+                }
             }
         }
 
@@ -2010,20 +2150,24 @@ impl ScriptEngine {
             return Ok(());
         }
 
-        // Update counters that are countdown timers
-        for counter in &mut self.counters {
-            if let Some(counter) = counter {
-                if counter.is_countdown_timer && counter.value > 0 {
-                    counter.value -= 1;
+        let end_game_active = {
+            let mut inner = self.lock_inner_mut();
+            // Update counters that are countdown timers
+            for counter in &mut inner.counters {
+                if let Some(counter) = counter {
+                    if counter.is_countdown_timer && counter.value > 0 {
+                        counter.value -= 1;
+                    }
                 }
             }
-        }
+            inner.end_game_timer >= 0
+        };
 
         // Update fade effects
         self.update_fades();
 
         // If the engine is in an end-game timing-down state, C++ returns early.
-        if self.end_game_timer >= 0 {
+        if end_game_active {
             return Ok(());
         }
 
@@ -2031,7 +2175,7 @@ impl ScriptEngine {
         self.execute_side_scripts()?;
 
         // Clear UI interaction flags (C++: m_uiInteractions.clear()).
-        self.ui_interactions.clear();
+        self.lock_inner_mut().ui_interactions.clear();
 
         // Process sequential scripts
         self.evaluate_and_progress_all_sequential_scripts()?;
@@ -2039,11 +2183,12 @@ impl ScriptEngine {
         #[cfg(feature = "script_profiling")]
         {
             let elapsed = start_time.elapsed();
-            self.stats.cur_update_time = elapsed.as_secs_f64();
-            self.stats.total_update_time += self.stats.cur_update_time;
-            self.stats.num_frames += 1.0;
-            if self.stats.cur_update_time > self.stats.max_update_time {
-                self.stats.max_update_time = self.stats.cur_update_time;
+            let mut inner = self.lock_inner_mut();
+            inner.stats.cur_update_time = elapsed.as_secs_f64();
+            inner.stats.total_update_time += inner.stats.cur_update_time;
+            inner.stats.num_frames += 1.0;
+            if inner.stats.cur_update_time > inner.stats.max_update_time {
+                inner.stats.max_update_time = inner.stats.cur_update_time;
             }
         }
 
@@ -2079,7 +2224,7 @@ impl ScriptEngine {
         self.create_named_cache();
     }
 
-    fn execute_side_scripts(&mut self) -> GameLogicResult<()> {
+    fn execute_side_scripts(&self) -> GameLogicResult<()> {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
         // Prepare executor context for this frame (shared by action/condition evaluation).
@@ -2116,11 +2261,10 @@ impl ScriptEngine {
                     .ok()
                     .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
             });
-            self.current_player = player_name;
+            self.lock_inner_mut().current_player = player_name;
 
-            // Avoid aliasing `&mut self` with `&mut ScriptList` while calling into helpers that
-            // also need `&mut self` (borrow checker parity with C++'s pointer-based traversal).
-            let Some(mut script_list) = self.side_script_lists[i].take() else {
+            // Take the list out so dispatch can re-enter the engine.
+            let Some(mut script_list) = self.lock_inner_mut().side_script_lists[i].take() else {
                 continue;
             };
 
@@ -2148,15 +2292,15 @@ impl ScriptEngine {
                 group_opt = group.next_group.as_deref_mut();
             }
 
-            self.side_script_lists[i] = Some(script_list);
+            self.lock_inner_mut().side_script_lists[i] = Some(script_list);
         }
 
-        self.current_player = None;
+        self.lock_inner_mut().current_player = None;
         Ok(())
     }
 
     fn execute_scripts(
-        &mut self,
+        &self,
         script_head: &mut Script,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
@@ -2267,7 +2411,7 @@ impl ScriptEngine {
 
     /// Execute a single script, matching C++ `ScriptEngine::executeScript`.
     fn execute_script(
-        &mut self,
+        &self,
         script: &mut Script,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
@@ -2314,7 +2458,7 @@ impl ScriptEngine {
         }
 
         // Team-scoped condition evaluation (C++ uses `conditionTeamName` to iterate instances).
-        let saved_condition_team = self.condition_team.take();
+        let saved_condition_team = self.lock_inner_mut().condition_team.take();
 
         let condition_team_name = script.condition_team_name.trim().to_string();
         if !condition_team_name.is_empty() {
@@ -2331,7 +2475,7 @@ impl ScriptEngine {
                         .ok()
                         .map(|t| t.get_name().to_string())
                         .unwrap_or_else(|| condition_team_name.clone());
-                    self.condition_team = Some(team_name);
+                    self.lock_inner_mut().condition_team = Some(team_name);
                     self.evaluate_and_execute_script(
                         script,
                         condition_evaluator,
@@ -2339,19 +2483,19 @@ impl ScriptEngine {
                         false,
                     )?;
                 }
-                self.condition_team = saved_condition_team;
+                self.lock_inner_mut().condition_team = saved_condition_team;
                 return Ok(());
             }
         }
 
-        self.condition_team = None;
+        self.lock_inner_mut().condition_team = None;
         self.evaluate_and_execute_script(script, condition_evaluator, action_dispatcher, true)?;
-        self.condition_team = saved_condition_team;
+        self.lock_inner_mut().condition_team = saved_condition_team;
         Ok(())
     }
 
     fn evaluate_and_execute_script(
-        &mut self,
+        &self,
         script: &mut Script,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
@@ -2399,7 +2543,7 @@ impl ScriptEngine {
     }
 
     fn execute_action_chain(
-        &mut self,
+        &self,
         action_head: &ScriptAction,
         dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
     ) -> GameLogicResult<ActionChainExecution> {
@@ -2485,50 +2629,56 @@ impl ScriptEngine {
     }
 
     /// Update fade effects
-    fn update_fades(&mut self) {
-        if self.fade == TFade::None {
+    fn update_fades(&self) {
+        let mut inner = self.lock_inner_mut();
+        if inner.fade == TFade::None {
             return;
         }
 
-        self.cur_fade_frame += 1;
-        let mut fade = self.cur_fade_frame;
+        inner.cur_fade_frame += 1;
+        let mut fade = inner.cur_fade_frame;
 
-        if fade <= self.fade_frames_increase {
-            let factor = self.cur_fade_frame as f32 / self.fade_frames_increase as f32;
-            self.cur_fade_value = self.min_fade + factor * (self.max_fade - self.min_fade);
+        if fade <= inner.fade_frames_increase {
+            let factor = inner.cur_fade_frame as f32 / inner.fade_frames_increase as f32;
+            inner.cur_fade_value = inner.min_fade + factor * (inner.max_fade - inner.min_fade);
             return;
         }
 
-        fade -= self.fade_frames_increase;
-        if fade <= self.fade_frames_hold {
-            self.cur_fade_value = self.max_fade;
+        fade -= inner.fade_frames_increase;
+        if fade <= inner.fade_frames_hold {
+            inner.cur_fade_value = inner.max_fade;
             return;
         }
 
-        fade -= self.fade_frames_hold;
-        if fade <= self.fade_frames_decrease {
-            let mut divisor = self.fade_frames_decrease + 1;
+        fade -= inner.fade_frames_hold;
+        if fade <= inner.fade_frames_decrease {
+            let mut divisor = inner.fade_frames_decrease + 1;
             if divisor == 0 {
                 divisor = 1;
             }
             let factor = fade as f32 / divisor as f32;
-            self.cur_fade_value = self.max_fade + factor * (self.min_fade - self.max_fade);
+            inner.cur_fade_value = inner.max_fade + factor * (inner.min_fade - inner.max_fade);
             return;
         }
 
-        self.fade = TFade::None;
+        inner.fade = TFade::None;
     }
 
     /// Evaluate and progress sequential scripts
-    fn evaluate_and_progress_all_sequential_scripts(&mut self) -> GameLogicResult<()> {
+    fn evaluate_and_progress_all_sequential_scripts(&self) -> GameLogicResult<()> {
         // Wave 348: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
 
-        let saved_current_player = self.current_player.clone();
-        let saved_condition_team = self.condition_team.clone();
-        let saved_condition_object = self.condition_object;
+        let (saved_current_player, saved_condition_team, saved_condition_object) = {
+            let inner = self.lock_inner_mut();
+            (
+                inner.current_player.clone(),
+                inner.condition_team.clone(),
+                inner.condition_object,
+            )
+        };
 
         let result = (|| -> GameLogicResult<()> {
             let current_frame = crate::helpers::TheGameLogic::get_frame();
@@ -2603,7 +2753,7 @@ impl ScriptEngine {
                     continue;
                 }
 
-                self.current_player =
+                self.lock_inner_mut().current_player =
                     self.resolve_sequential_current_player(object_arc.as_ref(), team_arc.as_ref());
 
                 let (obj_has_ai, obj_idle, _) = object_arc
@@ -2626,10 +2776,13 @@ impl ScriptEngine {
                         || (frames_to_wait == 0);
 
                     if should_progress {
-                        if self.sequential_scripts[i].dont_advance_instruction {
-                            self.sequential_scripts[i].dont_advance_instruction = false;
-                        } else {
-                            self.sequential_scripts[i].current_instruction += 1;
+                        {
+                            let mut inner = self.lock_inner_mut();
+                            if inner.sequential_scripts[i].dont_advance_instruction {
+                                inner.sequential_scripts[i].dont_advance_instruction = false;
+                            } else {
+                                inner.sequential_scripts[i].current_instruction += 1;
+                            }
                         }
 
                         let instruction = self.sequential_scripts[i].current_instruction;
@@ -2639,9 +2792,12 @@ impl ScriptEngine {
                         );
 
                         if let Some(action) = action {
-                            self.condition_team = team_name;
-                            self.condition_object = object_arc.as_ref().map(|_| object_id);
-                            self.sequential_scripts[i].frames_to_wait = -1;
+                            {
+                                let mut inner = self.lock_inner_mut();
+                                inner.condition_team = team_name;
+                                inner.condition_object = object_arc.as_ref().map(|_| object_id);
+                                inner.sequential_scripts[i].frames_to_wait = -1;
+                            }
 
                             let result = dispatcher.execute_action(&action).map_err(|e| {
                                 GameLogicError::Configuration(format!(
@@ -2661,9 +2817,10 @@ impl ScriptEngine {
                                         frames,
                                         repeats_instruction,
                                     );
-                                    self.sequential_scripts[i].dont_advance_instruction =
+                                    let mut inner = self.lock_inner_mut();
+                                    inner.sequential_scripts[i].dont_advance_instruction =
                                         repeats_instruction;
-                                    self.sequential_scripts[i].frames_to_wait = wait_frames;
+                                    inner.sequential_scripts[i].frames_to_wait = wait_frames;
                                 }
                                 crate::scripting::executor::ScriptActionResult::Failed(msg) => {
                                     return Err(GameLogicError::Configuration(format!(
@@ -2721,7 +2878,7 @@ impl ScriptEngine {
                             it_advanced = true;
                         }
                     } else if self.sequential_scripts[i].frames_to_wait > 0 {
-                        self.sequential_scripts[i].frames_to_wait -= 1;
+                        self.lock_inner_mut().sequential_scripts[i].frames_to_wait -= 1;
                     }
                 }
 
@@ -2733,9 +2890,12 @@ impl ScriptEngine {
             Ok(())
         })();
 
-        self.current_player = saved_current_player;
-        self.condition_team = saved_condition_team;
-        self.condition_object = saved_condition_object;
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.current_player = saved_current_player;
+            inner.condition_team = saved_condition_team;
+            inner.condition_object = saved_condition_object;
+        }
 
         result
     }
@@ -2832,30 +2992,32 @@ impl ScriptEngine {
             })
     }
 
-    fn cleanup_sequential_script_at(&mut self, index: usize, clean_danglers: bool) {
-        if index >= self.sequential_scripts.len() {
+    fn cleanup_sequential_script_at(&self, index: usize, clean_danglers: bool) {
+        let mut inner = self.lock_inner_mut();
+        if index >= inner.sequential_scripts.len() {
             return;
         }
 
         if clean_danglers {
-            self.sequential_scripts.remove(index);
+            inner.sequential_scripts.remove(index);
             return;
         }
 
-        let next = self.sequential_scripts[index]
+        let next = inner.sequential_scripts[index]
             .next_script_in_sequence
             .take();
         if let Some(next_script) = next {
-            self.sequential_scripts[index] = *next_script;
+            inner.sequential_scripts[index] = *next_script;
         } else {
-            self.sequential_scripts.remove(index);
+            inner.sequential_scripts.remove(index);
         }
     }
 
     /// Allocate a counter
-    pub fn allocate_counter(&mut self, name: &str) -> GameLogicResult<usize> {
+    pub fn allocate_counter(&self, name: &str) -> GameLogicResult<usize> {
+        let mut inner = self.lock_inner_mut();
         // Check if counter already exists
-        for (i, counter) in self.counters.iter().enumerate() {
+        for (i, counter) in inner.counters.iter().enumerate() {
             if let Some(counter) = counter {
                 if counter.name == name {
                     return Ok(i);
@@ -2865,10 +3027,10 @@ impl ScriptEngine {
 
         // Find empty slot
         for i in 0..MAX_COUNTERS {
-            if self.counters[i].is_none() {
-                self.counters[i] = Some(TCounter::new(name.to_string()));
-                if i >= self.num_counters {
-                    self.num_counters = i + 1;
+            if inner.counters[i].is_none() {
+                inner.counters[i] = Some(TCounter::new(name.to_string()));
+                if i >= inner.num_counters {
+                    inner.num_counters = i + 1;
                 }
                 return Ok(i);
             }
@@ -2880,9 +3042,10 @@ impl ScriptEngine {
     }
 
     /// Allocate a flag
-    pub fn allocate_flag(&mut self, name: &str) -> GameLogicResult<usize> {
+    pub fn allocate_flag(&self, name: &str) -> GameLogicResult<usize> {
+        let mut inner = self.lock_inner_mut();
         // Check if flag already exists
-        for (i, flag) in self.flags.iter().enumerate() {
+        for (i, flag) in inner.flags.iter().enumerate() {
             if let Some(flag) = flag {
                 if flag.name == name {
                     return Ok(i);
@@ -2892,10 +3055,10 @@ impl ScriptEngine {
 
         // Find empty slot
         for i in 0..MAX_FLAGS {
-            if self.flags[i].is_none() {
-                self.flags[i] = Some(TFlag::new(name.to_string()));
-                if i >= self.num_flags {
-                    self.num_flags = i + 1;
+            if inner.flags[i].is_none() {
+                inner.flags[i] = Some(TFlag::new(name.to_string()));
+                if i >= inner.num_flags {
+                    inner.num_flags = i + 1;
                 }
                 return Ok(i);
             }
@@ -2931,36 +3094,40 @@ impl ScriptEngine {
     }
 
     /// Set counter value
-    pub fn set_counter(&mut self, name: &str, value: i32) -> GameLogicResult<()> {
+    pub fn set_counter(&self, name: &str, value: i32) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.value = value;
         }
         Ok(())
     }
 
     /// Set flag value
-    pub fn set_flag(&mut self, name: &str, value: bool) -> GameLogicResult<()> {
+    pub fn set_flag(&self, name: &str, value: bool) -> GameLogicResult<()> {
         let index = self.allocate_flag(name)?;
-        if let Some(flag) = &mut self.flags[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(flag) = &mut inner.flags[index] {
             flag.value = value;
         }
         Ok(())
     }
 
     /// Increment counter value
-    pub fn increment_counter(&mut self, name: &str) -> GameLogicResult<()> {
+    pub fn increment_counter(&self, name: &str) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.value = counter.value.saturating_add(1);
         }
         Ok(())
     }
 
     /// Decrement counter value
-    pub fn decrement_counter(&mut self, name: &str) -> GameLogicResult<()> {
+    pub fn decrement_counter(&self, name: &str) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.value = counter.value.saturating_sub(1);
         }
         Ok(())
@@ -2968,9 +3135,10 @@ impl ScriptEngine {
 
     /// Set timer (countdown counter) in frames (1 second = 30 frames at standard logic rate)
     /// C++ Reference: ScriptActions::doSetTimer() - timers count down each frame
-    pub fn set_timer(&mut self, name: &str, frames: i32) -> GameLogicResult<()> {
+    pub fn set_timer(&self, name: &str, frames: i32) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.value = frames;
             counter.is_countdown_timer = true;
         }
@@ -2978,7 +3146,7 @@ impl ScriptEngine {
     }
 
     /// Set timer in seconds (converts to frames at logic frame rate)
-    pub fn set_timer_seconds(&mut self, name: &str, seconds: f32) -> GameLogicResult<()> {
+    pub fn set_timer_seconds(&self, name: &str, seconds: f32) -> GameLogicResult<()> {
         let frames = (seconds * LOGICFRAMES_PER_SECOND as f32) as i32;
         self.set_timer(name, frames)
     }
@@ -2991,7 +3159,7 @@ impl ScriptEngine {
 
     /// Set timer using the legacy script "msec" path semantics from C++.
     pub fn set_timer_millisecond_script_seconds(
-        &mut self,
+        &self,
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
@@ -3000,9 +3168,10 @@ impl ScriptEngine {
     }
 
     /// Stop/pause a timer without clearing its remaining value.
-    pub fn stop_timer(&mut self, name: &str) -> GameLogicResult<()> {
+    pub fn stop_timer(&self, name: &str) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.is_countdown_timer = false;
         }
         Ok(())
@@ -3010,9 +3179,10 @@ impl ScriptEngine {
 
     /// Restart a timer (reset to its original value - keeps is_countdown_timer=true)
     /// Note: Without storing original value, this just re-enables countdown at current value
-    pub fn restart_timer(&mut self, name: &str) -> GameLogicResult<()> {
+    pub fn restart_timer(&self, name: &str) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.is_countdown_timer = true;
         }
         Ok(())
@@ -3020,13 +3190,14 @@ impl ScriptEngine {
 
     /// Add legacy script "msec" seconds to timer.
     pub fn add_to_timer_millisecond_script_seconds(
-        &mut self,
+        &self,
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
         let frames = Self::frames_from_millisecond_script_seconds(seconds);
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.value += frames;
         }
         Ok(())
@@ -3034,13 +3205,14 @@ impl ScriptEngine {
 
     /// Subtract legacy script "msec" seconds from timer.
     pub fn subtract_from_timer_millisecond_script_seconds(
-        &mut self,
+        &self,
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
         let frames = Self::frames_from_millisecond_script_seconds(seconds);
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let mut inner = self.lock_inner_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             counter.value -= frames;
         }
         Ok(())
@@ -3291,14 +3463,15 @@ impl ScriptEngine {
     }
 
     /// Append sequential script
-    pub fn append_sequential_script(&mut self, mut script: SequentialScript) {
+    pub fn append_sequential_script(&self, mut script: SequentialScript) {
         script.next_script_in_sequence = None;
         script.current_instruction = -1;
 
         let target_object = script.object_id;
         let target_team = script.team_to_exec_on.clone();
 
-        for existing in &mut self.sequential_scripts {
+        let mut inner = self.lock_inner_mut();
+        for existing in &mut inner.sequential_scripts {
             let object_match = target_object != INVALID_ID && existing.object_id == target_object;
             let team_match = target_team.is_some() && existing.team_to_exec_on == target_team;
             if !(object_match || team_match) {
@@ -3320,7 +3493,7 @@ impl ScriptEngine {
             return;
         }
 
-        self.sequential_scripts.push(script);
+        inner.sequential_scripts.push(script);
     }
 
     /// Remove all sequential scripts bound to a specific object.
@@ -4699,8 +4872,14 @@ lazy_static::lazy_static! {
 // calls get_script_engine().write()/read() deadlocks the host thread.
 // Campaign maps (MD_USA01) hang on frame-0 "SUB-Generate Random Number"
 // which CALL_SUBROUTINEs while the outer execute still holds the lock.
+//
+// TLS stores `*const ScriptEngine` only. Nested accessors mint `&ScriptEngine`,
+// never a second `&mut ScriptEngine`. Mutations go through `lock_inner_mut`
+// (UnsafeCell + mini-RefCell). C++ `callSubroutine` → `executeScript` runs
+// immediately; we match that order rather than deferring nested work.
 thread_local! {
-    static ACTIVE_SCRIPT_ENGINE: Cell<*mut ScriptEngine> = const { Cell::new(std::ptr::null_mut()) };
+    static ACTIVE_SCRIPT_ENGINE: Cell<*const ScriptEngine> =
+        const { Cell::new(std::ptr::null()) };
     /// Depth of nested CALL_SUBROUTINE / execute_subroutine_by_name on this thread.
     /// Campaign random-number scripts can re-enter; unbounded nesting hangs the host.
     static SUBROUTINE_CALL_DEPTH: Cell<u32> = const { Cell::new(0) };
@@ -4739,7 +4918,7 @@ impl Drop for SubroutineDepthGuard {
 
 /// RAII token that installs (and restores) the TLS active ScriptEngine pointer.
 pub struct ActiveScriptEngineGuard {
-    prev: *mut ScriptEngine,
+    prev: *const ScriptEngine,
 }
 
 impl Drop for ActiveScriptEngineGuard {
@@ -4750,8 +4929,11 @@ impl Drop for ActiveScriptEngineGuard {
 
 impl ScriptEngine {
     /// Mark this engine as the active nested target for the current thread.
-    pub fn enter_active(&mut self) -> ActiveScriptEngineGuard {
-        let ptr = self as *mut ScriptEngine;
+    ///
+    /// Recursion-depth marker only: stores `*const ScriptEngine`. Nested
+    /// accessors never mint `&mut ScriptEngine` from this pointer.
+    pub fn enter_active(&self) -> ActiveScriptEngineGuard {
+        let ptr = self as *const ScriptEngine;
         ACTIVE_SCRIPT_ENGINE.with(|cell| {
             let prev = cell.get();
             cell.set(ptr);
@@ -4761,27 +4943,37 @@ impl ScriptEngine {
 }
 
 /// Run `f` against the currently executing ScriptEngine (nested path), if any.
-pub fn with_active_script_engine_mut<R>(f: impl FnOnce(&mut ScriptEngine) -> R) -> Option<R> {
+///
+/// Hands out `&ScriptEngine` only. Nested mutations use `lock_inner_mut`
+/// (no aliased `&mut ScriptEngine`). C++ `CALL_SUBROUTINE` runs immediately.
+pub fn with_active_script_engine_mut<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
     ACTIVE_SCRIPT_ENGINE.with(|cell| {
         let ptr = cell.get();
         if ptr.is_null() {
             None
         } else {
             // SAFETY: pointer is set only for the duration of enter_active() on this thread.
-            Some(f(unsafe { &mut *ptr }))
+            // Shared `&ScriptEngine` only — never `&mut ScriptEngine`.
+            Some(f(unsafe { &*ptr }))
         }
     })
 }
 
 /// Run `f` against the currently executing ScriptEngine (shared view), if any.
+///
+/// If an exclusive `lock_inner_mut` guard is live, skip (do not alias).
 pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
     ACTIVE_SCRIPT_ENGINE.with(|cell| {
         let ptr = cell.get();
         if ptr.is_null() {
             None
         } else {
-            // SAFETY: same as with_active_script_engine_mut.
-            Some(f(unsafe { &*ptr }))
+            // SAFETY: same provenance as with_active_script_engine_mut.
+            let engine = unsafe { &*ptr };
+            if engine.mut_live.load(Ordering::Acquire) {
+                return None;
+            }
+            Some(f(engine))
         }
     })
 }
@@ -4789,16 +4981,20 @@ pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> O
 /// Mutate the global ScriptEngine with re-entrant nesting support.
 ///
 /// Prefers the TLS active engine (no lock). Otherwise acquires the global
-/// write lock, installs TLS for the duration of `f`, and runs `f`.
-pub fn with_script_engine_mut<R>(f: impl FnOnce(&mut ScriptEngine) -> R) -> Option<R> {
+/// write lock (thread exclusion; mutations are interior via `lock_inner_mut`),
+/// installs TLS for the duration of `f`, and runs `f` with `&ScriptEngine`.
+///
+/// Nested `with_script_engine_mut` from inside `f` runs **immediately**
+/// (C++ `ScriptEngine::callSubroutine` → `executeScript` order).
+pub fn with_script_engine_mut<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
     // Manual branch so we do not consume `f` when the active path is empty.
     let has_active = ACTIVE_SCRIPT_ENGINE.with(|cell| !cell.get().is_null());
     if has_active {
         return with_active_script_engine_mut(f);
     }
     let arc = get_script_engine();
-    let mut guard = arc.write().ok()?;
-    let engine = guard.as_mut()?;
+    let guard = arc.write().ok()?;
+    let engine = guard.as_ref()?;
     let _active = engine.enter_active();
     Some(f(engine))
 }
@@ -5262,5 +5458,129 @@ mod tests {
         let down = engine.adjust_skate_distance_override(-0.25);
         assert!(down.abs() < f32::EPSILON);
         assert!(engine.get_skate_distance_override().abs() < f32::EPSILON);
+    }
+
+    /// C++ `ScriptEngine::executeActions` handles `CALL_SUBROUTINE` by calling
+    /// `callSubroutine` → `executeScript` **immediately**, then continues the
+    /// remaining outer actions. Nested `with_script_engine_mut` must not panic
+    /// and must observe outer mutations already applied.
+    #[test]
+    fn nested_with_script_engine_mut_runs_immediately_like_cxx_call_subroutine() {
+        let engine = ScriptEngine::new().unwrap();
+        let _active = engine.enter_active();
+
+        engine.set_counter("outer_before", 1).unwrap();
+        let mut order = Vec::new();
+        order.push("outer_before");
+
+        let nested_saw_outer = with_active_script_engine_mut(|nested| {
+            nested.set_counter("nested", 2).unwrap();
+            nested.set_flag("nested_flag", true).unwrap();
+            order.push("nested");
+            nested.get_counter("outer_before").map(|c| c.value)
+        });
+
+        order.push("outer_after");
+        assert_eq!(nested_saw_outer, Some(Some(1)));
+        assert_eq!(engine.get_counter("nested").unwrap().value, 2);
+        assert!(engine.get_flag("nested_flag").unwrap().value);
+        assert_eq!(
+            order,
+            ["outer_before", "nested", "outer_after"],
+            "nested CALL_SUBROUTINE-style work runs immediately, then outer continues"
+        );
+    }
+
+    #[test]
+    fn with_script_engine_mut_nested_from_global_runs_immediately() {
+        let _lock = crate::test_sync::lock();
+        initialize_script_engine().unwrap();
+
+        let order = std::sync::Mutex::new(Vec::new());
+        let result = with_script_engine_mut(|engine| {
+            engine.set_counter("g_outer", 10).unwrap();
+            order.lock().unwrap().push("outer");
+            let nested = with_script_engine_mut(|engine| {
+                order.lock().unwrap().push("nested");
+                engine.set_counter("g_nested", 20).unwrap();
+                engine.get_counter("g_outer").map(|c| c.value)
+            });
+            order.lock().unwrap().push("after");
+            (
+                nested,
+                engine.get_counter("g_nested").map(|c| c.value),
+            )
+        });
+
+        assert_eq!(result, Some((Some(Some(10)), Some(20))));
+        assert_eq!(*order.lock().unwrap(), ["outer", "nested", "after"]);
+    }
+
+    #[test]
+    fn call_subroutine_via_nested_with_script_engine_mut_sets_flag_immediately() {
+        let _lock = crate::test_sync::lock();
+        initialize_script_engine().unwrap();
+
+        let mut condition = Condition::new(ConditionType::ConditionTrue);
+        let mut or_condition = OrCondition::new();
+        or_condition.set_first_and_condition(Some(Box::new(condition)));
+
+        let mut set_flag = ScriptAction::new(ScriptActionType::SetFlag);
+        set_flag
+            .add_parameter(Parameter::with_string(
+                ParameterType::Flag,
+                "sub_ran".to_string(),
+            ))
+            .unwrap();
+        set_flag
+            .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+            .unwrap();
+
+        let mut subroutine = Script::new();
+        subroutine.script_name = "ImmediateSub".to_string();
+        subroutine.is_subroutine = true;
+        subroutine.is_one_shot = true;
+        subroutine.condition = Some(Box::new(or_condition));
+        subroutine.action = Some(Box::new(set_flag));
+
+        let mut script_list = ScriptList::new();
+        script_list.append_script(Box::new(subroutine));
+
+        let found = with_script_engine_mut(|engine| {
+            engine
+                .set_script_list_for_player(0, Some(Box::new(script_list)))
+                .unwrap();
+            engine.set_counter("before_sub", 1).unwrap();
+            let found = engine.execute_subroutine_by_name("ImmediateSub").unwrap();
+            // Nested SET_FLAG must already be visible (C++ immediate order).
+            let flag = engine.get_flag("sub_ran").map(|f| f.value).unwrap_or(false);
+            engine.set_counter("after_sub", 2).unwrap();
+            (found, flag, engine.get_counter("before_sub").unwrap().value)
+        });
+
+        assert_eq!(found, Some((true, true, 1)));
+        let after = with_script_engine_ref(|engine| {
+            engine.get_counter("after_sub").map(|c| c.value)
+        });
+        assert_eq!(after, Some(Some(2)));
+    }
+
+    #[test]
+    fn with_active_script_engine_ref_skips_while_inner_mut_live() {
+        let engine = ScriptEngine::new().unwrap();
+        let _active = engine.enter_active();
+
+        {
+            let _guard = engine.lock_inner_mut();
+            assert!(
+                with_active_script_engine_ref(|e| e.num_counters).is_none(),
+                "shared TLS ref must skip while exclusive inner borrow is live"
+            );
+        }
+
+        assert_eq!(
+            with_active_script_engine_ref(|e| e.num_counters),
+            Some(1)
+        );
     }
 }

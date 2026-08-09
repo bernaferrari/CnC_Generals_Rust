@@ -13425,9 +13425,14 @@ impl fmt::Display for Object {
     }
 }
 
-// Thread-safe implementation
-unsafe impl Send for Object {}
-unsafe impl Sync for Object {}
+// Object has no raw pointers / UnsafeCell. `Send`/`Sync` come from field types
+// (`Arc<Mutex<dyn Trait + Send + Sync>>`, IDs, plain data). This is never
+// called; rustc still checks the bound so a non-auto field cannot sneak back
+// in behind a blanket `unsafe impl`.
+fn _object_is_send_sync() {
+    fn assert_ss<T: Send + Sync>() {}
+    assert_ss::<Object>();
+}
 
 /// Extension trait for Arc<rhai::Locked<Object>> to provide helper methods
 pub trait ObjectArcExt {

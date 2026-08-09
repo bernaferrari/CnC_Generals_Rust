@@ -1710,9 +1710,8 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
 /// Human click-through: OS LeftDown/Up on retail `ButtonStart`
 /// (C++ WindowXlat hit → GBM_SELECTED → startPressed). Not `simulate_*` first.
 pub fn drive_os_wnd_skirmish_start_like_cpp() -> bool {
-    let clicked = crate::gui::dispatch_os_click_named_window(
-        "SkirmishGameOptionsMenu.wnd:ButtonStart",
-    );
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("SkirmishGameOptionsMenu.wnd:ButtonStart");
     if crate::gui::last_os_wnd_widget_tree_click_ok() && skirmish_button_pushed() {
         return true;
     }
