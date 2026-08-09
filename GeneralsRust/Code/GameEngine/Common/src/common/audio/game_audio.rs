@@ -10,7 +10,8 @@
 
 use crate::common::audio::{
     audio_event_rts::{
-        AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D, ObjectId,
+        miles_get_effective_volume, miles_positional_gain, miles_positional_ranges, AudioEventInfo,
+        AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D, MilesVolumeSliders, ObjectId,
     },
     audio_request::{AudioRequest, RequestType},
     game_music::create_music_manager,
@@ -1058,6 +1059,23 @@ impl AudioManager {
         }
     }
 
+    /// C++ `MilesAudioManager` slider snapshot used by `getEffectiveVolume`.
+    pub fn miles_volume_sliders(&self) -> MilesVolumeSliders {
+        MilesVolumeSliders {
+            music_volume: self.music_volume,
+            speech_volume: self.speech_volume,
+            sound_volume: self.sound_volume,
+            sound_3d_volume: self.sound_3d_volume,
+            global_min_range: self.audio_settings.global_min_range as f32,
+            global_max_range: self.audio_settings.global_max_range as f32,
+        }
+    }
+
+    /// C++ `MilesAudioManager::getEffectiveVolume`.
+    pub fn get_effective_volume(&self, event: &AudioEventRts) -> Real {
+        miles_get_effective_volume(event, &self.listener_position, &self.miles_volume_sliders())
+    }
+
     pub fn set_3d_volume_adjustment(&mut self, volume_adjustment: Real) {
         self.sound_3d_volume =
             volume_adjustment * self.script_sound_3d_volume * self.system_sound_3d_volume;
@@ -1634,6 +1652,8 @@ struct RodioSinkState {
     sink: Arc<Mutex<Sink>>,
     base_volume: Real,
     position: Option<Coord3D>,
+    min_distance: Real,
+    max_distance: Real,
 }
 
 impl RodioPlaybackHook {
@@ -1685,7 +1705,12 @@ impl RodioPlaybackHook {
         None
     }
 
-    fn calculate_3d_volume_falloff(&self, position: &Coord3D) -> Real {
+    fn calculate_3d_volume_falloff(
+        &self,
+        position: &Coord3D,
+        min_distance: Real,
+        max_distance: Real,
+    ) -> Real {
         let listener = self
             .listener_position
             .lock()
@@ -1696,22 +1721,13 @@ impl RodioPlaybackHook {
         let dy = position.y - listener.y;
         let dz = position.z - listener.z;
         let distance = (dx * dx + dy * dy + dz * dz).sqrt();
-        const MIN_DISTANCE: Real = 25.0;
-        const MAX_DISTANCE: Real = 1000.0;
-        if distance <= MIN_DISTANCE {
-            1.0
-        } else if distance >= MAX_DISTANCE {
-            0.0
-        } else {
-            let falloff = (MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE);
-            falloff.clamp(0.0, 1.0)
-        }
+        miles_positional_gain(distance, min_distance, max_distance)
     }
 
     fn effective_volume(&self, state: &RodioSinkState) -> Real {
         let base = state.base_volume.clamp(0.0, 1.0);
         if let Some(pos) = state.position.as_ref() {
-            base * self.calculate_3d_volume_falloff(pos)
+            base * self.calculate_3d_volume_falloff(pos, state.min_distance, state.max_distance)
         } else {
             base
         }
@@ -1744,17 +1760,31 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             .ok_or_else(|| "Audio output stream not available".to_string())?;
         let sink = Sink::try_new(&stream_handle)
             .map_err(|e| format!("Failed to create audio sink: {}", e))?;
-        let volume = event.get_volume().clamp(0.0, 1.0);
+        let listener = self
+            .listener_position
+            .lock()
+            .ok()
+            .map(|l| *l)
+            .unwrap_or_else(Coord3D::new);
+        let sliders = get_global_audio_manager()
+            .and_then(|manager| manager.lock().ok().map(|m| m.miles_volume_sliders()))
+            .unwrap_or_default();
+        // C++ play path uses MilesAudioManager::getEffectiveVolume (already includes 3D).
+        let volume = miles_get_effective_volume(event, &listener, &sliders);
         let pitch = event.get_effective_pitch();
         if (pitch - 1.0).abs() > 0.01 {
             sink.append(source.speed(pitch));
         } else {
             sink.append(source);
         }
+        let (min_distance, max_distance) =
+            miles_positional_ranges(event.get_audio_event_info().as_deref(), 25.0, 1000.0);
         let state = RodioSinkState {
             sink: Arc::new(Mutex::new(sink)),
             base_volume: volume,
-            position: event.is_positional_audio().then(|| *event.get_position()),
+            position: None,
+            min_distance,
+            max_distance,
         };
         self.refresh_sink_volume(&state);
         self.sinks.lock().unwrap().insert(handle, state);
@@ -2017,5 +2047,84 @@ mod tests {
         assert!(!audio_manager.is_on(AudioAffect::Sound));
         assert!(!audio_manager.is_on(AudioAffect::Sound3D));
         assert!(audio_manager.is_on(AudioAffect::Music));
+    }
+
+    #[test]
+    fn audio_manager_get_effective_volume_matches_miles_category_and_3d() {
+        let mut manager = AudioManager::new();
+        manager.init();
+
+        let info = AudioEventInfo {
+            sound_type: AudioType::SoundEffect,
+            control: 0,
+            audio_name: "Boom".to_string(),
+            volume: 1.0,
+            sounds_morning: Vec::new(),
+            sounds: Vec::new(),
+            sounds_night: Vec::new(),
+            sounds_evening: Vec::new(),
+            attack_sounds: Vec::new(),
+            decay_sounds: Vec::new(),
+            pitch_shift_min: 1.0,
+            pitch_shift_max: 1.0,
+            volume_shift: 0.0,
+            min_volume: 0.0,
+            limit: 0,
+            loop_count: 1,
+            delay_min: 0.0,
+            delay_max: 0.0,
+            filename: String::new(),
+            sound_type_field: AudioType::SoundEffect,
+            type_field: crate::common::audio::ST_WORLD,
+            priority: AudioPriority::Normal,
+            min_distance: 25.0,
+            max_distance: 1000.0,
+        };
+
+        let mut event = AudioEventRts::new();
+        event.set_event_name("Boom".to_string());
+        event.set_audio_event_info(std::sync::Arc::new(info));
+        event.set_volume(1.0);
+        event.set_volume_shift(1.0);
+        event.set_position(&Coord3D {
+            x: 50.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        // preferred_3d 0.75 * 1/(50/25) = 0.375
+        assert!((manager.get_effective_volume(&event) - 0.375).abs() < 1e-5);
+
+        let mut music = AudioEventRts::new();
+        music.set_event_name("Theme".to_string());
+        music.set_audio_event_info(std::sync::Arc::new(AudioEventInfo {
+            sound_type: AudioType::Music,
+            control: 0,
+            audio_name: "Theme".to_string(),
+            volume: 0.8,
+            sounds_morning: Vec::new(),
+            sounds: Vec::new(),
+            sounds_night: Vec::new(),
+            sounds_evening: Vec::new(),
+            attack_sounds: Vec::new(),
+            decay_sounds: Vec::new(),
+            pitch_shift_min: 1.0,
+            pitch_shift_max: 1.0,
+            volume_shift: 0.0,
+            min_volume: 0.0,
+            limit: 0,
+            loop_count: 1,
+            delay_min: 0.0,
+            delay_max: 0.0,
+            filename: String::new(),
+            sound_type_field: AudioType::Music,
+            type_field: 0,
+            priority: AudioPriority::Normal,
+            min_distance: 25.0,
+            max_distance: 1000.0,
+        }));
+        music.set_volume(0.8);
+        music.set_volume_shift(1.0);
+        // 0.8 * 1.0 * preferred_music 0.55 = 0.44
+        assert!((manager.get_effective_volume(&music) - 0.44).abs() < 1e-5);
     }
 }

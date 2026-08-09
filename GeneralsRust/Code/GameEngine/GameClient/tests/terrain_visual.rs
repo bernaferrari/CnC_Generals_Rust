@@ -1,13 +1,15 @@
 use game_client_rust::{
     system::SubsystemInterface,
     terrain::{
+        blit_tree_tile_into_atlas, do_lighting, do_tree_atlas_mip, generate_box_mip_chain,
         height_map::HeightMap,
         terrain_visual::{TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl},
         textures::{BlendTileInfo, TileData, FLIPPED_MASK},
-        TerrainTrackHeightProvider, TerrainTracksConfig,
+        TerrainTrackHeightProvider, TerrainTracksConfig, TreeModuleData, TreeRegion2D, TreeSphere,
+        TreeTgaHeader, TreeTileImageSpec, TreeTypeMesh, TILE_BYTES_PER_PIXEL, TREE_TILE_DATA_LEN,
     },
 };
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use image::{Rgba, RgbaImage};
 
 struct FlatTrackTerrain;
@@ -555,4 +557,163 @@ fn water_grid_velocity_only_applies_when_enabled_and_in_bounds() {
     assert_eq!(center_motion.velocity, 1.5);
     assert_eq!(center_motion.preferred_height, 7.0);
     assert!(center_motion.in_motion);
+}
+
+#[test]
+fn tree_vb_upload_uses_do_lighting_on_every_draw() {
+    let mut visual = TerrainVisualImpl::new();
+    visual.set_lighting(
+        Some([0.0, -1.0, 0.0]),
+        Some([0.8, 0.4, 0.0]),
+        Some([0.2, 0.1, 0.0]),
+        None,
+        None,
+    );
+
+    let type_idx = visual
+        .tree_buffer_mut()
+        .add_tree_type(
+            TreeModuleData {
+                model_name: "Oak".into(),
+                texture_name: "OakT".into(),
+                ..TreeModuleData::default()
+            },
+            TreeSphere {
+                center: Vec3::ZERO,
+                radius: 2.0,
+            },
+        )
+        .unwrap();
+    {
+        let info = visual.tree_buffer_mut().tree_type_mut(type_idx).unwrap();
+        info.tile_width = 1;
+    }
+    visual.tree_buffer_mut().set_tree_type_mesh(
+        type_idx,
+        TreeTypeMesh {
+            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            normals: Some(vec![[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]),
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            colors: Some(vec![0xFFFF_FFFF, 0xFF80_0000, 0xFFFF_FFFF]),
+            polygons: vec![[0, 1, 2]],
+            emissive: [0.0, 0.0, 0.0],
+        },
+    );
+    visual.tree_buffer_mut().set_bounds(TreeRegion2D::new(
+        Vec2::ZERO,
+        Vec2::new(100.0, 100.0),
+    ));
+    visual
+        .tree_buffer_mut()
+        .add_tree(
+            1,
+            Vec3::new(10.0, 20.0, 3.0),
+            2.0,
+            0.0,
+            0.0,
+            TreeModuleData {
+                model_name: "Oak".into(),
+                texture_name: "OakT".into(),
+                ..TreeModuleData::default()
+            },
+            TreeSphere {
+                center: Vec3::ZERO,
+                radius: 2.0,
+            },
+        )
+        .unwrap();
+
+    visual.update_tree_meshes();
+
+    let lights = [game_client_rust::terrain::TreeObjectLight {
+        ambient: [0.2, 0.1, 0.0],
+        diffuse: [0.8, 0.4, 0.0],
+        light_pos: [0.0, 0.0, -1.0],
+    }];
+    let up = do_lighting([0.0, 0.0, 1.0], &lights, [0.0, 0.0, 0.0], 0xFFFF_FFFF, 1.0);
+    let tinted = do_lighting([0.0, 0.0, 1.0], &lights, [0.0, 0.0, 0.0], 0xFF80_0000, 1.0);
+    let side = do_lighting([1.0, 0.0, 0.0], &lights, [0.0, 0.0, 0.0], 0xFFFF_FFFF, 1.0);
+
+    let gpu = visual.last_tree_gpu_vertices();
+    assert_eq!(gpu.len(), 3);
+    assert_eq!(gpu[0].diffuse, up);
+    assert_eq!(gpu[1].diffuse, tinted);
+    assert_eq!(gpu[2].diffuse, side);
+    assert_eq!(gpu[0].position, [10.0, 3.0, 20.0]);
+
+    // Second draw still ships the doLighting VB (C++ dirty skip keeps last fill).
+    visual.update_tree_meshes();
+    assert_eq!(visual.last_tree_gpu_vertices()[0].diffuse, up);
+    assert_eq!(visual.last_tree_gpu_vertices()[2].diffuse, side);
+}
+
+#[test]
+fn tree_atlas_mips_reach_terrain_visual_upload_path() {
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .tree_buffer_mut()
+        .add_tree_type(
+            TreeModuleData {
+                model_name: "Oak".into(),
+                texture_name: "Oak.tga".into(),
+                ..TreeModuleData::default()
+            },
+            TreeSphere::default(),
+        )
+        .unwrap();
+    visual.tree_buffer_mut().update_texture(&[TreeTileImageSpec {
+        texture_name: "Oak.tga".into(),
+        header: TreeTgaHeader::truecolor(64, 64),
+    }]);
+    let mut tile = vec![0u8; TREE_TILE_DATA_LEN];
+    tile[0..4].copy_from_slice(&[11, 22, 33, 44]);
+    assert!(visual.tree_buffer_mut().set_source_tile_bgra(0, &tile));
+    assert_eq!(visual.tree_buffer_mut().update_tree_texture_class(1), 512);
+    visual.update_tree_meshes();
+    let expected_len = visual.tree_buffer_mut().atlas_mips().len() - 1;
+    let uploaded = visual.last_tree_atlas_mips();
+    assert!(!uploaded.is_empty());
+    assert_eq!(uploaded.len(), expected_len);
+    assert_eq!(uploaded[0].len(), 256 * 256 * 4);
+}
+
+#[test]
+fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .tree_buffer_mut()
+        .add_tree_type(
+            TreeModuleData {
+                model_name: "Oak".into(),
+                texture_name: "Oak.tga".into(),
+                ..TreeModuleData::default()
+            },
+            TreeSphere::default(),
+        )
+        .unwrap();
+    let mut tile = vec![0u8; TREE_TILE_DATA_LEN];
+    tile[0..4].copy_from_slice(&[11, 22, 33, 44]);
+    assert!(visual.tree_buffer_mut().set_source_tile_bgra(0, &tile));
+    visual.tree_buffer_mut().update_texture(&[TreeTileImageSpec {
+        texture_name: "Oak.tga".into(),
+        header: TreeTgaHeader::truecolor(64, 64),
+    }]);
+    visual.tree_buffer_mut().set_texture_lod(1);
+    visual.update_tree_meshes();
+
+    let (width, height) = visual.tree_buffer_mut().texture_size();
+    let loc = visual
+        .tree_buffer_mut()
+        .tile_location_in_texture(0)
+        .expect("packed tile");
+    let mut level0 = vec![0u8; (width as usize) * (height as usize) * TILE_BYTES_PER_PIXEL];
+    blit_tree_tile_into_atlas(&mut level0, width, &tile, loc.0, loc.1);
+    let expected = generate_box_mip_chain(&level0, width, height);
+    let uploaded = visual.last_tree_atlas_mips();
+    assert!(!uploaded.is_empty());
+    assert_eq!(uploaded[0].len(), expected[1].len());
+    assert_eq!(uploaded[0], expected[1]);
+    assert_eq!(do_tree_atlas_mip(&expected[0], width), expected[1]);
+    let dest = (63 * 512 + 0) * 4;
+    assert_eq!(&expected[0][dest..dest + 4], &[11, 22, 33, 44]);
 }

@@ -753,25 +753,121 @@ pub fn shutdown_thing_factory() {
     }
 }
 
-/// Load object templates from raw INI text content (e.g. extracted from BIG archives).
-///
-/// This parses `Object <Name> ... End` and `ObjectReskin <Name> <Source> ... End` blocks
-/// from the provided text, creates ThingTemplates, and populates them with property data
-/// (KindOf, BuildCost, VisionRange, geometry, etc.) by calling
-/// `parse_object_fields_from_ini` on each block's key=value pairs.
-///
-/// Returns the number of new templates loaded.  Templates whose names already exist in
-/// the factory are skipped, so this is safe to call multiple times.
-pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize {
-    let mut factory_guard = match get_thing_factory() {
-        Ok(g) => g,
-        Err(_) => return 0,
-    };
-    let factory = match factory_guard.as_mut() {
-        Some(f) => f,
-        None => return 0,
-    };
+/// C++ `Data/INI/Object/System.ini` drawable-only objects used by FXList
+/// (`GenericTracer` → `W3DTracerDraw`, `GenericRope` → `W3DRopeDraw`).
+pub const SYSTEM_INI_DRAWABLE_ONLY_FALLBACK: &str = r#"
+Object GenericTracer
 
+  KindOf = DRAWABLE_ONLY
+  EditorSorting = SYSTEM
+  Draw          = W3DTracerDraw            ModuleTag_01
+    ;nothing
+  End
+
+End
+
+Object GenericRope
+
+  KindOf = DRAWABLE_ONLY
+  EditorSorting = SYSTEM
+  Draw          = W3DRopeDraw            ModuleTag_01
+    ;nothing
+  End
+
+End
+"#;
+
+const SYSTEM_INI_CANDIDATES: &[&str] = &[
+    "windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
+    "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/System.ini",
+    "../windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
+    "../../windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
+    "../../../windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
+    "../../../../windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
+    "Data/INI/Object/System.ini",
+];
+
+fn template_missing_object_fields(template: &ThingTemplate) -> bool {
+    template.get_draw_module_info().is_empty()
+        && template.get_behavior_module_info().is_empty()
+        && template.get_kindof_mask() == 0
+}
+
+/// Create an empty ThingFactory singleton if none exists (does **not** scan all Object INI).
+pub fn ensure_thing_factory_exists() -> bool {
+    let Ok(mut guard) = get_thing_factory() else {
+        return false;
+    };
+    if guard.is_none() {
+        *guard = Some(ThingFactory::new());
+    }
+    guard.is_some()
+}
+
+fn read_system_ini_text() -> Option<String> {
+    let mut search_roots = Vec::new();
+    if let Ok(cwd) = env::current_dir() {
+        search_roots.push(cwd);
+    }
+    if let Ok(manifest) = env::var("CARGO_MANIFEST_DIR") {
+        search_roots.push(PathBuf::from(manifest));
+    }
+    for root in &search_roots {
+        for rel in SYSTEM_INI_CANDIDATES {
+            let path = root.join(rel);
+            if let Ok(text) = fs::read_to_string(&path) {
+                if text.contains("Object GenericTracer") {
+                    return Some(text);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Load C++ `System.ini` GenericTracer/GenericRope (disk if present, else fallback text).
+/// Safe to call from tests without `init_thing_factory` (which scans every Object INI).
+pub fn ensure_system_ini_drawable_only_templates() -> bool {
+    if !ensure_thing_factory_exists() {
+        return false;
+    }
+    if let Some(text) = read_system_ini_text() {
+        load_templates_from_ini_text(&text, "System.ini");
+    } else {
+        load_templates_from_ini_text(SYSTEM_INI_DRAWABLE_ONLY_FALLBACK, "System.ini");
+    }
+    generic_tracer_template_matches_system_ini()
+}
+
+/// True when GenericTracer is DRAWABLE_ONLY with Draw = W3DTracerDraw ModuleTag_01.
+pub fn generic_tracer_template_matches_system_ini() -> bool {
+    let Ok(guard) = get_thing_factory() else {
+        return false;
+    };
+    let Some(factory) = guard.as_ref() else {
+        return false;
+    };
+    let Some(template) = factory.find_template("GenericTracer", false) else {
+        return false;
+    };
+    let drawable_only = (template.get_kindof_mask()
+        & crate::common::system::kind_of::KindOfMask::DRAWABLE_ONLY.bits() as u64)
+        != 0;
+    let has_tracer_draw = template.get_draw_module_info().iter().any(|entry| {
+        entry.name.as_str().eq_ignore_ascii_case("W3DTracerDraw")
+            && entry.module_tag.as_str().eq_ignore_ascii_case("ModuleTag_01")
+    });
+    drawable_only && has_tracer_draw
+}
+
+impl ThingFactory {
+    /// Parse `Object` / `ObjectReskin` blocks into this factory (fills empty shells).
+    pub fn load_ini_text(&mut self, content: &str) -> usize {
+        self.load_ini_text_inner(content)
+    }
+
+    fn load_ini_text_inner(&mut self, content: &str) -> usize {
+    let factory = self;
     let mut loaded = 0usize;
     let lines: Vec<&str> = content.lines().collect();
     let mut index = 0usize;
@@ -792,8 +888,13 @@ pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize 
         if keyword.eq_ignore_ascii_case("Object") {
             if let Some(name) = tokens.get(1) {
                 let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
-                if factory.find_template(name, false).is_none() {
-                    let mut tmpl = factory.new_template(name);
+                let existing = factory.find_template(name, false);
+                let should_fill = existing
+                    .as_ref()
+                    .map(|tmpl| template_missing_object_fields(tmpl))
+                    .unwrap_or(true);
+                if should_fill {
+                    let mut tmpl = existing.unwrap_or_else(|| factory.new_template(name));
                     {
                         let tmpl_ref = Arc::make_mut(&mut tmpl);
                         if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
@@ -856,6 +957,30 @@ pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize 
         );
     }
     loaded
+    }
+}
+
+/// Load object templates from raw INI text content (e.g. extracted from BIG archives).
+///
+/// This parses `Object <Name> ... End` and `ObjectReskin <Name> <Source> ... End` blocks
+/// from the provided text, creates ThingTemplates, and populates them with property data
+/// (KindOf, BuildCost, VisionRange, geometry, etc.) by calling
+/// `parse_object_fields_from_ini` on each block's key=value pairs.
+///
+/// Returns the number of templates created or filled. Existing **empty** name-only
+/// shells (from `load_runtime_object_templates`) are filled in place.
+pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize {
+    if !ensure_thing_factory_exists() {
+        return 0;
+    }
+    let mut factory_guard = match get_thing_factory() {
+        Ok(g) => g,
+        Err(_) => return 0,
+    };
+    match factory_guard.as_mut() {
+        Some(factory) => factory.load_ini_text(content),
+        None => 0,
+    }
 }
 
 /// Parse properties from an Object/ObjectReskin block into a HashMap.
@@ -992,6 +1117,14 @@ fn load_runtime_object_templates(factory: &mut ThingFactory) -> Result<usize, St
         loaded += 1;
     }
 
+    // Name-only shells are not C++ templates. Fill System.ini drawable-only
+    // objects (GenericTracer/GenericRope) so FXList newDrawable has W3DTracerDraw.
+    if let Some(text) = read_system_ini_text() {
+        loaded += factory.load_ini_text(&text);
+    } else {
+        loaded += factory.load_ini_text(SYSTEM_INI_DRAWABLE_ONLY_FALLBACK);
+    }
+
     Ok(loaded)
 }
 
@@ -1036,10 +1169,7 @@ fn discover_object_ini_sources() -> Vec<PathBuf> {
         push_object_ini_file(&mut files, &mut seen, root.join("Data/INI/Object.ini"));
         push_object_ini_dir(&mut files, &mut seen, &root.join("Data/INI/Object"));
 
-        for extracted in [
-            root.join("windows_game/extracted_big_files/INIZH"),
-            root.join("windows_game/extracted_big_files_v2/INIZH"),
-        ] {
+        for extracted in crate::common::system::install_layout::extracted_asset_roots() {
             push_object_ini_file(
                 &mut files,
                 &mut seen,

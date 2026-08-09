@@ -3,12 +3,16 @@ name = "image_packer"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "image_packer"
+path = "src/lib.rs"
+
 [dependencies]
 # UI Framework (simplified for now)
 # ui_framework = { path = "../UIFramework" }
 
 # Core dependencies
-gpui = "0.2.2"
+gpui = { version = "0.2.2", optional = true }
 
 # Image processing and texture packing
 image = { workspace = true }
@@ -47,9 +51,11 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 [[bin]]
 name = "image_packer"
 path = "src/main.rs"
+required-features = ["ui"]
 
 [features]
 default = ["atlas_generation", "texture_compression", "metadata_export"]
 atlas_generation = []
 texture_compression = []
 metadata_export = []
+ui = ["gpui"]

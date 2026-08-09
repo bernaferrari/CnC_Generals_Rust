@@ -5664,12 +5664,14 @@ impl Object {
                                 info_modified = true;
                             }
 
-                            const AC_LOOP: u32 = 0x00000004;
                             if let Some(loop_count) = get_int(
                                 crate::common::well_known_keys::key_object_sound_ambient_loop_count(
                                 ),
                             ) {
-                                if (audio_info.audio_event_info.control & AC_LOOP) != 0 {
+                                if (audio_info.audio_event_info.control
+                                    & game_engine::common::audio::AC_LOOP)
+                                    != 0
+                                {
                                     audio_info.override_loop_count(loop_count);
                                     info_modified = true;
                                 }
@@ -5724,10 +5726,10 @@ impl Object {
                 }
 
                 if !sound_enabled_exists {
-                    const AC_LOOP: u32 = 0x00000004;
+                    // C++ Object.cpp: soundEnabled = audioToModify->isPermanentSound()
+                    // (AC_LOOP && loopCount==0). AC_LOOP is 0x0001, not AC_ALL 0x0004.
                     if let Some(ref audio_info) = audio_to_modify {
-                        let info = &audio_info.audio_event_info;
-                        sound_enabled = (info.control & AC_LOOP) != 0 || info.loop_count != 1;
+                        sound_enabled = audio_info.audio_event_info.is_permanent_sound();
                         sound_enabled_exists = true;
                     } else {
                         let template = self.get_template();
@@ -5739,8 +5741,7 @@ impl Object {
                                 if let Some(base_info) =
                                     manager.find_audio_event_info(&base_event.event_name)
                                 {
-                                    sound_enabled = (base_info.control & AC_LOOP) != 0
-                                        || base_info.loop_count != 1;
+                                    sound_enabled = base_info.is_permanent_sound();
                                     sound_enabled_exists = true;
                                 }
                             }
@@ -8881,6 +8882,16 @@ impl Object {
                 wake_frame,
             );
         }
+    }
+
+    /// Live update-module proxies registered at object create (C++ behavior modules).
+    pub fn update_module_registrations(&self) -> &[UpdateModulePtr] {
+        &self.update_module_registrations
+    }
+
+    /// Test/restore helper: attach an already-built update proxy for loadPostProcess.
+    pub fn attach_update_module_registration(&mut self, module: UpdateModulePtr) {
+        self.update_module_registrations.push(module);
     }
 
     fn all_weapon_fire_flags(slot: WeaponSlotType) -> ModelConditionFlags {
@@ -12692,6 +12703,83 @@ fn xfer_matrix3d(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
     *matrix = Matrix3D::from_cols_array(&cols);
 }
 
+/// C++ `Object::crc` → `xferSnapshot(thisWeapon)` → `Weapon::crc`.
+fn xfer_weapon_crc_like_cpp(xfer: &mut dyn Xfer, weapon: &crate::weapon::Weapon) {
+    let snap = weapon.crc_snapshot_fields();
+    let mut name = snap.template_name;
+    let _ = xfer.xfer_ascii_string(&mut name);
+
+    let mut wslot = snap.wslot;
+    unsafe {
+        let _ = xfer.xfer_user(
+            (&mut wslot as *mut i32).cast::<u8>(),
+            std::mem::size_of::<i32>(),
+        );
+    }
+
+    let mut ammo = snap.ammo_in_clip;
+    let _ = xfer.xfer_unsigned_int(&mut ammo);
+    let mut when_fire = snap.when_we_can_fire_again;
+    let _ = xfer.xfer_unsigned_int(&mut when_fire);
+    let mut when_pre = snap.when_pre_attack_finished;
+    let _ = xfer.xfer_unsigned_int(&mut when_pre);
+    let mut when_reload = snap.when_last_reload_started;
+    let _ = xfer.xfer_unsigned_int(&mut when_reload);
+    let mut last_fire = snap.last_fire_frame;
+    let _ = xfer.xfer_unsigned_int(&mut last_fire);
+
+    let mut stream_id = snap.projectile_stream_id;
+    let _ = xfer.xfer_object_id(&mut stream_id);
+    let mut laser_id_unused: ObjectID = crate::common::INVALID_ID;
+    let _ = xfer.xfer_object_id(&mut laser_id_unused);
+
+    let mut max_shots = snap.max_shot_count;
+    let _ = xfer.xfer_int(&mut max_shots);
+    let mut cur_barrel = snap.cur_barrel;
+    let _ = xfer.xfer_int(&mut cur_barrel);
+    let mut shots_for_barrel = snap.num_shots_for_cur_barrel;
+    let _ = xfer.xfer_int(&mut shots_for_barrel);
+
+    let mut scatter_count = snap.scatter_targets_unused.len() as u16;
+    let _ = xfer.xfer_unsigned_short(&mut scatter_count);
+    for target in &snap.scatter_targets_unused {
+        let mut int_data = *target;
+        let _ = xfer.xfer_int(&mut int_data);
+    }
+
+    let mut pitch_limited = snap.pitch_limited;
+    let _ = xfer.xfer_bool(&mut pitch_limited);
+    let mut leech = snap.leech_weapon_range_active;
+    let _ = xfer.xfer_bool(&mut leech);
+}
+
+/// C++ `xferUser((Matrix3D *)getTransformMatrix(), sizeof(Matrix3D))`.
+/// WWMath `Matrix3D` is 3×4 Reals (48 bytes), row-major.
+fn xfer_matrix3d_user_blob(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
+    const CPP_MATRIX3D_FLOATS: usize = 12;
+    let cols = matrix.to_cols_array();
+    let mut blob = [0f32; CPP_MATRIX3D_FLOATS];
+    for row in 0..3 {
+        for col in 0..4 {
+            blob[row * 4 + col] = cols[col * 4 + row];
+        }
+    }
+    unsafe {
+        let _ = xfer.xfer_user(
+            blob.as_mut_ptr().cast::<u8>(),
+            CPP_MATRIX3D_FLOATS * std::mem::size_of::<f32>(),
+        );
+    }
+    let mut cols = [0f32; 16];
+    for row in 0..3 {
+        for col in 0..4 {
+            cols[col * 4 + row] = blob[row * 4 + col];
+        }
+    }
+    cols[15] = 1.0;
+    *matrix = Matrix3D::from_cols_array(&cols);
+}
+
 fn xfer_u128_bits(xfer: &mut dyn Xfer, value: &mut u128) {
     let mut lo = (*value & 0xFFFF_FFFF_FFFF_FFFF) as u64;
     let mut hi = (*value >> 64) as u64;
@@ -12797,29 +12885,85 @@ fn weapon_set_flags_from_bits(bits: u32) -> WeaponSetFlags {
 // Implement Snapshot trait for Object
 impl Snapshot for Object {
     fn crc(&self, xfer: &mut dyn Xfer) {
+        // C++ Object::crc (Object.cpp): privateStatus, mtx, id, upgrades Int64,
+        // experienceTracker snapshot, health, weaponBonus, damageScalar, weapons.
         let mut private_status = self.private_status;
         let _ = xfer.xfer_unsigned_byte(&mut private_status);
 
         let mut transform = self.get_transform_matrix();
-        xfer_matrix3d(xfer, &mut transform);
+        xfer_matrix3d_user_blob(xfer, &mut transform);
 
+        // C++ xferUser(&m_id, sizeof(m_id)); ObjectID is UnsignedInt.
         let mut id = self.id;
-        let _ = xfer.xfer_unsigned_int(&mut id);
+        unsafe {
+            let _ = xfer.xfer_user(
+                (&mut id as *mut ObjectID).cast::<u8>(),
+                std::mem::size_of::<ObjectID>(),
+            );
+        }
 
-        let mut upgrades = self.object_upgrades_completed.bits();
-        xfer_u128_bits(xfer, &mut upgrades);
+        // C++ xferUser(&m_objectUpgradesCompleted, sizeof(Int64)).
+        let mut upgrades = (self.object_upgrades_completed.bits() & 0xFFFF_FFFF_FFFF_FFFF) as i64;
+        unsafe {
+            let _ = xfer.xfer_user(
+                (&mut upgrades as *mut i64).cast::<u8>(),
+                std::mem::size_of::<i64>(),
+            );
+        }
 
-        if let Some(body) = &self.body {
-            if let Ok(guard) = body.lock() {
-                let mut health = guard.get_health();
-                let mut damage_scalar = guard.get_damage_scalar();
-                let _ = xfer.xfer_real(&mut health);
-                let _ = xfer.xfer_real(&mut damage_scalar);
+        // C++ ExperienceTracker::crc: xferInt(xp) + xferUser(level, sizeof(VeterancyLevel)).
+        if let Some(tracker) = &self.experience_tracker {
+            if let Ok(guard) = tracker.lock() {
+                let mut xp = guard.get_current_experience();
+                let _ = xfer.xfer_int(&mut xp);
+                let mut level = guard.get_veterancy_level() as i32;
+                unsafe {
+                    let _ = xfer.xfer_user(
+                        (&mut level as *mut i32).cast::<u8>(),
+                        std::mem::size_of::<i32>(),
+                    );
+                }
             }
+        }
+
+        // C++ always xfers health, weaponBonus, damageScalar (body is required).
+        let mut health = if let Some(body) = &self.body {
+            body.lock().map(|g| g.get_health()).unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        unsafe {
+            let _ = xfer.xfer_user(
+                (&mut health as *mut f32).cast::<u8>(),
+                std::mem::size_of::<f32>(),
+            );
         }
 
         let mut weapon_bonus_condition = self.weapon_bonus_condition.bits();
         let _ = xfer.xfer_unsigned_int(&mut weapon_bonus_condition);
+
+        let mut damage_scalar = if let Some(body) = &self.body {
+            body.lock().map(|g| g.get_damage_scalar()).unwrap_or(1.0)
+        } else {
+            1.0
+        };
+        unsafe {
+            let _ = xfer.xfer_user(
+                (&mut damage_scalar as *mut f32).cast::<u8>(),
+                std::mem::size_of::<f32>(),
+            );
+        }
+
+        for slot in 0..WEAPONSLOT_COUNT {
+            let slot_ty = match slot {
+                0 => crate::weapon::WeaponSlotType::Primary,
+                1 => crate::weapon::WeaponSlotType::Secondary,
+                _ => crate::weapon::WeaponSlotType::Tertiary,
+            };
+            if let Some(weapon) = self.get_weapon_in_weapon_slot(slot_ty) {
+                xfer_weapon_crc_like_cpp(xfer, weapon);
+            }
+        }
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
@@ -13404,6 +13548,45 @@ mod tests {
             .expect("test state lock poisoned")
     }
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+
+    #[test]
+    fn object_crc_matches_cpp_object_cpp_field_order() {
+        let src = include_str!("mod.rs");
+        let crc = src
+            .split("impl Snapshot for Object {")
+            .nth(1)
+            .and_then(|s| s.split("fn xfer(").next())
+            .expect("Object::crc");
+        assert!(crc.contains("xfer_unsigned_byte(&mut private_status)"));
+        assert!(crc.contains("xfer_matrix3d_user_blob"));
+        assert!(crc.contains("xfer_user("));
+        assert!(crc.contains("size_of::<ObjectID>()"));
+        assert!(
+            src.contains("fn xfer_matrix3d_user_blob")
+                && src.contains("xfer_user(")
+                && src.contains("CPP_MATRIX3D_FLOATS"),
+            "crc must dump WWMath 3x4 Matrix3D via xferUser blob"
+        );
+        assert!(crc.contains("size_of::<i64>()"));
+        assert!(crc.contains("experience_tracker"));
+        assert!(crc.contains("get_current_experience"));
+        assert!(crc.contains("size_of::<i32>()"));
+        let health = crc.find("get_health()").expect("health");
+        let bonus = crc.find("weapon_bonus_condition").expect("bonus");
+        let scalar = crc.find("get_damage_scalar()").expect("scalar");
+        assert!(
+            health < bonus && bonus < scalar,
+            "C++ order is health, weaponBonus, damageScalar"
+        );
+        assert!(crc.contains("WEAPONSLOT_COUNT"));
+        assert!(crc.contains("xfer_weapon_crc_like_cpp"));
+        assert!(src.contains("fn xfer_weapon_crc_like_cpp"));
+        assert!(src.contains("crc_snapshot_fields"));
+        assert!(src.contains("laser_id_unused"));
+        assert!(src.contains("scatter_count"));
+        assert!(src.contains("pitch_limited"));
+        assert!(src.contains("leech_weapon_range_active"));
+    }
 
     #[test]
     fn module_update_proxy_dispatches_fire_spread_update() {
@@ -15073,6 +15256,60 @@ mod visibility_tests {
             assert!(obj_guard.is_effectively_dead());
             assert!(obj_guard.status.test_status(ObjectStatusTypes::Destroyed));
         }
+    }
+
+    #[test]
+    fn ambient_loop_count_override_uses_ac_loop_0x1_like_cpp() {
+        use crate::object::drawable::{Drawable, DrawableType};
+        use game_engine::common::audio::{
+            game_audio::{get_global_audio_manager, initialize_global_audio_manager},
+            AC_LOOP,
+        };
+        use game_engine::common::dict::Dict;
+        use game_engine::common::well_known_keys;
+
+        let mut info = game_engine::common::audio::DynamicAudioEventInfo::new().audio_event_info;
+        info.audio_name = "P0AmbientLoop".to_string();
+        info.control = AC_LOOP;
+        info.loop_count = 0;
+        {
+            let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+            let mut guard = manager.lock().expect("audio manager");
+            guard.register_audio_event_info(info);
+        }
+
+        let mut obj = Object::new_test(42, 100.0);
+        let drawable = Arc::new(RwLock::new(Drawable::new(
+            1,
+            obj.get_id(),
+            "P0Ambient".to_string(),
+            DrawableType::Static,
+        )));
+        obj.set_drawable(Some(drawable.clone()));
+
+        let mut props = Dict::new();
+        props.set_ascii_string(well_known_keys::key_object_sound_ambient(), "P0AmbientLoop");
+        props.set_bool(well_known_keys::key_object_sound_ambient_customized(), true);
+        props.set_int(well_known_keys::key_object_sound_ambient_loop_count(), 7);
+        obj.update_obj_values_from_map_properties(&props);
+
+        let draw = drawable.read().expect("drawable");
+        let custom = draw
+            .get_custom_sound_ambient_dynamic_info()
+            .expect("custom ambient from map dict");
+        assert_eq!(
+            custom.audio_event_info.control & AC_LOOP,
+            AC_LOOP,
+            "AC_LOOP is 0x0001 (not AC_ALL 0x0004)"
+        );
+        assert_eq!(
+            custom.audio_event_info.loop_count, 7,
+            "C++ only overrideLoopCount when BitTest(control, AC_LOOP=0x0001)"
+        );
+        assert!(
+            !draw.is_ambient_sound_enabled_from_script(),
+            "loopCount!=0 is not isPermanentSound; C++ disables by default"
+        );
     }
 
     #[test]

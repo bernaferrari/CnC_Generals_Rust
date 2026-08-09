@@ -53,9 +53,11 @@ pub mod particle_renderer;
 pub mod particle_system;
 pub mod particle_system_manager;
 pub mod particles;
+pub mod ray_effect_system;
 pub mod ray_effects;
 pub mod runtime_fx;
 pub mod shadow_system;
+pub mod tracer_fx;
 pub mod weather;
 pub mod weather_complete;
 
@@ -91,11 +93,30 @@ pub use particle_manager::{
 };
 pub use particle_presets::{destruction, environment, explosions, get_preset_by_name, weapons};
 pub use particle_renderer::{
-    ParticleBatch, ParticleRenderStats, ParticleRenderer, ParticleUniforms, ParticleVertex,
+    bake_particle_gpu_vertex, bake_particle_system_gpu_mesh, ParticleBatch, ParticleRenderStats,
+    ParticleRenderer, ParticleUniforms, ParticleVertex,
 };
 pub use particle_system::{Particle, ParticleInfo, ParticleSystem};
 
+pub use ray_effect_system::{
+    add_ray_effect, bake_ray_effect_gpu_endpoints, bake_ray_effect_gpu_mesh,
+    create_ray_effect_by_template, delete_ray_effect, get_ray_effect_data, live_ray_effects,
+    ray_effect_midpoint, reset_ray_effects, LiveRayEffect, RayEffectGpuMesh, MAX_RAY_EFFECTS,
+};
 pub use ray_effects::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
+pub use tracer_fx::{
+    bake_all_tracer_gpu_meshes, bake_tracer_gpu_mesh, build_tracer_transform, clear_tracer_fx,
+    create_tracer_fx, live_tracer_drawables, live_tracer_fx, lock_tracer_fx_tests,
+    spawn_tracer_drawable_like_cpp, tracer_distance, tracer_expiration_frames,
+    tracer_line3d_local_endpoints, tracer_opacity_after_frames, tracer_world_endpoints,
+    update_tracer_fx, LiveTracerDrawable, TracerDrawableSpawn, TracerFxInstance, TracerGpuMesh,
+    TracerGpuVertex,
+};
+
+/// C++ `System.ini` GenericTracer registration (no full Object INI scan).
+pub fn ensure_generic_tracer_ini() -> bool {
+    gamelogic::helpers::TheThingFactory::ensure_system_ini_drawable_only_templates()
+}
 pub use shadow_system::{
     ShadowCaster, ShadowMapArray, ShadowMapResolution, ShadowQuality, ShadowSystem,
 };

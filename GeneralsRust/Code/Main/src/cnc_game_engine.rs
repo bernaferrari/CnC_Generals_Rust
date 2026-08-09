@@ -1626,6 +1626,8 @@ pub struct CnCGameEngine {
     pending_map_command: Option<PendingMapCommand>,
     active_menu_shell_hook: Option<&'static str>,
     runtime_host_headless: bool,
+    /// True when `--runtime_host` is set (headless or windowed). Host cmds/status.
+    runtime_host_active: bool,
     runtime_host_base_ui_screen: Option<String>,
     runtime_host_ui_screen_override: Option<String>,
     /// Sticky: open_skirmish_menu / Skirmish UI was entered this host session.
@@ -2148,7 +2150,7 @@ impl CnCGameEngine {
     const CAUSTIC_WARMUP_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
     fn runtime_host_enabled(&self) -> bool {
-        self.runtime_host_headless
+        self.runtime_host_active
     }
 
     fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
@@ -2332,6 +2334,18 @@ impl CnCGameEngine {
                 as u32,
             waypoint_mode: self.sticky_waypoint_mode,
             live_frame_ok: false,
+            window_visible: !self.runtime_host_headless
+                && self.window.is_visible().unwrap_or(!self.runtime_host_headless),
+            wnd_widget_tree_nav: {
+                #[cfg(feature = "game_client")]
+                {
+                    game_client::gui::os_wnd_widget_tree_nav_ok()
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    false
+                }
+            },
             pending_capture: self.runtime_host_pending_capture,
             render_alive_objects: self.render_pipeline.debug_last_alive_objects() as u32,
             render_fow_filtered: self.render_pipeline.debug_last_fow_filtered() as u32,
@@ -2477,14 +2491,26 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
-                        simulate_credits_menu_finished, simulate_credits_menu_prepare_skip,
-                        simulate_credits_menu_shutdown, simulate_credits_menu_skip,
+                        drive_os_wnd_credits_menu_finished_like_cpp,
+                        drive_os_wnd_credits_menu_prepare_skip_like_cpp,
+                        drive_os_wnd_credits_menu_skip_like_cpp, simulate_credits_menu_finished,
+                        simulate_credits_menu_prepare_skip, simulate_credits_menu_shutdown,
+                        simulate_credits_menu_skip,
                     };
                     wnd_ok = match action.as_str() {
-                        "finished" | "finish" => simulate_credits_menu_finished(),
+                        "finished" | "finish" => {
+                            drive_os_wnd_credits_menu_finished_like_cpp()
+                                || simulate_credits_menu_finished()
+                        }
                         "shutdown" => simulate_credits_menu_shutdown(),
-                        "prepare_skip" => simulate_credits_menu_prepare_skip(),
-                        _ => simulate_credits_menu_skip(),
+                        "prepare_skip" => {
+                            drive_os_wnd_credits_menu_prepare_skip_like_cpp()
+                                || simulate_credits_menu_prepare_skip()
+                        }
+                        _ => {
+                            drive_os_wnd_credits_menu_skip_like_cpp()
+                                || simulate_credits_menu_skip()
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -2545,6 +2571,11 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
+                        drive_os_wnd_message_box_cancel_like_cpp,
+                        drive_os_wnd_message_box_no_like_cpp, drive_os_wnd_message_box_ok_like_cpp,
+                        drive_os_wnd_message_box_prepare_ok_like_cpp,
+                        drive_os_wnd_message_box_prepare_yes_like_cpp,
+                        drive_os_wnd_message_box_yes_like_cpp,
                         simulate_message_box_cancel_button_gadget_selected,
                         simulate_message_box_hide, simulate_message_box_no_button_gadget_selected,
                         simulate_message_box_ok_button_gadget_selected,
@@ -2552,13 +2583,31 @@ impl CnCGameEngine {
                         simulate_message_box_yes_button_gadget_selected,
                     };
                     wnd_ok = match action.as_str() {
-                        "ok" => simulate_message_box_ok_button_gadget_selected(),
-                        "no" => simulate_message_box_no_button_gadget_selected(),
-                        "cancel" => simulate_message_box_cancel_button_gadget_selected(),
+                        "ok" => {
+                            drive_os_wnd_message_box_ok_like_cpp()
+                                || simulate_message_box_ok_button_gadget_selected()
+                        }
+                        "no" => {
+                            drive_os_wnd_message_box_no_like_cpp()
+                                || simulate_message_box_no_button_gadget_selected()
+                        }
+                        "cancel" => {
+                            drive_os_wnd_message_box_cancel_like_cpp()
+                                || simulate_message_box_cancel_button_gadget_selected()
+                        }
                         "hide" => simulate_message_box_hide(),
-                        "prepare_yes" => simulate_message_box_prepare_yes(&title, &body),
-                        "prepare_ok" => simulate_message_box_prepare_ok(&title, &body),
-                        _ => simulate_message_box_yes_button_gadget_selected(),
+                        "prepare_yes" => {
+                            drive_os_wnd_message_box_prepare_yes_like_cpp(&title, &body)
+                                || simulate_message_box_prepare_yes(&title, &body)
+                        }
+                        "prepare_ok" => {
+                            drive_os_wnd_message_box_prepare_ok_like_cpp(&title, &body)
+                                || simulate_message_box_prepare_ok(&title, &body)
+                        }
+                        _ => {
+                            drive_os_wnd_message_box_yes_like_cpp()
+                                || simulate_message_box_yes_button_gadget_selected()
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -2572,7 +2621,10 @@ impl CnCGameEngine {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
                 {
-                    wnd_ok = game_client::gui::callbacks::simulate_diplomacy_toggle_show();
+                    wnd_ok = game_client::gui::callbacks::drive_os_wnd_diplomacy_prepare_ingame_like_cpp();
+                    if !wnd_ok {
+                        wnd_ok = game_client::gui::callbacks::simulate_diplomacy_toggle_show();
+                    }
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "toggle_diplomacy_ok_wnd".into()
@@ -2594,20 +2646,42 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
-                        simulate_diplomacy_hide, simulate_diplomacy_mute_slot,
-                        simulate_diplomacy_prepare_ingame, simulate_diplomacy_radio_buddies,
-                        simulate_diplomacy_radio_ingame, simulate_diplomacy_reset,
-                        simulate_diplomacy_toggle_hide, simulate_diplomacy_unmute_slot,
+                        drive_os_wnd_diplomacy_hide_like_cpp, drive_os_wnd_diplomacy_mute_like_cpp,
+                        drive_os_wnd_diplomacy_prepare_ingame_like_cpp,
+                        drive_os_wnd_diplomacy_radio_buddies_like_cpp,
+                        drive_os_wnd_diplomacy_radio_ingame_like_cpp,
+                        drive_os_wnd_diplomacy_unmute_like_cpp, simulate_diplomacy_hide,
+                        simulate_diplomacy_mute_slot, simulate_diplomacy_prepare_ingame,
+                        simulate_diplomacy_radio_buddies, simulate_diplomacy_radio_ingame,
+                        simulate_diplomacy_reset, simulate_diplomacy_toggle_hide,
+                        simulate_diplomacy_unmute_slot,
                     };
                     wnd_ok = match action.as_str() {
-                        "hide" => simulate_diplomacy_hide(),
+                        "hide" => {
+                            drive_os_wnd_diplomacy_hide_like_cpp() || simulate_diplomacy_hide()
+                        }
                         "toggle_hide" => simulate_diplomacy_toggle_hide(),
                         "reset" => simulate_diplomacy_reset(),
-                        "buddies" => simulate_diplomacy_radio_buddies(),
-                        "mute" => simulate_diplomacy_mute_slot(slot),
-                        "unmute" => simulate_diplomacy_unmute_slot(slot),
-                        "prepare_ingame" => simulate_diplomacy_prepare_ingame(),
-                        _ => simulate_diplomacy_radio_ingame(),
+                        "buddies" => {
+                            drive_os_wnd_diplomacy_radio_buddies_like_cpp()
+                                || simulate_diplomacy_radio_buddies()
+                        }
+                        "mute" => {
+                            drive_os_wnd_diplomacy_mute_like_cpp(slot)
+                                || simulate_diplomacy_mute_slot(slot)
+                        }
+                        "unmute" => {
+                            drive_os_wnd_diplomacy_unmute_like_cpp(slot)
+                                || simulate_diplomacy_unmute_slot(slot)
+                        }
+                        "prepare_ingame" => {
+                            drive_os_wnd_diplomacy_prepare_ingame_like_cpp()
+                                || simulate_diplomacy_prepare_ingame()
+                        }
+                        _ => {
+                            drive_os_wnd_diplomacy_radio_ingame_like_cpp()
+                                || simulate_diplomacy_radio_ingame()
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -2929,6 +3003,10 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
+                        drive_os_wnd_replay_menu_back_like_cpp,
+                        drive_os_wnd_replay_menu_copy_like_cpp,
+                        drive_os_wnd_replay_menu_delete_like_cpp,
+                        drive_os_wnd_replay_menu_prepare_load_like_cpp,
                         simulate_replay_menu_back_button_gadget_selected,
                         simulate_replay_menu_copy_button_gadget_selected,
                         simulate_replay_menu_delete_button_gadget_selected,
@@ -2936,15 +3014,25 @@ impl CnCGameEngine {
                     };
                     wnd_ok = match action.as_str() {
                         "delete" => {
-                            let _ = simulate_replay_menu_select_slot(slot);
-                            simulate_replay_menu_delete_button_gadget_selected()
+                            drive_os_wnd_replay_menu_delete_like_cpp(slot) || {
+                                let _ = simulate_replay_menu_select_slot(slot);
+                                simulate_replay_menu_delete_button_gadget_selected()
+                            }
                         }
                         "copy" => {
-                            let _ = simulate_replay_menu_select_slot(slot);
-                            simulate_replay_menu_copy_button_gadget_selected()
+                            drive_os_wnd_replay_menu_copy_like_cpp(slot) || {
+                                let _ = simulate_replay_menu_select_slot(slot);
+                                simulate_replay_menu_copy_button_gadget_selected()
+                            }
                         }
-                        "back" => simulate_replay_menu_back_button_gadget_selected(),
-                        _ => simulate_replay_menu_prepare_load(slot),
+                        "back" => {
+                            drive_os_wnd_replay_menu_back_like_cpp()
+                                || simulate_replay_menu_back_button_gadget_selected()
+                        }
+                        _ => {
+                            drive_os_wnd_replay_menu_prepare_load_like_cpp(slot)
+                                || simulate_replay_menu_prepare_load(slot)
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -2976,8 +3064,12 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
-                        simulate_quit_menu_confirm_exit, simulate_quit_menu_destroy,
-                        simulate_quit_menu_exit_button_gadget_selected,
+                        drive_os_wnd_quit_menu_exit_like_cpp, drive_os_wnd_quit_menu_options_like_cpp,
+                        drive_os_wnd_quit_menu_prepare_exit_like_cpp,
+                        drive_os_wnd_quit_menu_restart_like_cpp,
+                        drive_os_wnd_quit_menu_return_like_cpp,
+                        drive_os_wnd_quit_menu_save_load_like_cpp, simulate_quit_menu_confirm_exit,
+                        simulate_quit_menu_destroy, simulate_quit_menu_exit_button_gadget_selected,
                         simulate_quit_menu_options_button_gadget_selected,
                         simulate_quit_menu_prepare_exit,
                         simulate_quit_menu_restart_button_gadget_selected,
@@ -2986,20 +3078,35 @@ impl CnCGameEngine {
                         simulate_quit_menu_toggle_hide, simulate_quit_menu_toggle_show,
                     };
                     wnd_ok = match action.as_str() {
-                        "return" => simulate_quit_menu_return_button_gadget_selected(),
-                        "options" => simulate_quit_menu_options_button_gadget_selected(),
-                        "restart" => simulate_quit_menu_restart_button_gadget_selected(),
+                        "return" => {
+                            drive_os_wnd_quit_menu_return_like_cpp()
+                                || simulate_quit_menu_return_button_gadget_selected()
+                        }
+                        "options" => {
+                            drive_os_wnd_quit_menu_options_like_cpp()
+                                || simulate_quit_menu_options_button_gadget_selected()
+                        }
+                        "restart" => {
+                            drive_os_wnd_quit_menu_restart_like_cpp()
+                                || simulate_quit_menu_restart_button_gadget_selected()
+                        }
                         "save_load" | "saveload" => {
-                            simulate_quit_menu_save_load_button_gadget_selected()
+                            drive_os_wnd_quit_menu_save_load_like_cpp()
+                                || simulate_quit_menu_save_load_button_gadget_selected()
                         }
                         "hide" => simulate_quit_menu_toggle_hide(),
                         "show" => simulate_quit_menu_toggle_show(),
                         "destroy" => simulate_quit_menu_destroy(),
                         "confirm_exit" | "confirm" => simulate_quit_menu_confirm_exit(),
-                        "prepare_exit" => simulate_quit_menu_prepare_exit(),
+                        "prepare_exit" => {
+                            drive_os_wnd_quit_menu_prepare_exit_like_cpp()
+                                || simulate_quit_menu_prepare_exit()
+                        }
                         _ => {
-                            let _ = simulate_quit_menu_toggle_show();
-                            simulate_quit_menu_exit_button_gadget_selected()
+                            drive_os_wnd_quit_menu_exit_like_cpp() || {
+                                let _ = simulate_quit_menu_toggle_show();
+                                simulate_quit_menu_exit_button_gadget_selected()
+                            }
                         }
                     };
                 }
@@ -3041,7 +3148,11 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
-                        simulate_keyboard_options_assign_button_gadget_selected,
+                        drive_os_wnd_keyboard_options_back_like_cpp,
+                        drive_os_wnd_keyboard_options_category_like_cpp,
+                        drive_os_wnd_keyboard_options_command_like_cpp,
+                        drive_os_wnd_keyboard_options_prepare_assign_like_cpp,
+                        drive_os_wnd_keyboard_options_reset_like_cpp,
                         simulate_keyboard_options_back_button_gadget_selected,
                         simulate_keyboard_options_prepare_assign,
                         simulate_keyboard_options_reset_all_button_gadget_selected,
@@ -3049,16 +3160,28 @@ impl CnCGameEngine {
                         simulate_keyboard_options_select_command,
                     };
                     wnd_ok = match action.as_str() {
-                        "category" => simulate_keyboard_options_select_category(category),
+                        "category" => {
+                            drive_os_wnd_keyboard_options_category_like_cpp(category)
+                                || simulate_keyboard_options_select_category(category)
+                        }
                         "command" => {
-                            let _ = simulate_keyboard_options_select_category(category);
-                            simulate_keyboard_options_select_command(command)
+                            let _ = drive_os_wnd_keyboard_options_category_like_cpp(category)
+                                || simulate_keyboard_options_select_category(category);
+                            drive_os_wnd_keyboard_options_command_like_cpp(command)
+                                || simulate_keyboard_options_select_command(command)
                         }
                         "reset" | "reset_all" => {
-                            simulate_keyboard_options_reset_all_button_gadget_selected()
+                            drive_os_wnd_keyboard_options_reset_like_cpp()
+                                || simulate_keyboard_options_reset_all_button_gadget_selected()
                         }
-                        "back" => simulate_keyboard_options_back_button_gadget_selected(),
-                        _ => simulate_keyboard_options_prepare_assign(category, command),
+                        "back" => {
+                            drive_os_wnd_keyboard_options_back_like_cpp()
+                                || simulate_keyboard_options_back_button_gadget_selected()
+                        }
+                        _ => {
+                            drive_os_wnd_keyboard_options_prepare_assign_like_cpp(category, command)
+                                || simulate_keyboard_options_prepare_assign(category, command)
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -3094,23 +3217,49 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
+                        drive_os_wnd_score_screen_buddy_like_cpp,
+                        drive_os_wnd_score_screen_continue_like_cpp,
+                        drive_os_wnd_score_screen_emote_like_cpp,
+                        drive_os_wnd_score_screen_ok_like_cpp,
+                        drive_os_wnd_score_screen_save_replay_like_cpp,
                         simulate_score_screen_buddy_button_gadget_selected,
                         simulate_score_screen_continue_button_gadget_selected,
                         simulate_score_screen_emote_button_gadget_selected,
                         simulate_score_screen_ok_button_gadget_selected,
                         simulate_score_screen_prepare_finish, simulate_score_screen_prepare_ok,
                         simulate_score_screen_save_replay_button_gadget_selected,
+                        simulate_score_screen_set_finish_campaign,
                     };
                     wnd_ok = match action.as_str() {
-                        "continue" => simulate_score_screen_continue_button_gadget_selected(),
-                        "finish" | "prepare_finish" => simulate_score_screen_prepare_finish(),
-                        "save_replay" | "replay" => {
-                            simulate_score_screen_save_replay_button_gadget_selected()
+                        "continue" => {
+                            drive_os_wnd_score_screen_continue_like_cpp()
+                                || simulate_score_screen_continue_button_gadget_selected()
                         }
-                        "buddy" => simulate_score_screen_buddy_button_gadget_selected(),
-                        "emote" => simulate_score_screen_emote_button_gadget_selected(),
-                        "prepare_ok" => simulate_score_screen_prepare_ok(),
-                        _ => simulate_score_screen_ok_button_gadget_selected(),
+                        "finish" | "prepare_finish" => {
+                            let _ = simulate_score_screen_set_finish_campaign(true);
+                            drive_os_wnd_score_screen_continue_like_cpp()
+                                || simulate_score_screen_prepare_finish()
+                        }
+                        "save_replay" | "replay" => {
+                            drive_os_wnd_score_screen_save_replay_like_cpp()
+                                || simulate_score_screen_save_replay_button_gadget_selected()
+                        }
+                        "buddy" => {
+                            drive_os_wnd_score_screen_buddy_like_cpp()
+                                || simulate_score_screen_buddy_button_gadget_selected()
+                        }
+                        "emote" => {
+                            drive_os_wnd_score_screen_emote_like_cpp()
+                                || simulate_score_screen_emote_button_gadget_selected()
+                        }
+                        "prepare_ok" => {
+                            drive_os_wnd_score_screen_ok_like_cpp()
+                                || simulate_score_screen_prepare_ok()
+                        }
+                        _ => {
+                            drive_os_wnd_score_screen_ok_like_cpp()
+                                || simulate_score_screen_ok_button_gadget_selected()
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -3143,6 +3292,13 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
+                        drive_os_wnd_options_menu_accept_like_cpp,
+                        drive_os_wnd_options_menu_advanced_accept_like_cpp,
+                        drive_os_wnd_options_menu_advanced_back_like_cpp,
+                        drive_os_wnd_options_menu_back_like_cpp,
+                        drive_os_wnd_options_menu_defaults_like_cpp,
+                        drive_os_wnd_options_menu_firewall_like_cpp,
+                        drive_os_wnd_options_menu_keyboard_like_cpp,
                         simulate_options_menu_accept_button_gadget_selected,
                         simulate_options_menu_advanced_accept_button_gadget_selected,
                         simulate_options_menu_advanced_back_button_gadget_selected,
@@ -3153,22 +3309,38 @@ impl CnCGameEngine {
                         simulate_options_menu_prepare_accept,
                     };
                     wnd_ok = match action.as_str() {
-                        "back" => simulate_options_menu_back_button_gadget_selected(),
-                        "defaults" | "default" => {
-                            simulate_options_menu_defaults_button_gadget_selected()
+                        "back" => {
+                            drive_os_wnd_options_menu_back_like_cpp()
+                                || simulate_options_menu_back_button_gadget_selected()
                         }
-                        "keyboard" => simulate_options_menu_keyboard_button_gadget_selected(),
+                        "defaults" | "default" => {
+                            drive_os_wnd_options_menu_defaults_like_cpp()
+                                || simulate_options_menu_defaults_button_gadget_selected()
+                        }
+                        "keyboard" => {
+                            drive_os_wnd_options_menu_keyboard_like_cpp()
+                                || simulate_options_menu_keyboard_button_gadget_selected()
+                        }
                         "advanced_accept" => {
-                            simulate_options_menu_advanced_accept_button_gadget_selected()
+                            drive_os_wnd_options_menu_advanced_accept_like_cpp()
+                                || simulate_options_menu_advanced_accept_button_gadget_selected()
                         }
                         "advanced_back" => {
-                            simulate_options_menu_advanced_back_button_gadget_selected()
+                            drive_os_wnd_options_menu_advanced_back_like_cpp()
+                                || simulate_options_menu_advanced_back_button_gadget_selected()
                         }
                         "firewall" | "firewall_refresh" => {
-                            simulate_options_menu_firewall_refresh_button_gadget_selected()
+                            drive_os_wnd_options_menu_firewall_like_cpp()
+                                || simulate_options_menu_firewall_refresh_button_gadget_selected()
                         }
-                        "prepare_accept" => simulate_options_menu_prepare_accept(),
-                        _ => simulate_options_menu_accept_button_gadget_selected(),
+                        "prepare_accept" => {
+                            drive_os_wnd_options_menu_accept_like_cpp()
+                                || simulate_options_menu_prepare_accept()
+                        }
+                        _ => {
+                            drive_os_wnd_options_menu_accept_like_cpp()
+                                || simulate_options_menu_accept_button_gadget_selected()
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -3229,6 +3401,10 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
+                        drive_os_wnd_difficulty_select_cancel_like_cpp,
+                        drive_os_wnd_difficulty_select_like_cpp,
+                        drive_os_wnd_difficulty_select_ok_like_cpp,
+                        drive_os_wnd_difficulty_select_radio_like_cpp,
                         simulate_difficulty_select_cancel_button_gadget_selected,
                         simulate_difficulty_select_ok_button_gadget_selected,
                         simulate_difficulty_select_prepare_ok,
@@ -3237,18 +3413,37 @@ impl CnCGameEngine {
                         simulate_difficulty_select_radio_medium,
                     };
                     wnd_ok = match action.as_str() {
-                        "easy" => simulate_difficulty_select_radio_easy(),
-                        "medium" | "normal" => simulate_difficulty_select_radio_medium(),
-                        "hard" => simulate_difficulty_select_radio_hard(),
-                        "cancel" => simulate_difficulty_select_cancel_button_gadget_selected(),
-                        "prepare_ok" => simulate_difficulty_select_prepare_ok(level),
+                        "easy" => {
+                            drive_os_wnd_difficulty_select_radio_like_cpp(0)
+                                || simulate_difficulty_select_radio_easy()
+                        }
+                        "medium" | "normal" => {
+                            drive_os_wnd_difficulty_select_radio_like_cpp(1)
+                                || simulate_difficulty_select_radio_medium()
+                        }
+                        "hard" => {
+                            drive_os_wnd_difficulty_select_radio_like_cpp(2)
+                                || simulate_difficulty_select_radio_hard()
+                        }
+                        "cancel" => {
+                            drive_os_wnd_difficulty_select_cancel_like_cpp()
+                                || simulate_difficulty_select_cancel_button_gadget_selected()
+                        }
+                        "prepare_ok" => {
+                            drive_os_wnd_difficulty_select_like_cpp(level)
+                                || simulate_difficulty_select_prepare_ok(level)
+                        }
                         _ => {
-                            let _ = match level {
-                                0 => simulate_difficulty_select_radio_easy(),
-                                2 => simulate_difficulty_select_radio_hard(),
-                                _ => simulate_difficulty_select_radio_medium(),
-                            };
-                            simulate_difficulty_select_ok_button_gadget_selected()
+                            drive_os_wnd_difficulty_select_like_cpp(level)
+                                || drive_os_wnd_difficulty_select_ok_like_cpp()
+                                || {
+                                    let _ = match level {
+                                        0 => simulate_difficulty_select_radio_easy(),
+                                        2 => simulate_difficulty_select_radio_hard(),
+                                        _ => simulate_difficulty_select_radio_medium(),
+                                    };
+                                    simulate_difficulty_select_ok_button_gadget_selected()
+                                }
                         }
                     };
                 }
@@ -3267,10 +3462,14 @@ impl CnCGameEngine {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
                 {
-                    wnd_ok =
-                        game_client::gui::loading_screen::simulate_loading_screen_prepare_map_load(
+                    wnd_ok = game_client::gui::loading_screen::drive_os_wnd_loading_screen_prepare_like_cpp(
+                        &map, 0,
+                    );
+                    if !wnd_ok {
+                        wnd_ok = game_client::gui::loading_screen::simulate_loading_screen_prepare_map_load(
                             &map, 0,
                         );
+                    }
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "show_loading_screen_ok_wnd".into()
@@ -3296,19 +3495,38 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::loading_screen::{
-                        simulate_loading_screen_finish, simulate_loading_screen_hide,
-                        simulate_loading_screen_next_stage,
+                        drive_os_wnd_loading_screen_finish_like_cpp,
+                        drive_os_wnd_loading_screen_hide_like_cpp,
+                        drive_os_wnd_loading_screen_prepare_like_cpp,
+                        drive_os_wnd_loading_screen_progress_like_cpp,
+                        drive_os_wnd_loading_screen_show_like_cpp, simulate_loading_screen_finish,
+                        simulate_loading_screen_hide, simulate_loading_screen_next_stage,
                         simulate_loading_screen_prepare_map_load, simulate_loading_screen_set_map,
                         simulate_loading_screen_set_progress, simulate_loading_screen_show,
                     };
                     wnd_ok = match action.as_str() {
-                        "show" => simulate_loading_screen_show(),
-                        "hide" => simulate_loading_screen_hide(),
+                        "show" => {
+                            drive_os_wnd_loading_screen_show_like_cpp()
+                                || simulate_loading_screen_show()
+                        }
+                        "hide" => {
+                            drive_os_wnd_loading_screen_hide_like_cpp()
+                                || simulate_loading_screen_hide()
+                        }
                         "map" => simulate_loading_screen_set_map(&map),
                         "next" | "next_stage" => simulate_loading_screen_next_stage(),
-                        "finish" => simulate_loading_screen_finish(),
-                        "prepare" => simulate_loading_screen_prepare_map_load(&map, percent),
-                        _ => simulate_loading_screen_set_progress(percent),
+                        "finish" => {
+                            drive_os_wnd_loading_screen_finish_like_cpp()
+                                || simulate_loading_screen_finish()
+                        }
+                        "prepare" => {
+                            drive_os_wnd_loading_screen_prepare_like_cpp(&map, percent)
+                                || simulate_loading_screen_prepare_map_load(&map, percent)
+                        }
+                        _ => {
+                            drive_os_wnd_loading_screen_progress_like_cpp(percent)
+                                || simulate_loading_screen_set_progress(percent)
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -3321,7 +3539,10 @@ impl CnCGameEngine {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
                 {
-                    wnd_ok = game_client::gui::callbacks::simulate_in_game_chat_toggle();
+                    wnd_ok = game_client::gui::callbacks::drive_os_wnd_in_game_chat_toggle_like_cpp();
+                    if !wnd_ok {
+                        wnd_ok = game_client::gui::callbacks::simulate_in_game_chat_toggle();
+                    }
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "toggle_in_game_chat_ok_wnd".into()
@@ -3346,19 +3567,39 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
+                        drive_os_wnd_in_game_chat_clear_like_cpp,
+                        drive_os_wnd_in_game_chat_hide_like_cpp,
+                        drive_os_wnd_in_game_chat_prepare_submit_like_cpp,
+                        drive_os_wnd_in_game_chat_show_like_cpp,
+                        drive_os_wnd_in_game_chat_submit_like_cpp,
                         simulate_in_game_chat_clear_button_gadget_selected,
                         simulate_in_game_chat_hide, simulate_in_game_chat_prepare_submit,
                         simulate_in_game_chat_reset, simulate_in_game_chat_set_type,
                         simulate_in_game_chat_show, simulate_in_game_chat_submit,
                     };
                     wnd_ok = match action.as_str() {
-                        "show" => simulate_in_game_chat_show(),
-                        "hide" => simulate_in_game_chat_hide(),
-                        "clear" => simulate_in_game_chat_clear_button_gadget_selected(),
+                        "show" => {
+                            drive_os_wnd_in_game_chat_show_like_cpp()
+                                || simulate_in_game_chat_show()
+                        }
+                        "hide" => {
+                            drive_os_wnd_in_game_chat_hide_like_cpp()
+                                || simulate_in_game_chat_hide()
+                        }
+                        "clear" => {
+                            drive_os_wnd_in_game_chat_clear_like_cpp()
+                                || simulate_in_game_chat_clear_button_gadget_selected()
+                        }
                         "type" => simulate_in_game_chat_set_type(chat_type),
                         "reset" => simulate_in_game_chat_reset(),
-                        "prepare_submit" => simulate_in_game_chat_prepare_submit(&message),
-                        _ => simulate_in_game_chat_submit(&message),
+                        "prepare_submit" => {
+                            drive_os_wnd_in_game_chat_prepare_submit_like_cpp(&message)
+                                || simulate_in_game_chat_prepare_submit(&message)
+                        }
+                        _ => {
+                            drive_os_wnd_in_game_chat_submit_like_cpp(&message)
+                                || simulate_in_game_chat_submit(&message)
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -3489,19 +3730,37 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::callbacks::{
-                        simulate_replay_control_pause, simulate_replay_control_play,
-                        simulate_replay_control_prepare_play_at, simulate_replay_control_seek,
-                        simulate_replay_control_stop, simulate_replay_control_toggle_fast_forward,
+                        drive_os_wnd_replay_control_fast_forward_like_cpp,
+                        drive_os_wnd_replay_control_pause_like_cpp,
+                        drive_os_wnd_replay_control_play_like_cpp,
+                        drive_os_wnd_replay_control_prepare_play_at_like_cpp,
+                        drive_os_wnd_replay_control_stop_like_cpp, simulate_replay_control_pause,
+                        simulate_replay_control_play, simulate_replay_control_prepare_play_at,
+                        simulate_replay_control_seek, simulate_replay_control_stop,
+                        simulate_replay_control_toggle_fast_forward,
                     };
                     wnd_ok = match action.as_str() {
-                        "pause" => simulate_replay_control_pause(),
-                        "stop" => simulate_replay_control_stop(),
-                        "ff" | "fast_forward" => simulate_replay_control_toggle_fast_forward(),
+                        "pause" => {
+                            drive_os_wnd_replay_control_pause_like_cpp()
+                                || simulate_replay_control_pause()
+                        }
+                        "stop" => {
+                            drive_os_wnd_replay_control_stop_like_cpp()
+                                || simulate_replay_control_stop()
+                        }
+                        "ff" | "fast_forward" => {
+                            drive_os_wnd_replay_control_fast_forward_like_cpp()
+                                || simulate_replay_control_toggle_fast_forward()
+                        }
                         "seek" => simulate_replay_control_seek(position),
                         "prepare" | "prepare_play" => {
-                            simulate_replay_control_prepare_play_at(position)
+                            drive_os_wnd_replay_control_prepare_play_at_like_cpp(position)
+                                || simulate_replay_control_prepare_play_at(position)
                         }
-                        _ => simulate_replay_control_play(),
+                        _ => {
+                            drive_os_wnd_replay_control_play_like_cpp()
+                                || simulate_replay_control_play()
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -3644,21 +3903,33 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::gui::{
-                        simulate_ime_clear_candidates, simulate_ime_disable, simulate_ime_enable,
-                        simulate_ime_end_composition, simulate_ime_prepare_composition_cycle,
-                        simulate_ime_reset, simulate_ime_result_string,
-                        simulate_ime_start_composition, simulate_ime_update_composition,
+                        drive_os_wnd_ime_clear_candidates_like_cpp,
+                        drive_os_wnd_ime_prepare_composition_cycle_like_cpp,
+                        drive_os_wnd_ime_result_like_cpp, simulate_ime_clear_candidates,
+                        simulate_ime_disable, simulate_ime_enable, simulate_ime_end_composition,
+                        simulate_ime_prepare_composition_cycle, simulate_ime_reset,
+                        simulate_ime_result_string, simulate_ime_start_composition,
+                        simulate_ime_update_composition,
                     };
                     wnd_ok = match action.as_str() {
                         "enable" => simulate_ime_enable(),
                         "disable" => simulate_ime_disable(),
                         "start" => simulate_ime_start_composition(),
                         "update" => simulate_ime_update_composition(&text, text.chars().count()),
-                        "result" => simulate_ime_result_string(&text),
-                        "clear" => simulate_ime_clear_candidates(),
+                        "result" => {
+                            drive_os_wnd_ime_result_like_cpp(&text)
+                                || simulate_ime_result_string(&text)
+                        }
+                        "clear" => {
+                            drive_os_wnd_ime_clear_candidates_like_cpp()
+                                || simulate_ime_clear_candidates()
+                        }
                         "end" => simulate_ime_end_composition(),
                         "reset" => simulate_ime_reset(),
-                        _ => simulate_ime_prepare_composition_cycle(&text),
+                        _ => {
+                            drive_os_wnd_ime_prepare_composition_cycle_like_cpp(&text)
+                                || simulate_ime_prepare_composition_cycle(&text)
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -3916,19 +4187,30 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     use game_client::credits::{
-                        simulate_credits_add_blank, simulate_credits_add_text,
-                        simulate_credits_init, simulate_credits_is_finished_probe,
-                        simulate_credits_prepare_short_roll, simulate_credits_reset,
-                        simulate_credits_update,
+                        drive_os_wnd_credits_roll_finished_like_cpp,
+                        drive_os_wnd_credits_roll_prepare_like_cpp,
+                        drive_os_wnd_credits_roll_update_like_cpp, simulate_credits_add_blank,
+                        simulate_credits_add_text, simulate_credits_init,
+                        simulate_credits_is_finished_probe, simulate_credits_prepare_short_roll,
+                        simulate_credits_reset, simulate_credits_update,
                     };
                     wnd_ok = match action.as_str() {
                         "init" => simulate_credits_init(),
                         "reset" => simulate_credits_reset(),
                         "add" => simulate_credits_add_text(&text),
                         "blank" => simulate_credits_add_blank(),
-                        "update" => simulate_credits_update(),
-                        "finished" => simulate_credits_is_finished_probe(),
-                        _ => simulate_credits_prepare_short_roll(),
+                        "update" => {
+                            drive_os_wnd_credits_roll_update_like_cpp()
+                                || simulate_credits_update()
+                        }
+                        "finished" => {
+                            drive_os_wnd_credits_roll_finished_like_cpp()
+                                || simulate_credits_is_finished_probe()
+                        }
+                        _ => {
+                            drive_os_wnd_credits_roll_prepare_like_cpp()
+                                || simulate_credits_prepare_short_roll()
+                        }
                     };
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -4246,8 +4528,12 @@ impl CnCGameEngine {
                         "hard" => GameDifficulty::Hard,
                         _ => GameDifficulty::Normal,
                     };
-                    wnd_ok =
-                        game_client::gui::simulate_main_menu_campaign_start_residual(side, diff);
+                    wnd_ok = game_client::gui::drive_os_wnd_start_campaign_like_cpp(side, diff);
+                    if !wnd_ok {
+                        wnd_ok = game_client::gui::simulate_main_menu_campaign_start_residual(
+                            side, diff,
+                        );
+                    }
                 }
                 if wnd_ok {
                     self.runtime_host_last_gameplay_cmd = "click_campaign_start_ok_wnd".into();
@@ -4299,16 +4585,18 @@ impl CnCGameEngine {
                             }
                         }
                     } else {
-                        // Interactive: full ButtonSkirmish residual + shell layout push.
-                        main_menu_skirmish_wnd_ok =
-                            game_client::gui::simulate_main_menu_skirmish_button_gadget_selected();
+                        // Interactive: C++ first-run CHAR reveal + OS WND clicks
+                        // SinglePlayer → Skirmish (not simulate_*).
                         self.enter_shell_screen_from_runtime_host(
                             Some("MainMenu"),
                             "Menus/MainMenu.wnd",
                         );
+                        let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
                         main_menu_skirmish_wnd_ok =
-                            game_client::gui::simulate_main_menu_skirmish_button_gadget_selected()
-                                || main_menu_skirmish_wnd_ok;
+                            game_client::gui::drive_os_wnd_open_skirmish_like_cpp();
+                        if !main_menu_skirmish_wnd_ok {
+                            main_menu_skirmish_wnd_ok = game_client::gui::simulate_main_menu_skirmish_button_gadget_selected();
+                        }
                         self.enter_shell_screen_from_runtime_host(
                             Some("Skirmish"),
                             "Menus/SkirmishGameOptionsMenu.wnd",
@@ -4409,9 +4697,14 @@ impl CnCGameEngine {
                         // Listbox/OK) before Start, matching C++ player map pick.
                         let mut map_select_wnd_ok = false;
                         if let Some(map) = args.get("map") {
-                            map_select_wnd_ok = game_client::gui::callbacks::simulate_skirmish_map_select_and_confirm(
+                            map_select_wnd_ok = game_client::gui::callbacks::drive_os_wnd_skirmish_map_select_like_cpp(
                                 map.clone(),
                             );
+                            if !map_select_wnd_ok {
+                                map_select_wnd_ok = game_client::gui::callbacks::simulate_skirmish_map_select_and_confirm(
+                                    map.clone(),
+                                );
+                            }
                             // Wave 837: always force-commit control map into setup after
                             // latch attempt (shell residual must not win).
                             {
@@ -4460,7 +4753,11 @@ impl CnCGameEngine {
                                 );
                             }
                         }
-                        wnd_start_ok = game_client::gui::callbacks::simulate_skirmish_start_button_gadget_selected();
+                        wnd_start_ok =
+                            game_client::gui::callbacks::drive_os_wnd_skirmish_start_like_cpp();
+                        if !wnd_start_ok {
+                            wnd_start_ok = game_client::gui::callbacks::simulate_skirmish_start_button_gadget_selected();
+                        }
                         if map_select_wnd_ok && wnd_start_ok {
                             // Preserve map-select residual in cmd when both peels fire.
                             // Final cmd is rewritten below after NewGame drain.
@@ -4689,8 +4986,15 @@ impl CnCGameEngine {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
                 {
-                    wnd_ok =
-                        game_client::gui::simulate_main_menu_challenge_button_gadget_selected();
+                    self.enter_shell_screen_from_runtime_host(
+                        Some("MainMenu"),
+                        "Menus/MainMenu.wnd",
+                    );
+                    let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+                    wnd_ok = game_client::gui::drive_os_wnd_open_challenge_menu_like_cpp();
+                    if !wnd_ok {
+                        wnd_ok = game_client::gui::simulate_main_menu_challenge_button_gadget_selected();
+                    }
                 }
                 self.enter_shell_screen_from_runtime_host(
                     Some("Challenge"),
@@ -4712,7 +5016,12 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     wnd_ok =
-                        game_client::gui::callbacks::simulate_challenge_menu_prepare_start(general);
+                        game_client::gui::callbacks::drive_os_wnd_challenge_start_like_cpp(general);
+                    if !wnd_ok {
+                        wnd_ok = game_client::gui::callbacks::simulate_challenge_menu_prepare_start(
+                            general,
+                        );
+                    }
                 }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "click_challenge_start_ok_wnd".into()
@@ -10469,8 +10778,10 @@ impl CnCGameEngine {
                     if selected == 0 {
                         self.runtime_host_last_gameplay_cmd = "attack_fail_no_selection".into();
                     } else if let Some(team) = team {
+                        // Wave 1115: prefer FOW-clear attackable enemy (parity
+                        // is_enemy_attackable), then force-attack residual fallback.
                         let enemy = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            frame.first_enemy_force_attack_id(team)
+                            frame.first_enemy_attack_command_id(team)
                         } else {
                             // Presentation required (no live get_objects dual-read).
                             None
@@ -10511,37 +10822,13 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = "sell_fail_no_player".into();
                         return;
                     };
-                    // Prefer selected structure; newest non-CC only when auto_target opted in.
-                    let mut targets: Vec<crate::game_logic::ObjectId> = self
-                        .selected_objects
-                        .iter()
-                        .copied()
-                        .filter(|id| {
-                            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                                frame.objects.iter().any(|o| {
-                                    o.id == *id
-                                        && o.team == team
-                                        && !o.destroyed
-                                        && (crate::presentation_frame::PresentationFrame::object_has_kind(
-                                            o,
-                                            crate::game_logic::KindOf::Structure,
-                                        ) || o.object_type
-                                            == crate::presentation_frame::PresentationObjectType::Building)
-                                        && !crate::presentation_frame::PresentationFrame::object_has_kind(
-                                            o,
-                                            crate::game_logic::KindOf::CommandCenter,
-                                        )
-                                        && o.building_type
-                                            != Some(
-                                                crate::presentation_frame::PresentationBuildingType::CommandCenter,
-                                            )
-                                })
-                            } else {
-                                // Wave 217: presentation required for sell identity.
-                                false
-                            }
-                        })
-                        .collect();
+                    // Wave 217: presentation required for sell identity (no live get_object).
+                    let mut targets: Vec<crate::game_logic::ObjectId> =
+                        crate::game_logic::presentation_selected_sellable_structure_ids(
+                            self.last_presentation_frame.as_ref(),
+                            &self.selected_objects,
+                            team,
+                        );
                     // Wave 728: auto-pick newest sellable structure is opt-in only.
                     // Default fail-closed: sell requires a selected structure.
                     // Smoke may set auto_target=1 / GENERALS_RUNTIME_HOST_SELL_AUTO_TARGET=1.
@@ -13583,6 +13870,12 @@ impl CnCGameEngine {
                     if let Err(err) = game_engine::common::thing::init_thing_system() {
                         warn!("Thing system init failed during startup bootstrap: {err}. Continuing without thing system.");
                     }
+                    if !game_engine::common::thing::thing_factory::ensure_system_ini_drawable_only_templates()
+                    {
+                        warn!(
+                            "System.ini GenericTracer (DRAWABLE_ONLY + W3DTracerDraw) failed to register"
+                        );
+                    }
 
                     {
                         let object_ini_paths: Vec<String> = match crate::assets::manager::get_asset_manager() {
@@ -14076,6 +14369,8 @@ impl CnCGameEngine {
         }
 
         let runtime_host_headless = RuntimeHostBridge::is_headless_mode(command_line.as_ref());
+        let runtime_host_active =
+            RuntimeHostBridge::is_runtime_host_requested(command_line.as_ref());
         let size = window.inner_size();
 
         // Initialize WW3D engine to own the swapchain/device
@@ -14524,6 +14819,7 @@ impl CnCGameEngine {
             pending_map_command: None,
             active_menu_shell_hook: None,
             runtime_host_headless,
+            runtime_host_active,
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,
             runtime_host_saw_skirmish_menu: false,
@@ -15608,8 +15904,13 @@ impl CnCGameEngine {
                     let pressed = matches!(state, ElementState::Pressed);
                     self.inject_game_client_key(physical_key, pressed);
                 }
-                let route_keyboard_to_legacy_ui =
-                    matches!(self.current_state, GameState::InGame | GameState::Paused);
+                let pressed = matches!(state, ElementState::Pressed);
+                let wnd_used = self.dispatch_os_key_to_window_manager(physical_key, pressed);
+                let route_keyboard_to_legacy_ui = !wnd_used
+                    && matches!(
+                        self.current_state,
+                        GameState::InGame | GameState::Paused | GameState::Menu
+                    );
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
@@ -15654,6 +15955,9 @@ impl CnCGameEngine {
                             ) => {
                                 self.camera_zoom_out_held = true;
                             }
+                            _ if wnd_used => {
+                                // C++ WindowXlat consumed the key (shell or focused gadget).
+                            }
                             _ if construction_consumed => {
                                 // Construction cameo / Escape placement cancel residual.
                             }
@@ -15692,21 +15996,28 @@ impl CnCGameEngine {
             WindowEvent::MouseInput { state, button, .. } => {
                 let x = self.mouse_position.0 as i32;
                 let y = self.mouse_position.1 as i32;
+                let pressed = matches!(state, ElementState::Pressed);
                 #[cfg(feature = "game_client")]
                 {
-                    let pressed = matches!(state, ElementState::Pressed);
                     self.inject_game_client_mouse_button(*button, pressed);
                 }
-                let route_mouse_to_legacy_ui =
-                    matches!(self.current_state, GameState::InGame | GameState::Paused);
-                if route_mouse_to_legacy_ui {
-                    let ui_button = Self::to_ui_mouse_button(*button);
-                    if let Some(ui_button) = ui_button {
+                let wnd_used = self.dispatch_os_mouse_to_window_manager(*button, pressed, x, y);
+                #[cfg(feature = "game_client")]
+                {
+                    let _ = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
+                }
+                // Main-owned screens (HUD/pause/skirmish fallback) plus Menu when overlay
+                // is not the only UI. Clicks on a None overlay screen no-op.
+                if let Some(ui_button) = Self::to_ui_mouse_button(*button) {
+                    if pressed {
                         let _ = self.ui_manager.handle_mouse_click(x, y, ui_button);
                     }
+                    self.ui_manager.handle_mouse_move(x, y);
                 }
 
-                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                if matches!(self.current_state, GameState::InGame | GameState::Paused)
+                    && !wnd_used
+                {
                     match (button, state) {
                         (MouseButton::Left, ElementState::Pressed) => {
                             self.handle_left_click();
@@ -15754,16 +16065,22 @@ impl CnCGameEngine {
                 self.mouse_position = (position.x as f32, position.y as f32);
                 #[cfg(feature = "game_client")]
                 self.inject_game_client_mouse_move(position.x as f32, position.y as f32);
+                let mx = position.x as i32;
+                let my = position.y as i32;
+                let _ = self.dispatch_os_mouse_move(mx, my);
+                self.ui_manager.handle_mouse_move(mx, my);
                 if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.update_mouse_world_position();
-                    self.ui_manager
-                        .handle_mouse_move(position.x as i32, position.y as i32);
                     self.sync_context_mouse_cursor();
                 }
                 true
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                let x = self.mouse_position.0 as i32;
+                let y = self.mouse_position.1 as i32;
+                let wnd_used = self.dispatch_os_mouse_wheel(delta, x, y);
+                if matches!(self.current_state, GameState::InGame | GameState::Paused) && !wnd_used
+                {
                     self.handle_mouse_wheel(delta);
                 }
                 true
@@ -16308,7 +16625,13 @@ impl CnCGameEngine {
     /// Wave 609: via `host_presentation_mouse_game_logic`.
     fn presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
         // Wave 609: thin wrapper — UI/presentation residual via host helper.
-        self.host_presentation_mouse_game_logic()
+        // Wave 236: None when last_presentation_frame.is_some(); boot Some(&self.game_logic).
+        if self.last_presentation_frame.is_some() {
+            self.host_presentation_mouse_game_logic()
+        } else {
+            crate::game_logic::mouse_game_logic_for_process_mouse_input(false, &self.game_logic)
+                .or(Some(&self.game_logic))
+        }
     }
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
@@ -17753,33 +18076,14 @@ impl CnCGameEngine {
     }
 
     fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
-        // Wave 610/850: host residual helper.
-        // Wave 215/543: prefer engine selection residual, then presentation freeze.
-        // When a presentation freeze is installed, empty selection fails closed
-        // (no host player_selected_objects dual-read mid-frame).
-        if !self.selected_objects.is_empty() {
-            return self.selected_objects.clone();
-        }
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            if !frame.selected.is_empty() {
-                return frame.selected.clone();
-            }
-            let from_objs: Vec<_> = frame
-                .objects
-                .iter()
-                .filter(|o| o.selected && !o.destroyed && o.health_current > 0.0)
-                .map(|o| o.id)
-                .collect();
-            // Wave 543: presentation freeze owns selection residual — even if empty.
-            return from_objs;
-        }
-        // Wave 850/902: host-stamped selection residual before fail-closed boot.
-        if let Some(ids) = self.host_match_selected_ids.as_ref() {
-            return ids.clone();
-        }
-        // Wave 902: fail-closed boot default (no player_selected_objects dual-read).
+        // Wave 215: presentation freeze owns InGame selection residual (fail-closed
+        // even if empty). No GameLogic get_player / player_selected_objects dual-read.
         let _ = player_id;
-        Vec::new()
+        crate::game_logic::host_ui_selected_ids_from_residuals(
+            self.last_presentation_frame.as_ref(),
+            &self.selected_objects,
+            self.host_match_selected_ids.as_deref(),
+        )
     }
 
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
@@ -19771,8 +20075,16 @@ impl CnCGameEngine {
         self.match_kills = 0;
         crate::game_logic::host_damage_log::reset_cumulative();
 
-        // Wave 195/590/926: shadow sync + presentation build via single host boundary.
-        let mut pres = self.host_sync_shadow_and_build_presentation(false);
+        // Wave 172/590: match-start seed always syncs GameWorldShadow from host
+        // then build_for_engine (GW overlay/rebuild lives inside that freeze).
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            shadow.sync_from_host(&self.game_logic);
+        }
+        let mut pres = crate::presentation_frame::PresentationFrame::build_for_engine(
+            &self.game_logic,
+            self.current_player_id,
+            self.gameworld_shadow.as_ref(),
+        );
         pres.apply_to_game_hud(&mut self.game_hud);
         #[cfg(feature = "game_client")]
         {
@@ -19808,8 +20120,16 @@ impl CnCGameEngine {
         if self.render_pipeline.presentation_frame().is_some() {
             return;
         }
-        // Wave 560/926: env seed via shared presentation build boundary.
-        let env_frame = self.host_sync_shadow_and_build_presentation(false);
+        // Wave 466: sync shadow then freeze via build_for_engine (not host-only None).
+        // Wave 466/474: seed via build_for_engine(host + self.gameworld_shadow).
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            shadow.sync_from_host(&self.game_logic);
+        }
+        let env_frame = crate::game_logic::seed_presentation_env_frame_from_host_and_shadow(
+            &self.game_logic,
+            self.current_player_id,
+            self.gameworld_shadow.as_ref(),
+        );
         self.render_pipeline.set_presentation_frame(Some(env_frame));
     }
 
@@ -20031,11 +20351,21 @@ impl CnCGameEngine {
         // Wave 597/680/927: GameWorld shadow session residual via single boundary.
         // AFTER host logic + projectiles + path; host temporary mid-frame owner.
         crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
-        self.last_gameworld_presentation_entity_count =
-            crate::gameworld_shadow::run_post_logic_shadow_boundary(
-                self.gameworld_shadow.as_mut(),
-                &mut self.game_logic,
-            );
+        let from_boundary = crate::gameworld_shadow::run_post_logic_shadow_boundary(
+            self.gameworld_shadow.as_mut(),
+            &mut self.game_logic,
+        );
+        // Wave 186: stamp observe-path entity count from presentation_view_from_shadow
+        // after the coupled shadow session (status gameworld_presentation_entities).
+        self.last_gameworld_presentation_entity_count = self
+            .gameworld_shadow
+            .as_ref()
+            .map(|shadow| {
+                crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0)
+                    .entities
+                    .len()
+            })
+            .unwrap_or(from_boundary);
         // Wave 621/912: after health writeback, drain destroy-ready log and process
         // die side effects same couple-frame (host still owns ObjectId remove).
         let _ = self
@@ -20143,6 +20473,8 @@ impl CnCGameEngine {
                     },
                     under_construction: o.under_construction,
                     construction_percent: o.construction_percent.clamp(0.0, 1.0),
+                    // Wave 1115: sold residual for construct-percent fail-closed.
+                    sold: o.sold,
                     // Wave 972: icon-pip residual.
                     ammo_pip_total: o.ammo_pip_total.min(255) as u8,
                     ammo_pip_full: o.ammo_pip_full.min(255) as u8,
@@ -21642,6 +21974,13 @@ impl CnCGameEngine {
         self.host_clear_match_residuals();
 
         let faction_team = Self::team_from_faction(&faction);
+        // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before
+        // shell-residual rejection. Matches C++ startNewGame default map residual.
+        let map = if map.trim().is_empty() {
+            DEFAULT_SKIRMISH_MAP.to_string()
+        } else {
+            map
+        };
         // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
         let map_name = Self::resolve_skirmish_start_map_name(mode, map);
 
@@ -22458,6 +22797,17 @@ impl CnCGameEngine {
         }
         self.script_camera_shakers
             .retain(|s| s.elapsed_seconds < s.duration_seconds);
+
+        #[cfg(feature = "game_client")]
+        {
+            // FXList ViewShake writes THE_TACTICAL_VIEW; fold that impulse into
+            // the wgpu camera so explosions shake the live view like C++ W3DView.
+            game_client::display::view::with_tactical_view_ref(|view| {
+                let impulse = view.impulse_shake_offset();
+                offset.x += impulse.x;
+                offset.z += impulse.y;
+            });
+        }
 
         let camera_position = self.camera_position;
         for shaker in &self.script_camera_shakers {
@@ -26480,6 +26830,166 @@ impl CnCGameEngine {
         self.host_inject_game_client_mouse_button(button, pressed);
     }
 
+    /// C++ WindowXlat: OS button → `TheWindowManager` gadget hit-test.
+    /// Returns true when the WND consumed the click (shell active or gadget Used).
+    /// C++ WindowXlat RAW_KEY → focused gadget `GWM_CHAR`.
+    fn dispatch_os_key_to_window_manager(
+        &self,
+        physical_key: &winit::keyboard::PhysicalKey,
+        pressed: bool,
+    ) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::gui::game_window::WindowInputReturnCode;
+            let Some(vk) = Self::winit_physical_key_to_wnd_vk(physical_key) else {
+                return false;
+            };
+            // C++ KEY_STATE_DOWN=0x02, KEY_STATE_UP=0x01
+            let state = if pressed { 0x02 } else { 0x01 };
+            game_client::gui::dispatch_os_key_to_window_manager(vk, state)
+                == WindowInputReturnCode::Used
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (physical_key, pressed);
+            false
+        }
+    }
+
+    fn winit_physical_key_to_wnd_vk(physical_key: &winit::keyboard::PhysicalKey) -> Option<u8> {
+        use winit::keyboard::{KeyCode as Wk, PhysicalKey};
+        let PhysicalKey::Code(code) = physical_key else {
+            return None;
+        };
+        Some(match code {
+            Wk::Escape => 0x1B,
+            Wk::Enter | Wk::NumpadEnter => 13,
+            Wk::Space => 32,
+            Wk::Tab => 9,
+            Wk::Backspace => 8,
+            Wk::Delete => 0x2E,
+            Wk::Home => 36,
+            Wk::End => 35,
+            Wk::PageUp => 33,
+            Wk::PageDown => 34,
+            Wk::ArrowLeft => 37,
+            Wk::ArrowUp => 38,
+            Wk::ArrowRight => 39,
+            Wk::ArrowDown => 40,
+            Wk::KeyA => b'A',
+            Wk::KeyB => b'B',
+            Wk::KeyC => b'C',
+            Wk::KeyD => b'D',
+            Wk::KeyE => b'E',
+            Wk::KeyF => b'F',
+            Wk::KeyG => b'G',
+            Wk::KeyH => b'H',
+            Wk::KeyI => b'I',
+            Wk::KeyJ => b'J',
+            Wk::KeyK => b'K',
+            Wk::KeyL => b'L',
+            Wk::KeyM => b'M',
+            Wk::KeyN => b'N',
+            Wk::KeyO => b'O',
+            Wk::KeyP => b'P',
+            Wk::KeyQ => b'Q',
+            Wk::KeyR => b'R',
+            Wk::KeyS => b'S',
+            Wk::KeyT => b'T',
+            Wk::KeyU => b'U',
+            Wk::KeyV => b'V',
+            Wk::KeyW => b'W',
+            Wk::KeyX => b'X',
+            Wk::KeyY => b'Y',
+            Wk::KeyZ => b'Z',
+            Wk::Digit0 => b'0',
+            Wk::Digit1 => b'1',
+            Wk::Digit2 => b'2',
+            Wk::Digit3 => b'3',
+            Wk::Digit4 => b'4',
+            Wk::Digit5 => b'5',
+            Wk::Digit6 => b'6',
+            Wk::Digit7 => b'7',
+            Wk::Digit8 => b'8',
+            Wk::Digit9 => b'9',
+            _ => return None,
+        })
+    }
+
+    fn dispatch_os_mouse_to_window_manager(
+        &self,
+        button: MouseButton,
+        pressed: bool,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
+            let msg = match (button, pressed) {
+                (MouseButton::Left, true) => WindowMessage::LeftDown,
+                (MouseButton::Left, false) => WindowMessage::LeftUp,
+                (MouseButton::Right, true) => WindowMessage::RightDown,
+                (MouseButton::Right, false) => WindowMessage::RightUp,
+                (MouseButton::Middle, true) => WindowMessage::MiddleDown,
+                (MouseButton::Middle, false) => WindowMessage::MiddleUp,
+                _ => return false,
+            };
+            game_client::gui::dispatch_os_mouse_to_window_manager(msg, x, y)
+                == WindowInputReturnCode::Used
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (button, pressed, x, y);
+            false
+        }
+    }
+
+    fn dispatch_os_mouse_move(&self, x: i32, y: i32) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
+            game_client::gui::dispatch_os_mouse_to_window_manager(WindowMessage::MousePos, x, y)
+                == WindowInputReturnCode::Used
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (x, y);
+            false
+        }
+    }
+
+    fn dispatch_os_mouse_wheel(
+        &self,
+        delta: &winit::event::MouseScrollDelta,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
+            let lines = match delta {
+                winit::event::MouseScrollDelta::LineDelta(_, y) => *y,
+                winit::event::MouseScrollDelta::PixelDelta(p) => (p.y as f32) / 16.0,
+            };
+            if lines.abs() < f32::EPSILON {
+                return false;
+            }
+            let msg = if lines > 0.0 {
+                WindowMessage::WheelUp
+            } else {
+                WindowMessage::WheelDown
+            };
+            game_client::gui::dispatch_os_mouse_to_window_manager(msg, x, y)
+                == WindowInputReturnCode::Used
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (delta, x, y);
+            false
+        }
+    }
+
     /// Wave 606: host OS→GameClient mouse-button inject residual.
     #[cfg(feature = "game_client")]
     fn host_inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
@@ -27279,6 +27789,10 @@ struct RuntimeHostSnapshot {
     waypoint_mode: bool,
     /// Live GPU/screenshot frame published (not shell fallback only).
     live_frame_ok: bool,
+    /// winit window is visible and host is not headless.
+    window_visible: bool,
+    /// Sticky: a hit-verified WND widget-tree LeftDown/Up was consumed.
+    wnd_widget_tree_nav: bool,
     /// Host requested capture this frame (bridge should force screenshot).
     pending_capture: bool,
     /// Last unit-pass collect honesty (presentation residual).
@@ -27347,8 +27861,15 @@ impl RuntimeHostBridge {
             .unwrap_or(false)
     }
 
+    /// Any non-empty `--runtime_host` (headless or windowed) with GPUI paths.
+    fn is_runtime_host_requested(args: &CommandLineArgs) -> bool {
+        args.get_option_value("runtime_host")
+            .map(|mode| !mode.trim().is_empty())
+            .unwrap_or(false)
+    }
+
     fn from_command_line(args: &CommandLineArgs) -> Option<Self> {
-        if !Self::is_headless_mode(args) {
+        if !Self::is_runtime_host_requested(args) {
             return None;
         }
         let control_path = PathBuf::from(args.get_option_value("gpui_control")?);
@@ -27450,6 +27971,8 @@ impl RuntimeHostBridge {
             presentation_live_fallback_reads: 0,
             waypoint_mode: false,
             live_frame_ok: false,
+            window_visible: false,
+            wnd_widget_tree_nav: false,
             pending_capture: false,
             render_alive_objects: 0,
             render_fow_filtered: 0,
@@ -27545,6 +28068,11 @@ impl RuntimeHostBridge {
             snapshot.live_frame_ok
                 || self.has_published_live_frame
                 || Self::png_file_looks_usable(&self.frame_path)
+        ));
+        payload.push_str(&format!("window_visible={}\n", snapshot.window_visible));
+        payload.push_str(&format!(
+            "wnd_widget_tree_nav={}\n",
+            snapshot.wnd_widget_tree_nav
         ));
         payload.push_str(&format!(
             "render_alive_objects={}\n",
@@ -30488,8 +31016,11 @@ fn runtime_host_live_frame_residual() {
     assert!(
         src.contains("live_frame_ok")
             && src.contains("has_published_live_frame")
-            && src.contains("png_file_looks_usable"),
-        "runtime host must publish live_frame_ok honesty"
+            && src.contains("png_file_looks_usable")
+            && src.contains("window_visible")
+            && src.contains("wnd_widget_tree_nav")
+            && src.contains("os_wnd_widget_tree_nav_ok"),
+        "runtime host must publish live_frame_ok / window_visible / WND widget-tree honesty"
     );
     let i = src.find("fn publish_runtime").expect("publish_runtime");
     let w = &src[i..src.len().min(i + 350)];
@@ -30574,6 +31105,65 @@ mod world_scene_skip_residual_tests {
             body.contains("_ => false"),
             "InGame and other states must not skip via menu warmup counter"
         );
+    }
+}
+
+#[cfg(test)]
+mod runtime_host_windowed_bridge_tests {
+    use super::*;
+    use crate::command_line::CommandLineArgs;
+
+    #[test]
+    fn windowed_runtime_host_is_requested_but_not_headless() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let control = dir.path().join("control.txt");
+        let status = dir.path().join("status.txt");
+        let frame = dir.path().join("frame.png");
+        let args = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            "-runtime_host".into(),
+            "windowed".into(),
+            "-gpui_control".into(),
+            control.to_string_lossy().into_owned(),
+            "-gpui_status".into(),
+            status.to_string_lossy().into_owned(),
+            "-gpui_frame".into(),
+            frame.to_string_lossy().into_owned(),
+        ])
+        .expect("parse");
+        assert!(!RuntimeHostBridge::is_headless_mode(&args));
+        assert!(RuntimeHostBridge::is_runtime_host_requested(&args));
+        assert!(RuntimeHostBridge::from_command_line(&args).is_some());
+        let headless = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            "-runtime_host".into(),
+            "headless".into(),
+            "-gpui_control".into(),
+            control.to_string_lossy().into_owned(),
+            "-gpui_status".into(),
+            status.to_string_lossy().into_owned(),
+            "-gpui_frame".into(),
+            frame.to_string_lossy().into_owned(),
+        ])
+        .expect("parse headless");
+        assert!(RuntimeHostBridge::is_headless_mode(&headless));
+        assert!(RuntimeHostBridge::from_command_line(&headless).is_some());
+    }
+
+    #[test]
+    fn runtime_host_enabled_uses_active_not_only_headless() {
+        let src = include_str!("cnc_game_engine.rs");
+        let start = src.find("fn runtime_host_enabled").expect("enabled");
+        let body = &src[start..src.len().min(start + 120)];
+        assert!(
+            body.contains("self.runtime_host_active"),
+            "windowed runtime host must enable host cmds/status"
+        );
+        assert!(
+            !body.contains("self.runtime_host_headless"),
+            "enabled must not be headless-only"
+        );
+        assert!(src.contains("note_os_wnd_widget_tree_hit"));
     }
 }
 

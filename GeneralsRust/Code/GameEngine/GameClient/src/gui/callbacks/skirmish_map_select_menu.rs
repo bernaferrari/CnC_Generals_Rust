@@ -806,6 +806,25 @@ pub fn simulate_skirmish_map_select_and_confirm(map: impl Into<String>) -> bool 
     simulate_skirmish_map_select_ok_button_gadget_selected()
 }
 
+/// Human click-through: OS LeftDown/Up on `ButtonSelectMap` then overlay `ButtonOK`
+/// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
+pub fn drive_os_wnd_skirmish_map_select_like_cpp(map: impl Into<String>) -> bool {
+    let map = map.into();
+    if map.trim().is_empty() {
+        return false;
+    }
+    let clicked_select = crate::gui::dispatch_os_click_named_window(
+        "SkirmishGameOptionsMenu.wnd:ButtonSelectMap",
+    );
+    let clicked_ok =
+        crate::gui::dispatch_os_click_named_window("SkirmishMapSelectMenu.wnd:ButtonOK");
+    if !clicked_select && !clicked_ok {
+        return false;
+    }
+    set_skirmish_map_select_selected_map(map);
+    simulate_skirmish_map_select_ok_button_gadget_selected()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,6 +867,36 @@ mod tests {
             skirmish_map_select_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn os_wnd_skirmish_map_select_hits_select_map_and_ok_then_commits_setup() {
+        with_window_manager(|manager| {
+            let select = manager
+                .create_window(None, 10, 10, 80, 24)
+                .expect("ButtonSelectMap");
+            select
+                .borrow_mut()
+                .set_name("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
+            let _ = select.borrow_mut().hide(false);
+            let ok = manager
+                .create_window(None, 10, 40, 80, 24)
+                .expect("ButtonOK");
+            ok.borrow_mut()
+                .set_name("SkirmishMapSelectMenu.wnd:ButtonOK");
+            let _ = ok.borrow_mut().hide(false);
+        });
+        assert!(
+            drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map"),
+            "OS WND clicks must commit map into skirmish setup"
+        );
+        let committed = get_skirmish_setup()
+            .game_info()
+            .game_info()
+            .get_map()
+            .to_string();
+        assert_eq!(committed, "maps\\alpine_war.map");
+        assert!(!drive_os_wnd_skirmish_map_select_like_cpp(""));
     }
 
     #[test]
@@ -942,35 +991,35 @@ mod tests {
             state.selected_map.as_deref(),
             Some("maps/map_two/map_two.map")
         );
+    }
 
-        #[test]
-        fn simulate_map_select_and_confirm_commits_setup() {
-            let map = "maps/alpine_assault/alpine_assault.map";
-            assert!(
-                simulate_skirmish_map_select_and_confirm(map),
-                "map-select OK residual must commit setup"
-            );
-            let setup = get_skirmish_setup();
-            assert!(
-                setup.selected_map() == map || setup.game_info().game_info().get_map() == map,
-                "setup map residual: selected={} game_info={}",
-                setup.selected_map(),
-                setup.game_info().game_info().get_map()
-            );
-        }
+    #[test]
+    fn simulate_map_select_and_confirm_commits_setup() {
+        let map = "maps/alpine_assault/alpine_assault.map";
+        assert!(
+            simulate_skirmish_map_select_and_confirm(map),
+            "map-select OK residual must commit setup"
+        );
+        let setup = get_skirmish_setup();
+        assert!(
+            setup.selected_map() == map || setup.game_info().game_info().get_map() == map,
+            "setup map residual: selected={} game_info={}",
+            setup.selected_map(),
+            setup.game_info().game_info().get_map()
+        );
+    }
 
-        #[test]
-        fn simulate_map_select_ok_without_selection_fail_closed() {
-            // Clear selection residual.
-            {
-                let state_handle = map_select_state();
-                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-                state.selected_map = None;
-            }
-            assert!(
-                !simulate_skirmish_map_select_ok_button_gadget_selected(),
-                "OK without selection must fail-closed (C++ ignores)"
-            );
+    #[test]
+    fn simulate_map_select_ok_without_selection_fail_closed() {
+        // Clear selection residual.
+        {
+            let state_handle = map_select_state();
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            state.selected_map = None;
         }
+        assert!(
+            !simulate_skirmish_map_select_ok_button_gadget_selected(),
+            "OK without selection must fail-closed (C++ ignores)"
+        );
     }
 }

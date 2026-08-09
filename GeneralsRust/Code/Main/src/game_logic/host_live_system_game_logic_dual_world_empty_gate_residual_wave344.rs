@@ -1,6 +1,8 @@
 //! Wave 344 residual peels: system GameLogic dual-world empty short-circuits.
-//! When `OBJECT_REGISTRY` is empty (host-only presentation path), core update/
-//! cleanup/energy helpers fail-closed without dual-world factory walks.
+//! When `OBJECT_REGISTRY` is empty AND GameLogic.objects is empty (host-only
+//! presentation path), core update/cleanup fail-closed. Energy lookups fall
+//! back to GameLogic.objects then 0. Never dual-world factory walks when both
+//! stores are empty.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 343 script evaluator dual-world empty-gate residual.
@@ -122,9 +124,11 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
     {
         return false;
     }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
+    // C++ has no registry skip: helper is false when GameLogic has objects.
+    let helper_ok = g.contains("fn dual_world_registry_unavailable() -> bool")
+        && g.contains("OBJECT_REGISTRY.is_empty()")
+        && g.contains("try_lock()")
+        && (g.contains("all_objects.is_empty()") || g.contains("get_object_count()"));
     // register_object must remain ungated so empty registries can still accept inserts.
     if let Some(reg) = fn_body(g, "fn register_object(") {
         if reg.contains("dual_world_registry_unavailable") {
@@ -146,8 +150,10 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
     helper_ok
         && upd.contains("return Ok(())")
         && clean.contains("return Ok(())")
-        && prod.contains("return 0")
-        && bonus.contains("return 0")
+        && (prod.contains("unwrap_or(0)") || prod.contains("return 0"))
+        && (bonus.contains("unwrap_or(0)") || bonus.contains("return 0"))
+        && prod.contains("find_object_by_id")
+        && bonus.contains("find_object_by_id")
         && g.contains("fn rebuild(")
         && g.contains("fn resolve_damage_and_physics(")
 }

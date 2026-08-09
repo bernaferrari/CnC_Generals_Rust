@@ -85,6 +85,25 @@ pub struct Weapon {
     barrel_count: i32,
 }
 
+/// C++ `Weapon::crc` field snapshot (Weapon.cpp). `m_status` is commented out in C++.
+#[derive(Debug, Clone)]
+pub(crate) struct WeaponCrcSnapshot {
+    pub template_name: String,
+    pub wslot: i32,
+    pub ammo_in_clip: UnsignedInt,
+    pub when_we_can_fire_again: UnsignedInt,
+    pub when_pre_attack_finished: UnsignedInt,
+    pub when_last_reload_started: UnsignedInt,
+    pub last_fire_frame: UnsignedInt,
+    pub projectile_stream_id: ObjectID,
+    pub max_shot_count: i32,
+    pub cur_barrel: i32,
+    pub num_shots_for_cur_barrel: i32,
+    pub scatter_targets_unused: Vec<i32>,
+    pub pitch_limited: bool,
+    pub leech_weapon_range_active: bool,
+}
+
 impl Weapon {
     /// Create a new weapon instance from a template
     ///
@@ -973,6 +992,26 @@ impl Weapon {
         self.cur_barrel
     }
 
+    /// C++ `Weapon::crc` payload used by Object::crc `xferSnapshot(thisWeapon)`.
+    pub(crate) fn crc_snapshot_fields(&self) -> WeaponCrcSnapshot {
+        WeaponCrcSnapshot {
+            template_name: self.template.get_name().to_string(),
+            wslot: self.wslot as i32,
+            ammo_in_clip: self.ammo_in_clip,
+            when_we_can_fire_again: self.when_we_can_fire_again,
+            when_pre_attack_finished: self.when_pre_attack_finished,
+            when_last_reload_started: self.when_last_reload_started,
+            last_fire_frame: self.last_fire_frame,
+            projectile_stream_id: self.projectile_stream_id,
+            max_shot_count: self.max_shot_count,
+            cur_barrel: self.cur_barrel,
+            num_shots_for_cur_barrel: self.num_shots_for_cur_barrel,
+            scatter_targets_unused: self.scatter_targets_unused.clone(),
+            pitch_limited: self.pitch_limited,
+            leech_weapon_range_active: self.leech_weapon_range_active,
+        }
+    }
+
     /// Get remaining cooldown frames before weapon can fire again
     ///
     /// Returns the number of frames remaining before this weapon will be ready to fire.
@@ -1597,11 +1636,70 @@ impl Weapon {
 /// Save/Load serialization for Weapon (matches C++ Weapon::xfer from Weapon.cpp line 3341)
 impl Snapshotable for Weapon {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Just xfer the template name for CRC purposes
-        let name = self.template.get_name().to_string();
-        let mut name_mut = name;
-        xfer.xfer_ascii_string(&mut name_mut)
-            .map_err(|e| e.to_string())
+        // C++ Weapon::crc (Weapon.cpp): name, slot blob, ammo, fire/reload frames,
+        // projectile + unused laser IDs, shot/barrel, scatter list, pitch/leech bools.
+        // Status is intentionally not CRC'd (commented out in C++).
+        let snap = self.crc_snapshot_fields();
+        let mut name = snap.template_name;
+        xfer.xfer_ascii_string(&mut name)
+            .map_err(|e| e.to_string())?;
+
+        let mut wslot = snap.wslot;
+        unsafe {
+            xfer.xfer_user(
+                (&mut wslot as *mut i32).cast::<u8>(),
+                std::mem::size_of::<i32>(),
+            )
+        }
+        .map_err(|e| e.to_string())?;
+
+        let mut ammo = snap.ammo_in_clip;
+        xfer.xfer_unsigned_int(&mut ammo)
+            .map_err(|e| e.to_string())?;
+        let mut when_fire = snap.when_we_can_fire_again;
+        xfer.xfer_unsigned_int(&mut when_fire)
+            .map_err(|e| e.to_string())?;
+        let mut when_pre = snap.when_pre_attack_finished;
+        xfer.xfer_unsigned_int(&mut when_pre)
+            .map_err(|e| e.to_string())?;
+        let mut when_reload = snap.when_last_reload_started;
+        xfer.xfer_unsigned_int(&mut when_reload)
+            .map_err(|e| e.to_string())?;
+        let mut last_fire = snap.last_fire_frame;
+        xfer.xfer_unsigned_int(&mut last_fire)
+            .map_err(|e| e.to_string())?;
+
+        let mut stream_id = snap.projectile_stream_id;
+        xfer.xfer_object_id(&mut stream_id)
+            .map_err(|e| e.to_string())?;
+        let mut laser_id_unused: ObjectID = INVALID_ID;
+        xfer.xfer_object_id(&mut laser_id_unused)
+            .map_err(|e| e.to_string())?;
+
+        let mut max_shots = snap.max_shot_count;
+        xfer.xfer_int(&mut max_shots)
+            .map_err(|e| e.to_string())?;
+        let mut cur_barrel = snap.cur_barrel;
+        xfer.xfer_int(&mut cur_barrel)
+            .map_err(|e| e.to_string())?;
+        let mut shots_for_barrel = snap.num_shots_for_cur_barrel;
+        xfer.xfer_int(&mut shots_for_barrel)
+            .map_err(|e| e.to_string())?;
+
+        let mut scatter_count = snap.scatter_targets_unused.len() as u16;
+        xfer.xfer_unsigned_short(&mut scatter_count)
+            .map_err(|e| e.to_string())?;
+        for target in &snap.scatter_targets_unused {
+            let mut int_data = *target;
+            xfer.xfer_int(&mut int_data).map_err(|e| e.to_string())?;
+        }
+
+        let mut pitch_limited = snap.pitch_limited;
+        xfer.xfer_bool(&mut pitch_limited)
+            .map_err(|e| e.to_string())?;
+        let mut leech = snap.leech_weapon_range_active;
+        xfer.xfer_bool(&mut leech).map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1764,6 +1862,42 @@ mod tests {
 
         assert_eq!(weapon.get_status(), WeaponStatus::OutOfAmmo);
         assert_eq!(weapon.get_ammo_in_clip(), 0);
+    }
+
+    #[test]
+    fn weapon_crc_matches_cpp_weapon_cpp_field_order() {
+        let src = include_str!("weapon.rs");
+        let crc = src
+            .split("fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {")
+            .nth(1)
+            .and_then(|s| s.split("fn xfer(&mut self, xfer: &mut dyn Xfer)").next())
+            .expect("Weapon::crc");
+        assert!(crc.contains("crc_snapshot_fields"));
+        assert!(crc.contains("xfer_ascii_string"));
+        assert!(crc.contains("xfer_user"));
+        assert!(crc.contains("wslot"));
+        let keys = [
+            "let mut ammo",
+            "let mut when_fire",
+            "let mut when_pre",
+            "let mut when_reload",
+            "let mut last_fire",
+            "let mut stream_id",
+            "let mut laser_id_unused",
+            "let mut max_shots",
+            "let mut cur_barrel",
+            "let mut scatter_count",
+            "let mut pitch_limited",
+            "let mut leech",
+        ];
+        let mut last = 0usize;
+        for key in keys {
+            let at = crc[last..]
+                .find(key)
+                .unwrap_or_else(|| panic!("{key} missing after offset {last}\n{crc}"));
+            last += at + key.len();
+        }
+        assert!(!crc.contains("self.status"));
     }
 
     #[test]

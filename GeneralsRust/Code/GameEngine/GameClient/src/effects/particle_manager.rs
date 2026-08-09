@@ -47,6 +47,10 @@ pub enum ParticleSystemError {
 
     #[error("Resource loading failed: {0}")]
     ResourceLoadFailed(String),
+
+    /// C++ ParticleSystemManager::createParticle LOD skip (priority below GameLOD floor).
+    #[error("particle spawn skipped by LOD priority {0:?}")]
+    LodSkipped(ParticlePriorityType),
 }
 
 /// Particle priority levels (matches C++ exactly)
@@ -728,6 +732,8 @@ impl ParticleSystemManager {
             return Err(ParticleSystemError::InvalidSystemId(system_id));
         }
 
+        // C++ ParticleSystemManager::createParticleSystem always instantiates the
+        // system. LOD / budget gates run later in createParticle per particle.
         let system = ParticleSystem::new(template.clone(), system_id, create_slaves);
         self.active_systems.insert(system_id, Box::new(system));
         self.system_count = self.active_systems.len();
@@ -811,12 +817,64 @@ impl ParticleSystemManager {
         self.last_logic_frame_update = current_frame;
         self.local_player_index = local_player_index;
 
-        // Update all active systems
-        let mut systems_to_remove = Vec::new();
+        // C++ per system: emit/createParticle then update those particles same frame.
+        let emit_ids: Vec<ParticleSystemId> = self.active_systems.keys().copied().collect();
+        for id in emit_ids {
+            let phase = {
+                let Some(system) = self.active_systems.get_mut(&id) else {
+                    continue;
+                };
+                system.begin_frame_emit(local_player_index, current_frame)
+            };
+            match phase {
+                crate::effects::particle_system::FrameEmitPhase::Dead => continue,
+                crate::effects::particle_system::FrameEmitPhase::Delayed => continue,
+                crate::effects::particle_system::FrameEmitPhase::Emitted => {}
+            }
 
-        for (id, system) in &mut self.active_systems {
-            if !system.update(local_player_index, current_frame) {
-                systems_to_remove.push(*id);
+            let (infos, priority, ground_aligned) = {
+                let Some(system) = self.active_systems.get_mut(&id) else {
+                    continue;
+                };
+                (
+                    system.take_pending_emissions(),
+                    system.priority(),
+                    system.template().info().is_ground_aligned,
+                )
+            };
+            for info in infos {
+                let system_count = self
+                    .active_systems
+                    .get(&id)
+                    .map(|s| s.particle_count())
+                    .unwrap_or(0);
+                if !self.can_create_particle_for_system(
+                    priority,
+                    ground_aligned,
+                    system_count,
+                    false,
+                ) {
+                    continue;
+                }
+                if let Some(system) = self.active_systems.get_mut(&id) {
+                    let particle = crate::effects::particle_system::Particle::new(
+                        &info,
+                        system.personality_counter(),
+                        current_frame,
+                    );
+                    system.push_particle(particle);
+                    self.particle_count += 1;
+                    if priority == ParticlePriorityType::AreaEffect && ground_aligned {
+                        self.field_particle_count += 1;
+                    }
+                    if system.slave_system_id().is_some() {
+                        system.record_slave_emission();
+                    }
+                }
+            }
+
+            if let Some(system) = self.active_systems.get_mut(&id) {
+                system.finish_frame_integrate(current_frame);
             }
         }
 
@@ -854,18 +912,42 @@ impl ParticleSystemManager {
                     .collect()
             };
 
-            if let Some(slave_system) = self.active_systems.get_mut(&slave_id) {
-                for info in merged_infos {
+            for info in merged_infos {
+                let (priority, ground_aligned, system_count) = {
+                    let Some(slave) = self.active_systems.get(&slave_id) else {
+                        break;
+                    };
+                    (
+                        slave.priority(),
+                        slave.template().info().is_ground_aligned,
+                        slave.particle_count(),
+                    )
+                };
+                if !self.can_create_particle_for_system(
+                    priority,
+                    ground_aligned,
+                    system_count,
+                    false,
+                ) {
+                    continue;
+                }
+                if let Some(slave_system) = self.active_systems.get_mut(&slave_id) {
                     let particle = crate::effects::particle_system::Particle::new(
                         &info,
                         slave_system.personality_counter(),
                         current_frame,
                     );
                     slave_system.push_particle(particle);
+                    self.particle_count += 1;
                 }
             }
         }
 
+        let systems_to_remove: Vec<ParticleSystemId> = self
+            .active_systems
+            .iter()
+            .filter_map(|(id, system)| system.should_remove().then_some(*id))
+            .collect();
         for id in systems_to_remove {
             if let Some(system) = self.active_systems.get(&id) {
                 let slave_id = system.slave_system_id();
@@ -884,7 +966,15 @@ impl ParticleSystemManager {
             .map(|s| s.particle_count())
             .sum();
 
-        self.field_particle_count = self.particle_count; // Updated each frame
+        self.field_particle_count = self
+            .active_systems
+            .values()
+            .filter(|s| {
+                s.priority() == ParticlePriorityType::AreaEffect
+                    && s.template().info().is_ground_aligned
+            })
+            .map(|s| s.particle_count())
+            .sum();
     }
 
     /// Check if a particle with given priority should be skipped based on LOD (C++ GameLODManager::isParticleSkipped)
@@ -950,6 +1040,36 @@ impl ParticleSystemManager {
         self.particle_count = self.particle_count.saturating_sub(removed);
         self.field_particle_count = self.field_particle_count.saturating_sub(removed);
         removed
+    }
+
+    /// C++ `ParticleSystem::createParticle` gates including field-particle cap.
+    pub fn can_create_particle_for_system(
+        &mut self,
+        priority: ParticlePriorityType,
+        is_ground_aligned: bool,
+        system_particle_count: usize,
+        force_create: bool,
+    ) -> bool {
+        if force_create {
+            return true;
+        }
+        let use_fx = game_engine::common::ini::ini_game_data::get_global_data()
+            .map(|data| data.read().use_fx)
+            .unwrap_or(true);
+        if !use_fx {
+            return false;
+        }
+        if !self.can_create_particle(priority) {
+            return false;
+        }
+        if system_particle_count > 0
+            && priority == ParticlePriorityType::AreaEffect
+            && is_ground_aligned
+            && self.field_particle_count > self.max_field_particle_count
+        {
+            return false;
+        }
+        true
     }
 
     /// Check if we can create a particle with given priority (matches C++ createParticle logic)
@@ -1744,6 +1864,41 @@ mod tests {
 
     /// Residual combat path: death/fire presets create real registry entries
     /// without ParticleSystems.ini (fail-closed: not full W3D GPU parity).
+    #[test]
+    fn manager_update_emits_then_integrates_newborn_same_frame() {
+        let mut manager = ParticleSystemManager::new();
+        let mut template = ParticleSystemTemplate::new("BurstNow".to_string());
+        {
+            let info = template.info_mut();
+            info.priority = ParticlePriorityType::AlwaysRender;
+            info.burst_delay = GameClientRandomVariable::new(0.0, 0.0);
+            info.burst_count = GameClientRandomVariable::new(1.0, 1.0);
+            info.initial_delay = GameClientRandomVariable::new(0.0, 0.0);
+            info.lifetime = GameClientRandomVariable::new(30.0, 30.0);
+            info.system_lifetime = 0;
+        }
+        let template = Arc::new(template);
+        let system_id = manager
+            .create_particle_system(&template, false)
+            .expect("system");
+
+        manager.update(0, 1);
+
+        let system = manager
+            .find_particle_system(system_id)
+            .expect("active system");
+        assert!(
+            system.particle_count() >= 1,
+            "createParticle must commit before particle update"
+        );
+        let newborn = system.particles().front().expect("newborn");
+        assert_eq!(
+            newborn.lifetime_left,
+            newborn.lifetime.saturating_sub(1),
+            "C++ updates newborns the same frame they are created"
+        );
+    }
+
     #[test]
     fn create_preset_system_at_registers_combat_death_and_muzzle_entries() {
         let mut manager = ParticleSystemManager::new();

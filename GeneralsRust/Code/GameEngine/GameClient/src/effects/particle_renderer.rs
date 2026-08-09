@@ -209,6 +209,38 @@ impl ParticleBatch {
     }
 }
 
+/// C++ billboard instance vertex used by the wgpu particle pass.
+#[must_use]
+pub fn bake_particle_gpu_vertex(particle: &Particle, system: &ParticleSystem) -> ParticleVertex {
+    particle_billboard_vertex(particle, system)
+}
+
+/// Bake GPU instance vertices for a live particle system (same path as `collect_system_particles`).
+#[must_use]
+pub fn bake_particle_system_gpu_mesh(system: &ParticleSystem) -> Vec<ParticleVertex> {
+    let info = system.template().info();
+    let mut vertices = Vec::new();
+    if matches!(
+        info.particle_type,
+        ParticleType::Drawable | ParticleType::Smudge
+    ) {
+        return vertices;
+    }
+    for particle in system.particles() {
+        if particle.lifetime_left == 0 || particle.is_culled {
+            continue;
+        }
+        match info.particle_type {
+            ParticleType::Streak => vertices.push(particle_streak_vertex(particle, system)),
+            ParticleType::VolumeParticle | ParticleType::Particle => {
+                vertices.push(particle_billboard_vertex(particle, system))
+            }
+            ParticleType::Drawable | ParticleType::Smudge => {}
+        }
+    }
+    vertices
+}
+
 fn particle_billboard_vertex(particle: &Particle, _system: &ParticleSystem) -> ParticleVertex {
     ParticleVertex {
         position: [

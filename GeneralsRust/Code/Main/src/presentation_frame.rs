@@ -5549,6 +5549,16 @@ impl PresentationFrame {
             .map(|o| o.id)
     }
 
+    /// Host `attack_nearest_enemy` residual: FOW-clear attackable first, then force-attack.
+    pub fn first_enemy_attack_command_id(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Option<ObjectId> {
+        // Wave 1115: prefer is_enemy_attackable parity, then force-attack fallback.
+        self.first_enemy_attackable_id(player_team)
+            .or_else(|| self.first_enemy_force_attack_id(player_team))
+    }
+
     /// Runtime-host residual: prefer non-structure enemy, else any attackable enemy.
     pub fn first_enemy_force_attack_id(
         &self,

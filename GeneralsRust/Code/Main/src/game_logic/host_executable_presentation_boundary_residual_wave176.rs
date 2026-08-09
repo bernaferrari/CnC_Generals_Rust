@@ -84,7 +84,11 @@ pub fn honesty_executable_presentation_boundary_residual_pack_wave176() -> bool 
 /// Source residual: executable vertical slice requires presentation boundary on InGame.
 pub fn honesty_executable_vertical_presentation_gate_source() -> bool {
     let src = include_str!("../executable_smoke.rs");
-    // Prefer the presentation_boundary_ok definition (may sit above host_vertical_slice_ok).
+    // Wave 176: shipped apply_host_vertical_slice_gate keeps presentation_boundary_ok
+    // next to host_vertical_slice_ok (InGame fail-closed on live dual-read).
+    if !src.contains("fn apply_host_vertical_slice_gate") {
+        return false;
+    }
     let i = src
         .find("let presentation_boundary_ok")
         .or_else(|| src.find("host_vertical_slice_ok ="));
@@ -162,5 +166,72 @@ mod tests {
             simulate_executable_presentation_boundary_honesty(),
             "executable InGame presentation boundary residual must latch"
         );
+    }
+
+    fn slice_ready_ingame() -> crate::executable_smoke::ExecutableSmokeResult {
+        let mut r = crate::executable_smoke::ExecutableSmokeResult::default();
+        r.shell_wnd_ok = true;
+        r.main_menu_skirmish_wnd_ok = true;
+        r.skirmish_map_select_wnd_ok = true;
+        r.skirmish_slot_config_wnd_ok = true;
+        r.skirmish_rules_wnd_ok = true;
+        r.skirmish_start_wnd_ok = true;
+        r.reached_ingame = true;
+        r.gameplay_cmd_ok = true;
+        r.construct_cmd_ok = true;
+        r.train_cmd_ok = true;
+        r.executable_host_ok = true;
+        r.presentation_frame_ok = true;
+        r.presentation_live_fallback_ok = true;
+        r.max_render_alive_objects = 4;
+        r.max_render_item_count = 4;
+        r.render_items_stable_ok = true;
+        r.gameworld_presentation_entities_ok = true;
+        r.gameworld_overlay_stamped_ok = true;
+        r.gameworld_rebuilt_ok = true;
+        r.map_seen = "Lone Eagle".into();
+        r
+    }
+
+    #[test]
+    fn apply_host_vertical_slice_gate_requires_presentation_boundary_when_ingame() {
+        let mut missing_frame = slice_ready_ingame();
+        missing_frame.presentation_frame_ok = false;
+        missing_frame.apply_host_vertical_slice_gate();
+        assert!(
+            !missing_frame.host_vertical_slice_ok,
+            "InGame without presentation_frame_ok must fail-closed"
+        );
+        assert!(!missing_frame.playable_claim);
+
+        let mut missing_fallback = slice_ready_ingame();
+        missing_fallback.presentation_live_fallback_ok = false;
+        missing_fallback.apply_host_vertical_slice_gate();
+        assert!(
+            !missing_fallback.host_vertical_slice_ok,
+            "InGame with live GameLogic dual-read must fail-closed"
+        );
+
+        let mut ready = slice_ready_ingame();
+        ready.apply_host_vertical_slice_gate();
+        assert!(
+            ready.host_vertical_slice_ok,
+            "InGame presentation-owned frame + WND/cmd residuals must latch host_vertical_slice_ok"
+        );
+        assert!(!ready.playable_claim);
+    }
+
+    #[test]
+    fn apply_host_vertical_slice_gate_soft_presentation_when_not_ingame() {
+        let mut r = slice_ready_ingame();
+        r.reached_ingame = false;
+        r.presentation_frame_ok = false;
+        r.presentation_live_fallback_ok = false;
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            !r.host_vertical_slice_ok,
+            "not InGame still fails the slice (reached_ingame required)"
+        );
+        assert!(!r.playable_claim);
     }
 }

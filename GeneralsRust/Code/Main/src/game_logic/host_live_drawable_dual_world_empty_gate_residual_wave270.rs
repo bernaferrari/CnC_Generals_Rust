@@ -115,11 +115,15 @@ pub fn honesty_drawable_dual_world_empty_gate_source() -> bool {
     let Some(stealth) = fn_body(g, "fn object_stealth_visuals(") else {
         return false;
     };
-    let Some(icon) = fn_body(g, "fn draw_icon_ui(") else {
+    // Prefer the gated BasicDrawable inherent draw_icon_ui (has dual-world helper),
+    // not the Drawable trait default stub.
+    let Some(icon) = fn_body(g, "pub fn draw_icon_ui(").or_else(|| fn_body(g, "fn draw_icon_ui("))
+    else {
         return false;
     };
     // Prefer the gated BasicDrawable draw_icon_ui (has dual-world helper).
     let icon_ok = g.contains("fn draw_icon_ui(&mut self) {\n        // Wave 270:")
+        || g.contains("pub fn draw_icon_ui(&mut self) {\n        // Wave 270:")
         || icon.contains("dual_world_registry_unavailable");
     kind.contains("dual_world_registry_unavailable")
         && kind.contains("return false")

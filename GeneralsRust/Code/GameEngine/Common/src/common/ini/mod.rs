@@ -263,10 +263,7 @@ fn discover_player_template_ini_files() -> Vec<PathBuf> {
             &mut seen,
             root.join("Data/INI/PlayerTemplate.ini"),
         );
-        for extracted in [
-            root.join("windows_game/extracted_big_files/INIZH"),
-            root.join("windows_game/extracted_big_files_v2/INIZH"),
-        ] {
+        for extracted in crate::common::system::install_layout::extracted_asset_roots() {
             push_player_template_ini_file(
                 &mut files,
                 &mut seen,

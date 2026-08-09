@@ -65,14 +65,11 @@ members = [
     "Code/Tools/ParticleEditor",
     "Code/Tools/GUIEdit",
     "Code/Tools/DebugWindow",
-    # "Code/Tools/ImagePacker",  # Requires gpui, fails on macOS without Metal toolchain
+    "Code/Tools/ImagePacker",
     "Code/Tools/MapCacheBuilder",
     "Code/Tools/Launcher",
-]
-
-exclude = [
-    # Legacy W3DDevice compatibility tree. It intentionally stays outside the
-    # main workspace until its wrappers are merged into Code/GameEngine/GameEngineDevice.
+    # Leftover Device archive: renamed crate, default target re-exports
+    # workspace GameEngineDevice → GameClient wgpu (not D3D).
     "Code/GameEngineDevice",
 ]
 

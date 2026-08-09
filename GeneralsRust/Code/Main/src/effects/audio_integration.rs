@@ -164,6 +164,7 @@ pub enum AudioPriority {
 pub struct Audio3DProperties {
     pub position: Vec3,
     pub velocity: Vec3,
+    pub min_distance: f32,
     pub max_distance: f32,
     pub rolloff_factor: f32,
     pub doppler_factor: f32,
@@ -178,6 +179,7 @@ impl Default for Audio3DProperties {
         Self {
             position: Vec3::ZERO,
             velocity: Vec3::ZERO,
+            min_distance: 25.0,
             max_distance: 100.0,
             rolloff_factor: 1.0,
             doppler_factor: 1.0,
@@ -652,14 +654,12 @@ impl EnhancedAudioManager {
                 let distance = listener_position.distance(properties.position);
                 let dir = (properties.position - listener_position).normalize_or_zero();
 
-                // Calculate volume based on distance (matches C++ distance attenuation)
-                let volume_scale = if distance <= 1.0 {
-                    1.0
-                } else if distance >= properties.max_distance {
-                    0.0
-                } else {
-                    (properties.max_distance / distance).powf(properties.rolloff_factor)
-                };
+                let volume_scale =
+                    game_engine::common::audio::audio_event_rts::miles_positional_gain(
+                        distance,
+                        properties.min_distance,
+                        properties.max_distance,
+                    );
 
                 let base_volume = match instance.event_type {
                     AudioEventType::UnitSelect
@@ -860,7 +860,7 @@ impl EnhancedAudioManager {
             .ok_or_else(|| format!("Audio event {:?} not found", event_type).into())
     }
 
-    /// Calculate 3D volume (matches C++ calculate3DVolume)
+    /// Calculate 3D volume (matches C++ MilesAudioManager::getEffectiveVolume).
     fn calculate_3d_volume(&self, event: &AudioEvent, _position: Vec3, distance: f32) -> f32 {
         if !event.is_3d {
             return event.volume;
@@ -877,17 +877,12 @@ impl EnhancedAudioManager {
             }
         };
 
-        if distance <= 1.0 {
-            return event.volume;
-        }
-
-        if distance >= properties.max_distance {
-            return 0.0;
-        }
-
-        // Simple distance-based attenuation matching C++ behavior
-        let volume_scale = (properties.max_distance / distance).powf(properties.rolloff_factor);
-        event.volume * volume_scale
+        event.volume
+            * game_engine::common::audio::audio_event_rts::miles_positional_gain(
+                distance,
+                properties.min_distance,
+                properties.max_distance,
+            )
     }
 
     /// Load default audio events (matches C++ loadDefaultAudioEvents)

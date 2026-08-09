@@ -82,14 +82,18 @@ impl ObjectRegistry {
     /// Retrieve a strong reference to an object by identifier.
     pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         // Wave 247: host path (empty registry) skips RwLock entirely.
-        if self.is_empty() {
-            return None;
+        if !self.is_empty() {
+            if let Ok(guard) = self.store.read() {
+                if let Some(arc) = guard.get(id) {
+                    return Some(arc);
+                }
+            }
         }
-        if let Ok(guard) = self.store.read() {
-            guard.get(id)
-        } else {
-            None
-        }
+        // C++ has no dual-world skip: GameLogic.objects is the authority.
+        crate::system::game_logic::get_game_logic()
+            .try_lock()
+            .ok()
+            .and_then(|logic| logic.find_object_by_id(id))
     }
 
     /// True when `id` is currently registered (no Arc clone).
@@ -99,10 +103,16 @@ impl ObjectRegistry {
             return false;
         }
         if let Ok(guard) = self.store.read() {
-            guard.contains(id)
-        } else {
-            false
+            if guard.contains(id) {
+                return true;
+            }
         }
+        // C++ GameLogic.objects is the authority when the factory registry is empty.
+        crate::system::game_logic::get_game_logic()
+            .try_lock()
+            .ok()
+            .and_then(|logic| logic.find_object_by_id(id))
+            .is_some()
     }
 
     /// Borrow-first object access without keeping an Arc at the call site.
@@ -126,14 +136,33 @@ impl ObjectRegistry {
     /// Wave 247: lock-free via `live_count` (updated under write lock).
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.live_count.load(Ordering::Acquire) == 0
+        if self.live_count.load(Ordering::Acquire) != 0 {
+            return false;
+        }
+        // C++ GameLogic.objects is the authority: empty registry + live logic
+        // objects is not an empty world.
+        match crate::system::game_logic::get_game_logic().try_lock() {
+            Ok(logic) => logic.get_object_count() == 0,
+            Err(_) => false,
+        }
     }
 
     /// Retrieve all registered objects.
     pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
-        // Wave 247: host path short-circuit.
-        if self.is_empty() {
-            return Vec::new();
+        // Wave 247: host path short-circuit when both registry and GameLogic empty.
+        if self.live_count.load(Ordering::Acquire) == 0 {
+            if let Ok(logic) = crate::system::game_logic::get_game_logic().try_lock() {
+                if logic.get_object_count() == 0 {
+                    return Vec::new();
+                }
+                let mut result: Vec<Arc<RwLock<Object>>> = logic
+                    .get_all_object_ids()
+                    .iter()
+                    .filter_map(|id| logic.find_object_by_id(*id))
+                    .collect();
+                result.sort_by_key(|obj| obj.read().map(|o| o.get_id()).unwrap_or(0));
+                return result;
+            }
         }
         if let Ok(guard) = self.store.read() {
             let mut result: Vec<Arc<RwLock<Object>>> = guard.objects.values().cloned().collect();
@@ -146,9 +175,12 @@ impl ObjectRegistry {
 
     /// Object IDs currently registered (no Arc clones).
     pub fn get_all_object_ids(&self) -> Vec<ObjectID> {
-        // Wave 247: host path short-circuit.
-        if self.is_empty() {
-            return Vec::new();
+        // Wave 247: host path short-circuit when both registry and GameLogic empty.
+        if self.live_count.load(Ordering::Acquire) == 0 {
+            return match crate::system::game_logic::get_game_logic().try_lock() {
+                Ok(logic) => logic.get_all_object_ids().to_vec(),
+                Err(_) => Vec::new(),
+            };
         }
         if let Ok(guard) = self.store.read() {
             guard.objects.keys().copied().collect()

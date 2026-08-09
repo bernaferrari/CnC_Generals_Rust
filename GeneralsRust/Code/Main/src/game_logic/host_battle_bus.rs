@@ -570,7 +570,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn undead_body_first_life_then_empty_hulk() {
         let mut body = HostBattleBusBodyData::new();
         body.begin_first_life_undeath(100);

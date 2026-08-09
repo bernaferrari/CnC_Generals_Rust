@@ -54,7 +54,13 @@ fn main() {
         && result.produced
         && result.upgraded
         && result.fought
-        && result.victory
+        // Wave 451: map path does not require mop-up wipe `victory`; same-world
+        // combat victory residual is the honesty signal. Synthetic still needs wipe.
+        && (if result.map_loaded {
+            result.same_world_victory_ok
+        } else {
+            result.victory
+        })
         && result.save_load_ok
         && result.status == "success"
         && !result.ai_disabled_for_slice

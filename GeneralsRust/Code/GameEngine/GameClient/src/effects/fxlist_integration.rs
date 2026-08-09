@@ -17,11 +17,11 @@
 //! - ParticleSystemFXNugget: Spawn particle systems
 //! - FXListAtBonePosFXNugget: Execute FX at bone positions
 
-use super::decals::{DecalManager, DecalSettings, DecalType};
+use super::decals::{DecalManager, DecalSettings};
 use super::particle_manager::*;
 use super::particle_presets;
 use super::ray_effects::{RayEffectConfig, RayEffectManager};
-use nalgebra::{Matrix3, Point3, Rotation3, Vector3};
+use nalgebra::{Matrix3, Point3, Vector3};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -166,37 +166,22 @@ impl FXNugget for TracerFXNugget {
         }
 
         if let Some(sec_pos) = secondary {
-            // Calculate direction and distance
-            let dir = sec_pos - primary;
-            let dist = dir.norm();
-            let speed = if self.speed > 0.0 {
-                self.speed
-            } else {
+            let speed = if self.speed == 0.0 {
                 primary_speed
-            };
-
-            // Estimate frames to reach destination
-            let adjusted_dist = dist - self.length;
-            let frames = if adjusted_dist >= 0.0 && speed >= 0.0 {
-                (adjusted_dist / speed * self.decay_at) as u32
             } else {
-                1
+                self.speed
             };
-
-            // Create a tracer particle system
-            if let Some(template) = context.particle_manager.find_template(&self.tracer_name) {
-                if let Ok(system_id) = context
-                    .particle_manager
-                    .create_particle_system(&template, false)
-                {
-                    if let Some(system) =
-                        context.particle_manager.find_particle_system_mut(system_id)
-                    {
-                        system.set_position(primary);
-                        system.start();
-                    }
-                }
-            }
+            let _ = crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp(
+                &self.tracer_name,
+                [primary.x, primary.y, primary.z],
+                [sec_pos.x, sec_pos.y, sec_pos.z],
+                speed,
+                self.length,
+                self.width,
+                self.color,
+                self.decay_at,
+                context.current_frame,
+            );
         }
     }
 }
@@ -237,13 +222,18 @@ impl FXNugget for RayEffectFXNugget {
         _override_radius: f32,
         context: &mut FXContext,
     ) {
-        if let (Some(sec_pos), Some(ray_mgr)) = (secondary, context.ray_effect_manager.as_mut()) {
+        if let Some(sec_pos) = secondary {
             let source_pos = primary + self.primary_offset;
             let target_pos = sec_pos + self.secondary_offset;
-
-            let config = RayEffectConfig::default().between(source_pos, target_pos);
-
-            ray_mgr.spawn(config);
+            let _ = crate::effects::ray_effect_system::create_ray_effect_by_template(
+                [source_pos.x, source_pos.y, source_pos.z],
+                [target_pos.x, target_pos.y, target_pos.z],
+                &self.template_name,
+            );
+            if let Some(ray_mgr) = context.ray_effect_manager.as_mut() {
+                let config = RayEffectConfig::default().between(source_pos, target_pos);
+                ray_mgr.spawn(config);
+            }
         }
     }
 }
@@ -279,17 +269,15 @@ impl FXNugget for LightPulseFXNugget {
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
-        // Light pulse would be created via TheDisplay->createLightPulse
-        log::debug!(
-            "LightPulse: at ({}, {}, {}) radius={} color=({}, {}, {})",
-            primary.x,
-            primary.y,
-            primary.z,
-            self.radius,
-            self.color[0],
-            self.color[1],
-            self.color[2]
-        );
+        // C++ LightPulseFXNugget::doFXPos → TheDisplay->createLightPulse(pos, color, 1, radius, ...)
+        let _ = crate::fx_list::create_display_light_pulse(crate::fx_list::DisplayLightPulse {
+            pos: [primary.x, primary.y, primary.z],
+            color: self.color,
+            inner_radius: 1.0,
+            outer_radius: self.radius,
+            increase_frames: self.increase_frames,
+            decay_frames: self.decrease_frames,
+        });
     }
 }
 
@@ -326,13 +314,21 @@ impl FXNugget for ViewShakeFXNugget {
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
-        log::debug!(
-            "ViewShake: {:?} at ({}, {}, {})",
-            self.shake_type,
-            primary.x,
-            primary.y,
-            primary.z
-        );
+        // C++ ViewShakeFXNugget::doFXPos → TheTacticalView->shake(primary, type)
+        let kind = match self.shake_type {
+            ShakeType::Subtle => crate::display::view::CameraShakeType::Subtle,
+            ShakeType::Normal => crate::display::view::CameraShakeType::Normal,
+            ShakeType::Strong => crate::display::view::CameraShakeType::Strong,
+            ShakeType::Severe => crate::display::view::CameraShakeType::Severe,
+            ShakeType::CineExtreme => crate::display::view::CameraShakeType::CineExtreme,
+            ShakeType::CineInsane => crate::display::view::CameraShakeType::CineInsane,
+        };
+        crate::display::view::with_tactical_view(|view| {
+            view.shake(
+                &crate::display::view::Point3::new(primary.x, primary.y, primary.z),
+                kind,
+            );
+        });
     }
 }
 
@@ -371,22 +367,21 @@ impl FXNugget for TerrainScorchFXNugget {
         _override_radius: f32,
         context: &mut FXContext,
     ) {
-        // Determine scorch type (random if specified, matches C++ lines 428-431)
-        let scorch_type = match self.scorch_type {
-            ScorchType::Random => {
-                // Random between SCORCH_1 and SCORCH_4
-                let rand_val = rand::random::<u8>() % 4;
-                match rand_val {
-                    0 => DecalType::Scorch,
-                    1 => DecalType::Scorch,
-                    2 => DecalType::Scorch,
-                    _ => DecalType::Scorch,
-                }
-            }
-            _ => DecalType::Scorch,
+        // C++ TerrainScorchFXNugget::doFXPos → TheGameClient->addScorch(pos, radius, type)
+        let scorch_idx = match self.scorch_type {
+            ScorchType::Scorch1 => 0,
+            ScorchType::Scorch2 => 1,
+            ScorchType::Scorch3 => 2,
+            ScorchType::Scorch4 => 3,
+            ScorchType::ShadowScorch => 4,
+            ScorchType::Random => crate::terrain::scorch_mesh::resolve_scorch_type(-1),
         };
+        let _ = crate::terrain::scorch_mesh::add_terrain_scorch(
+            [primary.x, primary.y, primary.z],
+            self.radius,
+            scorch_idx,
+        );
 
-        // Create scorch decal
         if let Some(decal_mgr) = context.decal_manager.as_mut() {
             let settings = DecalSettings::scorch_mark(primary, self.radius);
             decal_mgr.create_decal(settings);
@@ -714,15 +709,28 @@ impl ParticleSystemFXNugget {
                 if let Some(system) = manager.find_particle_system_mut(system_id) {
                     system.set_position(spawn_pos);
 
-                    // Apply rotation if specified
-                    if self.rotate_x != 0.0 || self.rotate_y != 0.0 || self.rotate_z != 0.0 {
-                        let rotation_matrix = Rotation3::from_euler_angles(
-                            self.rotate_x,
-                            self.rotate_y,
-                            self.rotate_z,
-                        )
-                        .into_inner();
-                        system.set_local_transform(rotation_matrix);
+                    // C++: orientToObject then rotateLocalTransformX/Y/Z.
+                    if self.orient_to_object {
+                        if let Some(matrix) = mtx {
+                            system.set_local_transform(*matrix);
+                        }
+                    }
+                    if self.rotate_x != 0.0 {
+                        system.rotate_local_transform_x(self.rotate_x);
+                    }
+                    if self.rotate_y != 0.0 {
+                        system.rotate_local_transform_y(self.rotate_y);
+                    }
+                    if self.rotate_z != 0.0 {
+                        system.rotate_local_transform_z(self.rotate_z);
+                    }
+
+                    // C++: delayInMsec >= 0 → setInitialDelay(ceil(msec→frames)).
+                    // -1 leave-sentinel keeps the template default.
+                    let delay_msec = self.delay.sample();
+                    if delay_msec >= 0.0 {
+                        let delay_frames = (delay_msec * 30.0 / 1000.0).ceil() as u32;
+                        system.set_initial_delay(delay_frames);
                     }
 
                     // Apply caller's radius if requested
@@ -747,6 +755,27 @@ impl ParticleSystemFXNugget {
         }
 
         created_systems
+    }
+}
+
+impl FXNugget for ParticleSystemFXNugget {
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        primary_mtx: Option<&Matrix3<f32>>,
+        _primary_speed: f32,
+        _secondary: Option<Point3<f32>>,
+        override_radius: f32,
+        context: &mut FXContext,
+    ) {
+        // C++ ParticleSystemFXNugget::doFXPos → reallyDoFX via TheParticleSystemManager.
+        let _ = ParticleSystemFXNugget::do_fx_pos(
+            self,
+            primary,
+            primary_mtx,
+            override_radius,
+            context.particle_manager,
+        );
     }
 }
 

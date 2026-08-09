@@ -28,6 +28,17 @@ use super::textures::{
     TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, TileData,
     MAX_BLEND_WEIGHTS, NUM_SOURCE_TILES,
 };
+use super::scorch_mesh::bake_terrain_scorch_gpu_mesh;
+use super::tree_buffer::{
+    fill_tree_gpu_upload_vertices, TreeGpuVertex, TreeObjectLight, W3DTreeBuffer,
+    TREE_MAX_GLOBAL_LIGHTS,
+};
+use super::w3d_overlay_mesh::{
+    bake_bridge_span, bake_straight_road_segment, bake_water_patch_world,
+    default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
+    fill_water_gpu_upload_vertices, OverlayGpuVertex, WaterGpuVertex, BRIDGE_FLOAT_AMT,
+    DEFAULT_ROAD_SCALE,
+};
 use super::{
     calculate_terrain_lod, HeightMap, RoadSystem, TerrainConfig, TerrainError, TerrainLOD,
     TerrainModification, TerrainResult, TerrainStats, TerrainTracksRenderObjClassSystem,
@@ -417,6 +428,7 @@ pub struct TerrainVisualImpl {
     terrain_depth_pipeline: Option<wgpu::RenderPipeline>,
     water_pipeline: Option<wgpu::RenderPipeline>,
     road_pipeline: Option<wgpu::RenderPipeline>,
+    tree_pipeline: Option<wgpu::RenderPipeline>,
 
     /// Terrain textures
     heightmap_texture: Option<Texture>,
@@ -463,6 +475,19 @@ pub struct TerrainVisualImpl {
 
     /// Cached GPU meshes for visible road surfaces.
     road_meshes: Vec<GpuRoadMesh>,
+    /// Cached GPU meshes for W3D sectional/fixed bridges.
+    bridge_meshes: Vec<GpuRoadMesh>,
+    /// Cached GPU mesh for C++ terrain scorch marks.
+    scorch_meshes: Vec<GpuRoadMesh>,
+    /// C++ `W3DTreeBuffer` owned by the shipped wgpu terrain visual.
+    tree_buffer: W3DTreeBuffer,
+    /// Last CPU→GPU tree VB filled with `doLighting` (every draw/update).
+    last_tree_gpu_vertices: Vec<TreeGpuVertex>,
+    /// CPU mips actually uploaded (after SetLOD skip), BGRA A8R8G8B8.
+    last_tree_atlas_mips: Vec<Vec<u8>>,
+    /// Cached GPU meshes for W3D trees.
+    tree_meshes: Vec<GpuTreeMesh>,
+    tree_atlas_texture: Option<wgpu::Texture>,
 
     /// Camera bind group layout used by the terrain pipeline
     terrain_camera_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
@@ -518,6 +543,12 @@ struct GpuWaterPlane {
 }
 
 struct GpuRoadMesh {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
+}
+
+struct GpuTreeMesh {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
@@ -603,6 +634,7 @@ impl TerrainVisualImpl {
             terrain_depth_pipeline: None,
             water_pipeline: None,
             road_pipeline: None,
+            tree_pipeline: None,
             heightmap_texture: None,
             blend_texture: None,
             detail_textures: Vec::new(),
@@ -625,6 +657,13 @@ impl TerrainVisualImpl {
             texture_rules: Vec::new(),
             water_plane: None,
             road_meshes: Vec::new(),
+            bridge_meshes: Vec::new(),
+            scorch_meshes: Vec::new(),
+            tree_buffer: W3DTreeBuffer::new(),
+            last_tree_gpu_vertices: Vec::new(),
+            last_tree_atlas_mips: Vec::new(),
+            tree_meshes: Vec::new(),
+            tree_atlas_texture: None,
             terrain_camera_bind_group_layout: None,
             terrain_texture_bind_group_layout: None,
             terrain_camera_bind_group: None,
@@ -1829,6 +1868,8 @@ impl TerrainVisualImpl {
     ) -> TerrainResult<()> {
         self.road_system.clear();
         self.road_meshes.clear();
+        self.bridge_meshes.clear();
+        self.scorch_meshes.clear();
         let mut ordered_road_segments = Vec::new();
         for road_segment in road_segments.iter().cloned() {
             Self::insert_runtime_road_segment_ordered(&mut ordered_road_segments, road_segment);
@@ -2080,6 +2121,7 @@ impl TerrainVisualImpl {
         self.chunk_meshes.clear();
         self.chunk_texture_bindings.clear();
         self.road_meshes.clear();
+        self.scorch_meshes.clear();
         self.stats.rendered_chunks = 0;
         self.stats.triangles_rendered = 0;
         self.stats.update_time_ms = 0.0;
@@ -2189,6 +2231,7 @@ impl TerrainVisualImpl {
             self.chunk_texture_bindings.clear();
             self.chunk_meshes.clear();
             self.road_meshes.clear();
+            self.scorch_meshes.clear();
             self.active_chunk_texture_ids = None;
             self.ensure_default_textures();
         }
@@ -2409,6 +2452,7 @@ impl TerrainVisualImpl {
         self.chunk_texture_bindings.clear();
         self.chunk_meshes.clear();
         self.road_meshes.clear();
+        self.scorch_meshes.clear();
         self.active_chunk_texture_ids = None;
     }
 
@@ -2821,6 +2865,7 @@ impl TerrainVisualImpl {
 
         // Create road render pipeline
         self.create_road_pipeline(device.as_ref())?;
+        self.create_tree_pipeline(device.as_ref())?;
 
         self.sync_global_water_plane(device.as_ref())?;
 
@@ -3145,47 +3190,190 @@ impl TerrainVisualImpl {
     fn update_road_meshes(&mut self) -> TerrainResult<()> {
         let Some(device) = self.device.as_ref().cloned() else {
             self.road_meshes.clear();
+            self.bridge_meshes.clear();
+            self.scorch_meshes.clear();
             return Ok(());
         };
 
-        let mut meshes = Vec::new();
+        let mut road_meshes = Vec::new();
+        let mut bridge_meshes = Vec::new();
+        let height_map = self.height_map.as_ref();
+        let height_at = |x: f32, y: f32| {
+            height_map
+                .map(|height_map| height_map.get_height_at(x, y))
+                .unwrap_or(0.0)
+        };
+
         self.road_system
-            .for_each_visible_surface_geometry(|segment_width, vertices, indices| {
-                if vertices.is_empty() || indices.is_empty() {
+            .for_each_visible_overlay_source(|road, segment| {
+                if matches!(road.road_type, RoadType::StoneBridge { .. }) {
+                    let width = segment.width.max(0.1);
+                    let scale = (width / 10.0).max(0.01);
+                    let (left, section, right) = default_sectional_bridge_model(scale);
+                    let from = [
+                        segment.start.x,
+                        segment.start.z,
+                        segment.start.y + BRIDGE_FLOAT_AMT,
+                    ];
+                    let to = [
+                        segment.end.x,
+                        segment.end.z,
+                        segment.end.y + BRIDGE_FLOAT_AMT,
+                    ];
+                    let baked = bake_bridge_span(
+                        from,
+                        to,
+                        true,
+                        left,
+                        Some(section),
+                        Some(right),
+                        0xffff_ffff,
+                    );
+                    if baked.vertices.is_empty() || baked.indices.is_empty() {
+                        return;
+                    }
+                    let gpu_vertices = fill_bridge_gpu_upload_vertices(&baked.vertices);
+                    let gpu_indices: Vec<u32> =
+                        baked.indices.iter().map(|index| *index as u32).collect();
+                    if let Some(mesh) = Self::upload_overlay_mesh(
+                        &device,
+                        "Bridge Mesh",
+                        &gpu_vertices,
+                        &gpu_indices,
+                    ) {
+                        bridge_meshes.push(mesh);
+                    }
                     return;
                 }
 
-                let road_alpha = if segment_width > 0.0 { 1.0 } else { 0.0 };
-                let gpu_vertices: Vec<RoadVertex> = vertices
+                let kind = segment
+                    .properties
+                    .texture_override
+                    .as_deref()
+                    .unwrap_or("Kind=SEGMENT");
+                let use_cpp_float4 = !kind.contains("TEE")
+                    && !kind.contains("FOUR_WAY")
+                    && !kind.contains("CURVE")
+                    && !kind.contains("ALPHA_JOIN")
+                    && !kind.contains("SyntheticIntersection");
+
+                if use_cpp_float4 {
+                    if let Some((verts, indices)) = bake_straight_road_segment(
+                        [segment.start.x, segment.start.z],
+                        [segment.end.x, segment.end.z],
+                        segment.width,
+                        0.0,
+                        85.0 / 512.0,
+                        segment.width.max(DEFAULT_ROAD_SCALE),
+                        height_at,
+                    ) {
+                        if !verts.is_empty() && !indices.is_empty() {
+                            let gpu_vertices = fill_road_gpu_upload_vertices(&verts);
+                            let gpu_indices: Vec<u32> =
+                                indices.iter().map(|index| *index as u32).collect();
+                            if let Some(mesh) = Self::upload_overlay_mesh(
+                                &device,
+                                "Road Mesh",
+                                &gpu_vertices,
+                                &gpu_indices,
+                            ) {
+                                road_meshes.push(mesh);
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                let Some(geometry) = segment.geometry.as_ref() else {
+                    return;
+                };
+                if geometry.vertices.is_empty() || geometry.indices.is_empty() {
+                    return;
+                }
+                let gpu_vertices: Vec<RoadVertex> = geometry
+                    .vertices
                     .iter()
-                    .map(|vertex| RoadVertex {
+                    .map(|vertex| OverlayGpuVertex {
                         position: vertex.position,
-                        normal: vertex.normal,
+                        color: [
+                            vertex.color[0],
+                            vertex.color[1],
+                            vertex.color[2],
+                        ],
                         tex_coords: vertex.tex_coords,
-                        road_width: road_alpha,
+                        road_width: 1.0,
+                        diffuse: 0xFFFF_FFFF,
                     })
                     .collect();
-
-                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Road Mesh Vertex Buffer"),
-                    contents: cast_slice(&gpu_vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Road Mesh Index Buffer"),
-                    contents: cast_slice(indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-
-                meshes.push(GpuRoadMesh {
-                    vertex_buffer,
-                    index_buffer,
-                    index_count: indices.len() as u32,
-                });
+                if let Some(mesh) = Self::upload_overlay_mesh(
+                    &device,
+                    "Road Mesh",
+                    &gpu_vertices,
+                    &geometry.indices,
+                ) {
+                    road_meshes.push(mesh);
+                }
             });
 
-        self.road_meshes = meshes;
+        self.road_meshes = road_meshes;
+        self.bridge_meshes = bridge_meshes;
+        self.update_scorch_meshes(&device);
         Ok(())
+    }
+
+    fn update_scorch_meshes(&mut self, device: &wgpu::Device) {
+        let Some(height_map) = self.height_map.as_ref() else {
+            self.scorch_meshes.clear();
+            return;
+        };
+        let baked = bake_terrain_scorch_gpu_mesh(height_map, 0xffff_ffff);
+        if baked.vertices.is_empty() || baked.indices.is_empty() {
+            self.scorch_meshes.clear();
+            return;
+        }
+        let gpu_vertices: Vec<RoadVertex> = baked
+            .vertices
+            .iter()
+            .map(|vertex| {
+                OverlayGpuVertex::from_cpp_xyzduv(
+                    vertex.x,
+                    vertex.y,
+                    vertex.z,
+                    vertex.diffuse,
+                    vertex.u1,
+                    vertex.v1,
+                )
+            })
+            .collect();
+        let gpu_indices: Vec<u32> = baked.indices.iter().map(|index| *index as u32).collect();
+        self.scorch_meshes =
+            Self::upload_overlay_mesh(device, "Scorch Mesh", &gpu_vertices, &gpu_indices)
+                .into_iter()
+                .collect();
+    }
+
+    fn upload_overlay_mesh(
+        device: &wgpu::Device,
+        label: &str,
+        vertices: &[RoadVertex],
+        indices: &[u32],
+    ) -> Option<GpuRoadMesh> {
+        if vertices.is_empty() || indices.is_empty() {
+            return None;
+        }
+        Some(GpuRoadMesh {
+            vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents: cast_slice(vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents: cast_slice(indices),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
+            index_count: indices.len() as u32,
+        })
     }
 
     pub fn record_chunk_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
@@ -3227,6 +3415,7 @@ impl TerrainVisualImpl {
         }
 
         self.record_road_draws(pass);
+        self.record_tree_draws(pass);
         self.record_water_draws(pass);
     }
 
@@ -3286,14 +3475,12 @@ impl TerrainVisualImpl {
 
         pass.set_pipeline(water_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
-
-        let vertex_buffer = &water_plane.vertex_buffer;
-        let index_buffer = &water_plane.index_buffer;
-        let index_count = water_plane.index_count;
-
-        let _ = self.water_system.render_pass_draw(pass, || {
-            Some((vertex_buffer.slice(..), index_buffer.slice(..), index_count))
-        });
+        pass.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
+        pass.set_index_buffer(
+            water_plane.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint32,
+        );
+        pass.draw_indexed(0..water_plane.index_count, 0, 0..1);
     }
 
     fn record_road_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
@@ -3303,24 +3490,181 @@ impl TerrainVisualImpl {
         ) else {
             return;
         };
-        if self.road_meshes.is_empty() {
+        if self.road_meshes.is_empty() && self.bridge_meshes.is_empty() && self.scorch_meshes.is_empty()
+        {
             return;
         }
 
         pass.set_pipeline(road_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
 
-        let road_meshes = &self.road_meshes;
-        let mut mesh_index = 0;
-        let _ = self.road_system.render_pass_draw(pass, || {
-            let mesh = road_meshes.get(mesh_index)?;
-            mesh_index += 1;
-            Some((
-                mesh.vertex_buffer.slice(..),
-                mesh.index_buffer.slice(..),
-                mesh.index_count,
-            ))
+        for mesh in self
+            .road_meshes
+            .iter()
+            .chain(self.bridge_meshes.iter())
+            .chain(self.scorch_meshes.iter())
+        {
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+    }
+
+    fn record_tree_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        let (Some(tree_pipeline), Some(camera_bg)) = (
+            self.tree_pipeline.as_ref(),
+            self.terrain_camera_bind_group.as_ref(),
+        ) else {
+            return;
+        };
+        if self.tree_meshes.is_empty() {
+            return;
+        }
+
+        pass.set_pipeline(tree_pipeline);
+        pass.set_bind_group(0, camera_bg, &[]);
+        for mesh in &self.tree_meshes {
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+    }
+
+    fn current_tree_object_lights(&self) -> [TreeObjectLight; TREE_MAX_GLOBAL_LIGHTS] {
+        let mut lights = [TreeObjectLight::default(); TREE_MAX_GLOBAL_LIGHTS];
+        lights[0] = TreeObjectLight {
+            ambient: self.ambient_color,
+            diffuse: self.sun_color,
+            // wgpu Y-up sun → C++ Z-up lightPos used by W3DTreeBuffer::doLighting.
+            light_pos: [
+                self.sun_direction.x,
+                self.sun_direction.z,
+                self.sun_direction.y,
+            ],
+        };
+        lights
+    }
+
+    /// C++ `W3DTreeBuffer::drawTrees` VB fill + wgpu upload. Called every update/draw.
+    pub fn update_tree_meshes(&mut self) {
+        // C++ `drawTrees`: if m_needToUpdateTexture then updateTexture (blit+mip+SetLOD).
+        // GlobalData::m_textureReductionFactor when present; else last SetLOD / atlas_lod.
+        let lod = get_global_data()
+            .map(|global_data| global_data.read().texture_reduction_factor.clamp(0, 4))
+            .unwrap_or_else(|| self.tree_buffer.atlas_lod());
+        self.tree_buffer.sync_tree_atlas_for_draw(lod);
+        let lights = self.current_tree_object_lights();
+        self.tree_buffer
+            .draw_trees_fill_vertex_buffer(&lights, Vec3::Z, |_| true);
+        let gpu_vertices = fill_tree_gpu_upload_vertices(self.tree_buffer.cpu_vertices());
+        let gpu_indices: Vec<u32> = self
+            .tree_buffer
+            .cpu_indices()
+            .iter()
+            .map(|index| *index as u32)
+            .collect();
+        self.last_tree_gpu_vertices = gpu_vertices.clone();
+        self.last_tree_atlas_mips = self.tree_buffer.atlas_upload_levels().to_vec();
+        self.upload_tree_atlas_texture();
+
+        let Some(device) = self.device.as_ref().cloned() else {
+            self.tree_meshes.clear();
+            return;
+        };
+        if gpu_vertices.is_empty() || gpu_indices.is_empty() {
+            self.tree_meshes.clear();
+            return;
+        }
+        self.tree_meshes = Self::upload_tree_mesh(&device, &gpu_vertices, &gpu_indices)
+            .into_iter()
+            .collect();
+    }
+
+    fn upload_tree_mesh(
+        device: &wgpu::Device,
+        vertices: &[TreeGpuVertex],
+        indices: &[u32],
+    ) -> Option<GpuTreeMesh> {
+        if vertices.is_empty() || indices.is_empty() {
+            return None;
+        }
+        Some(GpuTreeMesh {
+            vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Tree Mesh"),
+                contents: cast_slice(vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Tree Mesh Indices"),
+                contents: cast_slice(indices),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
+            index_count: indices.len() as u32,
+        })
+    }
+
+    pub fn tree_buffer_mut(&mut self) -> &mut W3DTreeBuffer {
+        &mut self.tree_buffer
+    }
+
+    pub fn last_tree_gpu_vertices(&self) -> &[TreeGpuVertex] {
+        &self.last_tree_gpu_vertices
+    }
+
+    pub fn last_tree_atlas_mips(&self) -> &[Vec<u8>] {
+        &self.last_tree_atlas_mips
+    }
+
+    fn upload_tree_atlas_texture(&mut self) {
+        let (Some(device), Some(queue)) = (self.device.as_ref(), self.queue.as_ref()) else {
+            self.tree_atlas_texture = None;
+            return;
+        };
+        let levels = self.tree_buffer.atlas_upload_levels();
+        if levels.is_empty() {
+            self.tree_atlas_texture = None;
+            return;
+        }
+        let lod = self.tree_buffer.atlas_upload_mip_index() as u32;
+        let (full_w, _) = self.tree_buffer.texture_size();
+        let top_w = (full_w.max(1) as u32 >> lod).max(1);
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("W3D Tree Atlas"),
+            size: wgpu::Extent3d {
+                width: top_w,
+                height: top_w,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: levels.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         });
+        for (mip, data) in levels.iter().enumerate() {
+            let mip_w = (top_w >> mip as u32).max(1);
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: mip as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(mip_w * 4),
+                    rows_per_image: Some(mip_w),
+                },
+                wgpu::Extent3d {
+                    width: mip_w,
+                    height: mip_w,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        self.tree_atlas_texture = Some(texture);
     }
 
     fn sync_global_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
@@ -3346,33 +3690,9 @@ impl TerrainVisualImpl {
         let max_x = global.water_position_x + half_extent_x;
         let max_y = global.water_position_y + half_extent_y;
 
-        let vertices = [
-            WaterVertex {
-                position: [min_x, water_z, min_y],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [0.0, 0.0],
-                flow_direction: [0.0, 0.0],
-            },
-            WaterVertex {
-                position: [max_x, water_z, min_y],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [1.0, 0.0],
-                flow_direction: [0.0, 0.0],
-            },
-            WaterVertex {
-                position: [max_x, water_z, max_y],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [1.0, 1.0],
-                flow_direction: [0.0, 0.0],
-            },
-            WaterVertex {
-                position: [min_x, water_z, max_y],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [0.0, 1.0],
-                flow_direction: [0.0, 0.0],
-            },
-        ];
-        let indices: [u32; 6] = [0, 1, 2, 0, 2, 3];
+        let (patch_vertices, _strip, list_indices) =
+            bake_water_patch_world(min_x, min_y, max_x, max_y, water_z, 0xffff_ffff);
+        let vertices = fill_water_gpu_upload_vertices(&patch_vertices);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Global Water Plane Vertex Buffer"),
@@ -3381,14 +3701,14 @@ impl TerrainVisualImpl {
         });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Global Water Plane Index Buffer"),
-            contents: cast_slice(&indices),
+            contents: cast_slice(&list_indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
         self.water_plane = Some(GpuWaterPlane {
             vertex_buffer,
             index_buffer,
-            index_count: indices.len() as u32,
+            index_count: list_indices.len() as u32,
         });
 
         Ok(())
@@ -3755,6 +4075,74 @@ impl TerrainVisualImpl {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::LessEqual, // Roads should render on top of terrain
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            }),
+        );
+
+        Ok(())
+    }
+
+    fn create_tree_pipeline(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Tree Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/tree.wgsl").into()),
+        });
+
+        let Some(camera_layout) = self.terrain_camera_bind_group_layout.as_ref() else {
+            return Err(TerrainError::InitializationError(
+                "Terrain camera bind group layout must exist before tree pipeline creation"
+                    .to_string(),
+            ));
+        };
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Tree Pipeline Layout"),
+            bind_group_layouts: &[camera_layout.as_ref()],
+            push_constant_ranges: &[],
+        });
+
+        self.tree_pipeline = Some(
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Tree Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[TreeGpuVertex::desc()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -4756,6 +5144,13 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.terrain_props.clear();
         self.construction_removals.clear();
         self.road_meshes.clear();
+        self.bridge_meshes.clear();
+        self.scorch_meshes.clear();
+        self.tree_meshes.clear();
+        self.last_tree_gpu_vertices.clear();
+        self.last_tree_atlas_mips.clear();
+        self.tree_atlas_texture = None;
+        self.tree_buffer.clear_all_trees();
         self.skybox_background_view = None;
         self.skybox_background_bind_group = None;
         self.restore_initial_skybox_textures()?;
@@ -4813,6 +5208,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         let road_meshes_started = std::time::Instant::now();
         self.update_road_meshes()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        self.update_tree_meshes();
         let road_meshes_elapsed = road_meshes_started.elapsed();
 
         let chunk_manager_started = std::time::Instant::now();
@@ -4869,6 +5265,9 @@ impl TerrainVisual for TerrainVisualImpl {
                 self.sync_global_water_plane(device.as_ref())?;
             }
         }
+
+        // C++ `W3DTreeBuffer::drawTrees` fills VB with doLighting on every draw.
+        self.update_tree_meshes();
 
         let view_proj = *projection_matrix * *view_matrix;
         let camera_inverse = view_matrix.inverse();
@@ -4968,20 +5367,16 @@ struct TerrainUniforms {
 unsafe impl bytemuck::Pod for TerrainUniforms {}
 unsafe impl bytemuck::Zeroable for TerrainUniforms {}
 
-/// Water vertex for rendering
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct WaterVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub tex_coords: [f32; 2],
-    pub flow_direction: [f32; 2],
-}
+/// Shipped wgpu water overlay vertex. `packed_c` is C++ `SEA_PATCH_VERTEX.c`.
+pub type WaterVertex = WaterGpuVertex;
 
-impl WaterVertex {
+/// Shipped wgpu overlay vertex (roads/bridges/scorch). Packed `diffuse` is C++ BGRA.
+pub type RoadVertex = OverlayGpuVertex;
+
+impl TreeGpuVertex {
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<WaterVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<TreeGpuVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -5002,59 +5397,12 @@ impl WaterVertex {
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
                     shader_location: 3,
-                    format: wgpu::VertexFormat::Float32x2,
+                    format: wgpu::VertexFormat::Uint32,
                 },
             ],
         }
     }
 }
-
-unsafe impl bytemuck::Pod for WaterVertex {}
-unsafe impl bytemuck::Zeroable for WaterVertex {}
-
-/// Road vertex for rendering
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct RoadVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub tex_coords: [f32; 2],
-    pub road_width: f32,
-}
-
-impl RoadVertex {
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<RoadVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32,
-                },
-            ],
-        }
-    }
-}
-
-unsafe impl bytemuck::Pod for RoadVertex {}
-unsafe impl bytemuck::Zeroable for RoadVertex {}
 
 #[cfg(test)]
 mod tests {

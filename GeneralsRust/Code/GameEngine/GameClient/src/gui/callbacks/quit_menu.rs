@@ -797,3 +797,111 @@ pub fn simulate_quit_menu_prepare_exit() -> bool {
     }
     simulate_quit_menu_confirm_exit()
 }
+
+/// Human click-through: OS LeftDown/Up on a retail `QuitMenu.wnd:*` gadget
+/// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
+fn drive_os_wnd_quit_named(name: &str, latch: impl FnOnce() -> bool) -> bool {
+    if !crate::gui::dispatch_os_click_named_window(name) {
+        return false;
+    }
+    latch()
+}
+
+pub fn drive_os_wnd_quit_menu_exit_like_cpp() -> bool {
+    drive_os_wnd_quit_named(
+        "QuitMenu.wnd:ButtonExit",
+        simulate_quit_menu_exit_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_quit_menu_return_like_cpp() -> bool {
+    drive_os_wnd_quit_named(
+        "QuitMenu.wnd:ButtonReturn",
+        simulate_quit_menu_return_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_quit_menu_options_like_cpp() -> bool {
+    drive_os_wnd_quit_named(
+        "QuitMenu.wnd:ButtonOptions",
+        simulate_quit_menu_options_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_quit_menu_restart_like_cpp() -> bool {
+    drive_os_wnd_quit_named(
+        "QuitMenu.wnd:ButtonRestart",
+        simulate_quit_menu_restart_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_quit_menu_save_load_like_cpp() -> bool {
+    drive_os_wnd_quit_named(
+        "QuitMenu.wnd:ButtonSaveLoad",
+        simulate_quit_menu_save_load_button_gadget_selected,
+    )
+}
+
+/// Human click-through: ButtonExit then confirm residual (C++ exit + yes).
+pub fn drive_os_wnd_quit_menu_prepare_exit_like_cpp() -> bool {
+    let clicked = drive_os_wnd_quit_menu_exit_like_cpp();
+    if !clicked {
+        return false;
+    }
+    simulate_quit_menu_confirm_exit()
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_quit_menu_exit_hits_button_then_latches() {
+        install_named_button("QuitMenu.wnd:ButtonExit", 10, 10);
+        assert!(
+            drive_os_wnd_quit_menu_exit_like_cpp(),
+            "OS WND click on ButtonExit must latch Exit residual"
+        );
+        assert_eq!(
+            residual_quit_menu_last_action(),
+            ResidualQuitMenuAction::Exit
+        );
+        assert!(!drive_os_wnd_quit_menu_return_like_cpp());
+    }
+
+    #[test]
+    fn os_wnd_quit_menu_return_and_options_hit_named_gadgets() {
+        install_named_button("QuitMenu.wnd:ButtonReturn", 10, 40);
+        install_named_button("QuitMenu.wnd:ButtonOptions", 10, 70);
+        assert!(drive_os_wnd_quit_menu_return_like_cpp());
+        assert_eq!(
+            residual_quit_menu_last_action(),
+            ResidualQuitMenuAction::Return
+        );
+        assert!(drive_os_wnd_quit_menu_options_like_cpp());
+        assert_eq!(
+            residual_quit_menu_last_action(),
+            ResidualQuitMenuAction::Options
+        );
+    }
+
+    #[test]
+    fn os_wnd_quit_menu_prepare_exit_hits_exit_then_confirms() {
+        install_named_button("QuitMenu.wnd:ButtonExit", 10, 100);
+        assert!(drive_os_wnd_quit_menu_prepare_exit_like_cpp());
+        assert_eq!(
+            residual_quit_menu_last_action(),
+            ResidualQuitMenuAction::ConfirmExit
+        );
+        assert!(!residual_quit_menu_is_visible());
+    }
+}

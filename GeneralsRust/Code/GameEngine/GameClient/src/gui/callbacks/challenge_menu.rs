@@ -5,7 +5,9 @@ use crate::game_text::GameText;
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
 use crate::gui::game_window::Image as WindowImage;
-use crate::gui::get_skirmish_setup;
+use crate::gui::challenge_game_info::{
+    clear_challenge_game_info, init_challenge_game_info, set_challenge_slot0_and_map,
+};
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
     get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
@@ -18,7 +20,6 @@ use game_engine::common::ini::{ensure_player_templates_loaded, get_global_data};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
-use game_network::{GameSlot, SlotState};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
@@ -62,6 +63,8 @@ struct ChallengeMenuState {
     has_played_intro_audio: bool,
     last_button_index: Option<usize>,
     last_hilited_index: Option<usize>,
+    /// C++ `isAutoSelecting` — ignore GBM_SELECTED echo from GadgetCheckBoxToggle.
+    is_auto_selecting: bool,
     last_selection_sound: u32,
     last_preview_sound: u32,
     bio_lines: [String; 4],
@@ -335,13 +338,7 @@ fn set_general_campaign(button_index: usize) -> Option<String> {
     };
 
     if !current_map.is_empty() {
-        let mut setup = get_skirmish_setup();
-        let info = setup.game_info_mut().game_info_mut();
-        let mut slot = GameSlot::new();
-        slot.set_state(SlotState::Player, player_display_name, 0);
-        slot.set_player_template(template_num);
-        info.set_slot(0, slot);
-        info.set_map(current_map.clone());
+        set_challenge_slot0_and_map(current_map.clone(), player_display_name, template_num);
     }
 
     Some(current_map)
@@ -411,14 +408,7 @@ fn start_challenge_game() {
 }
 
 pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    {
-        let mut setup = get_skirmish_setup();
-        let info = setup.game_info_mut().game_info_mut();
-        info.init();
-        info.clear_slot_list();
-        info.reset();
-        info.enter_game();
-    }
+    init_challenge_game_info();
 
     let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -558,6 +548,8 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     with_window_manager(|manager| manager.transition_reverse("ChallengeMenuFade"));
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
+    // C++ ChallengeMenuShutdown: delete TheChallengeGameInfo (fade path only).
+    clear_challenge_game_info();
     if let Some(audio) = TheAudio::get() {
         audio.remove_audio_event(state.last_selection_sound);
         audio.remove_audio_event(state.last_preview_sound);
@@ -607,16 +599,26 @@ pub fn challenge_menu_system(
         }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
+            // C++ ChallengeMenuSystem: if (isAutoSelecting) break;
+            if state.is_auto_selecting {
+                return WindowMsgHandled::Handled;
+            }
             if let Some(index) = find_general_button(&state, control_id) {
-                if let Some(previous_index) = state.last_button_index.filter(|prev| *prev != index)
-                {
-                    if let Some(button_id) = state.general_button_ids.get(previous_index) {
-                        set_general_button_checked(*button_id, false);
-                    }
+                let previous_id = state
+                    .last_button_index
+                    .filter(|prev| *prev != index)
+                    .and_then(|prev| state.general_button_ids.get(prev).copied());
+                let current_id = state.general_button_ids.get(index).copied();
+                state.is_auto_selecting = true;
+                drop(state);
+                if let Some(button_id) = previous_id {
+                    set_general_button_checked(button_id, false);
                 }
-                if let Some(button_id) = state.general_button_ids.get(index) {
-                    set_general_button_checked(*button_id, true);
+                if let Some(button_id) = current_id {
+                    set_general_button_checked(button_id, true);
                 }
+                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+                state.is_auto_selecting = false;
                 if let Some(audio) = TheAudio::get() {
                     audio.remove_audio_event(state.last_selection_sound);
                     audio.remove_audio_event(state.last_preview_sound);
@@ -739,8 +741,7 @@ pub fn residual_challenge_play_requested() -> bool {
 }
 
 /// Residual: fire retail `ChallengeMenu.wnd:ButtonPlay` via state latch.
-/// C++ path calls startChallengeGame (campaign map + difficulty). Host residual
-/// skips asset/campaign start and only records the play request honesty.
+/// C++ path calls startChallengeGame (campaign map + difficulty + MSG_NEW_GAME).
 pub fn simulate_challenge_menu_play_button_gadget_selected() -> bool {
     let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -756,6 +757,9 @@ pub fn simulate_challenge_menu_play_button_gadget_selected() -> bool {
     }
     RESIDUAL_CHALLENGE_SELECTED_INDEX.store(index, std::sync::atomic::Ordering::Relaxed);
     RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+    drop(state);
+    // C++ ChallengeMenu ButtonPlay → startChallengeGame (pendingFile + MSG_NEW_GAME).
+    start_challenge_game();
     true
 }
 
@@ -778,6 +782,27 @@ pub fn simulate_challenge_menu_prepare_start(index: usize) -> bool {
         return false;
     }
     simulate_challenge_menu_play_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `GeneralPositionN` then `ButtonPlay`
+/// (C++ WindowXlat hit → GBM_SELECTED → startChallengeGame). Not `simulate_*`.
+pub fn drive_os_wnd_challenge_start_like_cpp(index: usize) -> bool {
+    if index >= NUM_GENERALS {
+        return false;
+    }
+    let general_name = format!("ChallengeMenu.wnd:GeneralPosition{index}");
+    let clicked_general = crate::gui::dispatch_os_click_named_window(&general_name);
+    let clicked_play = crate::gui::dispatch_os_click_named_window("ChallengeMenu.wnd:ButtonPlay");
+    if !clicked_general && !clicked_play {
+        return false;
+    }
+    if clicked_general && !simulate_challenge_menu_select_general(index) {
+        return false;
+    }
+    if clicked_play || clicked_general {
+        return simulate_challenge_menu_play_button_gadget_selected();
+    }
+    residual_challenge_play_requested()
 }
 
 #[cfg(test)]
@@ -855,6 +880,109 @@ mod tests {
                 .map(|image| image.name.as_str()),
             Some("TestMedallionHilite")
         );
+    }
+
+    #[test]
+    fn challenge_menu_init_uses_challenge_game_info_not_skirmish() {
+        use crate::gui::challenge_game_info::{
+            challenge_game_info_exists, clear_challenge_game_info, with_challenge_game_info,
+        };
+        use crate::gui::get_skirmish_setup;
+
+        clear_challenge_game_info();
+        {
+            let mut setup = get_skirmish_setup();
+            let info = setup.game_info_mut().game_info_mut();
+            info.init();
+            info.set_map("maps\\skirmish_only.map".to_string());
+        }
+
+        let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
+        challenge_menu_init(&layout, None);
+
+        assert!(
+            challenge_game_info_exists(),
+            "C++ ChallengeMenuInit allocates TheChallengeGameInfo"
+        );
+        let challenge_map = with_challenge_game_info(|info| info.game_info().get_map().to_string())
+            .unwrap_or_default();
+        assert_ne!(
+            challenge_map, "maps\\skirmish_only.map",
+            "challenge GameInfo must not share skirmish map"
+        );
+        let skirmish_map = get_skirmish_setup().game_info().game_info().get_map().to_string();
+        assert_eq!(
+            skirmish_map, "maps\\skirmish_only.map",
+            "TheSkirmishGameInfo must stay untouched by ChallengeMenuInit"
+        );
+
+        set_challenge_slot0_and_map("maps\\GC_ChemGeneral.map".into(), "Test".into(), 3);
+        let after = with_challenge_game_info(|info| {
+            (
+                info.game_info().get_map().to_string(),
+                info.game_info()
+                    .get_slot(0)
+                    .map(|s| s.get_player_template())
+                    .unwrap_or(-1),
+            )
+        })
+        .unwrap();
+        assert_eq!(after.0, "maps\\GC_ChemGeneral.map");
+        assert_eq!(after.1, 3);
+        let skirmish_map = get_skirmish_setup().game_info().game_info().get_map().to_string();
+        assert_eq!(skirmish_map, "maps\\skirmish_only.map");
+
+        let layout = WindowLayout::new("Menus/ChallengeMenu.wnd".to_string());
+        challenge_menu_shutdown(&layout, Some(&false));
+        assert!(
+            !challenge_game_info_exists(),
+            "C++ ChallengeMenuShutdown deletes TheChallengeGameInfo on fade path"
+        );
+    }
+
+    #[test]
+    fn simulate_challenge_play_calls_start_challenge_game_like_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/gui/callbacks/challenge_menu.rs"
+        ));
+        let play = src
+            .split("pub fn simulate_challenge_menu_play_button_gadget_selected")
+            .nth(1)
+            .expect("play helper");
+        let play = play
+            .split("pub fn simulate_challenge_menu_back_button_gadget_selected")
+            .next()
+            .expect("play body");
+        assert!(
+            play.contains("start_challenge_game()"),
+            "C++ ButtonPlay calls startChallengeGame (pendingFile + MSG_NEW_GAME)"
+        );
+    }
+
+    #[test]
+    fn os_wnd_challenge_start_hits_named_gadgets_then_start_challenge_game() {
+        with_window_manager(|manager| {
+            let general = manager
+                .create_window(None, 10, 10, 40, 40)
+                .expect("general gadget");
+            general
+                .borrow_mut()
+                .set_name("ChallengeMenu.wnd:GeneralPosition0");
+            let _ = general.borrow_mut().hide(false);
+            let play = manager
+                .create_window(None, 60, 10, 40, 40)
+                .expect("play gadget");
+            play.borrow_mut().set_name("ChallengeMenu.wnd:ButtonPlay");
+            let _ = play.borrow_mut().hide(false);
+        });
+        assert!(
+            drive_os_wnd_challenge_start_like_cpp(0),
+            "OS WND clicks on ChallengeMenu gadgets must startChallengeGame"
+        );
+        assert!(residual_challenge_play_requested());
+        assert_eq!(residual_challenge_selected_general(), Some(0));
+        assert!(!drive_os_wnd_challenge_start_like_cpp(99));
     }
 
     #[test]

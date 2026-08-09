@@ -14,17 +14,12 @@ use gpui::{
     Window, WindowBounds, WindowOptions,
 };
 use image::{DynamicImage, RgbaImage};
-use image_compat::{
-    DynamicImage as CompatDynamicImage, ImageBuffer as CompatImageBuffer, Rgba as CompatRgba,
-};
+use image_compat::{ImageBuffer as CompatImageBuffer, Rgba as CompatRgba};
 use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use texture_packer::exporter::ImageExporter;
-use texture_packer::{Frame as PackedFrame, TexturePacker, TexturePackerConfig};
 use walkdir::WalkDir;
 
 mod atlas;
@@ -78,10 +73,19 @@ struct SourceImage {
     color_depth: u8,
 }
 
+struct PackedSpriteFrame {
+    key: String,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    rotated: bool,
+}
+
 struct PackedPage {
     id: u32,
     atlas_image: DynamicImage,
-    frames: Vec<PackedFrame>,
+    frames: Vec<PackedSpriteFrame>,
     atlas_width: u32,
     atlas_height: u32,
 }
@@ -419,87 +423,56 @@ impl ImagePackerGpuiApp {
         images: Vec<SourceImage>,
         target_size: u32,
     ) -> Result<Vec<PackedPage>> {
-        let mut open_pages = Vec::new();
-
-        let border_padding = if self.gap_gutter { self.gutter_size } else { 0 };
-        let texture_padding = if self.gap_gutter { self.gutter_size } else { 0 };
-
-        for image in images {
-            if open_pages.is_empty() {
-                let mut page_packer = TexturePacker::new_skyline(TexturePackerConfig {
-                    max_width: target_size,
-                    max_height: target_size,
-                    allow_rotation: true,
-                    border_padding,
-                    texture_padding,
-                    trim: false,
-                    texture_outlines: false,
-                });
-                page_packer.pack_own(image.key.clone(), image.rgba.clone());
-                if page_packer.get_frames().is_empty() {
-                    anyhow::bail!(
-                        "unable to fit '{}' ({}, {}bpp) in a fresh page",
-                        image.path.display(),
-                        image.width,
-                        image.color_depth
-                    );
-                }
-                open_pages.push((1_u32, page_packer));
-                continue;
-            }
-
-            let mut placed = false;
-            for (_, packer) in &mut open_pages {
-                let before = packer.get_frames().len();
-                packer.pack_own(image.key.clone(), image.rgba.clone());
-                if packer.get_frames().len() > before {
-                    placed = true;
-                    break;
-                }
-            }
-
-            if placed {
-                continue;
-            }
-
-            let page_id = open_pages.len() as u32 + 1;
-            let mut page_packer = TexturePacker::new_skyline(TexturePackerConfig {
-                max_width: target_size,
-                max_height: target_size,
-                allow_rotation: true,
-                border_padding,
-                texture_padding,
-                trim: false,
-                texture_outlines: false,
-            });
-            page_packer.pack_own(image.key.clone(), image.rgba.clone());
-            if page_packer.get_frames().is_empty() {
-                anyhow::bail!(
-                    "unable to fit '{}' ({}, {}bpp) in a fresh page",
-                    image.path.display(),
+        let named: Vec<(String, u32, u32, Vec<u8>)> = images
+            .iter()
+            .map(|image| {
+                (
+                    image.key.clone(),
                     image.width,
-                    image.color_depth
-                );
-            }
-            open_pages.push((page_id, page_packer));
+                    image.height,
+                    image.rgba.clone().into_raw(),
+                )
+            })
+            .collect();
+        let packed = texture_page::pack_named_images_to_pages(
+            &named,
+            target_size,
+            self.gap_extend_rgb,
+        );
+        if packed.is_empty() && !images.is_empty() {
+            anyhow::bail!(
+                "unable to fit '{}' ({}, {}bpp) in a TexturePage",
+                images[0].path.display(),
+                images[0].width,
+                images[0].color_depth
+            );
         }
-
-        let mut pages = Vec::with_capacity(open_pages.len());
-        for (id, packer) in open_pages {
-            let atlas_compat = ImageExporter::export(&packer)
-                .map_err(|err| anyhow::anyhow!("failed exporting atlas page {}: {}", id, err))?;
-            let atlas_image = compat_dynamic_to_modern(atlas_compat)?;
-            let mut frames: Vec<PackedFrame> = packer.get_frames().values().cloned().collect();
+        let mut pages = Vec::new();
+        for page in packed {
+            let atlas = RgbaImage::from_raw(page.width, page.height, page.rgba).ok_or_else(|| {
+                anyhow::anyhow!("failed building atlas RGBA for page {}", page.id)
+            })?;
+            let mut frames: Vec<PackedSpriteFrame> = page
+                .sprites
+                .into_iter()
+                .map(|s| PackedSpriteFrame {
+                    key: s.key,
+                    x: s.left,
+                    y: s.top,
+                    w: s.right.saturating_sub(s.left),
+                    h: s.bottom.saturating_sub(s.top),
+                    rotated: s.rotated,
+                })
+                .collect();
             frames.sort_by(|a, b| a.key.cmp(&b.key));
             pages.push(PackedPage {
-                id,
-                atlas_width: atlas_image.width(),
-                atlas_height: atlas_image.height(),
-                atlas_image,
+                id: page.id,
+                atlas_width: page.width,
+                atlas_height: page.height,
+                atlas_image: DynamicImage::ImageRgba8(atlas),
                 frames,
             });
         }
-
         self.push_log(format!("Packed into {} texture page(s)", pages.len()));
         Ok(pages)
     }
@@ -542,40 +515,28 @@ impl ImagePackerGpuiApp {
 
     fn write_ini_file(&mut self, pages: &[PackedPage], output_dir: &Path) -> Result<()> {
         let ini_path = output_dir.join(format!("{}.INI", self.output_file));
-        let mut ini = String::new();
-        ini.push_str("; ------------------------------------------------------------\n");
-        ini.push_str("; Do NOT edit by hand, ImagePacker GPUI auto generated INI file\n");
-        ini.push_str("; ------------------------------------------------------------\n\n");
-
-        for page in pages {
-            for sprite in &page.frames {
-                let status = if sprite.rotated {
-                    "ROTATED_90_CLOCKWISE"
-                } else {
-                    "NONE"
-                };
-                let texture_name = format!(
-                    "{}_{:03}.{}",
-                    self.output_file,
-                    page.id,
-                    self.output_format.to_extension()
-                );
-                let right = sprite.frame.x + sprite.frame.w;
-                let bottom = sprite.frame.y + sprite.frame.h;
-                let _ = writeln!(ini, "MappedImage {}", sprite.key);
-                let _ = writeln!(ini, "  Texture = {}", texture_name);
-                let _ = writeln!(ini, "  TextureWidth = {}", page.atlas_width);
-                let _ = writeln!(ini, "  TextureHeight = {}", page.atlas_height);
-                let _ = writeln!(
-                    ini,
-                    "  Coords = Left:{} Top:{} Right:{} Bottom:{}",
-                    sprite.frame.x, sprite.frame.y, right, bottom
-                );
-                let _ = writeln!(ini, "  Status = {}", status);
-                ini.push_str("End\n\n");
-            }
-        }
-
+        let ini_pages: Vec<texture_page::MappedImageIniPage> = pages
+            .iter()
+            .map(|page| texture_page::MappedImageIniPage {
+                id: page.id,
+                width: page.atlas_width,
+                height: page.atlas_height,
+                status: texture_page::PageStatus::READY,
+                images: page
+                    .frames
+                    .iter()
+                    .map(|sprite| texture_page::MappedImageIniEntry {
+                        name: sprite.key.clone(),
+                        left: sprite.x,
+                        top: sprite.y,
+                        right: sprite.x + sprite.w,
+                        bottom: sprite.y + sprite.h,
+                        rotated_90_cw: sprite.rotated,
+                    })
+                    .collect(),
+            })
+            .collect();
+        let ini = texture_page::generate_mapped_image_ini(&self.output_file, &ini_pages);
         fs::write(&ini_path, ini)
             .with_context(|| format!("failed writing '{}'", ini_path.display()))?;
         self.push_log(format!("Wrote {}", ini_path.display()));
@@ -993,15 +954,6 @@ fn modern_rgba_to_compat(image: RgbaImage) -> Result<CompatImageBuffer<CompatRgb
     CompatImageBuffer::from_raw(width, height, image.into_raw()).ok_or_else(|| {
         anyhow::anyhow!("failed converting RGBA image to texture_packer-compatible buffer")
     })
-}
-
-fn compat_dynamic_to_modern(image: CompatDynamicImage) -> Result<DynamicImage> {
-    let rgba = image.to_rgba();
-    let (width, height) = rgba.dimensions();
-    let modern = RgbaImage::from_raw(width, height, rgba.into_vec()).ok_or_else(|| {
-        anyhow::anyhow!("failed converting packed atlas image to modern image format")
-    })?;
-    Ok(DynamicImage::ImageRgba8(modern))
 }
 
 fn sanitize_output_name(input: &str) -> String {

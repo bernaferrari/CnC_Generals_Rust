@@ -15,11 +15,15 @@ use gamelogic::common::{Coord3D, FXListId, Matrix3D};
 use gamelogic::object::Object;
 
 use crate::display::cinematic_camera::CameraShakeSystem;
-use crate::effects::decals::{DecalManager, DecalSettings, DecalType};
+use crate::effects::decals::{DecalManager, DecalSettings};
 use crate::effects::fxlist_integration::ParticleSystemFXNugget;
 use crate::effects::particle_manager::{get_particle_system_manager_mut, GameClientRandomVariable};
 use crate::effects::ray_effects::{RayEffectConfig, RayEffectManager};
+use crate::display::view::{with_tactical_view, CameraShakeType as ViewShakeKind, Point3 as ViewPoint3};
+use crate::effects::ray_effect_system::create_ray_effect_by_template;
+use crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp;
 use crate::message_stream::game_message::Coord3D as MessageCoord3D;
+use crate::terrain::scorch_mesh::{add_terrain_scorch, resolve_scorch_type};
 
 #[derive(Debug)]
 struct FXListManagerBridge;
@@ -145,6 +149,242 @@ static FX_AUDIO: OnceLock<RwLock<Option<AudioHook>>> = OnceLock::new();
 static FX_RAY_MANAGER: OnceLock<RwLock<Option<Arc<Mutex<RayEffectManager>>>>> = OnceLock::new();
 static FX_DECAL_MANAGER: OnceLock<RwLock<Option<Arc<Mutex<DecalManager>>>>> = OnceLock::new();
 static FX_SHAKE_SYSTEM: OnceLock<RwLock<Option<Arc<Mutex<CameraShakeSystem>>>>> = OnceLock::new();
+static DISPLAY_LIGHT_PULSES: OnceLock<Mutex<Vec<DisplayLightPulse>>> = OnceLock::new();
+type LightPulseHook = Box<dyn FnMut(&DisplayLightPulse) + Send + Sync>;
+static LIGHT_PULSE_HOOK: OnceLock<RwLock<Option<LightPulseHook>>> = OnceLock::new();
+static SCENE_DYNAMIC_LIGHTS: OnceLock<Mutex<Vec<DisplayDynamicLight>>> = OnceLock::new();
+
+/// C++ `TheDisplay->createLightPulse` request (W3DDisplay.cpp).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DisplayLightPulse {
+    pub pos: [f32; 3],
+    pub color: [f32; 3],
+    pub inner_radius: f32,
+    pub outer_radius: f32,
+    pub increase_frames: u32,
+    pub decay_frames: u32,
+}
+
+/// Scene light created by `W3DDisplay::createLightPulse` (far atten + fade).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DisplayDynamicLight {
+    pub pos: [f32; 3],
+    pub color: [f32; 3],
+    pub far_atten_start: f32,
+    pub far_atten_end: f32,
+    pub increase_frames: u32,
+    pub decay_frames: u32,
+    pub cur_increase_frames: u32,
+    pub cur_decay_frames: u32,
+    pub target_color: [f32; 3],
+    pub target_far_atten_end: f32,
+    pub decay_range: bool,
+    pub decay_color: bool,
+    pub far_attenuation: bool,
+    pub enabled: bool,
+}
+
+/// C++ `PATHFIND_CELL_SIZE_F` (pathfind cell = 10 world units).
+const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+
+/// C++ `W3DDisplay::createLightPulse` size cull:
+/// `innerRadius + attenuationWidth < 2 * PATHFIND_CELL_SIZE_F + 1`.
+pub fn light_pulse_too_small(inner_radius: f32, outer_radius: f32) -> bool {
+    inner_radius + outer_radius < 2.0 * PATHFIND_CELL_SIZE_F + 1.0
+}
+
+/// C++ `TheDisplay->createLightPulse(pos, color, innerRadius, outerRadius, increase, decay)`.
+/// Records the pulse and notifies an optional display hook (W3D scene).
+pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
+    if light_pulse_too_small(pulse.inner_radius, pulse.outer_radius) {
+        return false;
+    }
+    DISPLAY_LIGHT_PULSES
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(pulse.clone());
+    // C++ W3DDisplay::createLightPulse allocates a W3DDynamicLight:
+    // Set_Far_Attenuation_Range(inner, inner+atten), setFrameFade, setDecayRange/Color,
+    // FAR_ATTENUATION flag.
+    SCENE_DYNAMIC_LIGHTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(DisplayDynamicLight {
+            pos: pulse.pos,
+            color: pulse.color,
+            far_atten_start: pulse.inner_radius,
+            far_atten_end: pulse.inner_radius + pulse.outer_radius,
+            increase_frames: pulse.increase_frames,
+            decay_frames: pulse.decay_frames,
+            cur_increase_frames: pulse.increase_frames,
+            cur_decay_frames: pulse.decay_frames,
+            target_color: pulse.color,
+            target_far_atten_end: pulse.inner_radius + pulse.outer_radius,
+            decay_range: true,
+            decay_color: true,
+            far_attenuation: true,
+            enabled: true,
+        });
+    if let Some(hook_slot) = LIGHT_PULSE_HOOK.get() {
+        if let Ok(mut guard) = hook_slot.write() {
+            if let Some(hook) = guard.as_mut() {
+                hook(&pulse);
+            }
+        }
+    }
+    true
+}
+
+pub fn scene_dynamic_lights() -> Vec<DisplayDynamicLight> {
+    SCENE_DYNAMIC_LIGHTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// C++ `Get_Far_Attenuation_Range(midRange, range)` then
+/// `factor = 1 - (dist - midRange) / (range - midRange)` (`HeightMap.cpp`).
+/// `None` means the light is skipped (`dist >= range` or `midRange < 0.1`).
+pub fn far_atten_factor(dist: f32, mid_range: f32, range: f32) -> Option<f32> {
+    if dist >= range {
+        return None;
+    }
+    if mid_range < 0.1 {
+        return None;
+    }
+    let denom = range - mid_range;
+    if denom <= 0.0 {
+        return Some(1.0);
+    }
+    Some((1.0 - (dist - mid_range) / denom).clamp(0.0, 1.0))
+}
+
+/// C++ `HeightMapRenderObjClass::doTheDynamicLight` for POINT/SPOT lights
+/// sourced from `createLightPulse` scene lights. Packed diffuse is BGRA
+/// (`B | G<<8 | R<<16 | A<<24`), `Float_To_Int_Chop` toward zero.
+pub fn do_the_dynamic_light(
+    vertex_xyz: [f32; 3],
+    vertex_normal: [f32; 3],
+    vertex_diffuse: u32,
+    lights: &[DisplayDynamicLight],
+) -> u32 {
+    const OO255: f32 = 1.0 / 255.0;
+    let mut shade_r = (((vertex_diffuse >> 16) & 0xFF) as f32) * OO255;
+    let mut shade_g = (((vertex_diffuse >> 8) & 0xFF) as f32) * OO255;
+    let mut shade_b = ((vertex_diffuse & 0xFF) as f32) * OO255;
+    let alpha = ((vertex_diffuse >> 24) & 0xFF) as u32;
+
+    for light in lights {
+        if !light.enabled || !light.far_attenuation {
+            continue;
+        }
+        let dx = vertex_xyz[0] - light.pos[0];
+        let dy = vertex_xyz[1] - light.pos[1];
+        let dz = vertex_xyz[2] - light.pos[2];
+        let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+        let Some(factor) = far_atten_factor(dist, light.far_atten_start, light.far_atten_end)
+        else {
+            continue;
+        };
+        if dist <= 0.0 {
+            continue;
+        }
+        let inv = 1.0 / dist;
+        let light_ray = [-dx * inv, -dy * inv, -dz * inv];
+        let mut shade = light_ray[0] * vertex_normal[0]
+            + light_ray[1] * vertex_normal[1]
+            + light_ray[2] * vertex_normal[2];
+        shade *= factor;
+        shade = shade.clamp(0.0, 1.0);
+        shade_r += shade * light.color[0];
+        shade_g += shade * light.color[1];
+        shade_b += shade * light.color[2];
+        shade_r += factor * light.color[0];
+        shade_g += factor * light.color[1];
+        shade_b += factor * light.color[2];
+    }
+
+    shade_r = shade_r.clamp(0.0, 1.0) * 255.0;
+    shade_g = shade_g.clamp(0.0, 1.0) * 255.0;
+    shade_b = shade_b.clamp(0.0, 1.0) * 255.0;
+    (shade_b as u32) | ((shade_g as u32) << 8) | ((shade_r as u32) << 16) | (alpha << 24)
+}
+
+/// Light a vertex from the live `createLightPulse` scene list.
+pub fn do_the_dynamic_light_from_scene(
+    vertex_xyz: [f32; 3],
+    vertex_normal: [f32; 3],
+    vertex_diffuse: u32,
+) -> u32 {
+    let lights = scene_dynamic_lights();
+    do_the_dynamic_light(vertex_xyz, vertex_normal, vertex_diffuse, &lights)
+}
+
+/// C++ `W3DDynamicLight::On_Frame_Update` fade (increase then decay range/color).
+pub fn tick_scene_dynamic_lights() {
+    let mut lights = SCENE_DYNAMIC_LIGHTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    for light in lights.iter_mut() {
+        if !light.enabled {
+            continue;
+        }
+        let factor = if light.cur_increase_frames > 0 && light.increase_frames > 0 {
+            light.cur_increase_frames -= 1;
+            (light.increase_frames - light.cur_increase_frames) as f32
+                / light.increase_frames as f32
+        } else if light.decay_frames == 0 {
+            1.0
+        } else {
+            light.cur_decay_frames = light.cur_decay_frames.saturating_sub(1);
+            if light.cur_decay_frames == 0 {
+                light.enabled = false;
+                continue;
+            }
+            light.cur_decay_frames as f32 / light.decay_frames as f32
+        };
+        if light.decay_range {
+            light.far_atten_end = (factor * light.target_far_atten_end).max(light.far_atten_start);
+        }
+        if light.decay_color {
+            light.color = [
+                light.target_color[0] * factor,
+                light.target_color[1] * factor,
+                light.target_color[2] * factor,
+            ];
+        }
+    }
+    lights.retain(|light| light.enabled);
+}
+
+pub fn clear_scene_dynamic_lights() {
+    SCENE_DYNAMIC_LIGHTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+pub fn drain_display_light_pulses() -> Vec<DisplayLightPulse> {
+    DISPLAY_LIGHT_PULSES
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .drain(..)
+        .collect()
+}
+
+pub fn register_light_pulse_hook(hook: LightPulseHook) {
+    LIGHT_PULSE_HOOK
+        .get_or_init(|| RwLock::new(None))
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .replace(hook);
+}
 
 pub fn register_fx_audio(mut hook: AudioHook) {
     FX_AUDIO
@@ -447,7 +687,7 @@ fn parse_tracer_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
         match key.to_ascii_uppercase().as_str() {
             "TRACERNAME" => nugget.tracer_name = INI::parse_ascii_string(value)?,
             "BONENAME" => nugget.bone_name = INI::parse_ascii_string(value)?,
-            "SPEED" => nugget.speed = INI::parse_real(value)?,
+            "SPEED" => nugget.speed = INI::parse_velocity_real(value)?,
             "DECAYAT" => nugget.decay_at = INI::parse_real(value)?,
             "LENGTH" => nugget.length = INI::parse_real(value)?,
             "WIDTH" => nugget.width = INI::parse_real(value)?,
@@ -783,23 +1023,18 @@ impl FXNugget for TracerFXNugget {
         } else {
             self.speed
         };
-        let dist = (*secondary - *primary).length() - self.length;
-        let frames = if dist >= 0.0 && speed >= 0.0 {
-            dist / speed
-        } else {
-            1.0
-        };
-        let lifetime_secs = (frames * self.decay_at) / 30.0;
-
-        with_ray_manager(|manager| {
-            let mut config = RayEffectConfig::laser();
-            config.start = nalgebra::Point3::new(primary.x, primary.y, primary.z);
-            config.end = nalgebra::Point3::new(secondary.x, secondary.y, secondary.z);
-            config.width = self.width;
-            config.color = [self.color.x, self.color.y, self.color.z, 1.0];
-            config.lifetime = Some(std::time::Duration::from_secs_f32(lifetime_secs.max(0.05)));
-            manager.spawn(config);
-        });
+        let current_frame = gamelogic::helpers::TheGameLogic::get_frame();
+        let _ = spawn_tracer_drawable_like_cpp(
+            &self.tracer_name,
+            [primary.x, primary.y, primary.z],
+            [secondary.x, secondary.y, secondary.z],
+            speed,
+            self.length,
+            self.width,
+            [self.color.x, self.color.y, self.color.z],
+            self.decay_at,
+            current_frame,
+        );
     }
 }
 
@@ -834,6 +1069,11 @@ impl FXNugget for RayEffectFXNugget {
         };
         let source = *primary + self.primary_offset;
         let target = *secondary + self.secondary_offset;
+        let _ = create_ray_effect_by_template(
+            [source.x, source.y, source.z],
+            [target.x, target.y, target.z],
+            &self.template_name,
+        );
 
         with_ray_manager(|manager| {
             let mut config = match self.template_name.to_ascii_lowercase().as_str() {
@@ -870,6 +1110,21 @@ impl Default for LightPulseFXNugget {
     }
 }
 
+impl LightPulseFXNugget {
+    /// C++ LightPulseFXNugget::doFXPos / doFXObj → TheDisplay->createLightPulse.
+    /// Inner radius is always 1 (FXList.cpp:312/324).
+    fn emit_pulse(&self, pos: &Coord3D, outer_radius: f32) {
+        let _ = create_display_light_pulse(DisplayLightPulse {
+            pos: [pos.x, pos.y, pos.z],
+            color: [self.color.x, self.color.y, self.color.z],
+            inner_radius: 1.0,
+            outer_radius,
+            increase_frames: self.increase_frames,
+            decay_frames: self.decrease_frames,
+        });
+    }
+}
+
 impl FXNugget for LightPulseFXNugget {
     fn do_fx_pos(
         &self,
@@ -882,17 +1137,19 @@ impl FXNugget for LightPulseFXNugget {
         let Some(primary) = primary else {
             return;
         };
-        with_decal_manager(|manager| {
-            let mut settings = DecalSettings::new(
-                DecalType::Generic,
-                nalgebra::Point3::new(primary.x, primary.y, primary.z),
-            );
-            settings.size = self.radius.max(0.1);
-            settings.color = [self.color.x, self.color.y, self.color.z, 1.0];
-            settings.lifetime = Some(((self.increase_frames + self.decrease_frames) as f32) / 30.0);
-            settings.fade_time = (self.decrease_frames as f32) / 30.0;
-            manager.create_decal(settings);
-        });
+        self.emit_pulse(primary, self.radius);
+    }
+
+    fn do_fx_obj(&self, primary: Option<&Object>, _secondary: Option<&Object>) {
+        let Some(primary) = primary else {
+            return;
+        };
+        let mut radius = self.radius;
+        if self.bounding_circle_pct > 0.0 {
+            radius = primary.get_geometry_info().get_bounding_circle_radius()
+                * self.bounding_circle_pct;
+        }
+        self.emit_pulse(primary.get_position(), radius);
     }
 }
 
@@ -921,16 +1178,15 @@ impl CameraShakeType {
         }
     }
 
-    fn shake_params(self) -> (f32, f32, f32) {
-        let (radius, duration, power) = match self {
-            CameraShakeType::Subtle => (50.0, 0.3, 0.5),
-            CameraShakeType::Normal => (100.0, 0.5, 1.0),
-            CameraShakeType::Strong => (200.0, 0.8, 2.0),
-            CameraShakeType::Severe => (400.0, 1.2, 4.0),
-            CameraShakeType::CineExtreme => (600.0, 1.5, 6.0),
-            CameraShakeType::CineInsane => (800.0, 2.0, 8.0),
-        };
-        (radius, duration, power)
+    fn to_view_shake(self) -> ViewShakeKind {
+        match self {
+            CameraShakeType::Subtle => ViewShakeKind::Subtle,
+            CameraShakeType::Normal => ViewShakeKind::Normal,
+            CameraShakeType::Strong => ViewShakeKind::Strong,
+            CameraShakeType::Severe => ViewShakeKind::Severe,
+            CameraShakeType::CineExtreme => ViewShakeKind::CineExtreme,
+            CameraShakeType::CineInsane => ViewShakeKind::CineInsane,
+        }
     }
 }
 
@@ -959,9 +1215,12 @@ impl FXNugget for ViewShakeFXNugget {
         let Some(primary) = primary else {
             return;
         };
-        let (radius, duration, power) = self.shake_type.shake_params();
-        with_shake_system(|system| {
-            system.add_camera_shake(*primary, radius, duration, power);
+        // C++ ViewShakeFXNugget::doFXPos → TheTacticalView->shake(primary, m_shake)
+        with_tactical_view(|view| {
+            view.shake(
+                &ViewPoint3::new(primary.x, primary.y, primary.z),
+                self.shake_type.to_view_shake(),
+            );
         });
     }
 }
@@ -1019,22 +1278,16 @@ impl FXNugget for TerrainScorchFXNugget {
         let Some(primary) = primary else {
             return;
         };
-        let scorch_idx = if self.scorch < 0 {
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-            rng.gen_range(0..4)
-        } else {
-            self.scorch
-        };
+        let scorch_idx = resolve_scorch_type(self.scorch);
+        let _ = add_terrain_scorch(
+            [primary.x, primary.y, primary.z],
+            self.radius,
+            scorch_idx,
+        );
         with_decal_manager(|manager| {
-            let size = self.radius.max(0.1);
-            let settings = DecalSettings::new(
-                if scorch_idx == 4 {
-                    DecalType::Scorch
-                } else {
-                    DecalType::Scorch
-                },
+            let settings = DecalSettings::scorch_mark(
                 nalgebra::Point3::new(primary.x, primary.y, primary.z),
+                self.radius.max(0.1),
             );
             manager.create_decal(settings);
         });
@@ -1193,6 +1446,255 @@ mod tests {
         let nugget = FXListAtBonePosFXNugget::default();
 
         assert!(nugget.bone_query_names().is_empty());
+    }
+
+    #[test]
+    fn light_pulse_fx_nugget_creates_display_light_not_decal() {
+        let _ = drain_display_light_pulses();
+        let nugget = LightPulseFXNugget {
+            color: Vec3::new(1.0, 0.25, 0.0),
+            radius: 50.0,
+            bounding_circle_pct: 0.0,
+            increase_frames: 3,
+            decrease_frames: 9,
+        };
+        let pos = Coord3D {
+            x: 12.0,
+            y: 34.0,
+            z: 5.0,
+        };
+        clear_scene_dynamic_lights();
+        nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        let pulses = drain_display_light_pulses();
+        assert_eq!(pulses.len(), 1, "FXList LightPulse must call TheDisplay createLightPulse");
+        let lights = scene_dynamic_lights();
+        assert_eq!(lights.len(), 1, "createLightPulse must allocate a scene dynamic light");
+        assert_eq!(lights[0].far_atten_start, 1.0);
+        assert_eq!(lights[0].far_atten_end, 51.0);
+        assert!(lights[0].far_attenuation);
+        assert!(lights[0].decay_range && lights[0].decay_color);
+        assert_eq!(pulses[0].pos, [12.0, 34.0, 5.0]);
+        assert_eq!(pulses[0].color, [1.0, 0.25, 0.0]);
+        assert_eq!(pulses[0].inner_radius, 1.0, "C++ always passes innerRadius=1");
+        assert_eq!(pulses[0].outer_radius, 50.0);
+        assert_eq!(pulses[0].increase_frames, 3);
+        assert_eq!(pulses[0].decay_frames, 9);
+        assert!(!light_pulse_too_small(
+            pulses[0].inner_radius,
+            pulses[0].outer_radius
+        ));
+    }
+
+    #[test]
+    fn scene_dynamic_lights_fade_like_cpp_w3d_dynamic_light() {
+        let _ = drain_display_light_pulses();
+        clear_scene_dynamic_lights();
+        assert!(create_display_light_pulse(DisplayLightPulse {
+            pos: [1.0, 2.0, 3.0],
+            color: [1.0, 0.5, 0.0],
+            inner_radius: 1.0,
+            outer_radius: 50.0,
+            increase_frames: 2,
+            decay_frames: 3,
+        }));
+        tick_scene_dynamic_lights();
+        let lights = scene_dynamic_lights();
+        assert_eq!(lights.len(), 1);
+        assert!((lights[0].color[0] - 0.5).abs() < 1.0e-5);
+        assert!((lights[0].far_atten_end - 25.5).abs() < 1.0e-4);
+        tick_scene_dynamic_lights();
+        let lights = scene_dynamic_lights();
+        assert!((lights[0].color[0] - 1.0).abs() < 1.0e-5);
+        assert!((lights[0].far_atten_end - 51.0).abs() < 1.0e-4);
+        tick_scene_dynamic_lights();
+        let lights = scene_dynamic_lights();
+        assert!((lights[0].color[0] - (2.0 / 3.0)).abs() < 1.0e-5);
+        tick_scene_dynamic_lights();
+        let lights = scene_dynamic_lights();
+        assert!((lights[0].color[0] - (1.0 / 3.0)).abs() < 1.0e-5);
+        tick_scene_dynamic_lights();
+        assert!(
+            scene_dynamic_lights().is_empty(),
+            "C++ disables the light when decay count hits 0"
+        );
+    }
+
+    #[test]
+    fn do_the_dynamic_light_matches_cpp_heightmap_far_atten() {
+        assert!(far_atten_factor(40.0, 10.0, 40.0).is_none());
+        assert!(far_atten_factor(5.0, 0.05, 40.0).is_none());
+        assert!((far_atten_factor(10.0, 10.0, 40.0).unwrap() - 1.0).abs() < 1e-5);
+        assert!((far_atten_factor(20.0, 10.0, 40.0).unwrap() - (2.0 / 3.0)).abs() < 1e-5);
+        assert!((far_atten_factor(5.0, 10.0, 40.0).unwrap() - 1.0).abs() < 1e-5);
+
+        let _ = drain_display_light_pulses();
+        clear_scene_dynamic_lights();
+        assert!(create_display_light_pulse(DisplayLightPulse {
+            pos: [0.0, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+            inner_radius: 10.0,
+            outer_radius: 30.0,
+            increase_frames: 0,
+            decay_frames: 0,
+        }));
+        let lights = scene_dynamic_lights();
+        assert_eq!(lights[0].far_atten_start, 10.0);
+        assert_eq!(lights[0].far_atten_end, 40.0);
+
+        let factor = far_atten_factor(20.0, 10.0, 40.0).expect("mid-range sample");
+        let ambient_byte = (factor * 255.0) as u32;
+        let expected_ambient = 0xFF00_0000 | (ambient_byte << 16);
+
+        let facing = do_the_dynamic_light(
+            [0.0, 0.0, 20.0],
+            [0.0, 0.0, -1.0],
+            0xFF00_0000,
+            &lights,
+        );
+        assert_eq!(facing, 0xFFFF_0000, "N·L + ambient both add factor → clamp 1.0 red");
+
+        let ambient_only = do_the_dynamic_light(
+            [0.0, 0.0, 20.0],
+            [0.0, 0.0, 1.0],
+            0xFF00_0000,
+            &lights,
+        );
+        assert_eq!(
+            ambient_only, expected_ambient,
+            "backface keeps factor*ambient only (chop {ambient_byte})"
+        );
+
+        let out_of_range = do_the_dynamic_light(
+            [0.0, 0.0, 50.0],
+            [0.0, 0.0, -1.0],
+            0xFF00_0000,
+            &lights,
+        );
+        assert_eq!(out_of_range, 0xFF00_0000);
+
+        let from_scene = do_the_dynamic_light_from_scene([0.0, 0.0, 20.0], [0.0, 0.0, 1.0], 0xFF00_0000);
+        assert_eq!(from_scene, ambient_only);
+        clear_scene_dynamic_lights();
+    }
+
+    #[test]
+    fn light_pulse_fx_nugget_culls_sub_cell_radius_like_cpp() {
+        let _ = drain_display_light_pulses();
+        let nugget = LightPulseFXNugget {
+            color: Vec3::ONE,
+            radius: 5.0,
+            bounding_circle_pct: 0.0,
+            increase_frames: 1,
+            decrease_frames: 1,
+        };
+        let pos = Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        assert!(
+            drain_display_light_pulses().is_empty(),
+            "C++ skips pulses with inner+outer < 2*PATHFIND_CELL_SIZE_F+1"
+        );
+        assert!(light_pulse_too_small(1.0, 5.0));
+        assert!(!light_pulse_too_small(1.0, 20.0));
+    }
+
+    #[test]
+    fn tracer_fx_nugget_do_fx_pos_calls_create_tracer_fx() {
+        use crate::effects::tracer_fx::{
+            bake_tracer_gpu_mesh, clear_tracer_fx, live_tracer_fx, lock_tracer_fx_tests,
+            update_tracer_fx,
+        };
+
+        let _guard = lock_tracer_fx_tests();
+        clear_tracer_fx();
+        let mut list = FXList::new();
+        list.add_fx_nugget(Box::new(TracerFXNugget {
+            tracer_name: "GenericTracer".to_string(),
+            bone_name: String::new(),
+            speed: 10.0,
+            decay_at: 0.5,
+            length: 10.0,
+            width: 2.0,
+            color: Vec3::new(0.9, 0.2, 0.1),
+            probability: 1.0,
+        }));
+        let primary = Coord3D::new(0.0, 0.0, 0.0);
+        let secondary = Coord3D::new(100.0, 0.0, 0.0);
+        list.do_fx_pos(Some(&primary), None, 0.0, Some(&secondary), 0.0);
+
+        let tracers = live_tracer_fx();
+        assert_eq!(
+            tracers.len(),
+            1,
+            "shipped FXList TracerFXNugget must call create_tracer_fx"
+        );
+        let drawables = crate::effects::tracer_fx::live_tracer_drawables();
+        assert_eq!(
+            drawables.len(),
+            1,
+            "shipped FXList TracerFXNugget must spawn W3DTracerDraw like C++ newDrawable"
+        );
+        assert_eq!(drawables[0].tracer_name, "GenericTracer");
+        assert_eq!(drawables[0].length, 10.0);
+        assert_eq!(drawables[0].speed, 10.0);
+        assert_eq!(tracers[0].tracer_name, "GenericTracer");
+        assert_eq!(tracers[0].speed, 10.0);
+        assert_eq!(tracers[0].length, 10.0);
+        assert_eq!(tracers[0].width, 2.0);
+        assert_eq!(tracers[0].color, [0.9, 0.2, 0.1]);
+
+        let spawn = tracers[0].spawn_frame;
+        let dist = ((secondary.x - primary.x).powi(2)
+            + (secondary.y - primary.y).powi(2)
+            + (secondary.z - primary.z).powi(2))
+        .sqrt();
+        let frames = if dist - 10.0 >= 0.0 { (dist - 10.0) / 10.0 } else { 1.0 };
+        let expire_span = (frames * 0.5).ceil().max(0.0) as u32;
+        assert_eq!(tracers[0].expire_frame, spawn + expire_span);
+
+        let n = 1_u32;
+        update_tracer_fx(spawn);
+        let after = live_tracer_fx();
+        assert_eq!(after.len(), 1);
+        let mut opacity = 1.0_f32;
+        let remaining = expire_span as f32;
+        opacity -= opacity / remaining;
+        assert!((after[0].opacity - opacity).abs() < 1.0e-5);
+        assert!((after[0].pos[0] - 10.0 * n as f32).abs() < 1.0e-4);
+
+        let mesh = bake_tracer_gpu_mesh(&after[0], 0);
+        assert_eq!(mesh.vertices.len(), 4);
+        for v in &mesh.vertices {
+            assert!((v.color[0] - 0.9).abs() < 1.0e-5);
+            assert!((v.color[3] - opacity).abs() < 1.0e-5);
+        }
+        clear_tracer_fx();
+    }
+
+    #[test]
+    fn fx_list_do_fx_pos_runs_light_pulse_nugget() {
+        let _ = drain_display_light_pulses();
+        let mut list = FXList::new();
+        list.add_fx_nugget(Box::new(LightPulseFXNugget {
+            color: Vec3::new(0.2, 0.4, 0.8),
+            radius: 40.0,
+            bounding_circle_pct: 0.0,
+            increase_frames: 2,
+            decrease_frames: 4,
+        }));
+        let pos = Coord3D {
+            x: -8.0,
+            y: 16.0,
+            z: 1.0,
+        };
+        list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        let pulses = drain_display_light_pulses();
+        assert_eq!(pulses.len(), 1);
+        assert_eq!(pulses[0].outer_radius, 40.0);
+        assert_eq!(pulses[0].pos, [-8.0, 16.0, 1.0]);
     }
 
     #[test]

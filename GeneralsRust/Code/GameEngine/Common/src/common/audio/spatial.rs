@@ -531,19 +531,15 @@ impl SpatialSource {
         }
     }
 
-    /// Calculate distance-based attenuation
+    /// Calculate distance-based attenuation.
+    /// C++ Miles: `1 / (distance / minDistance)` past min, silence at max.
     pub fn calculate_distance_attenuation(&self, listener_position: &Position3D) -> f32 {
         let distance = self.position.distance_to(listener_position);
-
-        if distance <= self.min_distance {
-            1.0
-        } else if distance >= self.max_distance {
-            0.0
-        } else {
-            let normalized_distance =
-                (distance - self.min_distance) / (self.max_distance - self.min_distance);
-            (1.0 - normalized_distance.powf(self.rolloff_factor)).max(0.0)
-        }
+        crate::common::audio::audio_event_rts::miles_positional_gain(
+            distance,
+            self.min_distance,
+            self.max_distance,
+        )
     }
 
     /// Calculate Doppler shift factor

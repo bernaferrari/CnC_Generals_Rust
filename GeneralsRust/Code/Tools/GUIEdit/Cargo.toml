@@ -38,6 +38,10 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 # winapi = { version = "0.3", features = ["winuser", "wingdi"] }
 # user32-sys = "0.2"
 
+[lib]
+name = "gui_edit"
+path = "src/lib.rs"
+
 [[bin]]
 name = "gui_edit"
 path = "src/win_main.rs"

@@ -43,6 +43,10 @@ chrono = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["time"] }
 rayon = { workspace = true }
 
+[lib]
+name = "particle_editor"
+path = "src/lib.rs"
+
 [[bin]]
 name = "particle_editor"
 path = "src/main.rs"

@@ -60,6 +60,14 @@ pub struct AudioEventInfo {
     pub max_distance: Real,
 }
 
+impl AudioEventInfo {
+    /// C++ `AudioEventInfo::isPermanentSound`: looping with `loopCount == 0`.
+    #[must_use]
+    pub fn is_permanent_sound(&self) -> bool {
+        (self.control & AC_LOOP) != 0 && self.loop_count == 0
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Coord3D {
     pub x: Real,
@@ -159,13 +167,115 @@ const INVALID_ID: u32 = 0xFFFFFFFF;
 const INVALID_DRAWABLE_ID: u32 = 0xFFFFFFFF;
 const TIME_OF_DAY_AFTERNOON: TimeOfDay = TimeOfDay::Afternoon;
 const AP_NORMAL: AudioPriority = AudioPriority::Normal;
-const AC_LOOP: u32 = 0x00000001;
+/// C++ `AudioControl::AC_LOOP` (`AudioEventInfo.h`).
+pub const AC_LOOP: u32 = 0x00000001;
 const AC_RANDOM: u32 = 0x00000002;
-const AC_ALL: u32 = 0x00000004;
+/// C++ `AudioControl::AC_ALL`.
+pub const AC_ALL: u32 = 0x00000004;
 const AC_INTERRUPT: u32 = 0x00000010;
-const ST_WORLD: u32 = 0x00000002;
-const ST_GLOBAL: u32 = 0x00000008;
+/// C++ `ST_WORLD` — positional/world audio bit.
+pub const ST_WORLD: u32 = 0x00000002;
+/// C++ `ST_GLOBAL` — uses audio-settings global min/max ranges.
+pub const ST_GLOBAL: u32 = 0x00000008;
 const ST_VOICE: u32 = 0x00000010;
+
+/// C++ `MilesAudioManager::getEffectiveVolume` positional gain.
+///
+/// `volume *= 1 / (objDistance / objMinDistance)` when past min range,
+/// and `volume = 0` when `objDistance >= objMaxDistance`.
+#[must_use]
+pub fn miles_positional_gain(distance: f32, min_distance: f32, max_distance: f32) -> f32 {
+    if distance >= max_distance {
+        return 0.0;
+    }
+    let min_distance = min_distance.max(1.0e-6);
+    if distance > min_distance {
+        1.0 / (distance / min_distance)
+    } else {
+        1.0
+    }
+}
+
+/// Resolve C++ `objMinDistance` / `objMaxDistance` for a playing event.
+#[must_use]
+pub fn miles_positional_ranges(
+    info: Option<&AudioEventInfo>,
+    global_min_range: f32,
+    global_max_range: f32,
+) -> (f32, f32) {
+    match info {
+        Some(info) if (info.type_field & ST_GLOBAL) != 0 => (global_min_range, global_max_range),
+        Some(info) => (info.min_distance, info.max_distance),
+        None => (global_min_range, global_max_range),
+    }
+}
+
+/// C++ `MilesAudioManager` category sliders + global 3D ranges.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MilesVolumeSliders {
+    pub music_volume: f32,
+    pub speech_volume: f32,
+    pub sound_volume: f32,
+    pub sound_3d_volume: f32,
+    pub global_min_range: f32,
+    pub global_max_range: f32,
+}
+
+impl Default for MilesVolumeSliders {
+    fn default() -> Self {
+        Self {
+            music_volume: 0.55,
+            speech_volume: 0.55,
+            sound_volume: 0.75,
+            sound_3d_volume: 0.75,
+            global_min_range: 25.0,
+            global_max_range: 1000.0,
+        }
+    }
+}
+
+/// C++ `MilesAudioManager::getEffectiveVolume`.
+///
+/// `volume = getVolume() * getVolumeShift()`, then:
+/// - `AT_Music` → `* m_musicVolume`
+/// - `AT_Streaming` → `* m_speechVolume`
+/// - else positional → `* m_sound3DVolume` then inverse-min falloff / 0 at max
+/// - else → `* m_soundVolume`
+#[must_use]
+pub fn miles_get_effective_volume(
+    event: &AudioEventRts,
+    listener: &Coord3D,
+    sliders: &MilesVolumeSliders,
+) -> f32 {
+    let mut volume = event.get_volume() * event.get_volume_shift();
+    match event
+        .get_audio_event_info()
+        .as_deref()
+        .map(|info| info.sound_type)
+    {
+        Some(AudioType::Music) => volume *= sliders.music_volume,
+        Some(AudioType::Streaming) => volume *= sliders.speech_volume,
+        _ => {
+            if event.is_positional_audio() {
+                volume *= sliders.sound_3d_volume;
+                let pos = event.get_position();
+                let dx = listener.x - pos.x;
+                let dy = listener.y - pos.y;
+                let dz = listener.z - pos.z;
+                let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+                let (min_distance, max_distance) = miles_positional_ranges(
+                    event.get_audio_event_info().as_deref(),
+                    sliders.global_min_range,
+                    sliders.global_max_range,
+                );
+                volume *= miles_positional_gain(distance, min_distance, max_distance);
+            } else {
+                volume *= sliders.sound_volume;
+            }
+        }
+    }
+    volume
+}
 
 #[derive(Debug, Clone)]
 struct AudioPathSettings {
@@ -1434,6 +1544,174 @@ mod tests {
 
         let length = coord.length();
         assert!((length - (4.0 + 16.0 + 36.0_f32).sqrt()).abs() < 0.001);
+    }
+
+    #[test]
+    fn miles_positional_gain_matches_cpp_inverse_min_distance() {
+        assert_eq!(miles_positional_gain(10.0, 25.0, 1000.0), 1.0);
+        assert!((miles_positional_gain(50.0, 25.0, 1000.0) - 0.5).abs() < 1.0e-5);
+        assert_eq!(miles_positional_gain(1000.0, 25.0, 1000.0), 0.0);
+        assert_eq!(miles_positional_gain(1001.0, 25.0, 1000.0), 0.0);
+    }
+
+    #[test]
+    fn miles_get_effective_volume_matches_cpp_music_speech_and_3d() {
+        fn info(sound_type: AudioType, type_field: u32, min_d: f32, max_d: f32) -> AudioEventInfo {
+            AudioEventInfo {
+                sound_type,
+                control: 0,
+                audio_name: "Test".to_string(),
+                volume: 1.0,
+                sounds_morning: Vec::new(),
+                sounds: Vec::new(),
+                sounds_night: Vec::new(),
+                sounds_evening: Vec::new(),
+                attack_sounds: Vec::new(),
+                decay_sounds: Vec::new(),
+                pitch_shift_min: 1.0,
+                pitch_shift_max: 1.0,
+                volume_shift: 0.0,
+                min_volume: 0.0,
+                limit: 0,
+                loop_count: 1,
+                delay_min: 0.0,
+                delay_max: 0.0,
+                filename: String::new(),
+                sound_type_field: sound_type,
+                type_field,
+                priority: AudioPriority::Normal,
+                min_distance: min_d,
+                max_distance: max_d,
+            }
+        }
+
+        let sliders = MilesVolumeSliders::default();
+        let listener = Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+
+        let mut music = AudioEventRts::new();
+        music.set_event_name("Test".to_string());
+        music.set_audio_event_info(std::sync::Arc::new(info(
+            AudioType::Music,
+            0,
+            25.0,
+            1000.0,
+        )));
+        music.set_volume(0.8);
+        music.set_volume_shift(1.0);
+        assert!((miles_get_effective_volume(&music, &listener, &sliders) - 0.44).abs() < 1e-5);
+
+        let mut speech = AudioEventRts::new();
+        speech.set_event_name("Test".to_string());
+        speech.set_audio_event_info(std::sync::Arc::new(info(
+            AudioType::Streaming,
+            0,
+            25.0,
+            1000.0,
+        )));
+        speech.set_volume(1.0);
+        speech.set_volume_shift(1.0);
+        assert!((miles_get_effective_volume(&speech, &listener, &sliders) - 0.55).abs() < 1e-5);
+
+        let mut sfx2d = AudioEventRts::new();
+        sfx2d.set_event_name("Test".to_string());
+        sfx2d.set_audio_event_info(std::sync::Arc::new(info(
+            AudioType::SoundEffect,
+            0,
+            25.0,
+            1000.0,
+        )));
+        sfx2d.set_volume(1.0);
+        sfx2d.set_volume_shift(1.0);
+        assert!((miles_get_effective_volume(&sfx2d, &listener, &sliders) - 0.75).abs() < 1e-5);
+
+        let mut sfx3d = AudioEventRts::new();
+        sfx3d.set_event_name("Test".to_string());
+        sfx3d.set_audio_event_info(std::sync::Arc::new(info(
+            AudioType::SoundEffect,
+            ST_WORLD,
+            25.0,
+            1000.0,
+        )));
+        sfx3d.set_volume(1.0);
+        sfx3d.set_volume_shift(1.0);
+        sfx3d.set_position(&Coord3D {
+            x: 50.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        // 0.75 * 1/(50/25) = 0.375
+        assert!((miles_get_effective_volume(&sfx3d, &listener, &sliders) - 0.375).abs() < 1e-5);
+
+        sfx3d.set_position(&Coord3D {
+            x: 1000.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        assert_eq!(miles_get_effective_volume(&sfx3d, &listener, &sliders), 0.0);
+
+        let mut global3d = AudioEventRts::new();
+        global3d.set_event_name("Test".to_string());
+        global3d.set_audio_event_info(std::sync::Arc::new(info(
+            AudioType::SoundEffect,
+            ST_WORLD | ST_GLOBAL,
+            5.0,
+            40.0,
+        )));
+        global3d.set_volume(1.0);
+        global3d.set_volume_shift(1.0);
+        global3d.set_position(&Coord3D {
+            x: 50.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        // ST_GLOBAL uses 25/1000, not 5/40 → same 0.375
+        assert!((miles_get_effective_volume(&global3d, &listener, &sliders) - 0.375).abs() < 1e-5);
+    }
+
+    fn miles_positional_ranges_use_global_when_st_global() {
+        let mut info = AudioEventInfo {
+            sound_type: AudioType::SoundEffect,
+            control: 0,
+            audio_name: String::new(),
+            volume: 1.0,
+            sounds_morning: Vec::new(),
+            sounds: Vec::new(),
+            sounds_night: Vec::new(),
+            sounds_evening: Vec::new(),
+            attack_sounds: Vec::new(),
+            decay_sounds: Vec::new(),
+            pitch_shift_min: 1.0,
+            pitch_shift_max: 1.0,
+            volume_shift: 0.0,
+            min_volume: 0.0,
+            limit: 0,
+            loop_count: 1,
+            delay_min: 0.0,
+            delay_max: 0.0,
+            filename: String::new(),
+            sound_type_field: AudioType::SoundEffect,
+            type_field: ST_GLOBAL,
+            priority: AudioPriority::Normal,
+            min_distance: 5.0,
+            max_distance: 40.0,
+        };
+        assert_eq!(
+            miles_positional_ranges(Some(&info), 25.0, 1000.0),
+            (25.0, 1000.0)
+        );
+        info.type_field = 0;
+        assert_eq!(
+            miles_positional_ranges(Some(&info), 25.0, 1000.0),
+            (5.0, 40.0)
+        );
+        assert!(info.is_permanent_sound() == false);
+        info.control = AC_LOOP;
+        info.loop_count = 0;
+        assert!(info.is_permanent_sound());
     }
 
     #[test]

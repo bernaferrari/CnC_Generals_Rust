@@ -109,6 +109,12 @@ pub struct GoldenCampaignResult {
     pub mesh_scale_presentation_ok: bool,
     /// Wave 76 ScriptEngine table-capacity residual honesty (256 counters/flags/attack).
     pub script_engine_residual_ok: bool,
+    /// GameClient CampaignManager INI playthrough (USA/GLA/China + all Challenge generals).
+    pub client_campaign_playthrough_ok: bool,
+    pub usa_mission_count: usize,
+    pub challenge_map: String,
+    pub challenge_campaign_count: usize,
+    pub challenge_general_started: usize,
     pub status: String,
 }
 
@@ -511,6 +517,35 @@ pub fn run_golden_campaign_ex(
     // Wave 76 ScriptEngine table-capacity residual — does not gate campaign_playable_claim.
     let script_engine_residual_ok = honesty_script_engine_table_capacity_residual_ok();
 
+    #[cfg(feature = "game_client")]
+    let playthrough = game_client::gui::run_retail_campaign_and_challenge_playthrough();
+    #[cfg(feature = "game_client")]
+    let client_campaign_playthrough_ok = playthrough.playthrough_ok();
+    #[cfg(feature = "game_client")]
+    let usa_mission_count = playthrough.usa_missions.len();
+    #[cfg(feature = "game_client")]
+    let challenge_map = playthrough
+        .challenge_first
+        .as_ref()
+        .map(|s| s.map_name.clone())
+        .unwrap_or_default();
+    #[cfg(feature = "game_client")]
+    let challenge_campaign_count = playthrough.challenge_campaigns.len();
+    #[cfg(feature = "game_client")]
+    let challenge_general_started = playthrough.challenge_general_starts.len();
+    #[cfg(not(feature = "game_client"))]
+    let client_campaign_playthrough_ok = false;
+    #[cfg(not(feature = "game_client"))]
+    let usa_mission_count = 0usize;
+    #[cfg(not(feature = "game_client"))]
+    let challenge_map = String::new();
+    #[cfg(not(feature = "game_client"))]
+    let challenge_campaign_count = 0usize;
+    #[cfg(not(feature = "game_client"))]
+    let challenge_general_started = 0usize;
+
+    let campaign_playable_claim = campaign_playable_claim && client_campaign_playthrough_ok;
+
     let status = if campaign_playable_claim {
         "success"
     } else if frames_advanced > 0 && campaign_started {
@@ -549,13 +584,18 @@ pub fn run_golden_campaign_ex(
         mesh_asset_residual_ok,
         mesh_scale_presentation_ok,
         script_engine_residual_ok,
+        client_campaign_playthrough_ok,
+        usa_mission_count,
+        challenge_map,
+        challenge_campaign_count,
+        challenge_general_started,
         status: status.into(),
     }
 }
 
 pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
     format!(
-        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={} mesh_asset={} mesh_scale={} script_engine={}",
+        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={} mesh_asset={} mesh_scale={} script_engine={} client_playthrough={} usa_missions={} challenge_map={} challenge_campaigns={} challenge_generals={}",
         r.status,
         r.campaign_started,
         r.single_player,
@@ -579,6 +619,11 @@ pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
         r.mesh_asset_residual_ok,
         r.mesh_scale_presentation_ok,
         r.script_engine_residual_ok,
+        r.client_campaign_playthrough_ok,
+        r.usa_mission_count,
+        r.challenge_map,
+        r.challenge_campaign_count,
+        r.challenge_general_started,
     )
 }
 
@@ -617,6 +662,14 @@ mod tests {
         assert!(
             result.campaign_playable_claim,
             "campaign_playable_claim must hold for residual path: {}",
+            format_campaign_report(&result)
+        );
+        assert!(
+            result.client_campaign_playthrough_ok
+                && result.usa_mission_count == 5
+                && result.challenge_campaign_count == 9
+                && result.challenge_general_started == 9,
+            "GameClient Campaign.ini playthrough: {}",
             format_campaign_report(&result)
         );
         assert_eq!(result.status, "success");

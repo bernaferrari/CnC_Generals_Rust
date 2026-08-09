@@ -146,20 +146,34 @@ impl CDManager {
 
     /// Scan for available CD drives on the system
     fn scan_drives(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        let mut add_drive = |path: &str| {
+            let key = path.replace('\\', "/").to_ascii_lowercase();
+            if path.is_empty() || !seen.insert(key) {
+                return;
+            }
+            if !std::path::Path::new(path).exists() {
+                return;
+            }
+            let mut drive = CDDrive::new();
+            drive.set_path(path);
+            self.drives.push(Box::new(drive));
+        };
+
         #[cfg(target_os = "windows")]
         {
             for letter in b'D'..=b'Z' {
-                let drive_path = format!("{}:\\", letter as char);
-                if std::path::Path::new(&drive_path).exists() {
-                    let mut drive = CDDrive::new();
-                    drive.set_path(&drive_path);
-                    self.drives.push(Box::new(drive));
-                }
+                add_drive(&format!("{}:\\", letter as char));
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {}
+        for root in crate::common::system::install_layout::optical_drive_roots() {
+            add_drive(&root.to_string_lossy());
+        }
+        // Discovered install dirs (wherever the user put the `.big` files).
+        for root in crate::common::system::install_layout::zh_install_roots() {
+            add_drive(&root.to_string_lossy());
+        }
     }
 }
 
@@ -266,6 +280,34 @@ mod tests {
     fn test_cd_manager_creation() {
         let manager = CDManager::new();
         assert_eq!(manager.drive_count(), 0);
+    }
+
+    #[test]
+    fn scan_drives_registers_discovered_install_as_cd_root() {
+        let mut manager = CDManager::new();
+        manager.init().unwrap();
+        assert!(
+            manager.drive_count() > 0,
+            "a discovered ZH install must appear as a CDManager drive"
+        );
+        let mut found_gensec = false;
+        for index in 0..manager.drive_count() {
+            if let Some(drive) = manager.get_drive(index) {
+                if crate::common::system::install_layout::find_file_case_insensitive(
+                    std::path::Path::new(drive.get_path().as_str()),
+                    crate::common::system::install_layout::GENSECZH_BIG,
+                )
+                .is_some()
+                {
+                    found_gensec = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            found_gensec,
+            "CDManager drive list must include the install dir that holds GensecZH.big"
+        );
     }
 
     #[test]

@@ -533,8 +533,10 @@ impl W3DDisplay {
     ///
     /// C++ `createLightPulse(pos, color, innerRadius, outerRadius, increaseFrameTime, decayFrameTime)`
     pub fn create_light_pulse(&self, params: LightPulseParams) {
-        if params.inner_radius + params.outer_radius < 2.0 * 100.0 + 1.0 {
-            return; // C++: too small to make visual difference
+        // C++: inner+atten < 2*PATHFIND_CELL_SIZE_F+1 with PATHFIND_CELL_SIZE_F=10 → 21.
+        const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+        if params.inner_radius + params.outer_radius < 2.0 * PATHFIND_CELL_SIZE_F + 1.0 {
+            return;
         }
 
         let mut light = W3DDynamicLight::point();
@@ -1256,6 +1258,51 @@ impl std::fmt::Debug for W3DDisplay {
             .field("time_of_day", &self.time_of_day)
             .field("average_fps", &self.average_fps)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_light_pulse_adds_dynamic_light_and_culls_tiny_radius() {
+        let display = W3DDisplay::new();
+        display.create_light_pulse(LightPulseParams {
+            pos: (10.0, 20.0, 3.0),
+            color: (1.0, 0.5, 0.0),
+            inner_radius: 1.0,
+            outer_radius: 5.0,
+            increase_frame_time: 2,
+            decay_frame_time: 6,
+        });
+        assert_eq!(
+            display.scene().read().iter_dynamic_lights().count(),
+            0,
+            "C++ skips pulses smaller than 2*PATHFIND_CELL_SIZE_F+1"
+        );
+
+        display.create_light_pulse(LightPulseParams {
+            pos: (10.0, 20.0, 3.0),
+            color: (1.0, 0.5, 0.0),
+            inner_radius: 1.0,
+            outer_radius: 50.0,
+            increase_frame_time: 2,
+            decay_frame_time: 6,
+        });
+        let scene = display.scene();
+        let lights: Vec<_> = scene.read().iter_dynamic_lights().cloned().collect();
+        assert_eq!(lights.len(), 1);
+        assert!(lights[0].enabled);
+        assert_eq!(lights[0].position, Vector3::new(10.0, 20.0, 3.0));
+        assert_eq!(lights[0].ambient, Vector3::new(1.0, 0.5, 0.0));
+        assert_eq!(lights[0].diffuse, Vector3::new(1.0, 0.5, 0.0));
+        assert!((lights[0].far_atten_start - 1.0).abs() < 1e-4);
+        assert!((lights[0].far_atten_end - 51.0).abs() < 1e-4);
+        assert_eq!(lights[0].increase_frame_count, 2);
+        assert_eq!(lights[0].decay_frame_count, 6);
+        assert!(lights[0].decay_range);
+        assert!(lights[0].decay_color);
     }
 }
 

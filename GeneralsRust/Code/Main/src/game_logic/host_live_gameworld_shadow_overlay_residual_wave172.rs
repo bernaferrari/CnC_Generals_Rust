@@ -205,4 +205,59 @@ mod tests {
             "live map load must sync GameWorldShadow and overlay presentation"
         );
     }
+
+    #[test]
+    fn sync_from_host_maps_created_object_and_overlays_presentation() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+        use crate::presentation_frame::PresentationFrame;
+        use glam::Vec3;
+
+        ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("ShadowRanger172");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("ShadowRanger172".into(), t);
+        let id = logic
+            .create_object(
+                "ShadowRanger172",
+                Team::USA,
+                Vec3::new(12.0, 0.0, 24.0),
+            )
+            .expect("create host object");
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let probe = shadow.probe(&mut logic);
+        assert!(
+            probe.mapped_objects >= 1,
+            "sync_from_host must map created host objects"
+        );
+        assert!(
+            probe.host_objects >= 1 && probe.shadow_entities >= 1,
+            "shadow census must include host unit"
+        );
+        assert!(
+            shadow.entity_for_host(id).is_some(),
+            "entity_for_host must resolve the created object"
+        );
+
+        let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            pres.objects.iter().any(|o| o.id == id),
+            "presentation freeze must include the created object"
+        );
+        let _ = pres.overlay_gameworld_shadow(&shadow);
+        let mapped = pres
+            .objects
+            .iter()
+            .filter(|o| shadow.entity_for_host(o.id).is_some())
+            .count();
+        assert!(
+            mapped >= 1,
+            "overlay_gameworld_shadow must keep host ids mappable"
+        );
+    }
 }

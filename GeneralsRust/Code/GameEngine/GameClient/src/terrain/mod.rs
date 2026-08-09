@@ -51,6 +51,7 @@ pub mod collision;
 pub mod height_map;
 pub mod manager;
 pub mod roads;
+pub mod scorch_mesh;
 pub mod terrain_background;
 pub mod terrain_roads;
 pub mod terrain_tracks;
@@ -58,6 +59,7 @@ pub mod terrain_visual;
 pub mod textures;
 pub mod tree_buffer;
 pub mod vertex;
+pub mod w3d_overlay_mesh;
 pub mod water;
 pub mod water_tracks;
 
@@ -75,6 +77,12 @@ pub use collision::TerrainCollision;
 pub use height_map::HeightMap;
 pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
+pub use scorch_mesh::{
+    add_terrain_scorch, bake_terrain_scorch_gpu_mesh, clear_terrain_scorches, resolve_scorch_type,
+    terrain_scorch_count, terrain_scorch_marks, ScorchGpuMesh, ScorchHeightSource, ScorchMark,
+    ScorchVertex, TerrainScorchBuffer, MAX_SCORCH_INDEX, MAX_SCORCH_MARKS, MAX_SCORCH_VERTEX,
+    SCORCH_FLOAT_AMOUNT, SCORCH_MARKS_IN_TEXTURE, SCORCH_PER_ROW,
+};
 pub use terrain_background::{
     IRegion2D, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap, W3DTerrainBackground,
     TEX_1X, TEX_2X, TEX_4X,
@@ -85,14 +93,30 @@ pub use terrain_tracks::{
 };
 pub use textures::{BlendMode, TerrainTextures, TextureLayer};
 pub use tree_buffer::{
-    BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeFxEvent, TreeFxKind,
-    TreeGeometryType, TreeModuleData, TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus,
-    TreeSphere, W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS,
-    DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
-    TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NONE, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
+    blit_tree_tile_into_atlas, count_tree_tiles, do_lighting, do_tree_atlas_mip,
+    fill_tree_gpu_upload_vertices, generate_box_mip_chain, square_width_from_tile_count,
+    tree_atlas_pixel_size, BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeFxEvent,
+    TreeFxKind, TreeGeometryType, TreeGpuVertex, TreeModuleData, TreeObjectLight, TreeRandom,
+    TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere, TreeTgaHeader, TreeTileImageSpec,
+    TreeTypeMesh, TreeVertexXyznduv1, W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT,
+    CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TEX_WIDTH,
+    MAX_TILES, MAX_TREES, MAX_TYPES, MAX_TREE_INDEX, MAX_TREE_VERTEX, PARTITION_WIDTH_HEIGHT,
+    TILE_BYTES_PER_PIXEL, TILE_PIXEL_EXTENT, TREE_MAX_GLOBAL_LIGHTS, TREE_RADIUS_APPROX,
+    TREE_TILE_DATA_LEN, W3D_TOPPLE_OPTIONS_NONE, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
     W3D_TOPPLE_OPTIONS_NO_FX,
 };
 pub use vertex::TerrainVertex;
+pub use w3d_overlay_mesh::{
+    bake_bridge_span, bake_straight_road_segment, bake_water_patch_world,
+    default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
+    fill_water_gpu_upload_vertices, generate_water_index_buffer, generate_water_vertex_buffer,
+    load_float_4pt_section, triangle_list_from_strip, unpack_bgra_rgb, unpack_bgra_rgba,
+    water_strip_index_count, BridgeMeshQuad, BridgeOverlayBuffers, BridgeOverlayVertex,
+    OverlayGpuVertex, RoadSegVertex, SeaPatchVertex, WaterGpuVertex, BRIDGE_FLOAT_AMT,
+    DEFAULT_ROAD_SCALE, MAX_BRIDGES, MAX_BRIDGE_INDEX, MAX_BRIDGE_VERTEX, MAX_SEG_INDEX,
+    MAX_SEG_VERTEX, MIN_ROAD_SEGMENT, NUM_BUMP_FRAMES, PATCH_SIZE, PATCH_UV_SCALE, PATCH_WIDTH,
+    ROAD_FLOAT_AMOUNT,
+};
 pub use water::{WaterBody, WaterSettings, WaterSystem};
 pub use water_tracks::{
     WaterTrackHeightProvider, WaterTrackSaveRecord, WaterTrackType, WaterTrackVertex,

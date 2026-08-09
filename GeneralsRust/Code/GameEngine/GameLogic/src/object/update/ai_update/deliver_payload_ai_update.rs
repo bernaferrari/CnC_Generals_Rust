@@ -31,9 +31,14 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
 use super::deliver_payload_data::{DeliverPayloadData, RADIUS_DECAL_TEMPLATE_FIELDS};
 
-/// Wave 352: host-only path has no dual-world factory objects.
+/// Wave 352 leftover close-out: C++ DeliverPayloadAIUpdate never consults a
+/// dual-world OBJECT_REGISTRY. Skip only on a host-only presentation path that
+/// is not in GameLogic; once `TheGameLogic` is in-game, run the C++ body.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
+    if TheGameLogic::is_in_game() {
+        return false;
+    }
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
@@ -852,10 +857,9 @@ impl DeliverPayloadAIUpdate {
             if let Some(item) = TheGameLogic::find_object_by_id(item_id) {
                 if self.data.fire_weapon {
                     if let Ok(mut owner_guard) = owner.as_ref().unwrap().write() {
-                        let mut pos = self.target_pos;
-                        pos.x += self.data.drop_offset.x;
-                        pos.y += self.data.drop_offset.y;
-                        pos.z += self.data.drop_offset.z;
+                        let pos = self
+                            .data
+                            .drop_world_pos(self.target_pos, Coord3D::ZERO);
                         let _ = owner_guard.fire_current_weapon_at_position(&pos);
                     }
                     let _ = TheGameLogic::destroy_object_by_id(item_id);
@@ -872,28 +876,34 @@ impl DeliverPayloadAIUpdate {
                     }
 
                     if let Ok(mut item_guard) = item.write() {
-                        let mut pos = *item_guard.get_position();
-                        if self.data.drop_variance.x > 0.0 {
-                            pos.x += get_game_logic_random_value_real(
-                                -self.data.drop_variance.x,
-                                self.data.drop_variance.x,
-                            );
-                        }
-                        if self.data.drop_variance.y > 0.0 {
-                            pos.y += get_game_logic_random_value_real(
-                                -self.data.drop_variance.y,
-                                self.data.drop_variance.y,
-                            );
-                        }
-                        if self.data.drop_variance.z > 0.0 {
-                            pos.z += get_game_logic_random_value_real(
-                                -self.data.drop_variance.z,
-                                self.data.drop_variance.z,
-                            );
-                        }
-                        pos.x += self.data.drop_offset.x;
-                        pos.y += self.data.drop_offset.y;
-                        pos.z += self.data.drop_offset.z;
+                        let base = *item_guard.get_position();
+                        let variance_sample = Coord3D::new(
+                            if self.data.drop_variance.x > 0.0 {
+                                get_game_logic_random_value_real(
+                                    -self.data.drop_variance.x,
+                                    self.data.drop_variance.x,
+                                )
+                            } else {
+                                0.0
+                            },
+                            if self.data.drop_variance.y > 0.0 {
+                                get_game_logic_random_value_real(
+                                    -self.data.drop_variance.y,
+                                    self.data.drop_variance.y,
+                                )
+                            } else {
+                                0.0
+                            },
+                            if self.data.drop_variance.z > 0.0 {
+                                get_game_logic_random_value_real(
+                                    -self.data.drop_variance.z,
+                                    self.data.drop_variance.z,
+                                )
+                            } else {
+                                0.0
+                            },
+                        );
+                        let pos = self.data.drop_world_pos(base, variance_sample);
                         let _ = item_guard.set_position(&pos);
 
                         if self.data.is_parachute_directly {

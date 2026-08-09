@@ -2251,6 +2251,108 @@ pub fn simulate_options_menu_prepare_accept() -> bool {
     simulate_options_menu_accept_button_gadget_selected()
 }
 
+/// Human click-through: OS LeftDown/Up on a retail `OptionsMenu.wnd:*` gadget
+/// (C++ WindowXlat hit → GBM_SELECTED). Not `simulate_*` first.
+fn drive_os_wnd_options_named(name: &str, latch: impl FnOnce() -> bool) -> bool {
+    if !crate::gui::dispatch_os_click_named_window(name) {
+        return false;
+    }
+    latch()
+}
+
+pub fn drive_os_wnd_options_menu_accept_like_cpp() -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonAccept",
+        simulate_options_menu_accept_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_options_menu_back_like_cpp() -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonBack",
+        simulate_options_menu_back_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_options_menu_defaults_like_cpp() -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonDefaults",
+        simulate_options_menu_defaults_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_options_menu_keyboard_like_cpp() -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonKeyboardOptions",
+        simulate_options_menu_keyboard_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_options_menu_advanced_accept_like_cpp() -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonAdvanceAccept",
+        simulate_options_menu_advanced_accept_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_options_menu_advanced_back_like_cpp() -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonAdvanceBack",
+        simulate_options_menu_advanced_back_button_gadget_selected,
+    )
+}
+
+pub fn drive_os_wnd_options_menu_firewall_like_cpp() -> bool {
+    drive_os_wnd_options_named(
+        "OptionsMenu.wnd:ButtonFirewallRefresh",
+        simulate_options_menu_firewall_refresh_button_gadget_selected,
+    )
+}
+
+#[cfg(test)]
+mod options_os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_options_menu_accept_hits_button_then_latches() {
+        install_named_button("OptionsMenu.wnd:ButtonAccept", 10, 10);
+        assert!(
+            drive_os_wnd_options_menu_accept_like_cpp(),
+            "OS WND click on ButtonAccept must latch Accept residual"
+        );
+        assert_eq!(
+            residual_options_menu_last_action(),
+            ResidualOptionsMenuAction::Accept
+        );
+        assert!(!drive_os_wnd_options_menu_back_like_cpp());
+    }
+
+    #[test]
+    fn os_wnd_options_menu_keyboard_and_defaults_hit_named_gadgets() {
+        install_named_button("OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40);
+        install_named_button("OptionsMenu.wnd:ButtonDefaults", 10, 70);
+        assert!(drive_os_wnd_options_menu_keyboard_like_cpp());
+        assert_eq!(
+            residual_options_menu_last_action(),
+            ResidualOptionsMenuAction::Keyboard
+        );
+        assert!(drive_os_wnd_options_menu_defaults_like_cpp());
+        assert_eq!(
+            residual_options_menu_last_action(),
+            ResidualOptionsMenuAction::Defaults
+        );
+    }
+}
+
 /// Residual: last CreditsMenu action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -2355,6 +2457,80 @@ pub fn simulate_credits_menu_prepare_skip() -> bool {
         return false;
     }
     simulate_credits_menu_skip()
+}
+
+/// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
+/// (C++ named layout hit; ESC skip latches via residual). Not `simulate_*` first.
+pub fn drive_os_wnd_credits_menu_skip_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    if !clicked {
+        return false;
+    }
+    simulate_credits_menu_skip()
+}
+
+pub fn drive_os_wnd_credits_menu_finished_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    if !clicked {
+        return false;
+    }
+    simulate_credits_menu_finished()
+}
+
+pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp() -> bool {
+    let clicked = drive_os_wnd_credits_menu_skip_like_cpp();
+    if !clicked {
+        return false;
+    }
+    residual_credits_menu_last_action() == ResidualCreditsMenuAction::Skip
+}
+
+#[cfg(test)]
+mod credits_os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    #[test]
+    fn os_wnd_credits_menu_skip_hits_parent_then_latches() {
+        with_window_manager(|manager| {
+            let parent = manager
+                .create_window(None, 10, 10, 200, 120)
+                .expect("ParentCreditsWindow");
+            parent
+                .borrow_mut()
+                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+            let _ = parent.borrow_mut().hide(false);
+        });
+        assert!(
+            drive_os_wnd_credits_menu_skip_like_cpp(),
+            "OS WND click on ParentCreditsWindow must latch skip residual"
+        );
+        assert_eq!(
+            residual_credits_menu_last_action(),
+            ResidualCreditsMenuAction::Skip
+        );
+        assert!(!residual_credits_menu_is_active());
+    }
+
+    #[test]
+    fn os_wnd_credits_menu_finished_hits_parent_then_latches() {
+        with_window_manager(|manager| {
+            let parent = manager
+                .create_window(None, 10, 140, 200, 120)
+                .expect("ParentCreditsWindow finished");
+            parent
+                .borrow_mut()
+                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+            let _ = parent.borrow_mut().hide(false);
+        });
+        assert!(drive_os_wnd_credits_menu_finished_like_cpp());
+        assert_eq!(
+            residual_credits_menu_last_action(),
+            ResidualCreditsMenuAction::Finished
+        );
+    }
 }
 
 /// Residual: last SinglePlayerMenu action requested by residual peels.

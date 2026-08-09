@@ -421,6 +421,9 @@ pub trait TracerDrawInterface {
         color: &RGBColor,
         initial_opacity: Real,
     );
+
+    /// C++ `Drawable::setExpirationDate` consumed by `W3DTracerDraw::doDrawModule`.
+    fn set_expiration_date(&mut self, _expiration_date: UnsignedInt) {}
 }
 
 /// Interface for rope rendering

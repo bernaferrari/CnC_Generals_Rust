@@ -22,11 +22,7 @@ toml = { workspace = true }
 # CRC calculation
 crc32fast = "1.4"
 
-# Game engine integration (placeholder)
-# wwlib = { workspace = true }
-# ww3d = { workspace = true }
-# wwmath = { workspace = true }
-# game_engine = { workspace = true }
+game_engine = { path = "../../GameEngine/Common" }
 
 # Async and threading
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }

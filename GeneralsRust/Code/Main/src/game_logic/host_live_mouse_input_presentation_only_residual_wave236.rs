@@ -100,10 +100,24 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
+/// Wave 236: InGame with a presentation freeze → None (no GameLogic dual-read).
+/// Boot/no-frame → Some(game_logic) so classify still has a live residual.
+pub fn mouse_game_logic_for_process_mouse_input<'a>(
+    presentation_installed: bool,
+    game_logic: &'a crate::game_logic::GameLogic,
+) -> Option<&'a crate::game_logic::GameLogic> {
+    if presentation_installed {
+        None
+    } else {
+        Some(game_logic)
+    }
+}
+
 /// Source residual: Option mouse input + engine None-with-frame.
 pub fn honesty_mouse_input_presentation_only_source() -> bool {
     let cs = include_str!("../command_system.rs");
     let eng = include_str!("../cnc_game_engine.rs");
+    let helper = include_str!("host_live_mouse_input_presentation_only_residual_wave236.rs");
     let Some(pmi) = fn_body(cs, "pub fn process_mouse_input(")
         .or_else(|| fn_body(cs, "fn process_mouse_input("))
     else {
@@ -123,8 +137,20 @@ pub fn honesty_mouse_input_presentation_only_source() -> bool {
     {
         return false;
     }
-    // Engine InGame callers pass None when presentation frame installed.
-    eng.contains("process_mouse_input")
+    if !helper.contains("pub fn mouse_game_logic_for_process_mouse_input") {
+        return false;
+    }
+    let Some(wrap) = fn_body(eng, "fn presentation_mouse_game_logic(") else {
+        return false;
+    };
+    // Engine InGame callers pass None when presentation frame installed;
+    // boot/no-frame still passes Some(&self.game_logic).
+    wrap.contains("last_presentation_frame.is_some()")
+        && wrap.contains("Some(&self.game_logic)")
+        && wrap.contains("host_presentation_mouse_game_logic")
+        && wrap.contains("mouse_game_logic_for_process_mouse_input")
+        && wrap.contains("Wave 236")
+        && eng.contains("process_mouse_input")
         && eng.contains("last_presentation_frame.is_some()")
         && eng.contains("Some(&self.game_logic)")
         && eng.matches("process_mouse_input").count() >= 3
@@ -166,5 +192,234 @@ mod tests {
             simulate_live_mouse_input_presentation_only_honesty(),
             "mouse input presentation-only residual must latch"
         );
+    }
+
+    #[test]
+    fn mouse_game_logic_for_process_mouse_input_splits_frame_vs_boot() {
+        use crate::game_logic::GameLogic;
+        use crate::gameworld_shadow::ensure_gate_damage_authority;
+
+        ensure_gate_damage_authority();
+        let logic = GameLogic::new();
+        assert!(
+            mouse_game_logic_for_process_mouse_input(true, &logic).is_none(),
+            "presentation freeze must pass None (no live GameLogic dual-read)"
+        );
+        assert!(
+            mouse_game_logic_for_process_mouse_input(false, &logic).is_some(),
+            "boot/no-frame must pass Some(&game_logic)"
+        );
+    }
+
+    #[test]
+    fn process_mouse_input_presentation_only_rmb_attack_without_live_logic() {
+        use crate::command_system::{
+            CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
+            PresentationSelectedUnitHint, PresentationTargetHint,
+        };
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        use crate::gameworld_shadow::ensure_gate_damage_authority;
+
+        ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let mut ranger_t = ThingTemplate::new("Wave236Ranger");
+        ranger_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("Wave236Ranger".into(), ranger_t);
+        let mut rebel_t = ThingTemplate::new("Wave236Rebel");
+        rebel_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("Wave236Rebel".into(), rebel_t);
+        let attacker = logic
+            .create_object("Wave236Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let target = logic
+            .create_object("Wave236Rebel", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("target");
+
+        let ctx = MouseCommandContext {
+            world_position: glam::Vec3::new(50.0, 0.0, 0.0),
+            target_object: Some(target),
+            target_presentation: Some(PresentationTargetHint {
+                id: target,
+                is_alive: true,
+                is_structure: false,
+                is_resource: false,
+                under_construction: false,
+                sold: false,
+                team: Team::GLA,
+                is_enemy_of_local: true,
+                is_neutral: false,
+                template_name: "Wave236Rebel".into(),
+                can_be_entered: false,
+                is_damaged: false,
+                is_friendly_of_local: false,
+                provides_vehicle_repair: false,
+                provides_aircraft_repair: false,
+                provides_heal: false,
+            }),
+            selected_presentation: vec![PresentationSelectedUnitHint {
+                id: attacker,
+                is_alive: true,
+                is_worker: false,
+                can_attack: true,
+                can_move: true,
+                can_capture: false,
+                template_name: "Wave236Ranger".into(),
+                can_repair: false,
+                is_damaged: false,
+                is_vehicle: false,
+                is_aircraft: false,
+                is_infantry: true,
+            }],
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: glam::Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut sys = CommandSystem::new();
+        let gl = mouse_game_logic_for_process_mouse_input(true, &logic);
+        assert!(gl.is_none(), "frame path must not borrow live GameLogic");
+        let cmd = sys
+            .process_mouse_input(&ctx, &[attacker], 0, gl)
+            .expect("presentation RMB must produce command");
+        match cmd.command_type {
+            CommandType::AttackObject { target_id } => assert_eq!(target_id, target),
+            other => panic!("expected AttackObject from presentation freeze, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn process_mouse_input_presentation_box_select_without_live_logic() {
+        use crate::command_system::{
+            CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
+        };
+        use crate::game_logic::{GameLogic, ObjectId};
+        use crate::gameworld_shadow::ensure_gate_damage_authority;
+
+        ensure_gate_damage_authority();
+        let logic = GameLogic::new();
+        let a = ObjectId(11);
+        let b = ObjectId(22);
+        let ctx = MouseCommandContext {
+            world_position: glam::Vec3::ZERO,
+            target_object: None,
+            target_presentation: None,
+            selected_presentation: Vec::new(),
+            presentation_box_select_units: vec![a, b],
+            presentation_select_similar_units: Vec::new(),
+            screen_position: glam::Vec2::new(10.0, 10.0),
+            viewport_size: Some(glam::Vec2::new(800.0, 600.0)),
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Left,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: true,
+            drag_start: Some(glam::Vec2::ZERO),
+            drag_end: Some(glam::Vec2::new(10.0, 10.0)),
+            drag_start_world: Some(glam::Vec3::ZERO),
+            drag_end_world: Some(glam::Vec3::new(10.0, 0.0, 10.0)),
+        };
+        let mut sys = CommandSystem::new();
+        let gl = mouse_game_logic_for_process_mouse_input(true, &logic);
+        let cmd = sys
+            .process_mouse_input(&ctx, &[], 0, gl)
+            .expect("presentation box-select must produce command");
+        match cmd.command_type {
+            CommandType::CreateSelectedGroup { create_new, units } => {
+                assert!(create_new);
+                assert_eq!(units, vec![a, b]);
+            }
+            other => panic!("expected CreateSelectedGroup from presentation box ids, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn process_mouse_input_boot_some_game_logic_classifies_force_attack() {
+        use crate::command_system::{
+            CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
+        };
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        use crate::gameworld_shadow::ensure_gate_damage_authority;
+
+        ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let mut ranger_t = ThingTemplate::new("Wave236BootRanger");
+        ranger_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("Wave236BootRanger".into(), ranger_t);
+        let mut rebel_t = ThingTemplate::new("Wave236BootRebel");
+        rebel_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("Wave236BootRebel".into(), rebel_t);
+        let attacker = logic
+            .create_object(
+                "Wave236BootRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("attacker");
+        let target = logic
+            .create_object(
+                "Wave236BootRebel",
+                Team::GLA,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("target");
+
+        let ctx = MouseCommandContext {
+            world_position: glam::Vec3::new(40.0, 0.0, 0.0),
+            target_object: Some(target),
+            target_presentation: None,
+            selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: glam::Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys {
+                ctrl: true,
+                shift: false,
+                alt: false,
+            },
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut sys = CommandSystem::new();
+        let gl = mouse_game_logic_for_process_mouse_input(false, &logic);
+        assert!(gl.is_some(), "boot path must pass Some(&game_logic)");
+        let cmd = sys
+            .process_mouse_input(&ctx, &[attacker], 0, gl)
+            .expect("boot ctrl RMB should produce command");
+        match cmd.command_type {
+            CommandType::ForceAttackObject { target_id } => assert_eq!(target_id, target),
+            other => panic!("expected ForceAttackObject on boot Some path, got {other:?}"),
+        }
     }
 }

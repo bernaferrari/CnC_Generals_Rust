@@ -97,10 +97,16 @@ pub type ScienceVec = Vec<ScienceType>;
 /// Command source constant for AI commands (matching C++ CMD_FROM_AI)
 pub const CMD_FROM_AI: CommandSourceType = CommandSourceType::FromAi;
 
-/// Wave 268: host-only path has no dual-world factory objects.
+/// Wave 268: skip only when BOTH the dual-world registry and GameLogic are empty.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    if !crate::object::registry::OBJECT_REGISTRY.is_empty() {
+        return false;
+    }
+    match crate::system::game_logic::get_game_logic().try_lock() {
+        Ok(logic) => logic.get_object_count() == 0,
+        Err(_) => false,
+    }
 }
 
 /// Player money/resource management (matching C++ Money class)
@@ -3010,6 +3016,11 @@ impl Player {
 
     pub fn get_science_purchase_points(&self) -> Int {
         self.science_purchase_points
+    }
+
+    /// C++ `Player::crc` dumped onto GameLogic `getCRC` (one XferCRC addCRC path).
+    pub fn crc_into_logic_xfer(&self, xfer: &mut dyn crate::common::xfer::Xfer) {
+        let _ = Snapshotable::crc(self, xfer);
     }
 
     pub fn get_skill_points_modifier(&self) -> Real {

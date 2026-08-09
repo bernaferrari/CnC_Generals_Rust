@@ -943,6 +943,35 @@ mod tests {
     }
 
     #[test]
+    fn gadget_gpu_fill_rect_mesh_is_two_triangles_matching_window_rect() {
+        let rect = crate::gui::ui_renderer::UIRect::new(10.0, 20.0, 100.0, 30.0);
+        let color = [1.0, 0.0, 0.0, 1.0];
+        let (positions, uvs, colors, indices) =
+            crate::gui::ui_renderer::UIRenderer::gadget_gpu_fill_rect_mesh(rect, color, 0.0);
+        assert_eq!(positions.len(), 4);
+        assert_eq!(uvs.len(), 4);
+        assert_eq!(colors.len(), 4);
+        assert_eq!(indices, vec![0, 1, 2, 0, 2, 3]);
+        assert_eq!(positions[0], [10.0, 20.0, 0.0]);
+        assert_eq!(positions[2], [110.0, 50.0, 0.0]);
+
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
+        let _ = window.set_position(10, 20);
+        let _ = window.set_size(100, 30);
+        let scaled = super::press_scaled_rect(&window);
+        let (btn_pos, _, _, btn_idx) =
+            crate::gui::ui_renderer::UIRenderer::gadget_gpu_fill_rect_mesh(
+                scaled,
+                [1.0, 1.0, 1.0, 1.0],
+                0.0,
+            );
+        assert_eq!(btn_idx.len(), 6);
+        assert_eq!(btn_pos[0][0], scaled.x);
+        assert_eq!(btn_pos[0][1], scaled.y);
+    }
+
+    #[test]
     fn w3d_push_button_draw_consumes_clock_request_like_cpp() {
         let mut window = GameWindow::new();
         window.set_status(WindowStatus::ENABLED);

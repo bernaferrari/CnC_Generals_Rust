@@ -148,6 +148,12 @@ impl W3DDynamicLight {
         self.decay_color = true;
     }
 
+    /// C++ `Get_Far_Attenuation_Range` linear factor used by `doTheDynamicLight`.
+    #[must_use]
+    pub fn far_atten_factor(&self, dist: f32) -> Option<f32> {
+        game_client::fx_list::far_atten_factor(dist, self.far_atten_start, self.far_atten_end)
+    }
+
     /// Set terrain influence bounds used by `cull`.
     pub const fn set_bounds(&mut self, min_x: i32, min_y: i32, max_x: i32, max_y: i32) {
         self.min_x = min_x;
@@ -281,6 +287,17 @@ mod tests {
         assert!(light.is_enabled());
         assert_eq!(light.far_atten_end, 1.0);
         assert_eq!(light.ambient, [0.0; 3]);
+    }
+
+    #[test]
+    fn far_atten_factor_matches_cpp_heightmap_midrange() {
+        let mut light = W3DDynamicLight::new();
+        light.far_atten_start = 10.0;
+        light.far_atten_end = 40.0;
+        assert!(light.far_atten_factor(40.0).is_none());
+        assert!((light.far_atten_factor(20.0).unwrap() - (2.0 / 3.0)).abs() < 1e-5);
+        light.far_atten_start = 0.05;
+        assert!(light.far_atten_factor(1.0).is_none());
     }
 
     fn assert_vec3_close(actual: [f32; 3], expected: [f32; 3]) {

@@ -1224,6 +1224,14 @@ fn xfer_emission_volume(
     Ok(())
 }
 
+/// Result of the emit half of `ParticleSystem::update` (C++ delay early-out vs emit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameEmitPhase {
+    Dead,
+    Delayed,
+    Emitted,
+}
+
 /// Particle system (matches C++ ParticleSystem)
 pub struct ParticleSystem {
     template: Arc<ParticleSystemTemplate>,
@@ -1305,6 +1313,9 @@ pub struct ParticleSystem {
     // corresponding slave particles in a separate pass (avoids double-&mut borrow).
     // Matches C++ ParticleSystem::update lines 2004-2009.
     slave_emission_count: u32,
+
+    /// Burst infos waiting for C++ `createParticle` LOD/budget gates (manager applies).
+    pending_emission_infos: Vec<ParticleInfo>,
 }
 
 impl ParticleSystem {
@@ -1376,6 +1387,7 @@ impl ParticleSystem {
             emission_volume_type_override: None,
 
             slave_emission_count: 0,
+            pending_emission_infos: Vec::new(),
         };
 
         // Initialize wind motion
@@ -1399,36 +1411,76 @@ impl ParticleSystem {
     /// # Arguments
     /// * `local_player_index` - Player index for visibility checks
     /// * `current_frame` - Current game frame for timing
-    pub fn update(&mut self, _local_player_index: i32, current_frame: u32) -> bool {
-        if self.is_destroyed && self.particles.is_empty() {
-            return false;
-        }
-
-        // Update wind motion (C++ line 1978)
-        self.update_wind_motion();
-
-        // C++ parity: parent transform concatenation (ParticleSys.cpp lines 1847-1932)
-        self.update_transform_from_parent();
-
-        // Update existing particles (C++ lines 2143-2158)
-        self.update_particles(current_frame);
-
-        // C++ parity: ParticleSys.cpp line 1970
-        if !self.is_stopped && !self.is_destroyed && !self.is_shrouded {
-            self.emit_particles(current_frame);
-        }
-
-        // Update timing
-        if !self.is_forever {
-            if self.system_lifetime_left > 0 {
-                self.system_lifetime_left -= 1;
-            } else if !self.is_destroyed {
-                self.destroy();
+    /// C++ update order: delay (return) → wind/transform → emit → particle update → lifetime.
+    pub fn update(&mut self, local_player_index: i32, current_frame: u32) -> bool {
+        match self.begin_frame_emit(local_player_index, current_frame) {
+            FrameEmitPhase::Dead => false,
+            FrameEmitPhase::Delayed => true,
+            FrameEmitPhase::Emitted => {
+                self.finish_frame_integrate(current_frame);
+                !self.should_remove()
             }
         }
+    }
 
-        // System is alive if it has particles or isn't destroyed
-        !self.particles.is_empty() || !self.is_destroyed
+    /// Delay / wind / transform / emit. Manager commits pending, then integrate.
+    pub fn begin_frame_emit(
+        &mut self,
+        _local_player_index: i32,
+        current_frame: u32,
+    ) -> FrameEmitPhase {
+        if self.is_destroyed && self.particles.is_empty() && self.pending_emission_infos.is_empty()
+        {
+            return FrameEmitPhase::Dead;
+        }
+
+        // C++ ParticleSys.cpp: initial delay also delays lifetime (early return).
+        if self.delay_left > 0 {
+            self.delay_left -= 1;
+            if self.delay_left == 0 {
+                self.start_timestamp = current_frame;
+            }
+            return FrameEmitPhase::Delayed;
+        }
+
+        self.update_wind_motion();
+        self.update_transform_from_parent();
+
+        if !self.is_destroyed
+            && (self.is_forever || self.system_lifetime_left > 0)
+            && !self.is_shrouded
+            && !self.is_stopped
+            && self.master_system.is_none()
+        {
+            self.emit_particles(current_frame);
+        }
+        FrameEmitPhase::Emitted
+    }
+
+    /// C++ particle loop + lifetime tick after createParticle.
+    pub fn finish_frame_integrate(&mut self, current_frame: u32) {
+        self.update_particles(current_frame);
+        if !self.is_forever && self.system_lifetime_left > 0 {
+            self.system_lifetime_left -= 1;
+        }
+    }
+
+    /// C++ update return false: destroyed with no particles, or finite lifetime
+    /// exhausted with nothing left in the air (including pending createParticle).
+    #[must_use]
+    pub fn should_remove(&self) -> bool {
+        if self.is_destroyed && self.particles.is_empty() && self.pending_emission_infos.is_empty()
+        {
+            return true;
+        }
+        if !self.is_forever
+            && self.system_lifetime_left == 0
+            && self.particles.is_empty()
+            && self.pending_emission_infos.is_empty()
+        {
+            return true;
+        }
+        false
     }
 
     /// Set position (matches C++ ParticleSystem::setPosition)
@@ -1591,6 +1643,16 @@ impl ParticleSystem {
         std::mem::take(&mut self.slave_emission_count)
     }
 
+    /// Burst `ParticleInfo`s generated this frame; manager runs C++ `createParticle` gates.
+    pub fn take_pending_emissions(&mut self) -> Vec<ParticleInfo> {
+        std::mem::take(&mut self.pending_emission_infos)
+    }
+
+    /// Record one successful master particle that should spawn a slave merge.
+    pub fn record_slave_emission(&mut self) {
+        self.slave_emission_count += 1;
+    }
+
     /// Set skip parent transform
     pub fn set_skip_parent_xfrm(&mut self, enable: bool) {
         self.skip_parent_transform = enable;
@@ -1650,6 +1712,16 @@ impl ParticleSystem {
     /// Set initial delay
     pub fn set_initial_delay(&mut self, delay: u32) {
         self.delay_left = delay;
+    }
+
+    /// Remaining initial delay frames (C++ ParticleSystem::m_delayLeft).
+    pub fn initial_delay_left(&self) -> u32 {
+        self.delay_left
+    }
+
+    /// Local transform used for orient-to-object / rotate residuals.
+    pub fn local_transform(&self) -> Matrix3<f32> {
+        self.local_transform
     }
 
     /// Set lifetime range
@@ -1836,24 +1908,9 @@ impl ParticleSystem {
         let info = self.template.info();
         let burst_count = (info.burst_count.sample() * self.count_coeff) as u32;
 
-        // Reset slave emission count for this burst
-        self.slave_emission_count = 0;
-
         for i in 0..burst_count {
-            if let Some(_particle_info) = self.generate_particle_info(i, burst_count) {
-                // Create particle with current frame as creation timestamp (C++ line 287)
-                let particle =
-                    Particle::new(&_particle_info, self.personality_counter, current_frame);
-                self.particles.push_back(particle);
-                self.particle_count += 1;
-                self.personality_counter += 1;
-
-                // Track slave emission count (C++ lines 2004-2009)
-                // The actual slave particle creation is handled by the manager
-                // because we can't mutably borrow two systems simultaneously.
-                if self.slave_system.is_some() {
-                    self.slave_emission_count += 1;
-                }
+            if let Some(particle_info) = self.generate_particle_info(i, burst_count) {
+                self.pending_emission_infos.push(particle_info);
             }
         }
 

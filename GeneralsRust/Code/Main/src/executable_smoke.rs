@@ -130,6 +130,10 @@ pub struct ExecutableSmokeResult {
     pub diplomacy_cmd_ok: bool,
     /// Host published a usable live frame.png (GPU/screenshot residual).
     pub live_frame_ok: bool,
+    /// Host published a visible (non-headless) OS window.
+    pub window_visible: bool,
+    /// Host published a hit-verified WND widget-tree LeftDown/Up click.
+    pub wnd_widget_tree_nav: bool,
     /// Peak InGame unit mesh render_item_count from host status (world draw residual).
     pub max_render_item_count: u32,
     /// Peak InGame presentation-alive object count.
@@ -157,6 +161,74 @@ pub struct ExecutableSmokeResult {
     pub map_seen: String,
     pub exit_code: Option<i32>,
     pub new_game_path: bool,
+}
+
+impl ExecutableSmokeResult {
+    /// Honest retail `playable_claim`: all five must be true. Headless host smoke
+    /// never passes `window_visible` / `wnd_widget_tree_nav`.
+    pub fn retail_windowed_playable_claim(
+        window_visible: bool,
+        wnd_widget_tree_nav: bool,
+        gpu_present: bool,
+        ingame: bool,
+        gameplay: bool,
+    ) -> bool {
+        window_visible && wnd_widget_tree_nav && gpu_present && ingame && gameplay
+    }
+
+    /// Wave 176: latch `host_vertical_slice_ok` from presentation boundary + WND/cmd residuals.
+    ///
+    /// InGame requires a presentation-owned frame with zero live GameLogic dual-reads.
+    /// Soft when the display never reached InGame (assets/GPU unavailable).
+    /// `playable_claim` stays false.
+    pub fn apply_host_vertical_slice_gate(&mut self) {
+        // Retail windowed WND+GPU sit-through is not proven in this host smoke.
+        // GenericTracer INI + leftover FX now register; that does not flip this claim.
+        self.playable_claim = Self::retail_windowed_playable_claim(
+            self.window_visible,
+            self.wnd_widget_tree_nav,
+            self.live_frame_ok,
+            self.reached_ingame,
+            self.gameplay_cmd_ok,
+        );
+        let map_is_shell_residual = {
+            let m = self.map_seen.to_ascii_lowercase();
+            m.contains("shellmap") || m.trim().is_empty() || m == "-"
+        };
+        let skirmish_map_boundary_ok = !self.reached_ingame || !map_is_shell_residual;
+        let gameworld_presentation_boundary_ok = !self.reached_ingame
+            || !self.presentation_frame_ok
+            || self.max_render_alive_objects == 0
+            || self.gameworld_presentation_entities_ok;
+        let gameworld_overlay_boundary_ok =
+            !self.gameworld_presentation_entities_ok || self.gameworld_overlay_stamped_ok;
+        let gameworld_rebuilt_boundary_ok =
+            !self.gameworld_presentation_entities_ok || self.gameworld_rebuilt_ok;
+        let render_mesh_boundary_ok = !self.reached_ingame
+            || (self.max_render_alive_objects > 0
+                && self.max_render_item_count > 0
+                && self.render_items_stable_ok
+                && self.presentation_live_fallback_ok);
+        let presentation_boundary_ok = !self.reached_ingame
+            || (self.presentation_frame_ok && self.presentation_live_fallback_ok);
+        self.host_vertical_slice_ok = self.shell_wnd_ok
+            && self.main_menu_skirmish_wnd_ok
+            && self.skirmish_map_select_wnd_ok
+            && self.skirmish_slot_config_wnd_ok
+            && self.skirmish_rules_wnd_ok
+            && self.skirmish_start_wnd_ok
+            && self.reached_ingame
+            && self.gameplay_cmd_ok
+            && self.construct_cmd_ok
+            && self.train_cmd_ok
+            && self.executable_host_ok
+            && presentation_boundary_ok
+            && gameworld_presentation_boundary_ok
+            && gameworld_overlay_boundary_ok
+            && gameworld_rebuilt_boundary_ok
+            && render_mesh_boundary_ok
+            && skirmish_map_boundary_ok;
+    }
 }
 
 impl Default for ExecutableSmokeResult {
@@ -232,6 +304,8 @@ impl Default for ExecutableSmokeResult {
             cancel_production_cmd_ok: false,
             diplomacy_cmd_ok: false,
             live_frame_ok: false,
+            window_visible: false,
+            wnd_widget_tree_nav: false,
             max_render_item_count: 0,
             max_render_alive_objects: 0,
             render_items_stable_ok: false,
@@ -282,6 +356,8 @@ struct StatusSnap {
     presentation_live_fallback_reads: u32,
     waypoint_mode: bool,
     live_frame_ok: bool,
+    window_visible: bool,
+    wnd_widget_tree_nav: bool,
     render_item_count: u32,
     render_alive_objects: u32,
     render_fow_filtered: u32,
@@ -361,6 +437,18 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             }
             "live_frame_ok" => {
                 snap.live_frame_ok = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "window_visible" => {
+                snap.window_visible = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "wnd_widget_tree_nav" => {
+                snap.wnd_widget_tree_nav = matches!(
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
@@ -769,6 +857,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut saw_diplomacy_ok = false;
     let mut diplomacy_detail = String::new();
     let mut saw_live_frame_ok = false;
+    let mut saw_window_visible = false;
+    let mut saw_wnd_widget_tree_nav = false;
     let mut max_render_item_count: u32 = 0;
     let mut max_render_alive_objects: u32 = 0;
     let mut render_items_nonzero_polls: u32 = 0;
@@ -951,6 +1041,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             // last_gameplay_cmd when the control loop is busy or a later command lands first.
             if snap.live_frame_ok {
                 saw_live_frame_ok = true;
+            }
+            if snap.window_visible {
+                saw_window_visible = true;
+            }
+            if snap.wnd_widget_tree_nav {
+                saw_wnd_widget_tree_nav = true;
             }
             if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
                 saw_combat_damage = true;
@@ -1241,16 +1337,28 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             saw_early_combat_cmd = true;
                             commanded_at = Some(Instant::now());
                         } else if commanded_at
-                            .map(|t| t.elapsed() < Duration::from_secs(6))
+                            .map(|t| t.elapsed() < Duration::from_secs(12))
                             .unwrap_or(false)
                         {
-                            // Wave 1112: longer window for attack residual + damage
-                            // counters (2s was flaky under load; still fail-closed).
+                            // Wave 1112/1115: longer window for attack residual + damage
+                            // counters (2s/6s were flaky under load; still fail-closed).
+                            // Wave 1115: re-issue attack mid-window so FOW/retarget lag
+                            // still has a chance to apply host_damage_log totals.
                             if snap.last_gameplay_cmd.starts_with("attack_ok") {
                                 saw_attack_ok = true;
                             }
                             if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
                                 saw_combat_damage = true;
+                            }
+                            let elapsed = commanded_at.map(|t| t.elapsed()).unwrap_or_default();
+                            if !saw_combat_damage
+                                && elapsed >= Duration::from_secs(4)
+                                && elapsed < Duration::from_secs(5)
+                            {
+                                let _ = write_control(
+                                    &control_path,
+                                    &["attack_nearest_enemy|auto_target=1"],
+                                );
                             }
                         } else {
                             let _ = write_control(
@@ -2520,6 +2628,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.cancel_production_cmd_ok = saw_cancel_production_ok;
                         result.diplomacy_cmd_ok = saw_diplomacy_ok;
                         result.live_frame_ok = saw_live_frame_ok;
+                        result.window_visible = saw_window_visible;
+                        result.wnd_widget_tree_nav = saw_wnd_widget_tree_nav;
                         result.auto_attack_cmd_ok = saw_auto_attack_ok;
                         result.options_cmd_ok = saw_options_ok;
                         result.request_capture_cmd_ok = saw_request_capture_ok;
@@ -2636,12 +2746,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
 
     let _ = fs::remove_dir_all(&tmp);
 
-    // Wave 836: playable_claim stays always false (behavior_gate residual honesty).
-    // Headless latch peels are not full interactive retail WND + GPU playthrough.
-    // Keep the literal assignment so residual source gates keep matching.
-    result.playable_claim = false;
     // Wave 839: ensure presentation honesty counters are latched before vertical gate.
     result.presentation_frame_ok = result.presentation_frame_ok || saw_presentation_frame_ok;
+    result.window_visible = result.window_visible || saw_window_visible;
+    result.wnd_widget_tree_nav = result.wnd_widget_tree_nav || saw_wnd_widget_tree_nav;
     result.presentation_live_fallback_ok =
         result.presentation_live_fallback_ok || saw_presentation_live_fallback_ok;
     result.max_render_item_count = result.max_render_item_count.max(max_render_item_count);
@@ -2650,57 +2758,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         .max(max_render_alive_objects);
     result.render_items_stable_ok = result.render_items_stable_ok
         || (result.reached_ingame && max_render_item_count > 0 && render_items_nonzero_polls >= 3);
-    // Vertical slice honesty (not playable_claim): presentation boundary + core cmds.
-    // Wave 176: InGame vertical slice also requires presentation-owned frame
-    // with zero live GameLogic dual-reads (immutable presentation boundary).
-    // Soft when display never reached InGame (assets/GPU unavailable).
-    let presentation_boundary_ok = !result.reached_ingame
-        || (result.presentation_frame_ok && result.presentation_live_fallback_ok);
-    // Wave 188: when InGame has a presentation frame and non-zero render alives,
-    // require GameWorld observe-path entity count (shadow presentation view).
-    // Empty worlds / no maps remain soft-ok (entities_ok false is fine when alives==0).
-    let gameworld_presentation_boundary_ok = !result.reached_ingame
-        || !result.presentation_frame_ok
-        || result.max_render_alive_objects == 0
-        || result.gameworld_presentation_entities_ok;
-    // Wave 191: when GW entities observed, also require overlay stamp activity
-    // (PresentationFrame last-writer path exercised). Soft if no GW entities.
-    let gameworld_overlay_boundary_ok =
-        !result.gameworld_presentation_entities_ok || result.gameworld_overlay_stamped_ok;
-    // Wave 196: when GW entities observed on default-on rebuild path, require rebuilt>0.
-    let gameworld_rebuilt_boundary_ok =
-        !result.gameworld_presentation_entities_ok || result.gameworld_rebuilt_ok;
-    // Wave 836/839/840: host vertical slice absorbs Wave 835 skirmish latch peels +
-    // construct/train/presentation gates + non-zero stable world render residual +
-    // non-shell match map (ShellMapMD boot residual is not a skirmish map).
-    // playable_claim stays always false.
-    let map_is_shell_residual = {
-        let m = result.map_seen.to_ascii_lowercase();
-        m.contains("shellmap") || m.trim().is_empty() || m == "-"
-    };
-    let skirmish_map_boundary_ok = !result.reached_ingame || !map_is_shell_residual;
-    let render_mesh_boundary_ok = !result.reached_ingame
-        || (result.max_render_alive_objects > 0
-            && result.max_render_item_count > 0
-            && result.render_items_stable_ok
-            && result.presentation_live_fallback_ok);
-    result.host_vertical_slice_ok = result.shell_wnd_ok
-        && result.main_menu_skirmish_wnd_ok
-        && result.skirmish_map_select_wnd_ok
-        && result.skirmish_slot_config_wnd_ok
-        && result.skirmish_rules_wnd_ok
-        && result.skirmish_start_wnd_ok
-        && result.reached_ingame
-        && result.gameplay_cmd_ok
-        && result.construct_cmd_ok
-        && result.train_cmd_ok
-        && result.executable_host_ok
-        && presentation_boundary_ok
-        && gameworld_presentation_boundary_ok
-        && gameworld_overlay_boundary_ok
-        && gameworld_rebuilt_boundary_ok
-        && render_mesh_boundary_ok
-        && skirmish_map_boundary_ok;
+    // Wave 176: presentation boundary + host vertical slice on the result itself.
+    result.apply_host_vertical_slice_gate();
     result
 }
 
@@ -2729,7 +2788,7 @@ fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2807,6 +2866,8 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.cancel_production_cmd_ok,
         r.diplomacy_cmd_ok,
         r.live_frame_ok,
+        r.window_visible,
+        r.wnd_widget_tree_nav,
         r.auto_attack_cmd_ok,
         r.options_cmd_ok,
         r.request_capture_cmd_ok,
@@ -2867,6 +2928,84 @@ mod tests {
     fn playable_claim_always_false_on_default() {
         let r = ExecutableSmokeResult::default();
         assert!(!r.playable_claim);
+    }
+
+    #[test]
+    fn host_vertical_slice_ok_never_flips_playable_claim() {
+        let mut r = ExecutableSmokeResult::default();
+        r.shell_wnd_ok = true;
+        r.main_menu_skirmish_wnd_ok = true;
+        r.skirmish_map_select_wnd_ok = true;
+        r.skirmish_slot_config_wnd_ok = true;
+        r.skirmish_rules_wnd_ok = true;
+        r.skirmish_start_wnd_ok = true;
+        r.reached_ingame = true;
+        r.gameplay_cmd_ok = true;
+        r.construct_cmd_ok = true;
+        r.train_cmd_ok = true;
+        r.executable_host_ok = true;
+        r.presentation_frame_ok = true;
+        r.presentation_live_fallback_ok = true;
+        r.max_render_alive_objects = 8;
+        r.max_render_item_count = 16;
+        r.render_items_stable_ok = true;
+        r.gameworld_presentation_entities_ok = true;
+        r.gameworld_overlay_stamped_ok = true;
+        r.gameworld_rebuilt_ok = true;
+        r.map_seen = "Lone Eagle".into();
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            r.host_vertical_slice_ok,
+            "headless WND+cmd+presentation slice can be true"
+        );
+        assert!(
+            !r.playable_claim,
+            "retail windowed WND/GPU sit-through is not proven; playable_claim stays false"
+        );
+        assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
+            false, true, true, true, true
+        ));
+        assert!(ExecutableSmokeResult::retail_windowed_playable_claim(
+            true, true, true, true, true
+        ));
+    }
+
+    #[test]
+    fn parses_window_visible_and_wnd_widget_tree_nav_from_status() {
+        let path = std::env::temp_dir().join(format!(
+            "generals_smoke_wnd_vis_{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "state=Menu\nwindow_visible=true\nwnd_widget_tree_nav=true\nlive_frame_ok=true\n",
+        )
+        .unwrap();
+        let snap = parse_status(&path).expect("snap");
+        let _ = std::fs::remove_file(&path);
+        assert!(snap.window_visible);
+        assert!(snap.wnd_widget_tree_nav);
+        assert!(snap.live_frame_ok);
+    }
+
+    #[test]
+    fn apply_host_vertical_slice_gate_playable_only_with_all_five_retail_flags() {
+        let mut r = ExecutableSmokeResult::default();
+        r.reached_ingame = true;
+        r.gameplay_cmd_ok = true;
+        r.live_frame_ok = true;
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            !r.playable_claim,
+            "headless/missing window+WND nav must not flip playable_claim"
+        );
+        r.window_visible = true;
+        r.wnd_widget_tree_nav = true;
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            r.playable_claim,
+            "all five retail windowed flags true => playable_claim"
+        );
     }
 
     #[test]

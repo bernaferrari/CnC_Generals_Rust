@@ -7,13 +7,16 @@ use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus};
 use std::collections::BTreeMap;
 use std::io;
 
-fn add_crc_word(crc: u32, word: u32) -> u32 {
+/// C++ `XferCRC::addCRC` (XferCRC.cpp): `htonl` then rotate-add with high bit.
+pub fn add_crc_word(crc: u32, word: u32) -> u32 {
     let word = word.to_be();
     let hibit = u32::from((crc & 0x8000_0000) != 0);
     crc.wrapping_shl(1).wrapping_add(word).wrapping_add(hibit)
 }
 
-fn fold_crc_bytes(mut crc: u32, data: &[u8]) -> u32 {
+/// C++ `XferCRC::xferImplementation`: full words via `addCRC`, leftover `htonl` then `addCRC`
+/// (so leftover is byte-swapped twice).
+pub fn fold_crc_bytes(mut crc: u32, data: &[u8]) -> u32 {
     let full_words = data.len() / 4;
     for chunk in data[..full_words * 4].chunks_exact(4) {
         crc = add_crc_word(crc, u32::from_ne_bytes(chunk.try_into().unwrap()));
@@ -417,5 +420,65 @@ mod tests {
         let log = xfer_deep.get_corruption_log();
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].expected_crc, actual_crc + 1);
+    }
+
+    /// C++ leftover 1–3 bytes: pack LE into a word, `htonl`, then `addCRC`
+    /// (which `htonl`s again — leftover is byte-swapped twice).
+    fn cpp_fold_crc_bytes(data: &[u8]) -> u32 {
+        let mut crc = 0u32;
+        let full_words = data.len() / 4;
+        for chunk in data[..full_words * 4].chunks_exact(4) {
+            let word = u32::from_ne_bytes(chunk.try_into().unwrap());
+            crc = add_crc_word(crc, word);
+        }
+        let leftover = &data[full_words * 4..];
+        if !leftover.is_empty() {
+            let mut word = 0u32;
+            for (index, byte) in leftover.iter().enumerate() {
+                word = word.wrapping_add((*byte as u32) << (index * 8));
+            }
+            crc = add_crc_word(crc, word.to_be());
+        }
+        crc
+    }
+
+    #[test]
+    fn fold_crc_bytes_leftover_1_2_3_matches_cpp_double_htonl() {
+        let cases: &[&[u8]] = &[
+            &[0xAB],
+            &[0xAB, 0xCD],
+            &[0xAB, 0xCD, 0xEF],
+            &[0x11, 0x22, 0x33, 0x44, 0xAB],
+            &[0x11, 0x22, 0x33, 0x44, 0xAB, 0xCD],
+            &[0x11, 0x22, 0x33, 0x44, 0xAB, 0xCD, 0xEF],
+            b"MARKER",
+            b"OBJECT",
+        ];
+        for data in cases {
+            let folded = fold_crc_bytes(0, data);
+            assert_eq!(
+                folded,
+                cpp_fold_crc_bytes(data),
+                "fold leftover len={} data={data:?}",
+                data.len()
+            );
+        }
+        // Leftover 1 byte is htonl'd twice; a single addCRC of the packed word differs.
+        let leftover1 = &[0xABu8][..];
+        assert_ne!(
+            fold_crc_bytes(0, leftover1),
+            add_crc_word(0, 0xAB),
+            "leftover must double-swap via htonl then addCRC"
+        );
+
+        let mut xfer_crc = XferCRC::new(super::super::xfer_load::XferLoad::new(
+            Cursor::new(Vec::new()),
+            1,
+        ));
+        xfer_crc.update_crc(&[0x11, 0x22, 0x33, 0x44, 0xAB]);
+        assert_eq!(
+            xfer_crc.get_crc(),
+            fold_crc_bytes(0, &[0x11, 0x22, 0x33, 0x44, 0xAB]).to_be()
+        );
     }
 }

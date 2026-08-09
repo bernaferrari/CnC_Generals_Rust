@@ -162,6 +162,8 @@ pub struct PresentationDrawableSync {
     pub veterancy_level: u8,
     pub under_construction: bool,
     pub construction_percent: f32,
+    /// Wave 1115: C++ OBJECT_STATUS_SOLD residual for construct-percent fail-closed.
+    pub sold: bool,
     /// Wave 972: icon-pip residual (ammo/contain/status).
     pub ammo_pip_total: u8,
     pub ammo_pip_full: u8,
@@ -3221,7 +3223,12 @@ impl GameClient {
             let decals = Arc::new(Mutex::new(DecalManager::default()));
             register_decal_manager(Arc::clone(&decals));
             let scorch_decals = Arc::clone(&decals);
-            let _ = register_scorch_hook(Arc::new(move |position, size, _type_id| {
+            let _ = register_scorch_hook(Arc::new(move |position, size, type_id| {
+                let _ = crate::terrain::scorch_mesh::add_terrain_scorch(
+                    [position.x, position.y, position.z],
+                    size,
+                    type_id,
+                );
                 if let Ok(mut guard) = scorch_decals.lock() {
                     let scorch_position = Point3::new(position.x, position.y, position.z);
                     guard.create_decal(DecalSettings::scorch_mark(scorch_position, size.max(0.1)));
@@ -3598,6 +3605,7 @@ impl GameClient {
                 veterancy_level: 0,
                 under_construction: false,
                 construction_percent: 0.0,
+                sold: false,
                 ammo_pip_total: 0,
                 ammo_pip_full: 0,
                 occupant_count: 0,
@@ -3754,6 +3762,8 @@ impl GameClient {
             e.formation_id,
             e.caption.clone(),
         );
+        // Wave 1115: sold residual after host overlay stamp (C++ OBJECT_STATUS_SOLD).
+        drawable.set_presentation_sold(e.sold);
     }
 
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
@@ -3916,6 +3926,7 @@ impl GameClient {
                         .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
                     {
                         basic.set_presentation_hotkey_group(u.hotkey_group);
+                        basic.set_presentation_sold(u.sold);
                     }
                 }
             }
@@ -4172,6 +4183,10 @@ impl GameClient {
     }
 
     fn update_effects(&mut self, delta_time: f32) -> GameClientResult<()> {
+        if delta_time > 0.0 {
+            crate::fx_list::tick_scene_dynamic_lights();
+            crate::display::view::with_tactical_view(|view| view.tick_impulse_shake());
+        }
         if let Some(ref decals) = self.subsystem_manager.decal_manager {
             if let Ok(mut guard) = decals.lock() {
                 let config = EffectsConfig::default();

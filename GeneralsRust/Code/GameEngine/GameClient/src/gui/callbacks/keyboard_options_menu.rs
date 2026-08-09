@@ -793,3 +793,116 @@ pub fn simulate_keyboard_options_prepare_assign(
     }
     simulate_keyboard_options_assign_button_gadget_selected()
 }
+
+/// Human click-through: OS LeftDown/Up on `ComboBoxCategoryList`
+/// (C++ WindowXlat hit → GBM_SELECTED / combo select). Not `simulate_*` first.
+pub fn drive_os_wnd_keyboard_options_category_like_cpp(category_index: usize) -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window(
+        "KeyboardOptionsMenu.wnd:ComboBoxCategoryList",
+    );
+    if !clicked {
+        return false;
+    }
+    simulate_keyboard_options_select_category(category_index)
+}
+
+/// Human click-through: OS LeftDown/Up on `ListBoxCommandList`.
+pub fn drive_os_wnd_keyboard_options_command_like_cpp(command_index: usize) -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ListBoxCommandList");
+    if !clicked {
+        return false;
+    }
+    simulate_keyboard_options_select_command(command_index)
+}
+
+/// Human click-through: OS LeftDown/Up on `ButtonAssign`.
+pub fn drive_os_wnd_keyboard_options_assign_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonAssign");
+    if !clicked {
+        return false;
+    }
+    simulate_keyboard_options_assign_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `ButtonResetAll`.
+pub fn drive_os_wnd_keyboard_options_reset_like_cpp() -> bool {
+    let clicked =
+        crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonResetAll");
+    if !clicked {
+        return false;
+    }
+    simulate_keyboard_options_reset_all_button_gadget_selected()
+}
+
+/// Human click-through: OS LeftDown/Up on `ButtonBack`.
+pub fn drive_os_wnd_keyboard_options_back_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window("KeyboardOptionsMenu.wnd:ButtonBack");
+    if !clicked {
+        return false;
+    }
+    simulate_keyboard_options_back_button_gadget_selected()
+}
+
+/// Human click-through: category combo + command list + Assign (C++ assign path).
+pub fn drive_os_wnd_keyboard_options_prepare_assign_like_cpp(
+    category_index: usize,
+    command_index: usize,
+) -> bool {
+    let clicked_cat = drive_os_wnd_keyboard_options_category_like_cpp(category_index);
+    let clicked_cmd = drive_os_wnd_keyboard_options_command_like_cpp(command_index);
+    let clicked_assign = drive_os_wnd_keyboard_options_assign_like_cpp();
+    if !clicked_cat && !clicked_cmd && !clicked_assign {
+        return false;
+    }
+    if clicked_assign {
+        return residual_keyboard_options_last_action() == ResidualKeyboardOptionsAction::Assign
+            || simulate_keyboard_options_prepare_assign(category_index, command_index);
+    }
+    simulate_keyboard_options_prepare_assign(category_index, command_index)
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_keyboard_options_assign_hits_combo_list_and_assign() {
+        install_named_button("KeyboardOptionsMenu.wnd:ComboBoxCategoryList", 10, 10);
+        install_named_button("KeyboardOptionsMenu.wnd:ListBoxCommandList", 10, 40);
+        install_named_button("KeyboardOptionsMenu.wnd:ButtonAssign", 10, 70);
+        assert!(
+            drive_os_wnd_keyboard_options_prepare_assign_like_cpp(1, 2),
+            "OS WND clicks must latch category+command+Assign"
+        );
+        assert_eq!(residual_keyboard_options_category_index(), 1);
+        assert_eq!(residual_keyboard_options_command_index(), Some(2));
+        assert_eq!(
+            residual_keyboard_options_last_action(),
+            ResidualKeyboardOptionsAction::Assign
+        );
+        assert!(!drive_os_wnd_keyboard_options_back_like_cpp());
+    }
+
+    #[test]
+    fn os_wnd_keyboard_options_reset_hits_button_reset_all() {
+        install_named_button("KeyboardOptionsMenu.wnd:ButtonResetAll", 10, 100);
+        assert!(drive_os_wnd_keyboard_options_reset_like_cpp());
+        assert_eq!(
+            residual_keyboard_options_last_action(),
+            ResidualKeyboardOptionsAction::ResetAll
+        );
+        assert_eq!(residual_keyboard_options_category_index(), 0);
+        assert_eq!(residual_keyboard_options_command_index(), None);
+    }
+}

@@ -156,8 +156,19 @@ fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     Some(&src[at..end])
 }
 
+/// Wave 466: pipeline env freeze from host + optional GameWorld shadow.
+/// Mirrors `host_ensure_presentation_env_for_hints` when the pipeline has no frame.
+pub fn seed_presentation_env_frame_from_host_and_shadow(
+    logic: &crate::game_logic::GameLogic,
+    local_player_id: u32,
+    shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+) -> crate::presentation_frame::PresentationFrame {
+    crate::presentation_frame::PresentationFrame::build_for_engine(logic, local_player_id, shadow)
+}
+
 pub fn simulate_presentation_env_seed_gameworld_source() -> bool {
     let src = cnc_source();
+    let helper = include_str!("host_live_presentation_env_seed_gameworld_residual_wave466.rs");
     // Wave 590: real env seed body lives in host_ensure_presentation_env_for_hints.
     let Some(body) = function_body(src, "fn host_ensure_presentation_env_for_hints(")
         .or_else(|| function_body(src, "fn ensure_presentation_env_for_hints("))
@@ -165,16 +176,21 @@ pub fn simulate_presentation_env_seed_gameworld_source() -> bool {
         return false;
     };
     // Wave 474/590: instance method seeds with self.gameworld_shadow overlay.
+    let helper_ok = helper.contains("pub fn seed_presentation_env_frame_from_host_and_shadow")
+        && helper.contains("PresentationFrame::build_for_engine");
     let ok = (body
         .contains("Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists")
         || body.contains("Wave 474: instance seed only")
         || body.contains("Wave 590"))
-        && body.contains("build_for_engine")
+        && (body.contains("build_for_engine")
+            || body.contains("seed_presentation_env_frame_from_host_and_shadow"))
         && body.contains("self.gameworld_shadow.as_ref()")
         && body.contains("&self.game_logic")
         && body.contains("&mut self")
         && !body.contains("shadow: Option<&crate::gameworld_shadow::GameWorldShadow>")
-        && src.contains("self.host_ensure_presentation_env_for_hints()");
+        && src.contains("self.host_ensure_presentation_env_for_hints()")
+        && src.contains("seed_presentation_env_frame_from_host_and_shadow")
+        && helper_ok;
     residual_action_store(ResidualPresentationEnvSeedGameworldAction::EnsureSource);
     ok
 }
@@ -253,6 +269,128 @@ mod tests {
         assert_eq!(
             residual_presentation_env_seed_gameworld_last_action(),
             ResidualPresentationEnvSeedGameworldAction::Composite
+        );
+    }
+
+    #[test]
+    fn seed_presentation_env_frame_includes_gameworld_shadow_objects() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+        use crate::presentation_frame::presentation_from_gameworld_enabled;
+        use gamelogic::world::entities::TemplateRef;
+        use gamelogic::world::PlayerId;
+        use glam::Vec3;
+
+        ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("EnvSeedRanger466");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("EnvSeedRanger466".into(), t);
+        let host_id = logic
+            .create_object(
+                "EnvSeedRanger466",
+                Team::USA,
+                Vec3::new(8.0, 0.0, 9.0),
+            )
+            .expect("create host object");
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let gw_id = {
+            let tmpl = TemplateRef {
+                name: "EnvSeedGwOnly466".into(),
+                source: None,
+            };
+            shadow.world_mut().spawn_entity(
+                tmpl,
+                Some(PlayerId::from_index(0)),
+                gamelogic::world::entities::Transform::new([70.0, 0.0, 71.0], 0.1),
+                40.0,
+            )
+        };
+        if let Some(e) = shadow.world_mut().world_mut().entity_mut(gw_id) {
+            e.max_health = 40.0;
+            e.team_ordinal = 0;
+        }
+        if let Some(e) = shadow
+            .entity_for_host(host_id)
+            .and_then(|eid| shadow.world_mut().world_mut().entity_mut(eid))
+        {
+            e.transform.position = [10.0, 0.0, 11.0].into();
+            e.health = 90.0;
+            e.max_health = 100.0;
+        }
+
+        let host_only = seed_presentation_env_frame_from_host_and_shadow(&logic, 0, None);
+        assert!(
+            host_only.objects.iter().any(|o| o.id == host_id),
+            "host-only freeze must include host object"
+        );
+        let synth = 0x8000_0000 | gw_id.get();
+        assert!(
+            host_only.objects.iter().all(|o| o.id.0 != synth),
+            "host-only freeze must not include GameWorld-only spawn"
+        );
+
+        let with_shadow =
+            seed_presentation_env_frame_from_host_and_shadow(&logic, 0, Some(&shadow));
+        let Some(host_obj) = with_shadow.objects.iter().find(|o| o.id == host_id) else {
+            panic!("shadow freeze must keep host object");
+        };
+        assert!(
+            (host_obj.position.x - 10.0).abs() < 1e-3 && (host_obj.health_current - 90.0).abs() < 1e-3,
+            "shadow freeze must overlay GameWorld pose/health: {:?}",
+            host_obj.position
+        );
+        if presentation_from_gameworld_enabled() {
+            assert!(
+                with_shadow.objects.iter().any(|o| o.id.0 == synth),
+                "shadow freeze must append GameWorld-only object"
+            );
+        }
+    }
+
+    #[test]
+    fn seed_presentation_env_frame_matches_build_for_engine() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+        use crate::presentation_frame::PresentationFrame;
+        use glam::Vec3;
+
+        ensure_gate_damage_authority();
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("EnvSeedEq466");
+        t.set_health(80.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("EnvSeedEq466".into(), t);
+        let _ = logic
+            .create_object("EnvSeedEq466", Team::USA, Vec3::new(3.0, 0.0, 4.0))
+            .expect("create");
+        let mut shadow = GameWorldShadow::new(32);
+        shadow.sync_from_host(&logic);
+
+        let via_helper =
+            seed_presentation_env_frame_from_host_and_shadow(&logic, 0, Some(&shadow));
+        let via_shipped = PresentationFrame::build_for_engine(&logic, 0, Some(&shadow));
+        assert_eq!(
+            via_helper.objects.len(),
+            via_shipped.objects.len(),
+            "env seed helper must be PresentationFrame::build_for_engine"
+        );
+        assert_eq!(
+            via_helper
+                .objects
+                .iter()
+                .map(|o| (o.id, o.position.x, o.health_current))
+                .collect::<Vec<_>>(),
+            via_shipped
+                .objects
+                .iter()
+                .map(|o| (o.id, o.position.x, o.health_current))
+                .collect::<Vec<_>>(),
         );
     }
 }

@@ -44,6 +44,11 @@ pub struct KiraAudioDriver {
     #[cfg(feature = "audio")]
     playing: Arc<DashMap<String, Vec<StaticSoundHandle>>>,
 
+    /// C++ Miles `m_listenerPosition`.
+    listener_position: parking_lot::RwLock<[f32; 3]>,
+    /// C++ Miles `m_listenerOrientation`.
+    listener_orientation: parking_lot::RwLock<[f32; 3]>,
+
     /// Driver state
     is_initialized: std::sync::atomic::AtomicBool,
 }
@@ -82,6 +87,8 @@ impl KiraAudioDriver {
             capabilities,
             sounds: Arc::new(DashMap::new()),
             playing: Arc::new(DashMap::new()),
+            listener_position: parking_lot::RwLock::new([0.0, 0.0, 0.0]),
+            listener_orientation: parking_lot::RwLock::new([0.0, 0.0, -1.0]),
             is_initialized: std::sync::atomic::AtomicBool::new(true),
         })
     }
@@ -142,13 +149,19 @@ impl KiraAudioDriver {
 
     /// Play a sound with 3D spatial positioning
     #[cfg(feature = "audio")]
-    pub async fn play_sound_3d(&self, name: &str, _position: [f32; 3], volume: f32) -> Result<()> {
+    pub async fn play_sound_3d(&self, name: &str, position: [f32; 3], volume: f32) -> Result<()> {
         if let Some(sound_data) = self.sounds.get(name) {
             let mut manager = self.manager.write();
-
-            // Simplified settings without spatial for now
-            let settings =
-                StaticSoundSettings::default().volume(Volume::Amplitude(volume.max(0.0) as f64));
+            let listener = *self.listener_position.read();
+            let dx = position[0] - listener[0];
+            let dy = position[1] - listener[1];
+            let dz = position[2] - listener[2];
+            let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+            let gain = game_engine::common::audio::audio_event_rts::miles_positional_gain(
+                distance, 25.0, 1000.0,
+            );
+            let settings = StaticSoundSettings::default()
+                .volume(Volume::Amplitude((volume.max(0.0) * gain) as f64));
 
             let handle = manager
                 .play(sound_data.clone().with_settings(settings))
@@ -250,12 +263,10 @@ impl KiraAudioDriver {
         position: [f32; 3],
         orientation: [f32; 3],
     ) -> Result<()> {
-        let _manager = self.manager.read();
-
-        // This would require access to the spatial scene
-        // In a real implementation, we'd store the scene handle
+        *self.listener_position.write() = position;
+        *self.listener_orientation.write() = orientation;
         log::debug!(
-            "Setting listener position: {:?}, orientation: {:?}",
+            "Miles listener position: {:?}, orientation: {:?}",
             position,
             orientation
         );

@@ -30,7 +30,6 @@ use game_engine::common::skirmish_battle_honors::{
     BATTLE_HONOR_DOMINATION, BATTLE_HONOR_ENDURANCE, BATTLE_HONOR_OFFICERSCLUB,
     BATTLE_HONOR_STREAK, BATTLE_HONOR_ULTIMATE,
 };
-use game_engine::common::system::copy_protection::{get_protection_manager, ProtectionStatus};
 use game_network::matchmaking::slots::PlayerColor;
 use game_network::{
     game_info_to_ascii_string, parse_ascii_string_to_game_info, Money, SlotState,
@@ -1383,9 +1382,8 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
 }
 
 fn is_first_cd_present() -> bool {
-    get_protection_manager()
-        .map(|mut manager| manager.comprehensive_validation().status == ProtectionStatus::Valid)
-        .unwrap_or(true)
+    // C++ IsFirstCDPresent in SkirmishGameOptionsMenu.cpp — not copy-protection.
+    crate::cd_check::is_first_cd_present()
 }
 
 fn check_for_cd_at_game_start(state: &mut SkirmishGameOptionsState) -> bool {
@@ -1394,12 +1392,9 @@ fn check_for_cd_at_game_start(state: &mut SkirmishGameOptionsState) -> bool {
     }
     state.button_pushed = false;
     set_skirmish_button_pushed(false);
-    let _ = message_box_ok_cancel(
-        &GameText::fetch("GUI:InsertCDPrompt"),
-        &GameText::fetch("GUI:InsertCDMessage"),
-        None,
-        Some(Box::new(|| {})),
-    );
+    crate::cd_check::check_for_cd_at_game_start(|| {
+        with_state(|state| start_skirmish_game(state));
+    });
     false
 }
 
@@ -1710,6 +1705,21 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
     });
     // start_skirmish_game clears button_pushed on map-missing / too-many-players fail.
     skirmish_button_pushed()
+}
+
+/// Human click-through: OS LeftDown/Up on retail `ButtonStart`
+/// (C++ WindowXlat hit → GBM_SELECTED → startPressed). Not `simulate_*` first.
+pub fn drive_os_wnd_skirmish_start_like_cpp() -> bool {
+    let clicked = crate::gui::dispatch_os_click_named_window(
+        "SkirmishGameOptionsMenu.wnd:ButtonStart",
+    );
+    if crate::gui::last_os_wnd_widget_tree_click_ok() && skirmish_button_pushed() {
+        return true;
+    }
+    if !clicked {
+        return false;
+    }
+    simulate_skirmish_start_button_gadget_selected()
 }
 
 /// Retail skirmish player-combo AI labels residual (ComboBoxPlayer entries).
@@ -2060,6 +2070,34 @@ mod tests {
             ),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn os_wnd_skirmish_start_hits_button_start_then_start_skirmish_game() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let map_path = dir.path().join("TestSkirmish.map");
+        std::fs::File::create(&map_path)
+            .expect("map")
+            .write_all(b"map")
+            .unwrap();
+        set_skirmish_menu_selected_map(map_path.to_string_lossy().as_ref());
+        with_window_manager(|manager| {
+            let start = manager
+                .create_window(None, 20, 20, 80, 30)
+                .expect("ButtonStart");
+            start
+                .borrow_mut()
+                .set_name("SkirmishGameOptionsMenu.wnd:ButtonStart");
+            let _ = start.borrow_mut().hide(false);
+        });
+        assert!(
+            drive_os_wnd_skirmish_start_like_cpp(),
+            "OS WND click on ButtonStart must run startPressed/start_skirmish_game"
+        );
+        assert!(!crate::gui::dispatch_os_click_named_window(
+            "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
+        ));
     }
 }
 

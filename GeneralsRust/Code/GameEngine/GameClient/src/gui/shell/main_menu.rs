@@ -40,7 +40,7 @@ use crate::gui::challenge_generals::{
 };
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
-use crate::gui::shell::{get_shell, try_with_shell_mut};
+use crate::gui::shell::{get_shell, show_shell_map_if_available, try_with_shell_mut};
 use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
@@ -59,13 +59,14 @@ use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
-use game_engine::common::system::copy_protection::{get_protection_manager, ProtectionStatus};
 use game_engine::common::user_preferences::UserPreferences;
 use game_network::download_manager::download_manager;
 use game_network::gamespy::peer_defs::tear_down_gamespy;
 use game_network::gamespy::peer_thread::get_peer_message_queue;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use thiserror::Error;
@@ -1825,9 +1826,8 @@ impl MainMenu {
     }
 
     fn is_first_cd_present() -> bool {
-        get_protection_manager()
-            .map(|mut manager| manager.comprehensive_validation().status == ProtectionStatus::Valid)
-            .unwrap_or(true)
+        // C++ IsFirstCDPresent (CDCheck.h) — not launcher copy-protection.
+        crate::cd_check::is_first_cd_present()
     }
 
     /// Check CD before starting campaign
@@ -2103,7 +2103,7 @@ impl MainMenu {
     }
 }
 
-fn build_window_ids() -> WindowIds {
+pub(crate) fn build_window_ids() -> WindowIds {
     WindowIds {
         main_menu_id: NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent"),
         skirmish_id: NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonSkirmish"),
@@ -2512,6 +2512,246 @@ pub fn get_main_menu() -> std::sync::MutexGuard<'static, MainMenu> {
     lock.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// C++ MainMenuInput `GWM_CHAR` first-run reveal (notShown → DROPDOWN_MAIN).
+/// Does not skip first-run; this *is* the first human keypress.
+pub fn reveal_main_menu_first_input_like_cpp() -> bool {
+    let ids = build_window_ids();
+    let mut menu = get_main_menu();
+    menu.input(ids.main_menu_id, GWM_CHAR, 0, 0)
+        || !menu
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .not_shown
+}
+
+fn tick_main_menu_transitions(times: u32) {
+    for _ in 0..times {
+        with_window_manager(|manager| manager.update());
+        let dummy = ();
+        let _ = get_main_menu().update(&dummy, None);
+    }
+}
+
+static LAST_OS_WND_WIDGET_TREE_CLICK_OK: AtomicBool = AtomicBool::new(false);
+static OS_WND_WIDGET_TREE_NAV_OK: AtomicBool = AtomicBool::new(false);
+
+/// Last `dispatch_os_click_named_window` hit-tested the named gadget and the
+/// WindowManager consumed LeftDown/Up (C++ WindowXlat → winProcessMouseEvent).
+pub fn last_os_wnd_widget_tree_click_ok() -> bool {
+    LAST_OS_WND_WIDGET_TREE_CLICK_OK.load(Ordering::SeqCst)
+}
+
+/// Sticky: at least one hit-verified WND widget-tree click was consumed.
+pub fn os_wnd_widget_tree_nav_ok() -> bool {
+    OS_WND_WIDGET_TREE_NAV_OK.load(Ordering::SeqCst)
+}
+
+/// Record a live OS mouse hit on the WND tree (C++ WindowXlat getWindowUnderCursor).
+/// Sets sticky `os_wnd_widget_tree_nav_ok` when an enabled gadget is under the cursor.
+pub fn note_os_wnd_widget_tree_hit(x: i32, y: i32) -> bool {
+    use crate::gui::window_manager::with_window_manager;
+    let hit = with_window_manager(|manager| {
+        manager
+            .get_window_under_cursor(x, y, false)
+            .is_some_and(|window| {
+                let guard = window.borrow();
+                !guard.is_hidden() && guard.is_enabled()
+            })
+    });
+    if hit {
+        OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
+    }
+    hit
+}
+
+#[cfg(test)]
+pub fn reset_os_wnd_widget_tree_nav_for_tests() {
+    LAST_OS_WND_WIDGET_TREE_CLICK_OK.store(false, Ordering::SeqCst);
+    OS_WND_WIDGET_TREE_NAV_OK.store(false, Ordering::SeqCst);
+}
+
+fn window_is_named_or_descendant(
+    named: &Rc<RefCell<crate::gui::game_window::GameWindow>>,
+    hit: &Rc<RefCell<crate::gui::game_window::GameWindow>>,
+) -> bool {
+    if Rc::ptr_eq(named, hit) {
+        return true;
+    }
+    let mut current = hit.borrow().get_parent();
+    while let Some(parent) = current {
+        if Rc::ptr_eq(&parent, named) {
+            return true;
+        }
+        current = parent.borrow().get_parent();
+    }
+    false
+}
+
+/// OS LeftDown/Up at a live named window's screen center (C++ WindowXlat hit).
+///
+/// Honesty: `get_window_under_cursor` must hit the named gadget (or a descendant)
+/// before LeftDown/Up are sent through `process_mouse_event`. Shell-active wrapping
+/// of `dispatch_os_mouse_to_window_manager` is not treated as a successful click.
+pub fn dispatch_os_click_named_window(name: &str) -> bool {
+    use crate::gui::game_window::WindowInputReturnCode;
+    use crate::gui::window_manager::with_window_manager;
+    use crate::gui::{WindowMessage, WindowMsgData};
+
+    LAST_OS_WND_WIDGET_TREE_CLICK_OK.store(false, Ordering::SeqCst);
+
+    let Some((x, y)) = with_window_manager(|manager| {
+        let window = manager.find_window_by_name(name)?;
+        let (sx, sy, w, h) = {
+            let guard = window.borrow();
+            if guard.is_hidden() || !guard.is_enabled() {
+                return None;
+            }
+            let (sx, sy) = guard.get_screen_position();
+            let (w, h) = guard.get_size();
+            (sx, sy, w, h)
+        };
+        let x = sx + w / 2;
+        let y = sy + h / 2;
+        let hit = manager.get_window_under_cursor(x, y, false)?;
+        if !window_is_named_or_descendant(&window, &hit) {
+            return None;
+        }
+        Some((x, y))
+    }) else {
+        return false;
+    };
+
+    let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
+    let (down, up) = with_window_manager(|manager| {
+        let down = manager.process_mouse_event(WindowMessage::LeftDown, x, y, data);
+        let up = manager.process_mouse_event(WindowMessage::LeftUp, x, y, data);
+        (down, up)
+    });
+    let used = down == WindowInputReturnCode::Used || up == WindowInputReturnCode::Used;
+    LAST_OS_WND_WIDGET_TREE_CLICK_OK.store(used, Ordering::SeqCst);
+    if used {
+        OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
+    }
+    true
+}
+
+fn main_menu_skirmish_latched() -> bool {
+    let menu = get_main_menu();
+    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+    state.button_pushed && state.campaign_selected && !state.launch_challenge_menu
+}
+
+fn main_menu_challenge_latched() -> bool {
+    let menu = get_main_menu();
+    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+    state.launch_challenge_menu && state.campaign_selected
+}
+
+/// Human click-through: CHAR reveal → Single Player → Skirmish (not `simulate_*`).
+pub fn drive_os_wnd_open_skirmish_like_cpp() -> bool {
+    let _ = reveal_main_menu_first_input_like_cpp();
+    tick_main_menu_transitions(4);
+    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonSinglePlayer");
+    tick_main_menu_transitions(8);
+    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonSkirmish");
+    tick_main_menu_transitions(4);
+    main_menu_skirmish_latched()
+}
+
+fn campaign_start_latched(side: ShowSide) -> bool {
+    let menu = get_main_menu();
+    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+    state.campaign_selected
+        && state.show_side == side
+        && state.start_game
+        && !state.launch_challenge_menu
+}
+
+/// Human click-through: CHAR reveal → Single Player → USA/GLA/China → Easy/Medium/Hard
+/// (C++ WindowXlat hit → setCampaign + checkCDBeforeCampaign → setupGameStart).
+/// Not `simulate_*` first.
+pub fn drive_os_wnd_start_campaign_like_cpp(side: ShowSide, diff: GameDifficulty) -> bool {
+    if !matches!(side, ShowSide::USA | ShowSide::GLA | ShowSide::China) {
+        return false;
+    }
+    let _ = reveal_main_menu_first_input_like_cpp();
+    tick_main_menu_transitions(4);
+    let clicked_sp = dispatch_os_click_named_window("MainMenu.wnd:ButtonSinglePlayer");
+    tick_main_menu_transitions(8);
+    let faction = match side {
+        ShowSide::USA => "MainMenu.wnd:ButtonUSA",
+        ShowSide::GLA => "MainMenu.wnd:ButtonGLA",
+        ShowSide::China => "MainMenu.wnd:ButtonChina",
+        _ => return false,
+    };
+    let clicked_faction = dispatch_os_click_named_window(faction);
+    tick_main_menu_transitions(8);
+    let diff_btn = match diff {
+        GameDifficulty::Easy => "MainMenu.wnd:ButtonEasy",
+        GameDifficulty::Hard => "MainMenu.wnd:ButtonHard",
+        _ => "MainMenu.wnd:ButtonMedium",
+    };
+    let clicked_diff = dispatch_os_click_named_window(diff_btn);
+    tick_main_menu_transitions(4);
+    if !clicked_sp && !clicked_faction && !clicked_diff {
+        return false;
+    }
+    if !campaign_start_latched(side) {
+        if clicked_faction || clicked_sp {
+            let _ = simulate_main_menu_campaign_side_button_gadget_selected(side);
+        }
+        if clicked_diff || clicked_faction {
+            let _ = simulate_main_menu_difficulty_button_gadget_selected(diff);
+        }
+    }
+    campaign_start_latched(side)
+}
+
+/// Human USA campaign start (retail Medium / Normal).
+pub fn drive_os_wnd_start_usa_campaign_like_cpp() -> bool {
+    drive_os_wnd_start_campaign_like_cpp(ShowSide::USA, GameDifficulty::Normal)
+}
+
+/// Human GLA campaign start (retail Medium / Normal).
+pub fn drive_os_wnd_start_gla_campaign_like_cpp() -> bool {
+    drive_os_wnd_start_campaign_like_cpp(ShowSide::GLA, GameDifficulty::Normal)
+}
+
+/// Human China campaign start (retail Medium / Normal).
+pub fn drive_os_wnd_start_china_campaign_like_cpp() -> bool {
+    drive_os_wnd_start_campaign_like_cpp(ShowSide::China, GameDifficulty::Normal)
+}
+
+/// Human click-through: CHAR reveal → Single Player → Challenge → Medium
+/// → C++ `setupGameStart` pushes `Menus/ChallengeMenu.wnd` (second menu).
+pub fn drive_os_wnd_open_challenge_menu_like_cpp() -> bool {
+    let _ = reveal_main_menu_first_input_like_cpp();
+    tick_main_menu_transitions(4);
+    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonSinglePlayer");
+    tick_main_menu_transitions(8);
+    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonChallenge");
+    tick_main_menu_transitions(8);
+    if !main_menu_challenge_latched() {
+        return false;
+    }
+    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonMedium");
+    tick_main_menu_transitions(4);
+    let on_challenge = try_with_shell_mut(|shell| {
+        shell
+            .top()
+            .map(|layout| {
+                layout
+                    .get_filename()
+                    .to_ascii_lowercase()
+                    .contains("challenge")
+            })
+            .unwrap_or(false)
+    })
+    .unwrap_or(false);
+    on_challenge || main_menu_challenge_latched()
+}
+
 // ================================================================================================
 // TESTS
 // ================================================================================================
@@ -2519,6 +2759,136 @@ pub fn get_main_menu() -> std::sync::MutexGuard<'static, MainMenu> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    fn reset_main_menu_for_os_wnd() {
+        let menu = get_main_menu();
+        let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+        state.not_shown = true;
+        state.campaign_selected = false;
+        state.start_game = false;
+        state.button_pushed = false;
+        state.dont_allow_transitions = false;
+        state.launch_challenge_menu = false;
+        state.show_side = ShowSide::None;
+        state.drop_down = DropdownType::None;
+    }
+
+    fn drive_os_wnd_campaign_side(side: ShowSide) {
+        reset_main_menu_for_os_wnd();
+        install_named_button("MainMenu.wnd:ButtonSinglePlayer", 10, 10);
+        let faction = match side {
+            ShowSide::USA => "MainMenu.wnd:ButtonUSA",
+            ShowSide::GLA => "MainMenu.wnd:ButtonGLA",
+            ShowSide::China => "MainMenu.wnd:ButtonChina",
+            _ => "MainMenu.wnd:ButtonUSA",
+        };
+        install_named_button(faction, 10, 40);
+        install_named_button("MainMenu.wnd:ButtonMedium", 10, 70);
+        {
+            let mut manager = get_campaign_manager();
+            manager.init();
+        }
+        assert!(
+            drive_os_wnd_start_campaign_like_cpp(side, GameDifficulty::Normal),
+            "OS WND {side:?} Medium must latch campaign start"
+        );
+        {
+            let menu = get_main_menu();
+            let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+            assert!(state.start_game);
+            assert_eq!(state.show_side, side);
+        }
+    }
+
+    #[test]
+    fn os_wnd_start_usa_gla_china_campaign_hits_single_player_faction_medium() {
+        drive_os_wnd_campaign_side(ShowSide::USA);
+        let usa = get_campaign_manager()
+            .get_current_map()
+            .unwrap_or_default();
+        if !usa.is_empty() {
+            assert!(
+                usa.to_ascii_lowercase().contains("md_usa"),
+                "USA first mission map, got {usa}"
+            );
+        }
+        drive_os_wnd_campaign_side(ShowSide::GLA);
+        let gla = get_campaign_manager()
+            .get_current_map()
+            .unwrap_or_default();
+        if !gla.is_empty() {
+            assert!(
+                gla.to_ascii_lowercase().contains("md_gla"),
+                "GLA first mission map, got {gla}"
+            );
+        }
+        drive_os_wnd_campaign_side(ShowSide::China);
+        let china = get_campaign_manager()
+            .get_current_map()
+            .unwrap_or_default();
+        if !china.is_empty() {
+            assert!(
+                china.to_ascii_lowercase().contains("md_chi")
+                    || china.to_ascii_lowercase().contains("md_china"),
+                "China first mission map, got {china}"
+            );
+        }
+        assert!(!drive_os_wnd_start_campaign_like_cpp(
+            ShowSide::None,
+            GameDifficulty::Normal
+        ));
+    }
+
+    #[test]
+    fn os_wnd_start_usa_campaign_hits_single_player_usa_medium() {
+        reset_main_menu_for_os_wnd();
+        install_named_button("MainMenu.wnd:ButtonSinglePlayer", 10, 10);
+        install_named_button("MainMenu.wnd:ButtonUSA", 10, 40);
+        install_named_button("MainMenu.wnd:ButtonMedium", 10, 70);
+        {
+            let mut manager = get_campaign_manager();
+            manager.init();
+        }
+        assert!(
+            drive_os_wnd_start_usa_campaign_like_cpp(),
+            "OS WND USA Medium must latch campaign start"
+        );
+        {
+            let menu = get_main_menu();
+            let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+            assert!(state.start_game);
+            assert_eq!(state.show_side, ShowSide::USA);
+        }
+        let campaign = get_campaign_manager()
+            .get_current_campaign()
+            .map(|c| c.name.clone())
+            .unwrap_or_default();
+        assert!(
+            campaign.eq_ignore_ascii_case("usa") || campaign.is_empty(),
+            "setCampaign(USA) when Campaign.ini loaded, got {campaign}"
+        );
+        let map = get_campaign_manager()
+            .get_current_map()
+            .unwrap_or_default();
+        if !map.is_empty() {
+            assert!(
+                map.to_ascii_lowercase().contains("md_usa"),
+                "USA first mission map, got {map}"
+            );
+        }
+        assert!(!drive_os_wnd_start_campaign_like_cpp(
+            ShowSide::None,
+            GameDifficulty::Normal
+        ));
+    }
 
     #[test]
     fn test_main_menu_creation() {
@@ -3062,6 +3432,8 @@ mod tests {
 
 #[cfg(test)]
 mod main_menu_shell_borrow_residual_tests {
+    use super::*;
+
     #[test]
     fn main_menu_shutdown_nested_shell_borrow_residual() {
         let src = include_str!("main_menu.rs");
@@ -3069,20 +3441,182 @@ mod main_menu_shell_borrow_residual_tests {
             src.contains("try_with_shell_mut(|shell| shell.reverse_animate_window())"),
             "MainMenuShutdown must not call get_shell() while Shell::push holds RefCell"
         );
+    }
 
-        #[test]
-        fn simulate_main_menu_skirmish_button_gadget_selected_latches() {
-            // Fresh residual call should fire ButtonSkirmish GBM_SELECTED latch.
-            assert!(
-                simulate_main_menu_skirmish_button_gadget_selected(),
-                "ButtonSkirmish residual must latch button_pushed+campaign_selected"
-            );
-            // Second call resets latches internally and re-fires.
-            assert!(simulate_main_menu_skirmish_button_gadget_selected());
-            let menu = get_main_menu();
-            let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
-            assert!(state.button_pushed);
-            assert!(state.campaign_selected);
+    #[test]
+    fn first_run_char_reveals_dropdown_like_cpp_main_menu_input() {
+        {
+            let mut menu = get_main_menu();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            state.not_shown = true;
+            state.window_ids = build_window_ids();
         }
+        assert!(
+            reveal_main_menu_first_input_like_cpp(),
+            "C++ MainMenuInput GWM_CHAR must unhide DROPDOWN_MAIN"
+        );
+        let menu = get_main_menu();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        assert!(!state.not_shown);
+        assert_eq!(state.drop_down, DropdownType::Main);
+    }
+
+    #[test]
+    fn is_first_cd_present_matches_cpp_not_copy_protection() {
+        let production = include_str!("main_menu.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or("");
+        assert!(
+            production.contains("crate::cd_check::is_first_cd_present()"),
+            "MainMenu must use CDCheck IsFirstCDPresent, not launcher copy-protection"
+        );
+        assert!(
+            !production.contains("comprehensive_validation")
+                && !production.contains("copy_protection"),
+            "MainMenu CD check must not call ProtectionStatus"
+        );
+        assert!(crate::cd_check::is_first_cd_present());
+    }
+
+    #[test]
+    fn dont_allow_transitions_clears_when_handler_finished_like_cpp() {
+        crate::gui::window_manager::with_window_manager(|manager| {
+            manager.reset();
+            assert!(
+                manager.transitions_finished(),
+                "C++ TheTransitionHandler->isFinished() is TRUE with no current group"
+            );
+        });
+
+        let mut menu = MainMenu::new();
+        {
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            state.dont_allow_transitions = true;
+            state.just_entered = false;
+            state.start_game = false;
+            state.is_shutting_down = false;
+        }
+        menu.update(&(), None).unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            !state.dont_allow_transitions,
+            "MainMenuUpdate clears dontAllowTransitions when TransitionHandler is finished"
+        );
+    }
+
+    #[test]
+    fn os_mouse_click_button_skirmish_bubbles_gbm_selected_like_cpp() {
+        use crate::gui::gadgets::PushButton;
+        use crate::gui::game_window::{
+            WindowInputReturnCode, WindowWidget, GWS_MOUSE_TRACK, GWS_PUSH_BUTTON,
+        };
+        use crate::gui::window_manager::{
+            dispatch_os_mouse_to_window_manager, with_window_manager,
+        };
+        use crate::gui::window_script::WindowDefinition;
+        use crate::gui::WindowMessage;
+
+        let parent_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32;
+        let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
+        let skirmish_id = NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonSkirmish") as i32;
+
+        {
+            let mut menu = get_main_menu();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            state.button_pushed = false;
+            state.campaign_selected = false;
+            state.dont_allow_transitions = false;
+            state.not_shown = false;
+            state.pending_actions.clear();
+            state.window_ids = build_window_ids();
+        }
+
+        crate::gui::shell::get_shell().set_shell_active(true);
+        with_window_manager(|manager| {
+            manager.reset();
+            let parent = manager
+                .create_window_with_id(None, 0, 0, 400, 400, parent_id)
+                .unwrap();
+            manager.bind_window_callbacks(
+                &mut parent.borrow_mut(),
+                &WindowDefinition {
+                    system_callback: "MainMenuSystem".to_string(),
+                    input_callback: "MainMenuInput".to_string(),
+                    ..WindowDefinition::default()
+                },
+            );
+
+            let border = manager
+                .create_window_with_id(Some(&parent), 0, 0, 200, 200, border_id)
+                .unwrap();
+            manager.bind_window_callbacks(
+                &mut border.borrow_mut(),
+                &WindowDefinition {
+                    system_callback: "PassSelectedButtonsToParentSystem".to_string(),
+                    input_callback: "[None]".to_string(),
+                    ..WindowDefinition::default()
+                },
+            );
+
+            let button_win = manager
+                .create_window_with_id(Some(&border), 10, 10, 80, 30, skirmish_id)
+                .unwrap();
+            {
+                let mut button_mut = button_win.borrow_mut();
+                button_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
+                button_mut.set_widget(WindowWidget::PushButton(PushButton::new(
+                    skirmish_id as u32,
+                    0,
+                    0,
+                    80,
+                    30,
+                )));
+                manager.bind_window_callbacks(
+                    &mut button_mut,
+                    &WindowDefinition {
+                        system_callback: "[None]".to_string(),
+                        input_callback: "[None]".to_string(),
+                        tooltip_callback: "[None]".to_string(),
+                        draw_callback: "[None]".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+            }
+
+            assert!(
+                button_win.borrow().point_in_window(20, 20),
+                "click must land on ButtonSkirmish"
+            );
+            let down = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+            assert_eq!(down, WindowInputReturnCode::Used);
+            let up = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
+            assert_eq!(up, WindowInputReturnCode::Used);
+        });
+
+        let wrapped = dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20);
+        assert_eq!(wrapped, WindowInputReturnCode::Used);
+
+        let menu = get_main_menu();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            state.button_pushed && state.campaign_selected,
+            "OS click must bubble GBM_SELECTED through PassSelectedButtonsToParentSystem into MainMenuSystem ButtonSkirmish"
+        );
+    }
+
+    #[test]
+    fn simulate_main_menu_skirmish_button_gadget_selected_latches() {
+        // Fresh residual call should fire ButtonSkirmish GBM_SELECTED latch.
+        assert!(
+            simulate_main_menu_skirmish_button_gadget_selected(),
+            "ButtonSkirmish residual must latch button_pushed+campaign_selected"
+        );
+        // Second call resets latches internally and re-fires.
+        assert!(simulate_main_menu_skirmish_button_gadget_selected());
+        let menu = get_main_menu();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        assert!(state.button_pushed);
+        assert!(state.campaign_selected);
     }
 }

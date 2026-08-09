@@ -1309,6 +1309,52 @@ mod tests {
     }
 
     #[test]
+    fn first_enemy_attack_command_id_prefers_attackable_before_force_attack() {
+        let mut logic = GameLogic::new();
+        let mut barracks = ThingTemplate::new("ChinaBarracks");
+        barracks.set_health(1000.0);
+        barracks.add_kind_of(KindOf::Structure);
+        barracks.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("ChinaBarracks".into(), barracks);
+        let mut ranger = ThingTemplate::new("ChinaRanger");
+        ranger.set_health(100.0);
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.add_kind_of(KindOf::Attackable);
+        ranger.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("ChinaRanger".into(), ranger);
+        let mut usa = ThingTemplate::new("UsaRanger");
+        usa.set_health(100.0);
+        usa.add_kind_of(KindOf::Infantry);
+        usa.add_kind_of(KindOf::Selectable);
+        usa.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("UsaRanger".into(), usa);
+        let _friendly = logic
+            .create_object("UsaRanger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("usa");
+        let building = logic
+            .create_object(
+                "ChinaBarracks",
+                Team::China,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("b");
+        let mobile = logic
+            .create_object("ChinaRanger", Team::China, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("m");
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let attackable = frame.first_enemy_attackable_id(Team::USA);
+        let force = frame.first_enemy_force_attack_id(Team::USA);
+        let cmd = frame.first_enemy_attack_command_id(Team::USA);
+        assert_eq!(attackable, Some(building));
+        assert_eq!(force, Some(mobile));
+        assert_eq!(
+            cmd, attackable,
+            "host attack_nearest_enemy must prefer FOW-clear attackable before force-attack"
+        );
+        assert_eq!(cmd, attackable.or(force));
+    }
+
+    #[test]
     fn world_pick_from_presentation_ignores_live_move() {
         let (mut logic, id) = logic_with_selectable_unit();
         let frame = PresentationFrame::build_from_logic(&logic, 0);

@@ -2945,6 +2945,7 @@ impl GameWindow {
         }
 
         let mut handled = slider_thumb_hilite_handled;
+        let gadget_consumed_input = !messages.is_empty();
         let is_checkbox_message = matches!(self.widget, Some(WindowWidget::CheckBox(_)));
         let is_radio_message = matches!(self.widget, Some(WindowWidget::RadioButton(_)));
         let target_owner = if !self.owner_is_self
@@ -3095,6 +3096,12 @@ impl GameWindow {
             if result.is_handled() {
                 handled = true;
             }
+        }
+
+        // C++ gadget input returns MSG_HANDLED when the widget consumed the
+        // click even if the owner system callback ignores GadgetSelected.
+        if gadget_consumed_input {
+            handled = true;
         }
 
         if handled {

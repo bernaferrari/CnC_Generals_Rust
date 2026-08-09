@@ -424,3 +424,81 @@ pub fn simulate_ime_prepare_composition_cycle(text: &str) -> bool {
     }
     true
 }
+
+/// C++ `IMEManager::openCandidateList` gadgets from `IMECandidateWindow.wnd`.
+const IME_CANDIDATE_GADGETS: &[&str] = &[
+    "IMECandidateWindow.wnd:TextArea",
+    "IMECandidateWindow.wnd:UpArrow",
+    "IMECandidateWindow.wnd:DownArrow",
+];
+
+fn click_any_ime_candidate_gadget() -> bool {
+    IME_CANDIDATE_GADGETS
+        .iter()
+        .any(|name| crate::gui::dispatch_os_click_named_window(name))
+}
+
+/// Human click-through: OS LeftDown/Up on `IMECandidateWindow.wnd:TextArea`
+/// (C++ candidate list hit) then composition cycle residual.
+pub fn drive_os_wnd_ime_prepare_composition_cycle_like_cpp(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    if !click_any_ime_candidate_gadget() {
+        return false;
+    }
+    simulate_ime_prepare_composition_cycle(text)
+}
+
+pub fn drive_os_wnd_ime_clear_candidates_like_cpp() -> bool {
+    if !click_any_ime_candidate_gadget() {
+        return false;
+    }
+    simulate_ime_clear_candidates()
+}
+
+pub fn drive_os_wnd_ime_result_like_cpp(text: &str) -> bool {
+    if !click_any_ime_candidate_gadget() {
+        return false;
+    }
+    simulate_ime_result_string(text)
+}
+
+#[cfg(test)]
+mod os_wnd_tests {
+    use super::*;
+    use crate::gui::with_window_manager;
+
+    fn install_named_button(name: &str, x: i32, y: i32) {
+        with_window_manager(|manager| {
+            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide(false);
+        });
+    }
+
+    #[test]
+    fn os_wnd_ime_prepare_hits_textarea_then_opens_candidate_list() {
+        install_named_button("IMECandidateWindow.wnd:TextArea", 10, 10);
+        assert!(
+            drive_os_wnd_ime_prepare_composition_cycle_like_cpp("nihao"),
+            "OS WND click on IME TextArea must run composition cycle residual"
+        );
+        assert_eq!(residual_ime_last_action(), ResidualImeAction::CandidateList);
+        assert_eq!(residual_ime_candidate_count(), 3);
+        assert!(residual_ime_is_composing());
+        assert!(!drive_os_wnd_ime_prepare_composition_cycle_like_cpp(""));
+    }
+
+    #[test]
+    fn os_wnd_ime_clear_hits_downarrow_then_clears_candidates() {
+        install_named_button("IMECandidateWindow.wnd:DownArrow", 10, 40);
+        let _ = simulate_ime_candidate_list(&["a", "b"], 0);
+        assert!(drive_os_wnd_ime_clear_candidates_like_cpp());
+        assert_eq!(
+            residual_ime_last_action(),
+            ResidualImeAction::ClearCandidates
+        );
+        assert_eq!(residual_ime_candidate_count(), 0);
+    }
+}

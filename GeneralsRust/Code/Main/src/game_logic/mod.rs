@@ -208,6 +208,7 @@ pub mod host_live_host_dozer_bored_dual_peel_residual_wave819;
 pub mod host_live_host_drawable_icon_pip_residual_wave972;
 pub mod host_live_host_drawable_icon_ui_residual_wave977;
 pub mod host_live_host_drawable_overlay_dead_residual_wave1114;
+pub mod host_live_host_construct_dead_combat_latch_residual_wave1115;
 pub mod host_live_host_drawable_overlay_residual_wave970;
 pub mod host_live_host_drawable_presentation_residual_wave965;
 pub mod host_live_host_drawable_visibility_catalog_shroud_residual_wave1020;
@@ -4402,6 +4403,12 @@ pub use host_live_host_drawable_overlay_dead_residual_wave1114::{
     honesty_host_drawable_overlay_dead_residual_pack_wave1114,
     simulate_live_host_drawable_overlay_dead_residual_honesty,
 };
+pub use host_live_host_construct_dead_combat_latch_residual_wave1115::{
+    honesty_host_construct_dead_combat_latch_method_names_residual_wave1115,
+    honesty_host_construct_dead_combat_latch_nav_commands_residual_wave1115,
+    honesty_host_construct_dead_combat_latch_residual_pack_wave1115,
+    simulate_live_host_construct_dead_combat_latch_residual_honesty,
+};
 pub use host_live_host_dual_local_source_masked_unselectable_residual_wave1111::{
     honesty_host_dual_local_source_masked_unselectable_method_names_residual_wave1111,
     honesty_host_dual_local_source_masked_unselectable_nav_commands_residual_wave1111,
@@ -8267,6 +8274,7 @@ pub use host_live_cmd_filter_env_presentation_only_residual_wave217::{
     honesty_live_cmd_filter_env_presentation_only_method_names_residual_wave217,
     honesty_live_cmd_filter_env_presentation_only_nav_commands_residual_wave217,
     honesty_live_cmd_filter_env_presentation_only_residual_pack_wave217,
+    presentation_selected_sellable_structure_ids,
     simulate_live_cmd_filter_env_presentation_only_honesty,
 };
 pub use host_live_collision_system_dual_world_empty_gate_residual_wave313::{
@@ -8945,6 +8953,7 @@ pub use host_live_mouse_input_presentation_only_residual_wave236::{
     honesty_live_mouse_input_presentation_only_method_names_residual_wave236,
     honesty_live_mouse_input_presentation_only_nav_commands_residual_wave236,
     honesty_live_mouse_input_presentation_only_residual_pack_wave236,
+    mouse_game_logic_for_process_mouse_input,
     simulate_live_mouse_input_presentation_only_honesty,
 };
 pub use host_live_move_to_state_dual_world_empty_gate_residual_wave422::{
@@ -9211,6 +9220,7 @@ pub use host_live_presentation_env_seed_gameworld_residual_wave466::{
     honesty_presentation_env_seed_gameworld_residual_pack_wave466,
     residual_presentation_env_seed_gameworld_last_action,
     residual_presentation_env_seed_gameworld_ok,
+    seed_presentation_env_frame_from_host_and_shadow,
     simulate_live_presentation_env_seed_gameworld_honesty,
     simulate_presentation_env_seed_gameworld_callsites,
     simulate_presentation_env_seed_gameworld_source, ResidualPresentationEnvSeedGameworldAction,
@@ -9802,6 +9812,7 @@ pub use host_live_ui_helpers_presentation_only_residual_wave215::{
     honesty_live_ui_helpers_presentation_only_method_names_residual_wave215,
     honesty_live_ui_helpers_presentation_only_nav_commands_residual_wave215,
     honesty_live_ui_helpers_presentation_only_residual_pack_wave215,
+    host_ui_selected_ids_from_residuals,
     simulate_live_ui_helpers_presentation_only_honesty,
 };
 pub use host_live_ui_producer_presentation_only_residual_wave214::{

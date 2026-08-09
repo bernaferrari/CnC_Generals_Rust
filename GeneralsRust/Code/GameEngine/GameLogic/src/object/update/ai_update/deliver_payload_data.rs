@@ -42,6 +42,28 @@ pub struct DeliverPayloadData {
     pub delivery_decal_radius: Real,
 }
 
+impl DeliverPayloadData {
+    /// C++ drop world pose: current item pos + variance sample + dropOffset.
+    /// `variance_sample` is already in [-drop_variance, +drop_variance] per axis
+    /// (or zero when that axis has no variance).
+    pub fn drop_world_pos(&self, base: Coord3D, variance_sample: Coord3D) -> Coord3D {
+        let mut pos = base;
+        if self.drop_variance.x > 0.0 {
+            pos.x += variance_sample.x;
+        }
+        if self.drop_variance.y > 0.0 {
+            pos.y += variance_sample.y;
+        }
+        if self.drop_variance.z > 0.0 {
+            pos.z += variance_sample.z;
+        }
+        pos.x += self.drop_offset.x;
+        pos.y += self.drop_offset.y;
+        pos.z += self.drop_offset.z;
+        pos
+    }
+}
+
 impl Default for DeliverPayloadData {
     fn default() -> Self {
         Self {
@@ -522,6 +544,20 @@ mod tests {
             "ChinaArtilleryBarrageShell"
         );
         assert_eq!(data.drop_offset, Coord3D::new(1.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn drop_world_pos_applies_offset_and_gated_variance() {
+        let mut data = DeliverPayloadData::default();
+        data.drop_offset = Coord3D::new(1.0, 2.0, 3.0);
+        data.drop_variance = Coord3D::new(5.0, 0.0, 4.0);
+        let base = Coord3D::new(10.0, 20.0, 30.0);
+        let sample = Coord3D::new(1.5, 9.0, -2.0);
+        let dropped = data.drop_world_pos(base, sample);
+        // y variance is 0 → sample.y ignored (C++ only adds when variance > 0).
+        assert!((dropped.x - 12.5).abs() < 1e-4);
+        assert!((dropped.y - 22.0).abs() < 1e-4);
+        assert!((dropped.z - 31.0).abs() < 1e-4);
     }
 
     #[test]

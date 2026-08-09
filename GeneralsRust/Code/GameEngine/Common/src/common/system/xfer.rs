@@ -307,12 +307,12 @@ pub trait Xfer {
     }
 
     /// Xfer bool - matches C++ Xfer.cpp lines 88-93
-    /// C++ Bool is typedef'd to Int (4 bytes). We must CRC/transfer 4 bytes, not 1.
+    /// C++ `Bool` is `typedef bool` (1 byte in BaseType.h), not Int.
     fn xfer_bool(&mut self, bool_data: &mut bool) -> io::Result<()> {
-        let mut val: u32 = u32::from(*bool_data);
-        // SAFETY: val is a valid reference
+        let mut val: u8 = u8::from(*bool_data);
+        // SAFETY: val is a valid 1-byte buffer matching `sizeof(Bool)`.
         unsafe {
-            self.xfer_implementation(&mut val as *mut u32 as *mut u8, std::mem::size_of::<u32>())?;
+            self.xfer_implementation(&mut val, std::mem::size_of::<u8>())?;
         }
         *bool_data = val != 0;
         Ok(())

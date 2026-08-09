@@ -86,13 +86,15 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::THE_AI;
 use crate::common::{
     AsciiString, Bool, Color, Coord3D, DisabledMaskType, Int, KindOf, ObjectID,
-    ObjectStatusMaskType, PlayerMaskType, Real, UnsignedInt, UnsignedShort, INVALID_ID,
+    ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType, Real, UnsignedInt, UnsignedShort,
+    INVALID_ID,
 };
 use crate::helpers::{get_camera_view_bridge, TheGameClient};
 use crate::modules::{SleepyUpdatePhase, UpdateModulePtr, UpdateSleepTime};
 use crate::object::collide::collision_geometry::GeometryInfo as CollisionGeometryInfo;
 use crate::object::collide::collision_response::{CollisionResponseConfig, CollisionResponseType};
 use crate::object::collide::collision_system::with_collision_system_mut;
+use crate::object::drawable::DrawableExt;
 use crate::object::{registry::OBJECT_REGISTRY, Object, THE_GHOST_OBJECT_MANAGER};
 use crate::player::{player_list, GameDifficulty, Player, PlayerIndex, PlayerType};
 use crate::scripting::engine::{get_script_engine, initialize_script_engine, ScriptEngine};
@@ -120,10 +122,17 @@ use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Instant;
 
-/// Wave 344: host-only path has no dual-world factory objects.
+/// Wave 344: skip only when BOTH the dual-world registry and GameLogic are empty.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    if !crate::object::registry::OBJECT_REGISTRY.is_empty() {
+        return false;
+    }
+    match crate::system::game_logic::get_game_logic().try_lock() {
+        Ok(logic) => logic.all_objects.is_empty() && logic.objects.is_empty(),
+        // Lock held = live GameLogic call; C++ has no registry skip.
+        Err(_) => false,
+    }
 }
 
 const DEFAULT_WORLD_WIDTH: Real = 64.0;
@@ -151,6 +160,247 @@ pub enum CrcMode {
     Disabled,
     Cached,
     Recalc,
+}
+
+/// C++ `XferCRC` used by `GameLogic::getCRC`. Implements both Xfer stacks so
+/// Object::crc / Player::crc dump through the same `fold_crc_bytes` addCRC.
+pub struct LogicXferCrc {
+    identifier: String,
+    options: u32,
+    crc: u32,
+}
+
+impl LogicXferCrc {
+    pub fn new() -> Self {
+        Self {
+            identifier: String::new(),
+            options: 0,
+            crc: 0,
+        }
+    }
+
+    pub fn get_crc(&self) -> u32 {
+        self.crc.to_be()
+    }
+
+    fn update_crc(&mut self, data: &[u8]) {
+        self.crc = game_engine::common::system::xfer_crc::fold_crc_bytes(self.crc, data);
+    }
+}
+
+impl Default for LogicXferCrc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Xfer for LogicXferCrc {
+    fn get_xfer_mode(&self) -> XferMode {
+        XferMode::Crc
+    }
+
+    fn get_identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    fn set_options(&mut self, options: u32) {
+        self.options |= options;
+    }
+
+    fn clear_options(&mut self, options: u32) {
+        self.options &= !options;
+    }
+
+    fn get_options(&self) -> u32 {
+        self.options
+    }
+
+    fn open(&mut self, identifier: String) -> Result<(), XferStatus> {
+        self.identifier = identifier;
+        // C++ XferCRC::open resets the accumulator.
+        self.crc = 0;
+        Ok(())
+    }
+
+    fn close(&mut self) -> Result<(), XferStatus> {
+        self.identifier.clear();
+        Ok(())
+    }
+
+    fn begin_block(&mut self) -> Result<game_engine::system::XferBlockSize, XferStatus> {
+        Ok(0)
+    }
+
+    fn end_block(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+
+    fn skip(&mut self, _data_size: i32) -> Result<(), XferStatus> {
+        Ok(())
+    }
+
+    fn xfer_snapshot(
+        &mut self,
+        snapshot: &mut dyn XferSnapshotTrait,
+    ) -> Result<(), XferStatus> {
+        snapshot.crc(self)
+    }
+
+    fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> Result<(), XferStatus> {
+        // C++ Xfer::xferAsciiString CRCs the bytes only (no length prefix).
+        self.update_crc(ascii_string_data.as_bytes());
+        Ok(())
+    }
+
+    fn xfer_unicode_string(
+        &mut self,
+        unicode_string_data: &mut String,
+    ) -> Result<(), XferStatus> {
+        let bytes: Vec<u8> = unicode_string_data
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        self.update_crc(&bytes);
+        Ok(())
+    }
+
+    unsafe fn xfer_implementation(
+        &mut self,
+        data: *mut u8,
+        data_size: usize,
+    ) -> Result<(), XferStatus> {
+        if data_size > 0 && !data.is_null() {
+            self.update_crc(std::slice::from_raw_parts(data, data_size));
+        }
+        Ok(())
+    }
+}
+
+impl game_engine::common::system::xfer::Xfer for LogicXferCrc {
+    fn get_xfer_mode(&self) -> game_engine::common::system::xfer::XferMode {
+        game_engine::common::system::xfer::XferMode::Crc
+    }
+
+    fn get_identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    fn set_options(&mut self, options: u32) {
+        self.options |= options;
+    }
+
+    fn clear_options(&mut self, options: u32) {
+        self.options &= !options;
+    }
+
+    fn get_options(&self) -> u32 {
+        self.options
+    }
+
+    fn open(&mut self, identifier: &str) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.identifier = identifier.to_string();
+        self.crc = 0;
+        Ok(())
+    }
+
+    fn close(&mut self) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.identifier.clear();
+        Ok(())
+    }
+
+    fn begin_block(
+        &mut self,
+    ) -> Result<game_engine::common::system::xfer::XferBlockSize, game_engine::common::system::xfer::XferStatus>
+    {
+        Ok(0)
+    }
+
+    fn end_block(&mut self) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        Ok(())
+    }
+
+    fn skip(&mut self, _data_size: i32) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        Ok(())
+    }
+
+    fn xfer_snapshot(
+        &mut self,
+        snapshot: &mut game_engine::common::system::snapshot::Snapshot,
+    ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        snapshot
+            .crc(self)
+            .map_err(|_| game_engine::common::system::xfer::XferStatus::InvalidData)
+    }
+
+    fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
+        // C++ Xfer::xferAsciiString CRCs the bytes only (no length prefix).
+        self.update_crc(ascii_string_data.as_bytes());
+        Ok(())
+    }
+
+    fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> std::io::Result<()> {
+        let bytes: Vec<u8> = unicode_string_data
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        self.update_crc(&bytes);
+        Ok(())
+    }
+
+    unsafe fn xfer_implementation(
+        &mut self,
+        data: *mut u8,
+        data_size: usize,
+    ) -> std::io::Result<()> {
+        if data_size > 0 && !data.is_null() {
+            self.update_crc(std::slice::from_raw_parts(data, data_size));
+        }
+        Ok(())
+    }
+}
+
+/// C++ `GameLogic::sendObjectCreated` — create a drawable and bind both worlds.
+pub fn send_object_created(object: &Arc<RwLock<Object>>) {
+    let Ok(guard) = object.read() else {
+        return;
+    };
+    if guard.get_drawable().is_some() {
+        return;
+    }
+    let object_id = guard.get_id();
+    let Some(client) = TheGameClient::get() else {
+        return;
+    };
+    let draw_id = client.create_drawable(guard.get_template().as_ref());
+    drop(guard);
+    bind_object_and_drawable(object_id, draw_id);
+}
+
+/// C++ `GameLogic::bindObjectAndDrawable`.
+pub fn bind_object_and_drawable(object_id: ObjectID, drawable_id: ObjectID) {
+    let Some(client) = TheGameClient::get() else {
+        return;
+    };
+    let Some(drawable) = client.get_drawable_arc(drawable_id) else {
+        return;
+    };
+    let Some(object) = OBJECT_REGISTRY.get_object(object_id).or_else(|| {
+        get_game_logic()
+            .try_lock()
+            .ok()
+            .and_then(|logic| logic.find_object_by_id(object_id))
+    }) else {
+        return;
+    };
+    if let Ok(mut draw) = drawable.write() {
+        draw.friend_bind_to_object(&object);
+    }
+    {
+        let mut obj = object.write().ok();
+        if let Some(obj) = obj.as_mut() {
+            obj.set_drawable(Some(drawable));
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,8 +466,8 @@ pub const FIXED_DELTA_TIME: f32 = 1.0 / 30.0;
 /// a no-op placeholder and explicit call site for parity bookkeeping.
 pub fn set_fp_mode() {}
 
-/// Maximum number of sleepy updates to process per frame to avoid runaway execution
-const MAX_SLEEPY_UPDATES_PER_FRAME: usize = 256;
+// C++ GameLogic::update has no per-frame sleepy cap. MAX_SUO=256 is destroy
+// bookkeeping only. Do not throttle due modules here.
 
 fn xfer_sorted_string_int_map(
     xfer: &mut dyn Xfer,
@@ -308,49 +558,433 @@ fn control_bar_override_key(command_set_name: &str, slot: i32) -> Option<String>
     Some(format!("{}{}", slot_prefix, command_set_name))
 }
 
+/// Bridges GameLogic's `game_engine::Xfer` (System::Xfer) onto Common's
+/// `game_engine::system::Xfer` so Object/PolygonTrigger Snapshot impls can run.
+struct CommonXferBridge<'a> {
+    inner: &'a mut dyn Xfer,
+}
+
+fn map_common_xfer_mode(mode: XferMode) -> game_engine::common::system::xfer::XferMode {
+    use game_engine::common::system::xfer::XferMode as CommonMode;
+    match mode {
+        XferMode::Invalid => CommonMode::Invalid,
+        XferMode::Save => CommonMode::Save,
+        XferMode::Load => CommonMode::Load,
+        XferMode::Crc => CommonMode::Crc,
+    }
+}
+
+fn common_xfer_status(err: XferStatus) -> game_engine::common::system::xfer::XferStatus {
+    use game_engine::common::system::xfer::XferStatus as C;
+    match err {
+        XferStatus::Invalid => C::Invalid,
+        XferStatus::Ok => C::Ok,
+        XferStatus::Eof => C::Eof,
+        XferStatus::FileNotFound => C::FileNotFound,
+        XferStatus::FileNotOpen => C::FileNotOpen,
+        XferStatus::FileAlreadyOpen => C::FileAlreadyOpen,
+        XferStatus::ReadError => C::ReadError,
+        XferStatus::WriteError => C::WriteError,
+        XferStatus::ModeUnknown => C::ModeUnknown,
+        XferStatus::SkipError => C::SkipError,
+        XferStatus::BeginEndMismatch => C::BeginEndMismatch,
+        XferStatus::OutOfMemory => C::OutOfMemory,
+        XferStatus::StringError => C::StringError,
+        XferStatus::InvalidVersion => C::InvalidVersion,
+        XferStatus::InvalidParameters => C::InvalidParameters,
+        XferStatus::ListNotEmpty => C::ListNotEmpty,
+        XferStatus::UnknownString => C::UnknownString,
+        XferStatus::InvalidData => C::InvalidData,
+        _ => C::ErrorUnknown,
+    }
+}
+
+impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
+    fn get_xfer_mode(&self) -> game_engine::common::system::xfer::XferMode {
+        map_common_xfer_mode(self.inner.get_xfer_mode())
+    }
+
+    fn get_identifier(&self) -> &str {
+        self.inner.get_identifier()
+    }
+
+    fn set_options(&mut self, options: u32) {
+        self.inner.set_options(options);
+    }
+
+    fn clear_options(&mut self, options: u32) {
+        self.inner.clear_options(options);
+    }
+
+    fn get_options(&self) -> u32 {
+        self.inner.get_options()
+    }
+
+    fn open(
+        &mut self,
+        identifier: &str,
+    ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner
+            .open(identifier.to_string())
+            .map_err(common_xfer_status)
+    }
+
+    fn close(&mut self) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner.close().map_err(common_xfer_status)
+    }
+
+    fn begin_block(
+        &mut self,
+    ) -> Result<game_engine::common::system::xfer::XferBlockSize, game_engine::common::system::xfer::XferStatus>
+    {
+        self.inner.begin_block().map_err(common_xfer_status)
+    }
+
+    fn end_block(&mut self) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner.end_block().map_err(common_xfer_status)
+    }
+
+    fn skip(&mut self, data_size: i32) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner.skip(data_size).map_err(common_xfer_status)
+    }
+
+    fn xfer_snapshot(
+        &mut self,
+        _snapshot: &mut game_engine::common::system::snapshot::Snapshot,
+    ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        Ok(())
+    }
+
+    fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
+        self.inner
+            .xfer_ascii_string(ascii_string_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+    }
+
+    fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> std::io::Result<()> {
+        self.inner
+            .xfer_unicode_string(unicode_string_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+    }
+
+    unsafe fn xfer_implementation(
+        &mut self,
+        data: *mut u8,
+        data_size: usize,
+    ) -> std::io::Result<()> {
+        self.inner
+            .xfer_implementation(data, data_size)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+    }
+}
+
+fn xfer_object_snapshot(obj: &mut Object, xfer: &mut dyn Xfer) {
+    let mut bridge = CommonXferBridge { inner: xfer };
+    crate::common::types::Snapshot::xfer(obj, &mut bridge);
+}
+
+fn xfer_polygon_snapshot(
+    poly: &mut crate::polygon_trigger::PolygonTrigger,
+    xfer: &mut dyn Xfer,
+) {
+    let mut bridge = CommonXferBridge { inner: xfer };
+    crate::common::types::Snapshot::xfer(poly, &mut bridge);
+}
+
 fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 1;
+    // C++ GameLogic::xfer currentVersion = 10 (GameLogic.cpp).
+    let current_version: XferVersion = 10;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    xfer.xfer_real(&mut logic.width)?;
-    xfer.xfer_real(&mut logic.height)?;
     xfer.xfer_unsigned_int(&mut logic.frame)?;
-    xfer.xfer_real(&mut logic.game_time)?;
-    xfer.xfer_bool(&mut logic.is_in_update)?;
-    xfer.xfer_unsigned_int(&mut logic.next_object_id)?;
-    let mut random_seed = logic.random_seed as i64;
-    xfer.xfer_int64(&mut random_seed)?;
+
+    // C++ explicitly does NOT xfer m_nextObjectID here (game-state block owns it).
+    logic.xfer_object_toc(xfer)?;
+
     if xfer.get_xfer_mode() == XferMode::Load {
-        logic.random_seed = random_seed as u64;
+        logic.prepare_logic_for_object_load();
     }
 
-    // The game state block owns the heavyweight object graph.  This provider keeps
-    // the portable runtime flags that affect save/load behavior and UI state.
-    xfer.xfer_int(&mut logic.game_mode)?;
-    xfer.xfer_bool(&mut logic.loading_map)?;
-    xfer.xfer_bool(&mut logic.loading_save)?;
-    xfer.xfer_bool(&mut logic.is_scoring_enabled)?;
-    xfer.xfer_bool(&mut logic.show_behind_building_markers)?;
-    xfer.xfer_bool(&mut logic.draw_icon_ui)?;
-    xfer.xfer_bool(&mut logic.show_dynamic_lod)?;
-    xfer.xfer_int(&mut logic.rank_level_limit)?;
-    xfer.xfer_unsigned_short(&mut logic.superweapon_restriction)?;
-    xfer_sorted_string_int_map(xfer, &mut logic.buildable_status_overrides)?;
-    xfer_control_bar_overrides(xfer, &mut logic.control_bar_overrides)?;
+    let mut object_count = logic.all_objects.len() as UnsignedInt;
+    xfer.xfer_unsigned_int(&mut object_count)?;
+    if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        let object_ids: Vec<ObjectID> = logic.all_objects.clone();
+        for obj_id in object_ids {
+            let Some(arc) = logic.objects.get(&obj_id).cloned() else {
+                continue;
+            };
+            let tname = {
+                let Ok(obj) = arc.read() else {
+                    continue;
+                };
+                obj.get_template().get_name().to_string()
+            };
+            let Some(toc) = logic.find_toc_entry_by_name(&tname) else {
+                return Err(XferStatus::InvalidData);
+            };
+            let mut toc_id = toc.id;
+            xfer.xfer_unsigned_short(&mut toc_id)?;
+            let _ = xfer.begin_block();
+            if let Ok(mut obj) = arc.write() {
+                xfer_object_snapshot(&mut obj, xfer);
+            }
+            xfer.end_block()?;
+        }
+    } else {
+        for _ in 0..object_count {
+            let mut toc_id: UnsignedShort = 0;
+            xfer.xfer_unsigned_short(&mut toc_id)?;
+            let block_size = xfer.begin_block()?;
+            let toc_name = logic
+                .find_toc_entry_by_id(toc_id)
+                .map(|e| e.name.clone());
+            let Some(toc_name) = toc_name else {
+                let _ = xfer.skip(block_size);
+                let _ = xfer.end_block();
+                continue;
+            };
 
-    let mut rank_points = crate::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
-    xfer.xfer_int(&mut rank_points)?;
-    if xfer.get_xfer_mode() == XferMode::Load {
-        crate::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(rank_points);
+            let existing = logic
+                .objects
+                .iter()
+                .find_map(|(id, arc)| {
+                    arc.read().ok().and_then(|obj| {
+                        if obj.get_template().get_name().as_str() == toc_name {
+                            Some(*id)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .and_then(|id| logic.objects.get(&id).cloned());
+
+            if let Some(arc) = existing {
+                if let Ok(mut obj) = arc.write() {
+                    xfer_object_snapshot(&mut obj, xfer);
+                }
+                let _ = xfer.end_block();
+                continue;
+            }
+
+            #[cfg(any(test, feature = "internal"))]
+            {
+                let created = Object::new_test(1, 100.0);
+                let arc = std::sync::Arc::new(std::sync::RwLock::new(created));
+                if let Ok(mut obj) = arc.write() {
+                    xfer_object_snapshot(&mut obj, xfer);
+                }
+                let _ = logic.register_object(arc);
+            }
+            #[cfg(not(any(test, feature = "internal")))]
+            {
+                let _ = (&toc_name, xfer.skip(block_size));
+            }
+            let _ = xfer.end_block();
+        }
     }
 
-    let mut hulk_max_lifetime = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
-    xfer.xfer_int(&mut hulk_max_lifetime)?;
-    if xfer.get_xfer_mode() == XferMode::Load {
-        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(hulk_max_lifetime);
+    xfer_campaign_manager_snapshot(xfer)?;
+    xfer_cave_system_snapshot(xfer)?;
+
+    if version >= 2 {
+        xfer.xfer_bool(&mut logic.is_scoring_enabled)?;
     }
 
+    if version >= 3 {
+        xfer_polygon_triggers(xfer)?;
+    }
+
+    if version >= 5 {
+        xfer.xfer_int(&mut logic.rank_level_limit)?;
+    }
+
+    if version >= 6 {
+        xfer_the_sell_list(xfer)?;
+    }
+
+    if version >= 7 {
+        xfer_buildable_overrides_sentinel(xfer, &mut logic.buildable_status_overrides)?;
+    }
+
+    if version >= 8 {
+        xfer.xfer_bool(&mut logic.show_behind_building_markers)?;
+        xfer.xfer_bool(&mut logic.draw_icon_ui)?;
+        xfer.xfer_bool(&mut logic.show_dynamic_lod)?;
+        let mut hulk_max_lifetime = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+        xfer.xfer_int(&mut hulk_max_lifetime)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(hulk_max_lifetime);
+        }
+        xfer_control_bar_overrides(xfer, &mut logic.control_bar_overrides)?;
+    }
+
+    if version >= 9 {
+        let mut rank_points = crate::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
+        xfer.xfer_int(&mut rank_points)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            crate::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(rank_points);
+        }
+    }
+
+    if version >= 10 {
+        xfer.xfer_unsigned_short(&mut logic.superweapon_restriction)?;
+    } else if xfer.get_xfer_mode() == XferMode::Load {
+        logic.superweapon_restriction = 0;
+    }
+
+    Ok(())
+}
+
+fn xfer_campaign_manager_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ xferSnapshot(TheCampaignManager) — CampaignManager::xfer v5.
+    // GameLogic cannot depend on GameClient; layout matches C++ field order.
+    let current_version: XferVersion = 5;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+    let mut campaign = String::new();
+    let mut mission = String::new();
+    xfer.xfer_ascii_string(&mut campaign)?;
+    xfer.xfer_ascii_string(&mut mission)?;
+    if version >= 2 {
+        let mut rank_points = 0i32;
+        xfer.xfer_int(&mut rank_points)?;
+    }
+    if version >= 3 {
+        let mut difficulty = 0i32;
+        xfer.xfer_int(&mut difficulty)?;
+    }
+    if version >= 4 {
+        let mut is_challenge = false;
+        xfer.xfer_bool(&mut is_challenge)?;
+        if is_challenge {
+            let mut map = String::new();
+            let mut template_num = 0i32;
+            xfer.xfer_ascii_string(&mut map)?;
+            xfer.xfer_int(&mut template_num)?;
+        }
+    }
+    if version >= 5 {
+        let mut generals_template = 0i32;
+        xfer.xfer_int(&mut generals_template)?;
+    }
+    let _ = (campaign, mission);
+    Ok(())
+}
+
+fn xfer_cave_system_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ xferSnapshot(TheCaveSystem) — CaveSystem::xfer v1.
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+    let cave = crate::system::cave_system::TheCaveSystem();
+    let mut guard = cave.lock().map_err(|_| XferStatus::InvalidData)?;
+    guard.xfer_game_logic(xfer)
+}
+
+fn xfer_polygon_triggers(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let terrain = get_terrain_logic();
+    let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
+    let list = terrain_guard.get_trigger_areas_mut();
+    let sanity = list.len() as UnsignedInt;
+    let mut trigger_count = sanity;
+    xfer.xfer_unsigned_int(&mut trigger_count)?;
+    if xfer.get_xfer_mode() == XferMode::Load && sanity != trigger_count {
+        return Err(XferStatus::InvalidData);
+    }
+    let ids: Vec<i32> = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        list.get_triggers().iter().map(|t| t.get_id()).collect()
+    } else {
+        Vec::new()
+    };
+    if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        for id in ids {
+            let mut trigger_id = id;
+            xfer.xfer_int(&mut trigger_id)?;
+            if let Some(poly) = list.get_by_id_mut(id) {
+                xfer_polygon_snapshot(poly, xfer);
+            }
+        }
+    } else {
+        for _ in 0..trigger_count {
+            let mut trigger_id = 0i32;
+            xfer.xfer_int(&mut trigger_id)?;
+            if let Some(poly) = list.get_by_id_mut(trigger_id) {
+                xfer_polygon_snapshot(poly, xfer);
+            } else {
+                return Err(XferStatus::InvalidData);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn xfer_the_sell_list(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ TheBuildAssistant->xferTheSellList
+    if game_engine::common::system::build_assistant::get_build_assistant().is_none() {
+        game_engine::common::system::build_assistant::init_build_assistant();
+    }
+    let mut assistant = game_engine::common::system::build_assistant::get_build_assistant()
+        .ok_or(XferStatus::InvalidData)?;
+    let mut count = assistant.get_sell_list().len() as i32;
+    xfer.xfer_int(&mut count)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        assistant.reset();
+        for _ in 0..count {
+            let mut id: u32 = 0;
+            let mut sell_frame: u32 = 0;
+            xfer.xfer_object_id(&mut id)?;
+            xfer.xfer_unsigned_int(&mut sell_frame)?;
+            assistant.sell_object(
+                &game_engine::common::system::build_assistant::Object {
+                    id,
+                    position: Default::default(),
+                    orientation: 0.0,
+                },
+                sell_frame,
+            );
+        }
+    } else {
+        let items: Vec<_> = assistant.get_sell_list().iter().cloned().collect();
+        for mut info in items {
+            xfer.xfer_object_id(&mut info.id)?;
+            xfer.xfer_unsigned_int(&mut info.sell_frame)?;
+        }
+    }
+    Ok(())
+}
+
+fn xfer_buildable_overrides_sentinel(
+    xfer: &mut dyn Xfer,
+    map: &mut HashMap<String, Int>,
+) -> Result<(), XferStatus> {
+    // C++ v>=7: name + BuildableStatus until empty name (no count prefix).
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            let mut entries: Vec<_> = map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            for (mut name, mut status) in entries {
+                xfer.xfer_ascii_string(&mut name)?;
+                xfer.xfer_int(&mut status)?;
+            }
+            let mut empty = String::new();
+            xfer.xfer_ascii_string(&mut empty)?;
+        }
+        XferMode::Load => {
+            map.clear();
+            loop {
+                let mut name = String::new();
+                xfer.xfer_ascii_string(&mut name)?;
+                if name.is_empty() {
+                    break;
+                }
+                let mut status: Int = 0;
+                xfer.xfer_int(&mut status)?;
+                map.insert(name, status);
+            }
+        }
+        XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+    }
     Ok(())
 }
 
@@ -661,6 +1295,8 @@ impl XferSnapshotTrait for GameLogicSnapshotBridge {
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        let mut guard = self.logic.lock().map_err(|_| XferStatus::InvalidData)?;
+        guard.load_post_process();
         Ok(())
     }
 }
@@ -1219,6 +1855,26 @@ impl PartitionManager {
         }
     }
 
+    /// C++ PartitionManager::crc walks every cell. Host grid is sparse: dump
+    /// cell size plus each occupied cell's sorted occupant IDs.
+    fn crc_into(&self, xfer: &mut dyn Xfer) {
+        let mut cell_size = self.cell_size;
+        let _ = xfer.xfer_real(&mut cell_size);
+        let mut total = self.object_cells.len() as i32;
+        let _ = xfer.xfer_int(&mut total);
+        let mut cells: Vec<(i32, i32, ObjectID)> = self
+            .object_cells
+            .iter()
+            .map(|(&id, &(x, y))| (x, y, id))
+            .collect();
+        cells.sort_unstable();
+        for (mut x, mut y, mut id) in cells {
+            let _ = xfer.xfer_int(&mut x);
+            let _ = xfer.xfer_int(&mut y);
+            let _ = xfer.xfer_unsigned_int(&mut id);
+        }
+    }
+
     /// Find objects within radius of position (2D X/Y distance).
     pub fn find_objects_in_radius(&self, center: Coord3D, radius: Real) -> Vec<ObjectID> {
         let mut result = Vec::new();
@@ -1250,7 +1906,8 @@ impl PartitionManager {
     }
 
     pub fn update(&mut self) -> Result<(), GameLogicError> {
-        // Wave 344: empty dual-world → Ok(()).
+        // Host path: OBJECT_REGISTRY is empty; cells were filled via register_object.
+        // Keep cached positions — C++ PartitionManager still tracks live objects.
         if dual_world_registry_unavailable() {
             return Ok(());
         }
@@ -1258,9 +1915,8 @@ impl PartitionManager {
         let mut seen = HashSet::with_capacity(object_ids.len());
 
         for obj_id in &object_ids {
-            let obj_arc = match OBJECT_REGISTRY.get_object(*obj_id) {
-                Some(v) => v,
-                None => continue,
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
+                continue;
             };
             let Ok(obj) = obj_arc.read() else {
                 continue;
@@ -1316,13 +1972,25 @@ impl PartitionManager {
     /// Rebuild the spatial partition index
     /// Used after loading a saved game to reconstruct spatial data
     pub fn rebuild(&mut self) {
+        if dual_world_registry_unavailable() {
+            // Re-grid from cached positions instead of wiping the host-path index.
+            let snapshot: Vec<(ObjectID, Coord3D)> = self
+                .object_positions
+                .iter()
+                .map(|(id, pos)| (*id, *pos))
+                .collect();
+            self.grid.clear();
+            self.object_cells.clear();
+            self.object_positions.clear();
+            for (id, pos) in snapshot {
+                self.add_object(id, (pos.x, pos.y, pos.z));
+            }
+            return;
+        }
+
         self.grid.clear();
         self.object_cells.clear();
         self.object_positions.clear();
-        // Wave 344: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
 
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
             let Some((id, xyz)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
@@ -1766,8 +2434,8 @@ impl GameLogic {
     /// - `Ok(())` if update succeeded
     /// - `Err(GameLogicError)` if a critical error occurred
     pub fn update(&mut self, frame: u32) -> Result<(), GameLogicError> {
-        // Wave 344: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
+        // Wave 344: empty dual-world → Ok(()). C++ still ticks a populated world.
+        if dual_world_registry_unavailable() && self.objects.is_empty() {
             return Ok(());
         }
 
@@ -2534,15 +3202,6 @@ impl GameLogic {
                 entry.wake_frame = wake_frame;
                 requeue.push(entry);
             }
-
-            // Limit processing per frame to prevent runaway execution
-            if processed >= MAX_SLEEPY_UPDATES_PER_FRAME {
-                trace!(
-                    "Processed {} sleepy updates; deferring remaining",
-                    processed
-                );
-                break;
-            }
         }
 
         // Re-add entries back to heap (C++ line 3737: rebalanceSleepyUpdate)
@@ -2979,11 +3638,20 @@ impl GameLogic {
         physics_world.resolve_all(self)?;
         self.physics_world = physics_world;
 
-        // Wave 344: skip dual-world collision residual when empty.
-        if !dual_world_registry_unavailable() {
+        // C++ iterates GameLogic.objects (m_objList), not a second factory registry.
+        let collision_ids: Vec<ObjectID> = if !self.all_objects.is_empty() {
+            self.all_objects.clone()
+        } else if !dual_world_registry_unavailable() {
+            OBJECT_REGISTRY.get_all_object_ids()
+        } else {
+            Vec::new()
+        };
+        if !collision_ids.is_empty() {
             let _ = with_collision_system_mut(|system| {
-                for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                    let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                for obj_id in collision_ids {
+                    let obj_arc = match self.find_object_by_id(obj_id).or_else(|| {
+                        OBJECT_REGISTRY.get_object(obj_id)
+                    }) {
                         Some(v) => v,
                         None => continue,
                     };
@@ -3038,8 +3706,8 @@ impl GameLogic {
     /// - Award experience to killer
     /// - Free memory/resources
     pub fn cleanup_dead_objects(&mut self) -> Result<(), GameLogicError> {
-        // Wave 344: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
+        // Wave 344: empty dual-world → Ok(()). Still clean live dead-list.
+        if dual_world_registry_unavailable() && self.dead_objects.is_empty() {
             return Ok(());
         }
 
@@ -3334,32 +4002,65 @@ impl GameLogic {
         Ok(())
     }
 
+    /// C++ `GameLogic::getCRC`. `Recalc` rebuilds; otherwise return cached `m_CRC`.
+    pub fn get_crc(&self, mode: CrcMode) -> UnsignedInt {
+        if mode != CrcMode::Recalc {
+            return self.crc_cache;
+        }
+        self.compute_crc()
+    }
+
     /// Compute CRC of game state for lockstep synchronization.
     /// Matches C++ GameLogic::getCRC(CRC_RECALC) at GameLogic.cpp:3988.
     fn compute_crc(&self) -> UnsignedInt {
+        use crate::common::Snapshot;
         use crate::helpers::get_game_logic_random_seed_crc;
-        let mut crc: u32 = 0;
-        crc = crc.wrapping_add(get_game_logic_random_seed_crc());
-        // Deterministic iteration: collect keys, sort, then iterate.
-        // C++ uses std::map (sorted by ObjectID), so we must match that order
-        // to produce identical CRC values across all machines.
-        let mut sorted_ids: Vec<_> = self.objects.keys().copied().collect();
-        sorted_ids.sort();
-        for obj_id in &sorted_ids {
-            let obj_arc = self.objects.get(obj_id).unwrap();
-            if let Ok(obj) = obj_arc.read() {
-                let id_crc = *obj_id as u32;
-                let pos = obj.get_position();
-                let pos_bytes: [u8; 12] = unsafe {
-                    std::mem::transmute([pos.x.to_bits(), pos.y.to_bits(), pos.z.to_bits()])
-                };
-                crc = crc.wrapping_add(id_crc);
-                for &b in &pos_bytes {
-                    crc = (crc << 1).wrapping_add(b as u32);
+        use game_engine::common::system::snapshot::Snapshotable;
+
+        let mut xfer = LogicXferCrc::new();
+        let _ = Xfer::open(&mut xfer, "lightCRC".to_string());
+
+        let mut marker = "MARKER:Objects".to_string();
+        let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
+        // C++ walks `m_objList` (insertion / next-object link), not a sorted map.
+        // Object::crc / Player::crc use common::system::xfer::Xfer; LogicXferCrc
+        // implements that trait so both dump through one fold_crc_bytes addCRC.
+        for obj_id in &self.all_objects {
+            if let Some(obj_arc) = self.objects.get(obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    Snapshot::crc(&*obj, &mut xfer);
                 }
             }
         }
-        crc
+
+        if Xfer::get_xfer_mode(&xfer) == XferMode::Crc {
+            let mut seed = get_game_logic_random_seed_crc();
+            let _ = Xfer::xfer_unsigned_int(&mut xfer, &mut seed);
+        }
+
+        let mut marker = "MARKER:ThePartitionManager".to_string();
+        let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
+        self.partition_manager.crc_into(&mut xfer);
+
+        let mut marker = "MARKER:ThePlayerList".to_string();
+        let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
+        if let Ok(list) = player_list().read() {
+            let mut count = list.get_player_count() as i32;
+            let _ = Xfer::xfer_int(&mut xfer, &mut count);
+            for player_arc in list.iter() {
+                if let Ok(player) = player_arc.read() {
+                    let _ = Snapshotable::crc(&*player, &mut xfer);
+                }
+            }
+        }
+
+        let mut marker = "MARKER:TheAI".to_string();
+        let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
+        let mut ai_marker = "MARKER:TAiData".to_string();
+        let _ = Xfer::xfer_ascii_string(&mut xfer, &mut ai_marker);
+
+        let _ = Xfer::close(&mut xfer);
+        xfer.get_crc()
     }
 
     /// Update victory conditions.
@@ -3541,6 +4242,10 @@ impl GameLogic {
             let _ = tracker.register_named_object(object_name, object_id);
         }
 
+        // C++ Object::initObject → sendObjectCreated after the object exists.
+        // Dual-world: bind a client drawable when the logic object has none.
+        send_object_created(&object);
+
         // Add to partition manager
         if let Ok(obj) = object.read() {
             let pos = obj.get_position();
@@ -3656,10 +4361,44 @@ impl GameLogic {
             return;
         }
 
+        if let Some(obj_arc) = self.objects.get(&object_id).cloned() {
+            if let Ok(mut obj) = obj_arc.write() {
+                if obj.is_destroyed() {
+                    return;
+                }
+                // C++ DestroyModuleInterface::onDestroy before status bit.
+                let behaviors = obj.get_behavior_modules();
+                for behavior in behaviors {
+                    if let Ok(mut module) = behavior.lock() {
+                        if let Some(destroy) = module.get_destroy() {
+                            destroy.on_destroy(object_id);
+                        }
+                    }
+                }
+                // C++ immediately sets OBJECT_STATUS_DESTROYED so same-frame
+                // isDestroyed() checks stop firing/pathing.
+                obj.set_status(ObjectStatusTypes::Destroyed.into(), true);
+                if let Some(ai) = obj.get_ai_update_interface() {
+                    if let Ok(mut ai) = ai.lock() {
+                        ai.set_locomotor_goal_none();
+                        ai.destroy_path();
+                    }
+                }
+            }
+        }
+
         // Queue for destruction at end of frame
         if !self.dead_objects.contains(&object_id) {
             self.dead_objects.push(object_id);
             debug!("Queued object {} for destruction", object_id);
+        }
+
+        // C++ GameLogic::destroyObject calls obj->onDestroy() same frame
+        // (contain eject / module onDelete) before processDestroyList.
+        if let Some(obj_arc) = self.objects.get(&object_id).cloned() {
+            if let Ok(mut obj) = obj_arc.write() {
+                obj.on_destroy();
+            }
         }
     }
 
@@ -4172,6 +4911,8 @@ impl GameLogic {
         // Add to object collections
         self.objects.insert(object_id, Arc::clone(&object_arc));
         self.all_objects.push(object_id);
+        // C++ restore lands on m_objList and is findable; keep OBJECT_REGISTRY in lockstep.
+        OBJECT_REGISTRY.register_object(object_id, &object_arc);
 
         if self.all_objects.len() > 1 {
             let previous_id = self.all_objects[self.all_objects.len() - 2];
@@ -4355,12 +5096,8 @@ impl GameLogic {
     // =========================================================================
 
     /// PARITY_NOTE: GameLogic::bindObjectAndDrawable(Object*, Drawable*) C++ line 4125.
-    pub fn bind_object_and_drawable(&self, _object_id: ObjectID, _drawable_id: ObjectID) {
-        trace!(
-            "bindObjectAndDrawable: obj={}, draw={}",
-            _object_id,
-            _drawable_id
-        );
+    pub fn bind_object_and_drawable(&self, object_id: ObjectID, drawable_id: ObjectID) {
+        bind_object_and_drawable(object_id, drawable_id);
     }
 
     /// PARITY_NOTE: GameLogic::sendObjectDestroyed(Object*) C++ line 4134.
@@ -4617,12 +5354,26 @@ impl GameLogic {
         self.sleepy_updates.clear();
         self.normal_updates.clear();
         self.module_lookup.clear();
-        // C++ rebuilds update lists by iterating behavior modules.
-        // In Rust, module registration happens during object construction
-        // via register_normal_update_module/register_sleepy_update_module.
-        // Modules will re-register when objects call onBuildComplete.
-        let _ = if self.frame == 0 { 1 } else { self.frame };
+
+        // C++ walks every object's UpdateModules and re-pushes the sleepy heap.
+        let now = if self.frame == 0 { 1 } else { self.frame };
+        let object_ids: Vec<ObjectID> = self.all_objects.clone();
+        for obj_id in object_ids {
+            let Some(arc) = self.find_object_by_id(obj_id) else {
+                continue;
+            };
+            let Ok(obj) = arc.read() else {
+                continue;
+            };
+            for module in obj.update_module_registrations() {
+                self.register_sleepy_update_module(obj_id, module.clone(), now);
+            }
+        }
         self.remake_sleepy_update();
+    }
+
+    pub fn sleepy_update_count(&self) -> usize {
+        self.sleepy_updates.len()
     }
 
     fn refresh_global_weapon_bonuses(&mut self) {
@@ -4736,28 +5487,44 @@ struct GameLogicEnergyLookup;
 
 impl EnergyObjectLookup for GameLogicEnergyLookup {
     fn energy_production(&self, obj: ObjectHandle) -> i32 {
-        // Wave 344: empty dual-world → 0.
-        if dual_world_registry_unavailable() {
-            return 0;
-        }
-
+        // Wave 344: dual_world_registry_unavailable is not an early skip;
+        // try OBJECT_REGISTRY then GameLogic.objects, else 0.
         let object_id = obj.value() as ObjectID;
-        OBJECT_REGISTRY
-            .with_object(object_id, |guard| {
-                guard.get_template().get_energy_production()
+        if let Some(value) = OBJECT_REGISTRY.with_object(object_id, |guard| {
+            guard.get_template().get_energy_production()
+        }) {
+            return value;
+        }
+        get_game_logic()
+            .try_lock()
+            .ok()
+            .and_then(|logic| logic.find_object_by_id(object_id))
+            .and_then(|arc| {
+                arc.read()
+                    .ok()
+                    .map(|guard| guard.get_template().get_energy_production())
             })
             .unwrap_or(0)
     }
 
     fn energy_bonus(&self, obj: ObjectHandle) -> i32 {
-        // Wave 344: empty dual-world → 0.
-        if dual_world_registry_unavailable() {
-            return 0;
-        }
-
+        // Wave 344: dual_world_registry_unavailable is not an early skip;
+        // try OBJECT_REGISTRY then GameLogic.objects, else 0.
         let object_id = obj.value() as ObjectID;
-        OBJECT_REGISTRY
-            .with_object(object_id, |guard| guard.get_template().get_energy_bonus())
+        if let Some(value) = OBJECT_REGISTRY.with_object(object_id, |guard| {
+            guard.get_template().get_energy_bonus()
+        }) {
+            return value;
+        }
+        get_game_logic()
+            .try_lock()
+            .ok()
+            .and_then(|logic| logic.find_object_by_id(object_id))
+            .and_then(|arc| {
+                arc.read()
+                    .ok()
+                    .map(|guard| guard.get_template().get_energy_bonus())
+            })
             .unwrap_or(0)
     }
 }
@@ -5050,6 +5817,87 @@ mod tests {
     }
 
     #[test]
+    fn get_crc_recalc_uses_cpp_markers_object_crc_and_is_stable() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+
+        let mut marker = "MARKER:Objects".to_string();
+        let mut system_xfer = LogicXferCrc::new();
+        Xfer::xfer_ascii_string(&mut system_xfer, &mut marker).expect("system marker");
+        let mut common_xfer = LogicXferCrc::new();
+        let mut marker = "MARKER:Objects".to_string();
+        game_engine::common::system::xfer::Xfer::xfer_ascii_string(&mut common_xfer, &mut marker)
+            .expect("common marker");
+        assert_eq!(
+            system_xfer.get_crc(),
+            common_xfer.get_crc(),
+            "both Xfer stacks must share fold_crc_bytes addCRC"
+        );
+        assert_ne!(
+            common_xfer.get_crc(),
+            0,
+            "MARKER:Objects bytes must fold into XferCRC"
+        );
+
+        // Leftover 1–3 bytes: both Xfer stacks must match fold_crc_bytes + getCRC htonl.
+        let leftover = [0x11u8, 0x22, 0x33, 0x44, 0xAB];
+        let expected = game_engine::common::system::xfer_crc::fold_crc_bytes(0, &leftover).to_be();
+        let mut system_left = LogicXferCrc::new();
+        unsafe {
+            Xfer::xfer_implementation(&mut system_left, leftover.as_ptr() as *mut u8, leftover.len())
+                .expect("system leftover");
+        }
+        let mut common_left = LogicXferCrc::new();
+        unsafe {
+            game_engine::common::system::xfer::Xfer::xfer_implementation(
+                &mut common_left,
+                leftover.as_ptr() as *mut u8,
+                leftover.len(),
+            )
+            .expect("common leftover");
+        }
+        assert_eq!(system_left.get_crc(), expected);
+        assert_eq!(common_left.get_crc(), expected);
+
+        let mut logic = GameLogic::new();
+        let empty_crc = logic.get_crc(CrcMode::Recalc);
+        assert_ne!(empty_crc, 0, "empty world CRC includes MARKER:Objects bytes");
+        assert_ne!(
+            empty_crc,
+            common_xfer.get_crc(),
+            "empty world continues past MARKER:Objects (seed/partition/players/AI)"
+        );
+
+        let first = Arc::new(RwLock::new(Object::new_test(11, 100.0)));
+        logic.register_object(first).expect("register first");
+        let with_obj = logic.get_crc(CrcMode::Recalc);
+        assert_ne!(with_obj, empty_crc, "registering an object changes CRC");
+
+        let with_obj_again = logic.get_crc(CrcMode::Recalc);
+        assert_eq!(with_obj, with_obj_again, "same object twice → same CRC");
+
+        assert_eq!(logic.get_crc(CrcMode::Cached), 0);
+    }
+
+    #[test]
+    fn register_object_send_object_created_binds_drawable() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let mut logic = GameLogic::new();
+        let object = Arc::new(RwLock::new(Object::new_test(9001, 100.0)));
+        logic.register_object(Arc::clone(&object)).expect("register");
+        let bound = object
+            .read()
+            .expect("object")
+            .get_drawable()
+            .is_some();
+        assert!(
+            bound,
+            "C++ sendObjectCreated binds a drawable onto the logic object"
+        );
+    }
+
+    #[test]
     fn test_object_list_links_relink_on_cleanup() {
         let _guard = test_state_lock();
         use crate::object::registry::OBJECT_REGISTRY;
@@ -5096,6 +5944,10 @@ mod tests {
         );
 
         logic.destroy_object(22);
+        assert!(
+            middle.read().unwrap().is_destroyed(),
+            "C++ destroyObject sets OBJECT_STATUS_DESTROYED immediately"
+        );
         assert!(logic.cleanup_dead_objects().is_ok());
 
         assert_eq!(logic.all_objects, vec![11, 33]);
@@ -5121,6 +5973,68 @@ mod tests {
             11
         );
 
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn load_post_process_rebuilds_sleepy_queue_from_object_modules() {
+        let _guard = test_state_lock();
+        use crate::modules::{UpdateModuleDummy, UpdateModulePtr};
+        use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
+        use std::sync::{Arc, RwLock};
+
+        OBJECT_REGISTRY.clear();
+        let mut logic = GameLogic::new();
+        let obj = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
+        let dummy: UpdateModulePtr = Arc::new(RwLock::new(UpdateModuleDummy));
+        obj.write()
+            .unwrap()
+            .attach_update_module_registration(dummy);
+        logic.add_restored_object(Arc::clone(&obj));
+        logic.sleepy_updates.clear();
+        logic.normal_updates.clear();
+        logic.module_lookup.clear();
+        assert_eq!(logic.sleepy_update_count(), 0);
+
+        logic.load_post_process();
+        assert!(
+            logic.sleepy_update_count() >= 1,
+            "C++ loadPostProcess re-pushes every object's update modules"
+        );
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn empty_registry_falls_back_to_game_logic_objects_like_cpp() {
+        let _guard = test_state_lock();
+        use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
+        use std::sync::{Arc, RwLock};
+
+        OBJECT_REGISTRY.clear();
+        let obj = Arc::new(RwLock::new(Object::new_test(4242, 10.0)));
+        {
+            let mut logic = get_game_logic()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            logic.objects.insert(4242, Arc::clone(&obj));
+            logic.all_objects.push(4242);
+        }
+        assert!(
+            OBJECT_REGISTRY.contains(4242),
+            "C++ GameLogic.objects is authority when factory registry store is empty"
+        );
+        let ids = OBJECT_REGISTRY.get_all_object_ids();
+        assert!(ids.contains(&4242), "get_all_object_ids={ids:?}");
+        assert!(OBJECT_REGISTRY.get_object(4242).is_some());
+        {
+            let mut logic = get_game_logic()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            logic.objects.remove(&4242);
+            logic.all_objects.retain(|id| *id != 4242);
+        }
         OBJECT_REGISTRY.clear();
     }
 
@@ -5243,6 +6157,129 @@ mod tests {
         logic.set_game_mode(GAME_LAN);
         assert!(!logic.is_in_single_player_game());
         assert!(logic.is_in_multiplayer_game());
+    }
+
+    #[test]
+    fn destroy_object_runs_on_destroy_same_frame_like_cpp() {
+        let mut logic = GameLogic::new();
+        let mut obj = Object::new_test(77, 100.0);
+        let _ = obj.set_position(&Coord3D::new(5.0, 6.0, 7.0));
+        let arc = std::sync::Arc::new(std::sync::RwLock::new(obj));
+        logic.register_object(arc.clone()).expect("register");
+        logic.destroy_object(77);
+        let guard = arc.read().expect("read");
+        assert!(
+            guard.is_destroyed(),
+            "C++ sets OBJECT_STATUS_DESTROYED inside destroyObject"
+        );
+        assert!(
+            logic.dead_objects.contains(&77),
+            "queued for processDestroyList"
+        );
+    }
+
+    #[test]
+    fn xfer_v10_writes_toc_and_object_blocks() {
+        use game_engine::{Xfer, XferLoad, XferSave};
+
+        let mut save_logic = GameLogic::new();
+        save_logic.frame = 42;
+        let mut obj = Object::new_test(11, 100.0);
+        let _ = obj.set_position(&Coord3D::new(1.0, 2.0, 3.0));
+        save_logic
+            .register_object(std::sync::Arc::new(std::sync::RwLock::new(obj)))
+            .unwrap();
+
+        let path = std::env::temp_dir().join(format!(
+            "generals_xfer_v10_{}_{}.bin",
+            std::process::id(),
+            11
+        ));
+        {
+            let mut xfer = XferSave::new();
+            xfer.open(path.to_string_lossy().into_owned()).expect("open save");
+            xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
+            xfer.close().expect("close save");
+        }
+        let mut load_logic = GameLogic::new();
+        {
+            let mut xfer = XferLoad::new();
+            xfer.open(path.to_string_lossy().into_owned()).expect("open load");
+            xfer_game_logic_state(&mut load_logic, &mut xfer).expect("load");
+            xfer.close().expect("close load");
+        }
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(load_logic.frame, 42);
+        assert!(
+            load_logic.find_toc_entry_by_name("TestObject").is_some(),
+            "C++ xferObjectTOC must survive roundtrip"
+        );
+        let loaded = load_logic.find_object_by_id(11).expect("object from TOC block");
+        let guard = loaded.read().unwrap();
+        assert_eq!(guard.get_position().x, 1.0);
+        assert_eq!(guard.get_position().y, 2.0);
+        assert_eq!(guard.get_position().z, 3.0);
+        assert_eq!(
+            load_logic.get_object_id_counter(),
+            1,
+            "C++ GameLogic::xfer must not xfer m_nextObjectID"
+        );
+    }
+
+    #[test]
+    fn xfer_v10_includes_sell_list_and_does_not_write_next_object_id() {
+        use game_engine::{Xfer, XferLoad, XferSave};
+
+        game_engine::common::system::build_assistant::init_build_assistant();
+        {
+            let mut assistant =
+                game_engine::common::system::build_assistant::get_build_assistant().unwrap();
+            assistant.reset();
+            assistant.sell_object(
+                &game_engine::common::system::build_assistant::Object {
+                    id: 77,
+                    position: Default::default(),
+                    orientation: 0.0,
+                },
+                12,
+            );
+        }
+
+        let mut save_logic = GameLogic::new();
+        save_logic.frame = 9;
+        save_logic.set_superweapon_restriction(3);
+        save_logic.set_rank_level_limit(8);
+        save_logic.next_object_id = 99;
+
+        let path = std::env::temp_dir().join(format!(
+            "generals_xfer_v10_sell_{}.bin",
+            std::process::id()
+        ));
+        {
+            let mut xfer = XferSave::new();
+            xfer.open(path.to_string_lossy().into_owned()).expect("open save");
+            xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
+            xfer.close().expect("close save");
+        }
+        game_engine::common::system::build_assistant::init_build_assistant();
+        let mut load_logic = GameLogic::new();
+        load_logic.next_object_id = 1;
+        {
+            let mut xfer = XferLoad::new();
+            xfer.open(path.to_string_lossy().into_owned()).expect("open load");
+            xfer_game_logic_state(&mut load_logic, &mut xfer).expect("load");
+            xfer.close().expect("close load");
+        }
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(load_logic.frame, 9);
+        assert_eq!(load_logic.get_superweapon_restriction(), 3);
+        assert_eq!(load_logic.get_rank_level_limit(), 8);
+        assert_eq!(load_logic.next_object_id, 1);
+        let assistant =
+            game_engine::common::system::build_assistant::get_build_assistant().unwrap();
+        assert_eq!(assistant.get_sell_list().len(), 1);
+        assert_eq!(assistant.get_sell_list()[0].id, 77);
+        assert_eq!(assistant.get_sell_list()[0].sell_frame, 12);
     }
 
     #[test]

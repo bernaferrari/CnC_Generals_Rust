@@ -119,7 +119,10 @@ pub fn honesty_object_registry_empty_fastpath_source() -> bool {
     let Some(get) = fn_body(reg, "pub fn get_object(") else {
         return false;
     };
-    if !(get.contains("is_empty()") && get.contains("Wave 247")) {
+    if !(get.contains("is_empty()")
+        && get.contains("Wave 247")
+        && get.contains("find_object_by_id"))
+    {
         return false;
     }
     let Some(contains) = fn_body(reg, "pub fn contains(") else {
