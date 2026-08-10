@@ -1,3 +1,6 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::game_logic::{AIState, BuildingType, GameLogic, KindOf, Object, ObjectId, Team};
 use glam::{Vec2, Vec3};

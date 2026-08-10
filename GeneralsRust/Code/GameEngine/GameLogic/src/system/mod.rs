@@ -13,6 +13,7 @@ pub mod detection_modifiers;
 pub mod detection_performance;
 pub mod disguise_manager;
 pub mod explored_territory;
+#[path = "game_logic_impl/mod.rs"]
 pub mod game_logic;
 pub mod game_logic_dispatch;
 pub mod minimap_fow;

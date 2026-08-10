@@ -25,6 +25,7 @@ use std::sync::{Arc, RwLock};
 
 pub mod beacon;
 pub mod commands;
+#[path = "control_bar_impl/mod.rs"]
 pub mod control_bar;
 pub mod control_bar_beacon;
 pub mod control_bar_command;

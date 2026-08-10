@@ -1,0 +1,984 @@
+//! Hijack, sabotage, demo, hack, disguise, and similar abilities.
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+use crate::command_system::{
+    CommandResult, CommandType, DropTarget, GameCommand, GuardTarget, PowerTarget,
+    SpecialPowerType, WeaponSlot, WeaponTarget,
+};
+use crate::game_logic::game_logic::AudioEventRequest;
+use crate::game_logic::{
+    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
+    PendingSpecialAbility, Resources, Team,
+};
+use crate::localization;
+use crate::ui::audio::translate_audio_event;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
+use gamelogic::common::AsciiString;
+use gamelogic::system::beacon_manager::get_beacon_manager;
+use gamelogic::system::game_logic::current_frame;
+use glam::Vec3;
+use log::{debug, warn};
+use std::collections::{HashMap, HashSet};
+
+
+impl<'a> CommandExecutor<'a> {
+    pub(super) fn execute_hack_internet(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if self.game_logic.start_hacker_internet_hack(unit_id) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    // === Special Unit Abilities ===
+
+    pub(super) fn execute_hijack(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        // C++ ConvertToHijackedVehicleCrateCollide residual: enemy ground vehicle
+        // only, not already HIJACKED, not neutral, not airborne.
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_hijacked,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_hijacked(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        if !target_alive
+            || !target_is_vehicle
+            || target_is_airborne
+            || target_hijacked
+            || target_team == Team::Neutral
+        {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::Hijack { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_sabotage(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        // C++ Sabotage*CrateCollide residual: GLA Saboteur only → enemy structure.
+        let (target_team, target_pos, target_alive, target_is_structure) =
+            match self.game_logic.host_object(target_id) {
+                Some(target) => (
+                    target.team,
+                    target.get_position(),
+                    target.is_alive(),
+                    target.is_kind_of(KindOf::Structure),
+                ),
+                None => return CommandResult::InvalidTarget,
+            };
+
+        if !target_alive || !target_is_structure || target_team == Team::Neutral {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| {
+                    unit.is_alive()
+                        && unit.can_move()
+                        && unit.team != target_team
+                        && crate::game_logic::host_saboteur::is_saboteur_template(
+                            &unit.template_name,
+                        )
+                })
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::Sabotage { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_convert_carbomb(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        // C++ ConvertToCarBombCrateCollide: vehicle only (not aircraft/boat),
+        // not already IS_CARBOMB. Neutral civilian cars are valid.
+        let (target_pos, target_ok) = match self.game_logic.host_object(target_id) {
+            Some(target) if target.is_alive() => {
+                let is_vehicle = target.is_kind_of(KindOf::Vehicle);
+                let is_airborne =
+                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
+                let already_bomb = target.status.is_carbomb;
+                (
+                    target.get_position(),
+                    is_vehicle && !is_airborne && !already_bomb,
+                )
+            }
+            Some(_) => return CommandResult::InvalidTarget,
+            None => return CommandResult::InvalidTarget,
+        };
+        if !target_ok {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit_id != target_id)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::CarBomb { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_capture_building(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        use crate::game_logic::host_hero_abilities::{
+            can_capture_without_upgrade, is_black_lotus_template,
+        };
+
+        let (building_pos, is_structure, is_alive, is_under_construction, target_team) =
+            match self.game_logic.host_object(target_id) {
+                Some(building) => (
+                    building.get_position(),
+                    building.is_kind_of(KindOf::Structure),
+                    building.is_alive(),
+                    building.status.under_construction,
+                    building.team,
+                ),
+                None => return CommandResult::InvalidTarget,
+            };
+
+        if !is_structure || !is_alive || is_under_construction {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        for &unit_id in units {
+            if unit_id == target_id {
+                continue;
+            }
+
+            let can_capture = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| {
+                    let is_lotus = is_black_lotus_template(&unit.template_name);
+                    // Black Lotus / heroes capture without infantry Capture research.
+                    // Regular infantry require completed CaptureBuilding upgrade.
+                    let capture_ability = can_capture_without_upgrade(unit.is_hero(), is_lotus)
+                        || (unit.is_kind_of(KindOf::Infantry)
+                            && self
+                                .game_logic
+                                .team_has_completed_capture_upgrade(unit.team));
+                    unit.is_alive()
+                        && unit.can_move()
+                        && unit.team != target_team
+                        && capture_ability
+                })
+                .unwrap_or(false);
+            if !can_capture {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_snipe_vehicle(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_unmanned,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_unmanned(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        // Kill-pilot residual only applies to manned enemy ground vehicles.
+        if !target_alive
+            || !target_is_vehicle
+            || target_is_airborne
+            || target_unmanned
+            || target_team == Team::Neutral
+        {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::SnipeVehicle { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Colonel Burton residual: plant timed demo charge on enemy structure/vehicle.
+
+    pub(super) fn execute_plant_booby_trap(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        let (target_team, target_pos, target_alive, target_is_structure) =
+            match self.game_logic.host_object(target_id) {
+                Some(target) => (
+                    target.team,
+                    target.get_position(),
+                    target.is_alive(),
+                    target.is_kind_of(KindOf::Structure),
+                ),
+                None => return CommandResult::InvalidTarget,
+            };
+
+        if !target_alive || !target_is_structure {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| {
+                    use crate::game_logic::host_booby_trap::{
+                        has_booby_trap_upgrade, is_booby_trap_planter_template,
+                    };
+                    unit.is_alive()
+                        && unit.can_move()
+                        && unit.team != target_team
+                        && is_booby_trap_planter_template(&unit.template_name)
+                        && has_booby_trap_upgrade(&unit.applied_upgrades)
+                })
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::PlantBoobyTrap { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_plant_timed_demo_charge(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_is_vehicle,
+            target_is_airborne,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        let valid_target = target_alive
+            && target_team != Team::Neutral
+            && (target_is_structure || (target_is_vehicle && !target_is_airborne));
+        if !valid_target {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Colonel Burton residual: plant remote demo charge on enemy structure/vehicle.
+    /// Fail-closed: not full StickyBombUpdate attach bones / max-charge list.
+    pub(super) fn execute_plant_remote_demo_charge(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_is_vehicle,
+            target_is_airborne,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        let valid_target = target_alive
+            && target_team != Team::Neutral
+            && (target_is_structure || (target_is_vehicle && !target_is_airborne));
+        if !valid_target {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::PlantRemoteDemoCharge { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Colonel Burton residual: detonate all remote charges planted by selected units.
+    /// Matches C++ SPECIAL_REMOTE_CHARGES no-target path (detonate special object list).
+    pub(super) fn execute_detonate_remote_demo_charges(&mut self, units: &[ObjectId]) -> CommandResult {
+        let producers: Vec<ObjectId> = units
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.game_logic
+                    .host_object(*id)
+                    .map(|u| u.is_alive())
+                    .unwrap_or(false)
+            })
+            .collect();
+        if producers.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+        let detonated = self.game_logic.detonate_remote_demo_charges(&producers);
+        if detonated > 0 {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Demo SuicideBomb residual: intentional SUICIDED PlusFire detonation.
+    ///
+    /// Fail-closed: requires SuicideBomb CommandSetUpgrade residual tag.
+    pub(super) fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if self.game_logic.issue_demo_tertiary_suicide(unit_id) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Black Lotus residual: steal cash from enemy supply/cash building.
+    ///
+    /// Fail-closed: only Black Lotus templates; target must be residual
+    /// cash generator (C++ KINDOF_CASH_GENERATOR). StartAbilityRange 150
+    /// resolved on reach in GameLogic SpecialAbility update.
+    pub(super) fn execute_steal_cash_hack(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        use crate::game_logic::host_hero_abilities::{
+            can_activate_black_lotus_ability, is_black_lotus_template, is_cash_hack_target,
+            is_legal_steal_cash_target,
+        };
+
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            is_cash_generator,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.status.under_construction,
+                is_cash_hack_target(
+                    &target.template_name,
+                    target.is_kind_of(KindOf::SupplyCenter),
+                    target.is_kind_of(KindOf::FSSupplyCenter),
+                    target.is_kind_of(KindOf::FSBlackMarket),
+                    target.is_kind_of(KindOf::FSSupplyDropzone),
+                ),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        // Target residual: enemy cash generator structure (not under construction).
+        // Per-unit enemy check below; here require non-neutral cash structure.
+        if !is_legal_steal_cash_target(
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            target_team != Team::Neutral,
+            is_cash_generator,
+        ) {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| {
+                    can_activate_black_lotus_ability(
+                        is_black_lotus_template(&unit.template_name),
+                        unit.is_alive(),
+                    ) && unit.can_move()
+                        && unit.team != target_team
+                        && unit.team != Team::Neutral
+                })
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::StealCashHack { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Black Lotus residual: disable enemy ground vehicle (DISABLED_HACKED).
+    ///
+    /// Fail-closed: only Black Lotus templates. C++ ActionManager
+    /// canDisableVehicleViaHacking residual: enemy ground vehicle, not already
+    /// hacked-disabled, not unmanned. StartAbilityRange 150 on reach.
+    pub(super) fn execute_disable_vehicle_hack(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        use crate::game_logic::host_hero_abilities::{
+            can_activate_black_lotus_ability, is_black_lotus_template,
+            is_legal_disable_vehicle_target,
+        };
+
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_hacked,
+            target_unmanned,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_hacked_disabled(),
+                target.is_unmanned(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        if !is_legal_disable_vehicle_target(
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_team != Team::Neutral,
+            target_hacked,
+            target_unmanned,
+        ) {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| {
+                    can_activate_black_lotus_ability(
+                        is_black_lotus_template(&unit.template_name),
+                        unit.is_alive(),
+                    ) && unit.can_move()
+                        && unit.team != target_team
+                        && unit.team != Team::Neutral
+                })
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::DisableVehicleHack { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// China Hacker residual: disable enemy structure (DISABLED_HACKED).
+    /// SpecialAbilityHackerDisableBuilding.
+    pub(super) fn execute_hacker_disable_building(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        use crate::game_logic::host_hacker_disable::{
+            can_activate_hacker_disable_building, is_legal_hacker_disable_target,
+            should_apply_hacker_disable,
+        };
+
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            target_hacked,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.status.under_construction,
+                target.is_hacked_disabled(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        // is_enemy checked per unit; here require non-neutral structure residual.
+        if !is_legal_hacker_disable_target(
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            target_team != Team::Neutral,
+            target_hacked,
+        ) {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| {
+                    can_activate_hacker_disable_building(
+                        should_apply_hacker_disable(&unit.template_name),
+                        unit.is_alive(),
+                    ) && unit.can_move()
+                        && unit.team != target_team
+                        && unit.team != Team::Neutral
+                })
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::HackerDisableBuilding { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_disguise_as_vehicle(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        use crate::game_logic::host_bomb_truck_disguise::{
+            is_bomb_truck_template, is_legal_disguise_target,
+        };
+
+        let (
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_is_bomb_truck,
+            target_disguised,
+            target_template,
+            target_pos,
+        ) = match self.game_logic.host_object(target_id) {
+            Some(target) => (
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                is_bomb_truck_template(&target.template_name),
+                target.status.disguised,
+                target.template_name.clone(),
+                target.get_position(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        if !is_legal_disguise_target(
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_is_bomb_truck,
+            &target_template,
+            target_disguised,
+        ) {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|unit| unit.is_alive() && is_bomb_truck_template(&unit.template_name))
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
+            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::DisguiseAsVehicle { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Wave 233: switch weapons via GameLogic unit_command_switch_weapons.
+        let mut any = false;
+        for &unit_id in units {
+            if self.game_logic.unit_command_switch_weapons(unit_id) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_toggle_overcharge(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if self.game_logic.toggle_overcharge_object(unit_id) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+}

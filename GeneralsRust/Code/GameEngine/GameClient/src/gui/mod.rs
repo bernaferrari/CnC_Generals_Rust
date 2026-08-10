@@ -82,6 +82,7 @@ pub mod font;
 pub mod gadget;
 pub mod gadgets;
 pub mod game_font;
+#[path = "game_window/mod.rs"]
 pub mod game_window;
 pub mod game_window_global;
 pub mod game_window_manager;
@@ -101,10 +102,12 @@ pub use ime_manager::{
     simulate_ime_start_composition, simulate_ime_update_composition, ResidualImeAction,
 };
 pub mod challenge_game_info;
+#[path = "ingame_ui/mod.rs"]
 pub mod ingame_ui;
 pub mod integrated_ui_system;
 pub mod lan_preferences;
 pub mod lan_setup;
+#[path = "load_screen/mod.rs"]
 pub mod load_screen;
 pub mod loading_screen;
 pub mod menu_flags;
@@ -115,9 +118,11 @@ pub mod skirmish_preferences;
 pub mod skirmish_setup;
 pub mod ui_globals;
 pub mod ui_renderer;
+#[path = "w3d_gadget_draw/mod.rs"]
 pub mod w3d_gadget_draw;
 pub mod win_instance_data;
 pub mod window_layout;
+#[path = "window_manager/mod.rs"]
 pub mod window_manager;
 pub mod window_script;
 pub mod window_video_manager;

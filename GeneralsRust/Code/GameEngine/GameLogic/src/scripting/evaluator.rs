@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Concatenation of GeneralsRust/Code/GameEngine/GameLogic/src/scripting/evaluator for residual include_str! scans.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Script Evaluation System
 //!
 //! This module provides script evaluation logic that matches the C++ ScriptEngine evaluation,

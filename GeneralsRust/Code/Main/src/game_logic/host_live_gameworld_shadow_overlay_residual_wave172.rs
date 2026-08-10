@@ -101,7 +101,7 @@ pub fn honesty_seed_presentation_shadow_overlay_source() -> bool {
 
 /// Live residual: map load → shadow sync → probe → presentation overlay.
 pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
-    use super::{
+    use crate::game_logic::{
         resolve_retail_map_path, GameLogic, GameMode, DEFAULT_SKIRMISH_MAP_WAVE169,
         LONE_EAGLE_MAP_WAVE169,
     };

@@ -1,3 +1,6 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is mesh_system_impl/ + #[path = "mesh_system_impl/mod.rs"] in rendering/mod.rs.
+
 //! Mesh Rendering System - Complete implementation matching C++ WW3D2
 //!
 //! This module provides the complete mesh rendering system that was in the original

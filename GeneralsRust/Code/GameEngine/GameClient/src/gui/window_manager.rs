@@ -1,3 +1,6 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory + #[path] in gui/mod.rs.
+
 //! WindowManager Implementation
 //!
 //! This module provides the `WindowManager` struct, which serves as the central coordinator

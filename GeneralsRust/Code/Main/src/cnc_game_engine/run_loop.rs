@@ -1,0 +1,660 @@
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum SoundType {
+    Select,
+    Command,
+    ConstructionComplete,
+    UnitReady,
+    UpgradeComplete,
+    Hit,
+    Explosion,
+    Build,
+}
+
+pub(super) struct NoopWake;
+
+impl Wake for NoopWake {
+    fn wake(self: Arc<Self>) {}
+}
+
+
+/// Run the actual C&C game
+pub async fn run_cnc_game(
+    event_loop: EventLoop<()>,
+    window_attributes: WindowAttributes,
+    cmd_args: Arc<CommandLineArgs>,
+) -> Result<()> {
+    info!("🎮 Starting Command & Conquer Generals Zero Hour - Real Game");
+
+    register_real_game_client_bootstrap();
+
+    let mut pending_window_attributes = Some(window_attributes);
+    let mut window: Option<Arc<Window>> = None;
+    let mut pending_engine_window: Option<Arc<Window>> = None;
+    let mut engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>> = None;
+    let mut engine_init_started_at: Option<Instant> = None;
+    let mut engine_init_last_log_at: Option<Instant> = None;
+    let mut engine: Option<CnCGameEngine> = None;
+    let mut shutdown_logged = false;
+    let mut next_redraw_at = Instant::now();
+    let mut last_slow_frame_log = None::<Instant>;
+    let mut slow_frame_count = 0u32;
+    let mut slow_frame_peak = Duration::ZERO;
+    let mut slow_ww3d_peak = Duration::ZERO;
+    let mut slow_update_peak = Duration::ZERO;
+    let mut slow_render_peak = Duration::ZERO;
+    let mut last_render_health_log = Instant::now();
+    const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+    /// Headless logic residual: ~30 Hz fixed step without waiting on GPU present.
+    const HEADLESS_LOGIC_INTERVAL: Duration = Duration::from_nanos(33_333_333);
+    /// Headless present residual: keep live_frame/screenshot alive, but far below logic rate.
+    const HEADLESS_PRESENT_INTERVAL: Duration = Duration::from_millis(250);
+    const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
+    const MINIMIZED_POLL_INTERVAL: Duration = Duration::from_millis(5);
+    let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
+    let mut runtime_host_bridge = RuntimeHostBridge::from_command_line(cmd_args.as_ref());
+    if let Some(bridge) = runtime_host_bridge.as_mut() {
+        bridge.publish_booting();
+    }
+    let mut runtime_window_minimized = false;
+    let mut next_headless_present_at = Instant::now();
+
+    #[cfg(feature = "integration-diagnostics")]
+    let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
+    #[cfg(feature = "integration-diagnostics")]
+    let runtime_handle = tokio::runtime::Handle::current();
+
+    #[allow(deprecated)]
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+
+        let mut drive_frame = |
+            engine: &mut CnCGameEngine,
+            current_window: &Arc<Window>,
+            runtime_host_bridge: &mut Option<RuntimeHostBridge>,
+            render_frame: bool,
+        | {
+            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                for command in bridge.drain_commands() {
+                    engine.apply_runtime_host_command(&command);
+                }
+                if engine.take_runtime_host_pending_capture() {
+                    bridge.force_capture_request();
+                }
+            }
+
+            let frame_started = Instant::now();
+            let mut ww3d_elapsed = Duration::ZERO;
+            let frame_timing = if matches!(
+                engine.get_state(),
+                GameState::Loading | GameState::Menu | GameState::InGame | GameState::Paused
+            ) {
+                let ww3d_started = Instant::now();
+                let timing = match ww3d_engine::update() {
+                    Ok(_) => match ww3d_engine::timing() {
+                        Ok(timing) => {
+                            let sync_ms = (timing.total_seconds() * 1000.0)
+                                .clamp(0.0, u32::MAX as f32)
+                                as u32;
+                            WW3D::sync(sync_ms);
+                            Some(timing)
+                        }
+                        Err(err) => {
+                            error!("Failed to fetch WW3D frame timing: {err:?}");
+                            None
+                        }
+                    },
+                    Err(err) => {
+                        error!("WW3D engine update failed: {err:?}");
+                        None
+                    }
+                };
+                ww3d_elapsed = ww3d_started.elapsed();
+                timing
+            } else {
+                None
+            };
+
+            let update_started = Instant::now();
+            if let Some(timing) = frame_timing {
+                #[cfg(feature = "integration-diagnostics")]
+                if let Some(bridge) = integration_bridge.as_mut() {
+                    if let Err(err) = runtime_handle.block_on(bridge.pump_with_timing(engine, timing))
+                    {
+                        error!(
+                            "Integration telemetry pump failed: {err:?}. Disabling bridge."
+                        );
+                        integration_bridge = None;
+                    }
+                }
+                engine.update_with_timing(&timing);
+            } else {
+                engine.update_with_frame_clock();
+            }
+            let update_elapsed = update_started.elapsed();
+            static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let dfn = DRIVE_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
+                info!("drive_frame #{} update_done {:?} state={:?} render_frame={}", dfn, update_elapsed, engine.get_state(), render_frame);
+            }
+
+            let render_started = Instant::now();
+            if render_frame {
+                if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
+                    info!("drive_frame #{} calling render()", dfn);
+                }
+                match engine.render() {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("❌ RENDER ERROR: {:?}", e);
+                        if let Some(source_err) = e.source() {
+                            if let Some(surface_err) =
+                                source_err.downcast_ref::<wgpu::SurfaceError>()
+                            {
+                                match surface_err {
+                                    wgpu::SurfaceError::Lost => {
+                                        error!("🔄 SURFACE LOST: Attempting resize");
+                                        engine.resize(current_window.inner_size());
+                                    }
+                                    wgpu::SurfaceError::OutOfMemory => {
+                                        error!("💥 OUT OF MEMORY: Exiting");
+                                        elwt.exit();
+                                    }
+                                    _ => {
+                                        error!("🚨 Other surface error: {:?}", surface_err);
+                                    }
+                                }
+                            } else {
+                                error!("🚨 Non-surface error: {:?}", source_err);
+                            }
+                        } else {
+                            error!("🚨 No source error available");
+                        }
+                    }
+                }
+            }
+            let render_elapsed = render_started.elapsed();
+
+            let frame_elapsed = frame_started.elapsed();
+            if frame_elapsed >= Duration::from_millis(120) {
+                slow_frame_count = slow_frame_count.saturating_add(1);
+                slow_frame_peak = slow_frame_peak.max(frame_elapsed);
+                slow_ww3d_peak = slow_ww3d_peak.max(ww3d_elapsed);
+                slow_update_peak = slow_update_peak.max(update_elapsed);
+                slow_render_peak = slow_render_peak.max(render_elapsed);
+            }
+            if frame_elapsed >= Duration::from_millis(300) {
+                let should_log = last_slow_frame_log
+                    .map(|last| frame_started.duration_since(last) >= Duration::from_secs(1))
+                    .unwrap_or(true);
+                if should_log {
+                    warn!(
+                        "Severe slow frame {:?} in {:?} (ww3d={:?}, update={:?}, render={:?}, startup_progress={:.0}%)",
+                        frame_elapsed,
+                        engine.get_state(),
+                        ww3d_elapsed,
+                        update_elapsed,
+                        render_elapsed,
+                        engine.startup_last_reported_progress * 100.0
+                    );
+                    last_slow_frame_log = Some(frame_started);
+                }
+            }
+            if frame_started.duration_since(last_render_health_log) >= Duration::from_secs(5) {
+                if slow_frame_count == 0 {
+                    info!(
+                        "Render health: ok (state={:?}, render_items={}, no slow frames >120ms in last 5s, startup_progress={:.0}%)",
+                        engine.get_state(),
+                        engine.render_pipeline.debug_render_item_count(),
+                        engine.startup_last_reported_progress * 100.0
+                    );
+                } else {
+                    info!(
+                        "Render health: slow_frames={} peak={:?} (ww3d_peak={:?}, update_peak={:?}, render_peak={:?}, state={:?}, render_items={}, startup_progress={:.0}%)",
+                        slow_frame_count,
+                        slow_frame_peak,
+                        slow_ww3d_peak,
+                        slow_update_peak,
+                        slow_render_peak,
+                        engine.get_state(),
+                        engine.render_pipeline.debug_render_item_count(),
+                        engine.startup_last_reported_progress * 100.0
+                    );
+                }
+                slow_frame_count = 0;
+                slow_frame_peak = Duration::ZERO;
+                slow_ww3d_peak = Duration::ZERO;
+                slow_update_peak = Duration::ZERO;
+                slow_render_peak = Duration::ZERO;
+                last_render_health_log = frame_started;
+            }
+
+            if should_exit_for_smoke_test(
+                cmd_args.wants_smoke_test(),
+                engine.get_state(),
+                engine.startup_last_reported_progress,
+                engine.is_state_change_pending(GameState::Exiting),
+            ) {
+                info!("Smoke test reached main menu; exiting successfully");
+                engine.transition_to_state(GameState::Exiting);
+                elwt.exit();
+                return;
+            }
+
+            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                let snapshot = engine.runtime_host_status_snapshot();
+                bridge.publish_runtime(&snapshot);
+            }
+        };
+
+        if matches!(event, Event::Resumed) && engine.is_none() {
+            let Some(attributes) = pending_window_attributes.take() else {
+                error!("Missing window attributes during startup resume");
+                elwt.exit();
+                return;
+            };
+
+            let created_window = match elwt.create_window(attributes) {
+                Ok(window) => Arc::new(window),
+                Err(err) => {
+                    error!("Failed to create window: {err}");
+                    elwt.exit();
+                    return;
+                }
+            };
+
+            info!(
+                "Window created: {}x{} ({})",
+                created_window.inner_size().width,
+                created_window.inner_size().height,
+                if created_window.fullscreen().is_some() {
+                    "Fullscreen"
+                } else {
+                    "Windowed"
+                }
+            );
+
+            if runtime_headless_mode {
+                created_window.set_visible(false);
+            } else {
+                created_window.set_visible(true);
+            }
+            created_window.request_redraw();
+            window = Some(created_window.clone());
+            pending_engine_window = Some(created_window);
+            return;
+        }
+
+        if engine.is_none() {
+            match event {
+                Event::WindowEvent { ref event, window_id } => {
+                    if let Some(current_window) = window.as_ref() {
+                        if window_id == current_window.id()
+                            && matches!(event, WindowEvent::CloseRequested)
+                        {
+                            info!("Close requested before engine startup completed");
+                            elwt.exit();
+                            return;
+                        }
+                    }
+                }
+                Event::AboutToWait => {
+                    if let Some(bridge) = runtime_host_bridge.as_mut() {
+                        bridge.publish_booting();
+                        for command in bridge.drain_commands() {
+                            if command.trim().eq_ignore_ascii_case("exit") {
+                                info!("Runtime host received exit command during startup");
+                                elwt.exit();
+                                return;
+                            }
+                        }
+                    }
+
+                    if engine_init_future.is_none() {
+                        if let Some(created_window) = pending_engine_window.take() {
+                            #[cfg(target_os = "windows")]
+                            {
+                                use raw_window_handle::HasWindowHandle;
+                                if let Ok(handle) = created_window.window_handle() {
+                                    if let raw_window_handle::RawWindowHandle::Win32(win) =
+                                        handle.as_raw()
+                                    {
+                                        crate::win_main::APPLICATION_WINDOW.store(
+                                            win.hwnd.get() as *mut std::ffi::c_void,
+                                            std::sync::atomic::Ordering::Relaxed,
+                                        );
+                                        debug!("Win32 window handle stored");
+                                    }
+                                }
+                            }
+
+                            engine_init_started_at = Some(Instant::now());
+                            engine_init_last_log_at = None;
+                            created_window
+                                .set_title("Command & Conquer Generals Zero Hour - Initializing");
+                            engine_init_future = Some(Box::pin(CnCGameEngine::new(
+                                created_window.clone(),
+                                cmd_args.clone(),
+                            )));
+                        }
+                    }
+
+                    if let Some(init_future) = engine_init_future.as_mut() {
+                        let waker: Waker = Waker::from(Arc::new(NoopWake));
+                        let mut cx = Context::from_waker(&waker);
+                        match init_future.as_mut().poll(&mut cx) {
+                            Poll::Ready(Ok(new_engine)) => {
+                                if let Some(created_window) = window.as_ref() {
+                                    info!("C&C Game engine initialized successfully!");
+                                    if !runtime_headless_mode {
+                                        created_window.focus_window();
+                                    }
+                                    created_window.request_redraw();
+                                }
+                                engine_init_future = None;
+                                engine_init_started_at = None;
+                                engine_init_last_log_at = None;
+                                let mut new_engine = new_engine;
+                                if let Some(bridge) = runtime_host_bridge.as_mut() {
+                                    let snapshot = new_engine.runtime_host_status_snapshot();
+                                    bridge.publish_runtime(&snapshot);
+                                }
+                                engine = Some(new_engine);
+                                #[cfg(feature = "integration-diagnostics")]
+                                if cmd_args.wants_integration_diagnostics() {
+                                    match pollster::block_on(IntegrationTelemetryBridge::new(
+                                        IntegrationConfig::default(),
+                                    )) {
+                                        Ok(bridge) => {
+                                            info!("Integration diagnostics bridge initialized");
+                                            integration_bridge = Some(bridge);
+                                        }
+                                        Err(err) => {
+                                            error!(
+                                                "Failed to initialize integration diagnostics bridge: {err:?}. Continuing without telemetry overlay."
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Poll::Ready(Err(err)) => {
+                                error!("Failed to initialize C&C game engine: {err}");
+                                engine_init_future = None;
+                                elwt.exit();
+                            }
+                            Poll::Pending => {
+                                if let Some(started_at) = engine_init_started_at {
+                                    let should_log = engine_init_last_log_at
+                                        .map(|last| {
+                                            last.elapsed() >= Duration::from_millis(500)
+                                        })
+                                        .unwrap_or_else(|| started_at.elapsed() >= Duration::from_millis(500));
+                                    if should_log {
+                                        info!(
+                                            "Engine bootstrap still in progress ({:.2}s elapsed)",
+                                            started_at.elapsed().as_secs_f32()
+                                        );
+                                        engine_init_last_log_at = Some(Instant::now());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    next_redraw_at = Instant::now() + STARTUP_POLL_INTERVAL;
+                    elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        let Some(current_window) = window.as_ref() else {
+            return;
+        };
+        let Some(engine) = engine.as_mut() else {
+            return;
+        };
+
+        if engine.is_quitting() {
+            if !shutdown_logged {
+                info!("Engine shutting down");
+                shutdown_logged = true;
+            }
+            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                let snapshot = engine.runtime_host_status_snapshot();
+                bridge.publish_runtime(&snapshot);
+            }
+            elwt.exit();
+            return;
+        }
+
+        match engine.process_platform_event(&event) {
+            Ok(handled) => {
+                if handled {
+                    return;
+                }
+            }
+            Err(e) => {
+                error!("Platform message handling error: {}", e);
+            }
+        }
+
+        if engine.is_quit_requested() {
+            if !engine.is_quitting() && !engine.is_state_change_pending(GameState::Exiting) {
+                info!("Platform requested quit");
+                engine.request_state_change(GameState::Exiting);
+            }
+            return;
+        }
+
+        match event {
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == current_window.id() => {
+                if !engine.input(event) {
+                    match event {
+                        WindowEvent::CloseRequested => {
+                            info!("Close requested by window");
+                            engine.request_state_change(GameState::Exiting);
+                        }
+                        WindowEvent::Destroyed => {
+                            info!("Window destroyed - forcing exit");
+                            engine.request_state_change(GameState::Exiting);
+                        }
+                        WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    logical_key: Key::Named(NamedKey::Escape),
+                                    ..
+                                },
+                            ..
+                        } => match engine.get_state() {
+                            GameState::InGame => {
+                                // C++ Escape cancels structure placement before pause residual.
+                                if engine.pending_structure_placement.is_some() {
+                                    engine.cancel_structure_placement_from_ui();
+                                    info!("Escape cancelled structure placement residual");
+                                } else if engine.pending_map_command.take().is_some() {
+                                    info!("Escape cancelled pending map command residual");
+                                } else {
+                                    info!("Escape pressed in InGame state - pausing");
+                                    engine.request_state_change(GameState::Paused);
+                                }
+                            }
+                            GameState::Paused => {
+                                info!("Escape pressed in Paused state - resuming");
+                                engine.request_state_change(GameState::InGame);
+                            }
+                            GameState::Menu | GameState::Loading => {
+                                info!("Escape pressed in Menu/Loading - exiting");
+                                engine.request_state_change(GameState::Exiting);
+                            }
+                            GameState::Victory | GameState::Defeat => {
+                                info!("Escape pressed in endgame - returning to menu");
+                                engine.request_state_change(GameState::Menu);
+                            }
+                            GameState::Exiting | GameState::Initializing => {}
+                        },
+                        WindowEvent::Resized(physical_size) => {
+                            runtime_window_minimized |=
+                                physical_size.width == 0 || physical_size.height == 0;
+                            update_iconic_state_and_wake_audio(
+                                current_window,
+                                &mut runtime_window_minimized,
+                            );
+                            if !runtime_window_minimized {
+                                engine.resize(*physical_size);
+                            }
+                        }
+                        WindowEvent::ScaleFactorChanged { .. } => {
+                            // Keep UI/layout hit-testing in sync on HiDPI transitions (macOS).
+                            update_iconic_state_and_wake_audio(
+                                current_window,
+                                &mut runtime_window_minimized,
+                            );
+                            if !runtime_window_minimized {
+                                engine.resize(current_window.inner_size());
+                            }
+                        }
+                        WindowEvent::RedrawRequested => {
+                            update_iconic_state_and_wake_audio(
+                                current_window,
+                                &mut runtime_window_minimized,
+                            );
+                            let runtime_window_suspended = runtime_window_minimized;
+                            if runtime_headless_mode {
+                                // Keep the headless loop alive: hidden windows may stop
+                                // delivering AboutToWait unless redraw is requested.
+                                let now = Instant::now();
+                                if now >= next_redraw_at {
+                                    let present_due = now >= next_headless_present_at;
+                                    drive_frame(
+                                        engine,
+                                        current_window,
+                                        &mut runtime_host_bridge,
+                                        present_due,
+                                    );
+                                    if present_due {
+                                        next_headless_present_at =
+                                            Instant::now() + HEADLESS_PRESENT_INTERVAL;
+                                    }
+                                    next_redraw_at = Instant::now() + HEADLESS_LOGIC_INTERVAL;
+                                }
+                                current_window.request_redraw();
+                            } else if runtime_window_suspended {
+                                if should_keep_logic_running_while_iconic(
+                                    // Prefer presentation game_mode residual when installed.
+                                    engine.presentation_or_live_game_mode(),
+                                ) {
+                                    drive_frame(
+                                        engine,
+                                        current_window,
+                                        &mut runtime_host_bridge,
+                                        false,
+                                    );
+                                }
+                            } else {
+                                drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Event::AboutToWait => {
+                let now = Instant::now();
+                if now >= next_redraw_at {
+                    update_iconic_state_and_wake_audio(
+                        current_window,
+                        &mut runtime_window_minimized,
+                    );
+                    let runtime_window_suspended = runtime_window_minimized;
+                    if runtime_headless_mode {
+                        // Split logic vs present: always advance sim at ~30 Hz; only pay for
+                        // GPU/screenshot on HEADLESS_PRESENT_INTERVAL so construction/combat
+                        // are not gated by mesh draw cost.
+                        let present_due = now >= next_headless_present_at;
+                        drive_frame(
+                            engine,
+                            current_window,
+                            &mut runtime_host_bridge,
+                            present_due,
+                        );
+                        if present_due {
+                            next_headless_present_at = Instant::now() + HEADLESS_PRESENT_INTERVAL;
+                        }
+                        next_redraw_at = Instant::now() + HEADLESS_LOGIC_INTERVAL;
+                        current_window.request_redraw();
+                    } else if cmd_args.wants_smoke_test() {
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, false);
+                        if engine.is_quitting() {
+                            elwt.exit();
+                            return;
+                        }
+                        next_redraw_at = now + STARTUP_POLL_INTERVAL;
+                    } else if runtime_window_suspended {
+                        if should_keep_logic_running_while_iconic(
+                            // Prefer presentation game_mode residual when installed.
+                            engine.presentation_or_live_game_mode(),
+                        ) {
+                            drive_frame(engine, current_window, &mut runtime_host_bridge, false);
+                        }
+                        next_redraw_at = now + MINIMIZED_POLL_INTERVAL;
+                    } else {
+                        current_window.request_redraw();
+                        next_redraw_at = now + FRAME_INTERVAL;
+                    }
+                }
+                elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+            }
+            Event::LoopExiting => {
+                #[cfg(feature = "integration-diagnostics")]
+                if let Some(bridge) = integration_bridge.take() {
+                    if let Err(err) = runtime_handle.block_on(bridge.shutdown()) {
+                        error!("Failed to shut down integration telemetry bridge: {err:?}");
+                    }
+                }
+            }
+            _ => {}
+        }
+    })?;
+
+    info!("C&C Game ended successfully");
+    Ok(())
+}
+
+
+/// Map HUD structure cameo labels to ThingTemplate residual names.
+pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {
+    let n = name.trim();
+    if n.is_empty() {
+        return String::new();
+    }
+    // Already a template-style name.
+    if n.contains("America") || n.contains("China") || n.contains("GLA") || n.contains('_') {
+        return n.to_string();
+    }
+    let key = n.to_ascii_lowercase();
+    match key.as_str() {
+        "power plant" | "powerplant" => "AmericaPowerPlant".into(),
+        "barracks" => "AmericaBarracks".into(),
+        "supply center" | "supplycenter" => "AmericaSupplyCenter".into(),
+        "war factory" | "warfactory" => "AmericaWarFactory".into(),
+        "airfield" => "AmericaAirfield".into(),
+        "command center" | "commandcenter" => "AmericaCommandCenter".into(),
+        "patriot battery" | "patriot" => "AmericaPatriotBattery".into(),
+        "strategy center" => "AmericaStrategyCenter".into(),
+        "detention camp" => "AmericaDetentionCamp".into(),
+        "particle cannon" => "AmericaParticleCannonUplink".into(),
+        _ => {
+            // Fallback: strip spaces residual.
+            let compact: String = n.chars().filter(|c| !c.is_whitespace()).collect();
+            format!("America{compact}")
+        }
+    }
+}

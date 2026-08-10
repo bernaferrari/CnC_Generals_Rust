@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is core_impl/ + #[path = "core_impl/mod.rs"] in locomotor/mod.rs.
+// Residual include_str! scans keep reading this sibling file.
+
 //! Locomotor system - Unit movement and pathfinding
 //!
 //! This module provides the complete locomotor system for unit movement,

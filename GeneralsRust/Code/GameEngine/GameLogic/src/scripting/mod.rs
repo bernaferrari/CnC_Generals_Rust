@@ -20,13 +20,17 @@ use rhai::{
 };
 use serde::{Deserialize, Serialize};
 
+#[path = "actions/mod.rs"]
 pub mod actions;
 pub mod camera_actions;
 pub mod conditions;
 pub mod core;
+#[path = "engine/mod.rs"]
 pub mod engine;
+#[path = "evaluator/mod.rs"]
 pub mod evaluator;
 pub mod events;
+#[path = "executor/mod.rs"]
 pub mod executor;
 pub mod ini_parser;
 pub mod map_scripts;

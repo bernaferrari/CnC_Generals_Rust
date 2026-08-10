@@ -1,0 +1,978 @@
+use super::*;
+
+impl Object {
+    // Command system compatibility methods
+    pub fn can_move(&self) -> bool {
+        // weapons_jammed intentionally does NOT block movement (weapons-only residual).
+        // disabled_subdued blocks move (C++ DISABLED_SUBDUED full disable for non-projectile).
+        // Docked aircraft may move (takeoff/sortie residual).
+        // Shock flailing residual: block commanded move while STUNNED_FLAILING
+        // (stun_frames > 15). Settled STUNNED phase may still stagger via velocity.
+        let parked_aircraft = self.is_parked_at_airfield();
+        let flailing = self.shock_stun_frames > 15;
+        self.is_mobile()
+            && self.is_alive()
+            && !self.status.deployed
+            && !self.status.disabled_unmanned
+            && !self.status.disabled_hacked
+            && !self.status.disabled_emp
+            && !self.status.disabled_subdued
+            && !flailing
+            && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned))
+    }
+
+    pub fn set_destination(&mut self, destination: Vec3) {
+        let _ = self.takeoff_from_airfield_parking();
+        // C++ DeployStyle: ordered move packs up (undeploy) residual.
+        if self.status.deployed {
+            self.set_deployed(false);
+        }
+        self.move_to(destination);
+    }
+
+    pub fn set_target(&mut self, target: Option<ObjectId>) {
+        if target.is_some() {
+            let _ = self.takeoff_from_airfield_parking();
+        }
+        self.target = target;
+        if target.is_some() {
+            self.target_location = None;
+            self.record_host_target_location();
+            self.set_ai_state(AIState::Attacking);
+            self.set_status_attacking(true);
+        } else {
+            self.target_location = None;
+            self.set_status_force_attack(false);
+            self.set_ai_state(AIState::Idle);
+            self.set_status_attacking(false);
+        }
+        crate::game_logic::host_attack_log::record(self.id, target);
+    }
+
+    /// Set order target without forcing AIState::Attacking.
+    /// Used by capture/hijack/gather/special-ability pathing where
+    /// `path_to_goal_with_state` owns the AI state residual.
+    /// Still last-writes host_attack_log + target_location clear.
+    pub fn set_order_target(&mut self, target: Option<ObjectId>) {
+        if target.is_some() {
+            let _ = self.takeoff_from_airfield_parking();
+        }
+        self.target = target;
+        self.target_location = None;
+        self.record_host_target_location();
+        self.set_status_force_attack(false);
+        self.set_status_attacking(false);
+        crate::game_logic::host_attack_log::record(self.id, target);
+    }
+
+    /// Check whether this object can fire the requested special power.
+    ///
+    /// Per-power residual: only this power's timer must be clear (other SWs may
+    /// still be reloading). Aggregate `special_power_ready` is refreshed for HUD.
+    pub fn is_special_power_ready(&self, power: &SpecialPowerType) -> bool {
+        if !self.is_alive() || self.is_disabled() {
+            return false;
+        }
+        // C++ SpecialPowerModule::isReady requires m_pausedCount == 0.
+        if self.special_power_paused.contains(power) {
+            return false;
+        }
+        let remaining = self
+            .special_power_cooldowns
+            .get(power)
+            .copied()
+            .unwrap_or(0.0);
+        remaining <= 0.0
+    }
+
+    /// C++ SpecialPowerModule::pauseCountdown residual.
+    pub fn pause_special_power_countdown(&mut self, power: &SpecialPowerType, pause: bool) {
+        if pause {
+            self.special_power_paused.insert(power.clone());
+        } else {
+            self.special_power_paused.remove(power);
+            // Unpause starts / continues recharge: if no cooldown entry, begin full reload.
+            // Start/continue recharge residual after final unpause.
+            let mut cd =
+                crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+                    power,
+                )
+                .unwrap_or(0.0);
+            if cd <= 0.0 {
+                cd = if self.special_power_cooldown > 0.0 {
+                    self.special_power_cooldown
+                } else {
+                    // StartsPaused peels without ReloadTime residual default to 1s.
+                    1.0
+                };
+            }
+            self.special_power_cooldowns
+                .entry(power.clone())
+                .and_modify(|r| {
+                    if *r <= 0.0 {
+                        *r = cd;
+                    }
+                })
+                .or_insert(cd);
+        }
+    }
+
+    /// C++ Object::setWeaponBonusCondition(PLAYER_UPGRADE) residual.
+    pub fn set_weapon_bonus_player_upgrade(&mut self, enabled: bool) {
+        self.weapon_bonus_player_upgrade = enabled;
+    }
+
+    /// C++ BodyModule::setArmorSetFlag(ARMORSET_PLAYER_UPGRADE) residual.
+    pub fn set_armor_set_player_upgrade(&mut self, enabled: bool) {
+        self.armor_set_player_upgrade = enabled;
+    }
+
+    /// C++ AIUpdateInterface::setLocomotorUpgrade residual.
+    pub fn set_locomotor_upgrade(&mut self, enabled: bool) {
+        self.locomotor_upgrade = enabled;
+    }
+
+    /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.
+    pub fn set_terrain_decal_chemsuit(&mut self, enabled: bool) {
+        self.terrain_decal_chemsuit = enabled;
+    }
+
+    /// C++ SpecialPowerCompletionDie::setCreator residual.
+    pub fn set_special_power_completion(
+        &mut self,
+        special_power_name: impl Into<String>,
+        creator_id: u32,
+    ) {
+        if self
+            .special_power_completion
+            .as_ref()
+            .map(|d| d.creator_set)
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.special_power_completion = Some(
+            crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionDieData::new(
+                special_power_name,
+                creator_id,
+            ),
+        );
+    }
+
+    /// C++ SpecialPowerModule::startPowerRecharge residual (non-SharedNSync path).
+    ///
+    /// Sets this power's cooldown to full ReloadTime so PublicTimer SWs start
+    /// charging when the structure is created/completed — not ready-to-fire.
+    pub fn start_power_recharge(&mut self, power: &crate::command_system::SpecialPowerType) {
+        let cd = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+            power,
+        )
+        .unwrap_or(self.special_power_cooldown)
+        .max(0.0);
+        if cd > 0.0 {
+            self.special_power_cooldowns.insert(power.clone(), cd);
+            // Legacy aggregate timer residual for single-slot HUD paths.
+            self.special_power_cooldown = cd;
+            self.special_power_cooldown_remaining = cd;
+            self.set_special_power_ready(false);
+        } else {
+            self.special_power_cooldowns.remove(power);
+            self.set_special_power_ready(true);
+            self.special_power_cooldown_remaining = 0.0;
+        }
+        self.refresh_special_power_aggregate_cooldown();
+    }
+
+    /// Consume a charge for the special power and start per-power cooldown.
+    pub fn consume_special_power_charge(&mut self, power: &SpecialPowerType) {
+        if !self.is_special_power_ready(power) {
+            return;
+        }
+        // Prefer retail SpecialPower ReloadTime residual when known; else template cooldown.
+        let cd = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+            power,
+        )
+        .unwrap_or(self.special_power_cooldown)
+        .max(0.0);
+        if cd > 0.0 {
+            self.special_power_cooldowns.insert(power.clone(), cd);
+        } else {
+            self.special_power_cooldowns.remove(power);
+        }
+        self.refresh_special_power_aggregate_cooldown();
+        self.set_ai_state(AIState::Idle);
+    }
+
+    /// Refresh legacy aggregate ready/remaining from per-power residual timers.
+    pub fn refresh_special_power_aggregate_cooldown(&mut self) {
+        let mut max_rem = 0.0_f32;
+        self.special_power_cooldowns.retain(|_, r| {
+            if *r > max_rem {
+                max_rem = *r;
+            }
+            *r > 0.0
+        });
+        // Also consider legacy single timer if still non-zero (older save residual).
+        if self.special_power_cooldown_remaining > max_rem {
+            max_rem = self.special_power_cooldown_remaining;
+        }
+        self.special_power_cooldown_remaining = max_rem;
+        self.special_power_ready = max_rem <= 0.0;
+        self.record_host_special_power();
+    }
+
+    pub fn apply_upgrade_tag(&mut self, upgrade: &str) {
+        if !upgrade.is_empty() {
+            self.applied_upgrades.insert(upgrade.to_string());
+        }
+    }
+
+    /// C++ Object::removeUpgrade residual.
+    pub fn remove_upgrade_tag(&mut self, upgrade: &str) -> bool {
+        self.applied_upgrades.remove(upgrade)
+    }
+
+    pub fn has_upgrade_tag(&self, upgrade: &str) -> bool {
+        self.applied_upgrades.contains(upgrade)
+    }
+
+    /// Install C++ HighlanderBody residual.
+    pub fn install_highlander_body(&mut self) {
+        self.highlander_body = true;
+    }
+
+    /// Install C++ UpgradeDie residual.
+    pub fn install_upgrade_die(&mut self, upgrade_to_remove: impl Into<String>) {
+        self.upgrade_die =
+            Some(crate::game_logic::host_upgrade_die::HostUpgradeDieData::new(upgrade_to_remove));
+    }
+
+    pub fn set_target_location(&mut self, location: Option<Vec3>) {
+        self.target_location = location;
+        if location.is_some() {
+            self.target = None;
+            self.set_ai_state(AIState::Attacking);
+            self.status.attacking = true;
+        } else {
+            self.set_status_force_attack(false);
+        }
+        self.record_host_target_location();
+    }
+
+    pub fn set_force_attack(&mut self, force: bool) {
+        self.set_status_force_attack(force);
+    }
+
+    pub fn stop(&mut self) {
+        // Stop all current actions
+        self.stop_moving();
+        self.stop_attack();
+    }
+
+    pub fn set_guard_position(&mut self, position: Option<Vec3>) {
+        self.guard_position = position;
+        if position.is_some() {
+            self.set_ai_state(AIState::GuardingArea);
+        }
+        self.record_host_guard();
+    }
+
+    pub fn set_guard_mode(&mut self, mode: GuardMode) {
+        self.guard_mode = mode;
+        self.record_host_guard();
+    }
+
+    pub fn set_guard_target(&mut self, target: Option<ObjectId>) {
+        self.guard_target = target;
+        if target.is_some() {
+            self.set_ai_state(AIState::GuardingObject);
+        }
+        self.record_host_guard();
+    }
+
+    /// C++ AIUpdateInterface::privateGuardRetaliate residual.
+    ///
+    /// Clears current goal, anchors at `pos` (unit position if None), sets
+    /// goal victim, enters GuardRetaliating, optional max shots.
+
+    /// C++ AIUpdateInterface::notifyCrate residual.
+    pub fn notify_crate(&mut self, crate_id: ObjectId) {
+        self.crate_created = Some(crate_id);
+        self.record_host_ai_request();
+    }
+
+    /// C++ AIUpdateInterface::checkForCrateToPickup residual.
+    ///
+    /// Saves id, clears marker (C++ clears before lookup — host saves first so
+    /// the crate can actually be found), returns crate id if still pending.
+    pub fn check_for_crate_to_pickup(&mut self) -> Option<ObjectId> {
+        let id = self.crate_created.take()?;
+        Some(id)
+    }
+
+    pub fn begin_guard_retaliate(
+        &mut self,
+        victim: ObjectId,
+        anchor: Option<glam::Vec3>,
+        max_shots: Option<i32>,
+    ) {
+        if !self.is_alive() || self.status.destroyed {
+            return;
+        }
+        if self.is_kind_of(KindOf::Immobile) || self.is_kind_of(KindOf::Structure) {
+            return;
+        }
+        let anchor_pos = anchor.unwrap_or_else(|| self.get_position());
+        self.guard_retaliate_victim = Some(victim);
+        self.record_host_ai_request();
+        self.guard_retaliate_anchor = Some(anchor_pos);
+        // Preserve ordinary guard anchors if already guarding.
+        if self.guard_position.is_none() && self.guard_target.is_none() {
+            self.guard_position = Some(anchor_pos);
+        }
+        self.target = Some(victim);
+        self.target_location = None;
+        self.set_ai_state(AIState::GuardRetaliating);
+        self.status.attacking = true;
+        if let Some(max) = max_shots {
+            self.max_shots_to_fire = max;
+            self.record_host_combat_attack();
+        }
+        crate::game_logic::host_attack_log::record(self.id, Some(victim));
+        self.record_host_guard();
+    }
+
+    /// Clear GuardRetaliate residual and return to guard/idle.
+    pub fn end_guard_retaliate(&mut self) {
+        self.guard_retaliate_victim = None;
+        self.guard_retaliate_anchor = None;
+        self.target = None;
+        self.status.attacking = false;
+        if self.guard_target.is_some() {
+            self.set_ai_state(AIState::GuardingObject);
+        } else if self.guard_position.is_some() {
+            self.set_ai_state(AIState::GuardingArea);
+        } else {
+            self.set_ai_state(AIState::Idle);
+        }
+        crate::game_logic::host_attack_log::record(self.id, None);
+    }
+
+    /// Tick GuardRetaliate: drop when victim gone; return toward anchor if far.
+    ///
+    /// Fail-closed vs full AIGuardRetaliateMachine inner/outer/return states.
+    pub fn tick_guard_retaliate(&mut self, victim_alive: bool, victim_pos: Option<glam::Vec3>) {
+        if !matches!(self.ai_state, AIState::GuardRetaliating) {
+            return;
+        }
+        if !victim_alive || self.guard_retaliate_victim.is_none() {
+            // Return residual: move back to anchor then end.
+            if let Some(anchor) = self.guard_retaliate_anchor {
+                let us = self.get_position();
+                let dx = us.x - anchor.x;
+                let dz = us.z - anchor.z;
+                // CLOSE_ENOUGH = 25 residual
+                if dx * dx + dz * dz > 25.0 * 25.0 && self.can_move() {
+                    self.move_to(anchor);
+                    // Keep GuardRetaliating until close enough? C++ RETURN state.
+                    // Host: issue move then end attack bit.
+                    self.target = None;
+                    self.status.attacking = false;
+                    self.set_ai_state(AIState::Moving);
+                    // stash that we should re-enter guard when move completes via clear on kill path
+                    return;
+                }
+            }
+            self.end_guard_retaliate();
+            return;
+        }
+        // Keep target locked on victim.
+        if let Some(vid) = self.guard_retaliate_victim {
+            if self.target != Some(vid) {
+                self.target = Some(vid);
+                self.status.attacking = true;
+            }
+        }
+        let _ = victim_pos;
+    }
+
+    pub fn can_repair(&self) -> bool {
+        // Repair/build authority should be limited to worker/dozer-style units.
+        self.can_move() && self.is_worker()
+    }
+
+    pub fn can_construct(&self) -> bool {
+        // Construction should be limited to worker/dozer-style units.
+        self.can_move() && self.is_worker()
+    }
+
+    pub fn can_contain(&self) -> bool {
+        if !self.is_alive() {
+            return false;
+        }
+        // China Overlord residual: only containable once BattleBunker residual
+        // capacity is installed (Some(n>0)). Without bunker (Some(0)) reject.
+        if self.is_overlord_style_container() {
+            return self.overlord_bunker_slot_capacity() > 0;
+        }
+        // GLA Tunnel Network residual: TunnelContain entrance (shared team pool).
+        if self.is_tunnel_network_style_container() {
+            return self.is_kind_of(KindOf::Structure);
+        }
+        // Transports: any vehicle may act as a container (host residual).
+        // Explicit max_transport=0 still allows footprint residual capacity.
+        if self.is_kind_of(KindOf::Vehicle) {
+            return true;
+        }
+        // Structures: only garrisonable buildings with residual capacity > 0.
+        // Fail-closed: faction producers / non-bunker structures reject Enter.
+        if self.is_kind_of(KindOf::Structure) {
+            return self
+                .building_data
+                .as_ref()
+                .map(|b| b.max_garrison > 0)
+                .unwrap_or(false);
+        }
+        false
+    }
+
+    pub fn has_capacity_for(&self, count: usize) -> bool {
+        if let Some(building) = &self.building_data {
+            if building.max_garrison == 0 {
+                return false;
+            }
+            building.garrisoned_units.len() + count <= building.max_garrison
+        } else if self.is_kind_of(KindOf::Vehicle) {
+            let cap = self.transport_capacity();
+            if cap == 0 {
+                return false;
+            }
+            self.occupants.len() + count <= cap
+        } else {
+            false
+        }
+    }
+
+    /// Residual garrison capacity (structures only). 0 = not garrisonable.
+    pub fn garrison_capacity(&self) -> usize {
+        self.building_data
+            .as_ref()
+            .map(|b| b.max_garrison)
+            .unwrap_or(0)
+    }
+
+    /// True when this vehicle uses OverlordContain residual semantics
+    /// (`overlord_bunker_capacity` is `Some(...)`).
+    pub fn is_overlord_style_container(&self) -> bool {
+        self.overlord_bunker_capacity.is_some()
+    }
+
+    /// Residual BattleBunker infantry slots on an Overlord-style vehicle.
+    /// `0` when not overlord-style or bunker residual not installed.
+    pub fn overlord_bunker_slot_capacity(&self) -> usize {
+        self.overlord_bunker_capacity.unwrap_or(0)
+    }
+
+    /// Install residual BattleBunker capacity (C++ OCL_OverlordBattleBunker →
+    /// ChinaTankOverlordBattleBunker TransportContain Slots=5).
+    /// Fail-closed: does not spawn a real portable-structure passenger object.
+    /// Conflicts residual: clears gattling/propaganda addons (exclusive payload).
+    pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
+        self.overlord_bunker_capacity = Some(slots);
+        // Exclusive ConflictsWith residual (not Emperor innate propaganda).
+        let emperor =
+            crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name);
+        self.has_overlord_gattling_addon = false;
+        if !emperor {
+            self.has_overlord_propaganda_addon = false;
+        }
+        self.record_host_overlord();
+    }
+
+    /// Install residual portable GattlingCannon addon
+    /// (C++ OCL_OverlordGattlingCannon / OCL_HelixGattlingCannon).
+    /// Equips AA secondary + passenger ground residual on primary fires.
+    /// Fail-closed: not full portable-structure passenger object.
+    pub fn install_overlord_gattling_addon(&mut self) {
+        use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
+        use crate::game_logic::host_overlord_addons::{
+            is_emperor_template, overlord_gattling_air_weapon,
+        };
+        // Exclusive ConflictsWith residual vs bunker / propaganda (except Emperor).
+        let emperor = is_emperor_template(&self.template_name);
+        if !emperor {
+            self.has_overlord_propaganda_addon = false;
+            // Keep overlord-style marker but zero bunker slots.
+            if self.overlord_bunker_capacity.is_some() {
+                self.overlord_bunker_capacity = Some(0);
+            }
+        }
+        self.has_overlord_gattling_addon = true;
+        self.weapon_set_player_upgrade = true;
+        let chain = has_chain_guns_upgrade(&self.applied_upgrades);
+        self.secondary_weapon = Some(overlord_gattling_air_weapon(0, chain));
+        self.continuous_fire_consecutive = 0;
+        self.continuous_fire_level = 0;
+        self.continuous_fire_coast_until_frame = 0;
+        self.continuous_fire_victim = 0;
+        self.record_host_combat_attack();
+        self.record_host_continuous_fire();
+        self.record_host_weapon_set();
+        self.record_host_overlord();
+    }
+
+    /// Install residual portable PropagandaTower addon
+    /// (C++ OCL_OverlordPropagandaTower / OCL_HelixPropagandaTower).
+    /// Fail-closed: not full portable tower object / PulseFX.
+    pub fn install_overlord_propaganda_addon(&mut self) {
+        // Exclusive ConflictsWith residual vs gattling / bunker.
+        self.has_overlord_gattling_addon = false;
+        if self.overlord_bunker_capacity.is_some() {
+            self.overlord_bunker_capacity = Some(0);
+        }
+        self.has_overlord_propaganda_addon = true;
+        self.record_host_overlord();
+    }
+
+    /// Install residual HelixContain transport (Slots=5).
+    pub fn install_helix_transport(&mut self) {
+        self.is_helix_transport = true;
+        self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
+        // Helix can hold infantry / vehicle / portable structure residual.
+        // Fail-closed: allow_inside matrix simplified to transport capacity.
+        self.record_host_contain_capacity();
+        self.record_host_overlord();
+    }
+
+    /// True when portable gattling residual is active on this host.
+    pub fn has_overlord_gattling_residual(&self) -> bool {
+        self.has_overlord_gattling_addon
+    }
+
+    /// True when portable / innate propaganda residual is active on this host.
+    pub fn has_overlord_propaganda_residual(&self) -> bool {
+        self.has_overlord_propaganda_addon
+            || crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name)
+    }
+
+    /// Install residual GLA Battle Bus transport:
+    /// C++ TransportContain Slots=8, PassengersAllowedToFire=Yes,
+    /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY.
+    /// Fail-closed: not multi-door exit / SlowDeath undeath SECOND_LIFE.
+    pub fn install_battle_bus_transport(&mut self) {
+        self.is_battle_bus_transport = true;
+        self.max_transport = crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = true;
+        if self.battle_bus_body.is_none() {
+            self.battle_bus_body =
+                Some(crate::game_logic::host_battle_bus::HostBattleBusBodyData::new());
+        }
+        // First-life max health residual (UndeadBody / ActiveBody).
+        if self.health.maximum < crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH {
+            self.health.maximum = crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH;
+            self.health.current = crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH;
+        }
+        self.record_host_weapon_set();
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this vehicle is a Battle Bus residual transport.
+    pub fn is_battle_bus_style_container(&self) -> bool {
+        self.is_battle_bus_transport
+    }
+
+    /// C++ UndeadBody::startSecondLife + BattleBus first-death begin residual.
+    pub fn start_battle_bus_second_life(&mut self) {
+        use crate::game_logic::host_battle_bus::{
+            HostBattleBusBodyData, BATTLE_BUS_MC_BIT_SECOND_LIFE,
+            BATTLE_BUS_SECOND_LIFE_MAX_HEALTH, BATTLE_BUS_THROW_FORCE,
+        };
+        let frame = crate::game_logic::host_historic_bonus::logic_frame();
+        let body = self
+            .battle_bus_body
+            .get_or_insert_with(HostBattleBusBodyData::new);
+        if body.is_second_life && !body.is_in_first_death {
+            // Already converted.
+            return;
+        }
+        body.begin_first_life_undeath(frame);
+        self.health.maximum = BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
+        self.health.current = BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
+        self.armor_set_second_life = true;
+        self.status.destroyed = false;
+        self.status.effectively_dead = false;
+        // Throw residual (C++ PhysicsBehavior::applyShock Z = ThrowForce).
+        let _ = self.apply_shock_wave_impulse(glam::Vec3::new(0.0, 0.0, BATTLE_BUS_THROW_FORCE));
+        self.apply_shock_random_rotation(frame);
+        self.stop_moving();
+        self.set_ai_state(AIState::Idle);
+        self.target = None;
+        self.status.attacking = false;
+        let _ = BATTLE_BUS_MC_BIT_SECOND_LIFE; // set on land
+        self.record_host_weapon_set();
+    }
+
+    /// Tick BattleBusSlowDeath first-death air time + empty hulk arming.
+    /// Returns (landed_this_tick, empty_hulk_kill).
+    pub fn tick_battle_bus_slow_death(
+        &mut self,
+        current_frame: u32,
+        _above_terrain_hint: bool,
+        passenger_count: usize,
+    ) -> (bool, bool) {
+        use crate::game_logic::host_battle_bus::BATTLE_BUS_MC_BIT_SECOND_LIFE;
+        if self.battle_bus_body.is_none() {
+            return (false, false);
+        }
+        // Integrate residual throw height (world Z).
+        let (in_first, throw_vz) = self
+            .battle_bus_body
+            .as_ref()
+            .map(|b| (b.is_in_first_death, b.throw_vz))
+            .unwrap_or((false, 0.0));
+        if in_first && throw_vz.abs() > 0.001 {
+            let pos = self.get_position();
+            let mut z = pos.z + throw_vz;
+            let mut new_vz = throw_vz - 0.5; // residual gravity peel
+            if new_vz < 0.0 && z <= 0.0 {
+                z = 0.0;
+                new_vz = 0.0;
+            }
+            self.set_position(glam::Vec3::new(pos.x, pos.y, z.max(0.0)));
+            if let Some(body) = self.battle_bus_body.as_mut() {
+                body.throw_vz = new_vz;
+            }
+        }
+        let above = self.get_position().z > 0.5;
+        let landed = self
+            .battle_bus_body
+            .as_mut()
+            .map(|b| b.try_land_first_death(current_frame, above))
+            .unwrap_or(false);
+        if landed {
+            // C++ setModelConditionState(MODELCONDITION_SECOND_LIFE) + DISABLED_HELD.
+            self.model_condition_bits |= 1u128 << BATTLE_BUS_MC_BIT_SECOND_LIFE;
+            self.stop_moving();
+            self.set_ai_state(AIState::Idle);
+            self.refresh_model_condition_bits();
+        }
+        let empty_kill = self
+            .battle_bus_body
+            .as_mut()
+            .map(|b| b.tick_empty_hulk(passenger_count, current_frame))
+            .unwrap_or(false);
+        (landed, empty_kill)
+    }
+
+    /// True when UndeadBody should intercept a lethal hit (first life only).
+    pub fn battle_bus_should_intercept_lethal(
+        &self,
+        damage_type: crate::game_logic::combat::DamageType,
+        actual_damage: f32,
+    ) -> bool {
+        if !self.is_battle_bus_transport {
+            return false;
+        }
+        // C++ UndeadBody: DAMAGE_UNRESISTABLE bypasses intercept (penalty / script kill).
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::Unresistable
+                | crate::game_logic::combat::DamageType::Penalty
+                | crate::game_logic::combat::DamageType::Healing
+                | crate::game_logic::combat::DamageType::Status
+                | crate::game_logic::combat::DamageType::Hack
+                | crate::game_logic::combat::DamageType::Deploy
+                | crate::game_logic::combat::DamageType::Disarm
+                | crate::game_logic::combat::DamageType::KillGarrisoned
+                | crate::game_logic::combat::DamageType::Surrender
+        ) {
+            return false;
+        }
+        let second = self
+            .battle_bus_body
+            .as_ref()
+            .map(|b| b.is_second_life)
+            .unwrap_or(false);
+        !second && actual_damage >= self.health.current && self.health.current > 0.0
+    }
+
+    /// Install residual GLA Tunnel Network structure:
+    /// C++ TunnelContain shared MaxTunnelCapacity=10 per player.
+    /// Fail-closed: not GuardTunnelNetwork AI / TimeForFullHeal / CaveSystem.
+    pub fn install_tunnel_network_residual(&mut self) {
+        self.is_tunnel_network = true;
+        if let Some(bd) = self.building_data.as_mut() {
+            // Local max is the shared pool cap; GameLogic enforces team-shared count.
+            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+        } else {
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+            self.building_data = Some(bd);
+            self.record_host_building_type();
+        }
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this structure is a GLA Tunnel Network residual entrance.
+    pub fn is_tunnel_network_style_container(&self) -> bool {
+        self.is_tunnel_network
+    }
+
+    /// Install residual GLA Technical transport:
+    /// C++ TransportContain Slots=5, AllowInsideKindOf=INFANTRY.
+    /// Passengers ride (bed garrison residual) but do **not** fire
+    /// (`PassengersAllowedToFire` unset in retail).
+    /// Fail-closed: not chassis reskin / W3D gunner matrix.
+    pub fn install_technical_transport(&mut self) {
+        self.is_technical_transport = true;
+        self.max_transport = crate::game_logic::host_technical::TECHNICAL_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = false;
+        self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this vehicle is a GLA Technical residual transport.
+    pub fn is_technical_style_container(&self) -> bool {
+        self.is_technical_transport
+    }
+
+    /// Install residual GLA Combat Cycle RiderChangeContain:
+    /// C++ Slots=1, AllowInsideKindOf=INFANTRY, passengers do not fire
+    /// (bike itself switches WeaponSet to rider weapon residual).
+    /// Fail-closed: not full STATUS_RIDER death OCL / scuttle matrix.
+    pub fn install_combat_cycle_transport(&mut self) {
+        self.is_combat_cycle_transport = true;
+        self.max_transport = crate::game_logic::host_combat_cycle::COMBAT_CYCLE_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = false;
+        self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this vehicle is a GLA Combat Cycle residual transport.
+    pub fn is_combat_cycle_style_container(&self) -> bool {
+        self.is_combat_cycle_transport
+    }
+
+    /// Install residual America Humvee transport:
+    /// C++ TransportContain Slots=5, PassengersAllowedToFire=Yes,
+    /// AllowInsideKindOf=INFANTRY.
+    /// Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
+    pub fn install_humvee_transport(&mut self) {
+        self.is_humvee_transport = true;
+        self.max_transport = crate::game_logic::host_humvee::HUMVEE_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this vehicle is an America Humvee residual transport.
+    pub fn is_humvee_style_container(&self) -> bool {
+        self.is_humvee_transport
+    }
+
+    /// Install residual China Troop Crawler transport:
+    /// C++ TransportContain Slots=8, AllowInsideKindOf=INFANTRY,
+    /// InitialPayload Redguard×8, GoAggressiveOnExit residual (exit-to-fight).
+    /// Passengers do **not** fire from inside (`PassengersAllowedToFire` unset).
+    /// Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
+    pub fn install_troop_crawler_transport(&mut self) {
+        self.is_troop_crawler_transport = true;
+        self.max_transport = crate::game_logic::host_troop_crawler::TROOP_CRAWLER_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = false;
+        self.armed_riders_upgrade_weapon_set = false;
+        self.record_host_weapon_set();
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this vehicle is a China Troop Crawler residual transport.
+    pub fn is_troop_crawler_style_container(&self) -> bool {
+        self.is_troop_crawler_transport
+    }
+
+    /// Install residual Air Force Combat Chinook transport:
+    /// C++ TransportContain Slots=8, PassengersAllowedToFire=Yes,
+    /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY VEHICLE.
+    /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+    pub fn install_combat_chinook_transport(&mut self) {
+        self.is_combat_chinook_transport = true;
+        self.max_transport = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = true;
+        // Combat Chinook KindOf includes CAN_ATTACK residual (vanilla Chinook does not).
+        self.thing.template.add_kind_of(KindOf::Attackable);
+        // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE
+        // (ListeningOutpostUpgradedDummyWeapon). Strip kind-based Weapon::default.
+        self.weapon = None;
+        self.weapon_set_player_upgrade = false;
+        self.record_host_weapon_set();
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this vehicle is an AirF Combat Chinook residual transport.
+    pub fn is_combat_chinook_style_container(&self) -> bool {
+        self.is_combat_chinook_transport
+    }
+
+    /// Install residual China Listening Outpost transport + detect residual:
+    /// C++ TransportContain Slots=2, PassengersAllowedToFire=Yes,
+    /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY,
+    /// StealthDetectorUpdate DetectionRange=300, InnateStealth=Yes.
+    /// Fail-closed: not multi-door exit / IR FX / RIDERS_ATTACKING uncloak matrix.
+    pub fn install_listening_outpost_transport(&mut self) {
+        self.is_listening_outpost_transport = true;
+        self.max_transport =
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = true;
+        // Detector residual (DetectionRange = 300).
+        self.is_detector = true;
+        self.detection_range =
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
+        // Innate stealth residual; uncloaks while MOVING.
+        self.set_status_stealthed(true);
+        self.innate_stealth = true;
+        self.stealth_breaks_on_move = true;
+        // Fire does not break stealth on the vehicle itself (passengers fire residual).
+        self.stealth_breaks_on_attack = false;
+        // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE.
+        self.weapon = None;
+        self.weapon_set_player_upgrade = false;
+        // KindOf residual includes CAN_ATTACK (for dummy weapon range residual).
+        self.thing.template.add_kind_of(KindOf::Attackable);
+        self.record_host_detector();
+        self.record_host_weapon_set();
+        self.record_host_contain_capacity();
+        self.record_host_stealth_flags();
+    }
+
+    /// True when this vehicle is a China Listening Outpost residual transport.
+    pub fn is_listening_outpost_style_container(&self) -> bool {
+        self.is_listening_outpost_transport
+    }
+
+    /// Residual transport capacity (vehicles). Overlord bunker residual wins,
+    /// then explicit `max_transport`, else footprint heuristic. Structures return 0.
+    pub fn transport_capacity(&self) -> usize {
+        if self.is_kind_of(KindOf::Structure) {
+            return 0;
+        }
+        if !self.is_kind_of(KindOf::Vehicle) {
+            return 0;
+        }
+        // Overlord BattleBunker residual: bunker slots only (0 without bunker).
+        if let Some(cap) = self.overlord_bunker_capacity {
+            return cap;
+        }
+        if self.max_transport > 0 {
+            return self.max_transport;
+        }
+        // Transport heuristic based on footprint: larger selection radius holds more.
+        let base_cap = (self.selection_radius / 8.0).ceil() as usize + 2;
+        base_cap.clamp(2, 12)
+    }
+
+    /// Current transport occupant count (vehicles only; structures use garrison).
+    pub fn transport_count(&self) -> usize {
+        if self.is_kind_of(KindOf::Structure) {
+            0
+        } else {
+            self.occupants.len()
+        }
+    }
+
+    /// Current garrison/transport occupant count.
+    pub fn garrison_count(&self) -> usize {
+        self.contained_units().len()
+    }
+
+    pub fn set_contained_by(&mut self, container: Option<ObjectId>) {
+        self.contained_by = container;
+        crate::game_logic::host_contain_log::record_contained_by(self.id, container);
+    }
+
+    pub fn add_occupant(&mut self, unit_id: ObjectId) -> bool {
+        if !self.can_contain() || !self.has_capacity_for(1) {
+            return false;
+        }
+        if let Some(building) = self.building_data.as_mut() {
+            if building.garrisoned_units.contains(&unit_id) {
+                return true;
+            }
+            building.garrisoned_units.push(unit_id);
+            crate::game_logic::host_contain_log::record_garrison(
+                self.id,
+                &building.garrisoned_units,
+                building.max_garrison.min(u16::MAX as usize) as u16,
+            );
+            true
+        } else {
+            if self.occupants.contains(&unit_id) {
+                return true;
+            }
+            self.occupants.push(unit_id);
+            crate::game_logic::host_contain_log::record_garrison(
+                self.id,
+                &self.occupants,
+                self.occupants.len().min(u16::MAX as usize) as u16,
+            );
+            true
+        }
+    }
+
+    pub fn contained_units(&self) -> Vec<ObjectId> {
+        if let Some(building) = &self.building_data {
+            building.garrisoned_units.clone()
+        } else {
+            self.occupants.clone()
+        }
+    }
+
+    pub fn remove_occupant(&mut self, unit_id: ObjectId) -> bool {
+        if let Some(building) = self.building_data.as_mut() {
+            if let Some(pos) = building
+                .garrisoned_units
+                .iter()
+                .position(|&id| id == unit_id)
+            {
+                building.garrisoned_units.remove(pos);
+                crate::game_logic::host_contain_log::record_garrison(
+                    self.id,
+                    &building.garrisoned_units,
+                    building.max_garrison.min(u16::MAX as usize) as u16,
+                );
+                return true;
+            }
+        }
+        if let Some(pos) = self.occupants.iter().position(|&id| id == unit_id) {
+            self.occupants.remove(pos);
+            crate::game_logic::host_contain_log::record_garrison(
+                self.id,
+                &self.occupants,
+                self.occupants.len().min(u16::MAX as usize) as u16,
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Begin containing an occupant (transport/garrison bookkeeping).
+    pub fn enter_transport(&mut self, unit_id: ObjectId) -> bool {
+        self.add_occupant(unit_id)
+    }
+
+    /// Remove an occupant from this transport/garrison.
+    pub fn exit_transport(&mut self, unit_id: ObjectId) -> bool {
+        self.remove_occupant(unit_id)
+    }
+}

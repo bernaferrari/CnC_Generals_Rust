@@ -1,0 +1,1352 @@
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn play_ui_sound_effect(&mut self, path: String) {
+        let Some(bytes) = self.ui_sound_cache.get(&path).cloned() else {
+            return;
+        };
+        let Some(handle) = self.audio_handle.as_ref() else {
+            return;
+        };
+        let Ok(sink) = Sink::try_new(handle) else {
+            return;
+        };
+
+        let cursor = std::io::Cursor::new(bytes);
+        let Ok(decoder) = rodio::Decoder::new(cursor) else {
+            return;
+        };
+        let source = decoder.convert_samples::<f32>();
+        sink.append(source);
+        self.sound_effects.push(sink);
+    }
+
+    #[inline]
+    pub(super) fn map_name_is_shell_residual(map: &str) -> bool {
+        let t = map.trim();
+        if t.is_empty() {
+            return true;
+        }
+        let lower = t.to_ascii_lowercase();
+        lower.contains("shellmap")
+            || lower == "default map"
+            || lower.ends_with("shellmapmd.map")
+            || lower.contains("\\shellmapmd\\")
+            || lower.contains("/shellmapmd/")
+    }
+
+    /// Wave 840: skirmish start must not keep boot ShellMapMD when a real control/
+    /// setup map is available (or when empty → DEFAULT_SKIRMISH_MAP).
+    pub(super) fn resolve_skirmish_start_map_name(mode: GameMode, map: String) -> String {
+        let mut map_name = if map.trim().is_empty() {
+            DEFAULT_SKIRMISH_MAP.to_string()
+        } else {
+            map
+        };
+        if mode != GameMode::Skirmish {
+            return map_name;
+        }
+        if !Self::map_name_is_shell_residual(&map_name) {
+            return map_name;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            let setup = game_client::gui::get_skirmish_setup();
+            let selected = setup.selected_map().trim().to_string();
+            if !Self::map_name_is_shell_residual(&selected) {
+                return selected;
+            }
+            let info_map = setup.game_info().game_info().get_map().trim().to_string();
+            if !Self::map_name_is_shell_residual(&info_map) {
+                return info_map;
+            }
+        }
+        // Last resort: still refuse shell residual for skirmish authority start.
+        if Self::map_name_is_shell_residual(&map_name) {
+            warn!(
+                "Wave 840: rejecting shell residual map '{}' for skirmish start; using {}",
+                map_name, DEFAULT_SKIRMISH_MAP
+            );
+            return DEFAULT_SKIRMISH_MAP.to_string();
+        }
+        map_name
+    }
+
+    /// Restart the simulation with UI-selected parameters and refresh view/minimap.
+    /// Wave 611: via `host_start_game_from_ui`.
+    pub(super) fn start_game_from_ui(
+        &mut self,
+        mode: GameMode,
+        faction: String,
+        map: String,
+        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
+    ) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_start_game_from_ui(mode, faction, map, skirmish)
+    }
+
+    /// Restart the simulation with UI-selected parameters and refresh view/minimap.
+    pub(super) fn host_start_game_from_ui(
+        &mut self,
+        mode: GameMode,
+        faction: String,
+        map: String,
+        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
+    ) {
+        // Capture the provenance before this function moves Menu → Loading.  The
+        // flag may only be completed after the normal map/bootstrap path reaches
+        // InGame; a runtime-host `start_game` command has no physical WND click and
+        // therefore cannot satisfy it.
+        let interactive_start_from_menu = self.current_state == GameState::Menu;
+        let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
+        // Wave 611: host residual helper.
+        // Show loading screen before starting map load (matches C++ loading screen flow)
+        #[cfg(feature = "game_client")]
+        self.prepare_cpp_load_screen_for_mode(mode, false);
+        self.transition_to_state(GameState::Loading);
+        // Wave 842: stamp host-owned match mode before map load / presentation seed.
+        self.host_match_game_mode = Some(mode);
+        // Wave 843/844/871: clear prior match residuals until load completes.
+        self.host_clear_match_residuals();
+
+        let faction_team = Self::team_from_faction(&faction);
+        // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before
+        // shell-residual rejection. Matches C++ startNewGame default map residual.
+        let map = if map.trim().is_empty() {
+            DEFAULT_SKIRMISH_MAP.to_string()
+        } else {
+            map
+        };
+        // Wave 840: never start skirmish on boot ShellMapMD residual when a real map exists.
+        let map_name = Self::resolve_skirmish_start_map_name(mode, map);
+
+        info!(
+            "UI requested start: mode={:?}, faction={}, map={}, skirmish_slots={}",
+            mode,
+            faction_team.get_name(),
+            map_name,
+            skirmish
+                .as_ref()
+                .map(|c| c.slots.iter().filter(|s| s.is_active).count())
+                .unwrap_or(0)
+        );
+
+        if mode == GameMode::Skirmish {
+            if let Some(ref config) = skirmish {
+                if let Err(e) = self.host_apply_skirmish_config_authority(config) {
+                    warn!("apply_skirmish_config failed: {e}; falling back to legacy start");
+                    // Wave 577: host start residual via helper.
+                    self.host_start_new_game_with_faction(mode, faction_team, true);
+                } else if let Some(human) = config.slots.iter().find(|s| s.is_human && s.is_active)
+                {
+                    self.current_player_id = human.slot_index as u32;
+                }
+            } else {
+                // Wave 577: host start residual via helper.
+                self.host_start_new_game_with_faction(mode, faction_team, true);
+            }
+        } else {
+            // Wave 577: host start residual via helper (non-skirmish).
+            self.host_start_new_game_with_faction(mode, faction_team, false);
+        }
+
+        // Wave 579: host map-load residual via helper.
+        self.host_load_map_or_default(&map_name);
+        // Wave 840: drop shell presentation freeze so match seed cannot keep ShellMapMD.
+        self.render_pipeline.set_presentation_frame(None);
+        self.last_presentation_frame = None;
+        // Wave 843/844: host-owned match residuals for presentation_or_boot peels.
+        self.host_match_map_name = Some(map_name.clone());
+        self.host_match_local_player_id = Some(self.current_player_id);
+        // Wave 907: AI difficulty residual stays cold until presentation seed stamps it
+        // (no get_difficulty dual-read). Fail-closed default covers interim probes.
+        self.host_refresh_match_sim_residuals_from_logic();
+
+        // Reset transient state.
+        self.host_set_paused(false);
+        self.match_over = false;
+        self.victory_summary = None;
+        self.selected_objects.clear();
+
+        // Update minimap/world bounds and camera to the new map.
+        // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
+        // Wave 455: seed presentation env then apply presentation-only hints.
+        self.ensure_presentation_env_seeded();
+        Self::apply_heightmap_hint(&mut self.render_pipeline);
+        Self::apply_skybox_hint(&mut self.render_pipeline);
+        self.ensure_presentation_env_seeded();
+        Self::sync_render_terrain_visual(
+            &mut self.render_pipeline,
+            &self.graphics_system,
+            map_name.as_str(),
+        );
+        if let Err(err) = self.reinitialize_minimap_renderer() {
+            warn!("Failed to reinitialize minimap renderer: {}", err);
+        }
+
+        // Apply map lighting if provided by map settings.
+        self.ensure_presentation_env_seeded();
+        Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
+
+        let startup_camera_defaults = Self::configured_startup_camera_defaults();
+        // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
+        let startup_camera_presentation = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref());
+        // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
+        let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
+        (self.camera_target, self.camera_position, self.camera_zoom) =
+            Self::bootstrap_camera_for_loaded_map(
+                in_shell_camera,
+                self.current_player_id,
+                startup_camera_defaults,
+                startup_camera_presentation,
+            );
+        self.sync_orbit_from_camera_transform();
+        // Dual-tick residual close: map load → presentation seed → InGame HUD/units
+        // without waiting for the first logic frame (render collect uses snapshot IDs).
+        self.seed_presentation_after_match_start();
+        // Residual: after seed, prefer a live local-unit centroid so the first InGame
+        // frustum contains host armies (metadata InitialCameraPosition can be far off).
+        self.snap_camera_to_local_units_if_needed();
+        self.transition_to_state(GameState::InGame);
+        self.interactive_playability
+            .note_offline_match_started(interactive_start_from_menu, offline_mode);
+    }
+
+    /// Prefer a local base focus for the match camera when bootstrap aim is far
+    /// from the human force (common Lone Eagle residual).
+    ///
+    /// Do **not** average every local object — map-wide centroid pulls the camera
+    /// between bases and frustum-culls everything.
+    pub(super) fn snap_camera_to_local_units_if_needed(&mut self) {
+        // Presentation-only: compute focus from snapshot, then apply camera mutably.
+        let Some(focus) = (|| {
+            let frame = self.last_presentation_frame.as_ref()?;
+            let team = frame.local_team();
+            let start_hint = frame
+                .local_team_base_position
+                .or_else(|| {
+                    frame
+                        .objects
+                        .iter()
+                        .filter(|o| o.team == team && !o.destroyed && o.is_structure)
+                        .map(|o| o.position)
+                        .next()
+                })
+                .or_else(|| {
+                    let mut sum = Vec3::ZERO;
+                    let mut n = 0u32;
+                    for o in &frame.objects {
+                        if o.team == team && !o.destroyed && o.is_structure {
+                            sum += o.position;
+                            n += 1;
+                            if n >= 8 {
+                                break;
+                            }
+                        }
+                    }
+                    (n > 0).then_some(sum / n as f32)
+                })
+                .unwrap_or(self.camera_target);
+
+            let mut command_center: Option<Vec3> = None;
+            let mut nearest_structure: Option<(f32, Vec3)> = None;
+            let mut nearest_mobile: Option<(f32, Vec3)> = None;
+            let mut structure_sum = Vec3::ZERO;
+            let mut structure_n = 0u32;
+
+            use crate::presentation_frame::PresentationBuildingType;
+            for o in &frame.objects {
+                if o.team != team || o.destroyed {
+                    continue;
+                }
+                let pos = o.position;
+                let d2 = {
+                    let dx = pos.x - start_hint.x;
+                    let dz = pos.z - start_hint.z;
+                    dx * dx + dz * dz
+                };
+                if o.is_structure {
+                    structure_sum += pos;
+                    structure_n += 1;
+                    let is_cc = matches!(
+                        o.building_type,
+                        Some(PresentationBuildingType::CommandCenter)
+                    ) || {
+                        let name = o.template_name.to_ascii_lowercase();
+                        name.contains("commandcenter") || name.contains("command_center")
+                    };
+                    if is_cc {
+                        match command_center {
+                            None => command_center = Some(pos),
+                            Some(prev) => {
+                                let pdx = prev.x - start_hint.x;
+                                let pdz = prev.z - start_hint.z;
+                                if d2 < pdx * pdx + pdz * pdz {
+                                    command_center = Some(pos);
+                                }
+                            }
+                        }
+                    }
+                    nearest_structure = Some(match nearest_structure {
+                        None => (d2, pos),
+                        Some((best, _)) if d2 < best => (d2, pos),
+                        Some(other) => other,
+                    });
+                } else if o.is_mobile || o.is_unit {
+                    nearest_mobile = Some(match nearest_mobile {
+                        None => (d2, pos),
+                        Some((best, _)) if d2 < best => (d2, pos),
+                        Some(other) => other,
+                    });
+                }
+            }
+
+            command_center
+                .or_else(|| nearest_structure.map(|(_, p)| p))
+                .or_else(|| {
+                    if structure_n > 0 {
+                        Some(structure_sum / structure_n as f32)
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| nearest_mobile.map(|(_, p)| p))
+        })() else {
+            return;
+        };
+
+        let dx = focus.x - self.camera_target.x;
+        let dz = focus.z - self.camera_target.z;
+        let dist_sq = dx * dx + dz * dz;
+        // If already aimed near the local base, keep bootstrap (C++ InitialCamera).
+        if dist_sq < 250.0 * 250.0 {
+            // Still force a sane orbit so frustum is not degenerate after shell→match.
+            if self.camera_orbit_distance < 40.0 || self.camera_orbit_distance > 800.0 {
+                self.camera_orbit_distance = 280.0;
+                self.camera_pitch_radians = 35.0_f32.to_radians();
+                self.camera_yaw_radians = 0.0;
+                self.apply_camera_orbit_transform();
+            }
+            return;
+        }
+
+        self.camera_target = Vec3::new(focus.x, focus.y, focus.z);
+        // Retail-ish elevated look: fixed orbit, not a one-off look_at that
+        // update_camera immediately overwrites with a broken pitch/distance.
+        self.camera_orbit_distance = 320.0;
+        self.camera_pitch_radians = 38.0_f32.to_radians();
+        self.camera_yaw_radians = 0.35; // slight yaw so bases aren't edge-on
+        self.camera_zoom = 1.0;
+        self.apply_camera_orbit_transform();
+    }
+
+    pub(super) fn apply_map_lighting(
+        graphics_system: &mut GraphicsSystem,
+        render_pipeline: &mut RenderPipeline,
+    ) {
+        // Wave 456: presentation-only map lighting (no live GameLogic dual-read).
+        const FALLBACK_AMBIENT: [f32; 3] = [0.30, 0.30, 0.30];
+        const FALLBACK_SUN_COLOR: [f32; 3] = [1.00, 0.90, 0.80];
+        const FALLBACK_SUN_DIRECTION: [f32; 3] = [-0.5, -1.0, -0.5];
+
+        let env = render_pipeline.presentation_frame().map(|p| &p.world_env);
+
+        let (sun_dir, sun_color, ambient, fog_color, fog_range, sky) = if let Some(env) = env {
+            if env.has_map_metadata
+                || env.ambient_color.is_some()
+                || env.sun_color.is_some()
+                || env.sun_direction.is_some()
+            {
+                let fog_color = env.fog_color.or(env.sun_color);
+                let fog_range = match (env.fog_start, env.fog_end) {
+                    (Some(a), Some(b)) => Some((a, b)),
+                    _ => None,
+                };
+                info!(
+                    "Applying map lighting from presentation: ambient={:?} sun_color={:?} sun_dir={:?} fog={:?}",
+                    env.ambient_color,
+                    env.sun_color,
+                    env.sun_direction,
+                    fog_range
+                );
+                (
+                    env.sun_direction,
+                    env.sun_color,
+                    env.ambient_color,
+                    fog_color,
+                    fog_range,
+                    env.fog_color, // sky residual from fog/sky freeze when present
+                )
+            } else {
+                warn!("Presentation env has no lighting metadata; using fallback ambient/sun defaults");
+                (
+                    Some(FALLBACK_SUN_DIRECTION),
+                    Some(FALLBACK_SUN_COLOR),
+                    Some(FALLBACK_AMBIENT),
+                    None,
+                    None,
+                    None,
+                )
+            }
+        } else {
+            warn!("No presentation frame for map lighting; using fallback ambient/sun defaults");
+            (
+                Some(FALLBACK_SUN_DIRECTION),
+                Some(FALLBACK_SUN_COLOR),
+                Some(FALLBACK_AMBIENT),
+                None,
+                None,
+                None,
+            )
+        };
+
+        render_pipeline.set_environment_lighting(sun_dir, sun_color, ambient, fog_color, fog_range);
+        graphics_system.set_lighting(ambient, sun_color, sun_dir, sky);
+    }
+
+    /// Wave 467: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
+    pub(super) fn ensure_presentation_env_seeded(&mut self) {
+        // Wave 467/474: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
+        self.ensure_presentation_env_for_hints();
+        if self.last_presentation_frame.is_none() {
+            self.last_presentation_frame = self.render_pipeline.presentation_frame().cloned();
+        }
+    }
+
+    pub(super) fn ensure_presentation_env_for_hints(&mut self) {
+        // Wave 474: instance seed only — no free-fn GameLogic dual-read surface.
+        // Wave 474/466/455/590: pipeline env seed via host helper.
+        self.host_ensure_presentation_env_for_hints();
+    }
+
+    pub(super) fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline) {
+        // Wave 455: presentation-only env boundary — no live GameLogic dual-read.
+        let Some(pres) = render_pipeline.presentation_frame() else {
+            return;
+        };
+        let path = pres.world_env.heightmap_hint.clone();
+        if let Some(path) = path {
+            // Keep renderer parity-safe: map-adjacent TGA companions are frequently preview art.
+            // Feeding those into terrain elevation creates severe startup terrain corruption.
+            if path.to_ascii_lowercase().ends_with(".tga") {
+                render_pipeline.set_heightmap_hint(None);
+                return;
+            }
+            render_pipeline.set_heightmap_hint(Some(path));
+        } else {
+            render_pipeline.set_heightmap_hint(None);
+        }
+    }
+
+    pub(super) fn sync_render_terrain_visual(
+        render_pipeline: &mut RenderPipeline,
+        graphics_system: &GraphicsSystem,
+        map_name: &str,
+    ) {
+        // Wave 459: presentation-only terrain visual sync (no live GameLogic dual-read).
+        // Call sites must seed presentation via ensure_presentation_env_for_hints first.
+        let Some(bounds) = render_pipeline
+            .presentation_frame()
+            .map(|p| p.world_env.world_bounds_vec3())
+        else {
+            warn!(
+                "No presentation frame for terrain visual sync on '{}'; skipping",
+                map_name
+            );
+            return;
+        };
+
+        let hint_loaded = if render_pipeline.heightmap_hint().is_some() {
+            match render_pipeline.load_heightmap_from_hint(
+                &graphics_system.device_arc(),
+                &graphics_system.queue_arc(),
+                Some(bounds),
+            ) {
+                Ok(()) => true,
+                Err(err) => {
+                    warn!(
+                        "Failed to load terrain visual from heightmap hint for '{}': {}",
+                        map_name, err
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        if !hint_loaded {
+            // Presentation frame is seeded by caller with runtime_heightmap freeze.
+            // Pass None so terrain visual bake cannot dual-read live GameLogic.
+            match render_pipeline.load_heightmap_from_runtime_terrain(
+                &graphics_system.device_arc(),
+                &graphics_system.queue_arc(),
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    warn!(
+                        "No runtime terrain heightmap available for '{}'; terrain visual may remain empty",
+                        map_name
+                    );
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to load terrain visual from runtime terrain for '{}': {}",
+                        map_name, err
+                    );
+                }
+            }
+        }
+
+        // Presentation already seeded by caller; road bake cannot dual-read live GameLogic.
+        if let Err(err) = render_pipeline.sync_runtime_map_roads() {
+            warn!(
+                "Failed to sync runtime map roads for '{}': {}",
+                map_name, err
+            );
+        }
+    }
+
+    pub(super) fn apply_skybox_hint(render_pipeline: &mut RenderPipeline) {
+        // Wave 455: presentation-only env boundary — no live GameLogic dual-read.
+        let Some(pres) = render_pipeline.presentation_frame() else {
+            return;
+        };
+        let enabled = pres.world_env.skybox_enabled;
+        let textures = pres.world_env.skybox_textures.clone();
+        render_pipeline.set_skybox_enabled(enabled);
+        if let Some(textures) = textures {
+            render_pipeline.set_skybox_hint(textures);
+        }
+    }
+
+    pub(super) fn reinitialize_minimap_renderer(&mut self) -> anyhow::Result<()> {
+        // Wave 468: instance path — presentation-first bounds via shared probe;
+        // heightmap repair stamps freeze then mirrors host world size for pathfinding.
+        // Wave 594: heightmap repair + last_presentation align via host helper.
+        self.ensure_presentation_env_seeded();
+        let mut world_bounds = self.presentation_world_bounds();
+        self.render_pipeline.initialize_minimap_renderer(
+            self.graphics_system.device_arc(),
+            self.graphics_system.queue_arc(),
+            world_bounds,
+        )?;
+
+        world_bounds = self.host_repair_minimap_presentation_bounds(world_bounds);
+
+        self.render_pipeline
+            .sync_heightmap_world_bounds(world_bounds);
+        self.render_pipeline
+            .update_minimap_world_bounds(world_bounds);
+        Ok(())
+    }
+
+    /// Wave 594: minimap heightmap repair + presentation stamp residual.
+    ///
+    /// When presentation world bounds are degenerate, stamps heightmap-derived
+    /// extents into the pipeline freeze, mirrors host world size for pathfinding,
+    /// and keeps `last_presentation_frame` aligned with the stamp.
+    pub(super) fn host_repair_minimap_presentation_bounds(
+        &mut self,
+        mut world_bounds: (Vec3, Vec3),
+    ) -> (Vec3, Vec3) {
+        // Wave 594: minimap presentation bounds repair residual.
+        let world_width = (world_bounds.1.x - world_bounds.0.x).abs();
+        let world_height = (world_bounds.1.z - world_bounds.0.z).abs();
+        if world_width <= 1.0 || world_height <= 1.0 {
+            if let Some((w, h)) = self.render_pipeline.heightmap_world_size() {
+                let half_w = w * 0.5;
+                let half_h = h * 0.5;
+                world_bounds = (
+                    Vec3::new(-half_w, 0.0, -half_h),
+                    Vec3::new(half_w, 0.0, half_h),
+                );
+                // Stamp repaired bounds into presentation freeze when installed.
+                if let Some(pres) = self.render_pipeline.presentation_frame_mut() {
+                    pres.world_env.world_min = world_bounds.0.to_array();
+                    pres.world_env.world_max = world_bounds.1.to_array();
+                }
+                // Host pathfinding/world size residual (sim still needs repaired extents).
+                self.host_override_world_size(w, h);
+                // Keep last_presentation aligned after stamp.
+                if let Some(pres) = self.render_pipeline.presentation_frame() {
+                    self.last_presentation_frame = Some(pres.clone());
+                }
+            }
+        }
+        world_bounds
+    }
+
+    /// Convert a UI faction string into a Team.
+    pub(super) fn team_from_faction(faction: &str) -> Team {
+        match faction.to_ascii_lowercase().as_str() {
+            "usa" | "us" | "america" => Team::USA,
+            "gla" => Team::GLA,
+            "china" => Team::China,
+            _ => Team::USA,
+        }
+    }
+
+    pub(super) fn handle_minimap_interaction(&mut self, interaction: MinimapInteraction) {
+        let pointer = Vec2::new(interaction.screen_position.x, interaction.screen_position.y);
+        let Some(world_pos) = self.render_pipeline.handle_minimap_click(pointer) else {
+            return;
+        };
+
+        match interaction.kind {
+            MinimapActionKind::LeftClick | MinimapActionKind::LeftDrag => {
+                self.center_camera_on(world_pos);
+            }
+            MinimapActionKind::RightClick => {
+                self.issue_minimap_move(world_pos);
+            }
+        }
+    }
+
+    pub(super) fn script_pitch_to_radians(pitch: f32) -> f32 {
+        // Script pitch semantics: 1.0 is default, 0.0 trends toward horizon, >1.0 toward ground.
+        let clamped = pitch.clamp(-0.25, 2.0);
+        let degrees = if clamped <= 1.0 {
+            5.0 + clamped * 40.0
+        } else {
+            45.0 + (clamped - 1.0) * 40.0
+        };
+        degrees
+            .to_radians()
+            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians())
+    }
+
+    pub(super) fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {
+        let param = param.clamp(0.0, 1.0);
+        let mut in_t = ease_in_time.clamp(0.0, 1.0);
+        let out_t = 1.0 - ease_out_time.clamp(0.0, 1.0);
+        if in_t > out_t {
+            in_t = out_t;
+        }
+        let v0 = 1.0 + out_t - in_t;
+        if param < in_t {
+            if in_t <= 0.0 {
+                0.0
+            } else {
+                param * param / (v0 * in_t)
+            }
+        } else if param <= out_t {
+            (in_t + 2.0 * (param - in_t)) / v0
+        } else {
+            let denom = (1.0 - out_t).max(f32::EPSILON);
+            (in_t
+                + 2.0 * (out_t - in_t)
+                + (2.0 * (param - out_t) + out_t * out_t - param * param) / denom)
+                / v0
+        }
+    }
+
+    pub(super) fn apply_camera_orbit_transform(&mut self) {
+        self.camera_pitch_radians = self
+            .camera_pitch_radians
+            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
+        self.camera_orbit_distance = self.camera_orbit_distance.max(1.0);
+
+        let horizontal = self.camera_orbit_distance * self.camera_pitch_radians.cos();
+        let offset = Vec3::new(
+            horizontal * self.camera_yaw_radians.sin(),
+            self.camera_orbit_distance * self.camera_pitch_radians.sin(),
+            horizontal * self.camera_yaw_radians.cos(),
+        );
+        self.camera_position = self.camera_target + offset + self.camera_shake_offset;
+        self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+    }
+
+    pub(super) fn sync_orbit_from_camera_transform(&mut self) {
+        let offset = self.camera_position - self.camera_target;
+        self.camera_orbit_distance = offset.length().max(1.0);
+        let horizontal = Vec2::new(offset.x, offset.z).length();
+        self.camera_pitch_radians = offset
+            .y
+            .atan2(horizontal.max(f32::EPSILON))
+            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
+        self.camera_yaw_radians = offset.x.atan2(offset.z);
+
+        self.camera_pitch_target = None;
+        self.camera_pitch_start = self.camera_pitch_radians;
+        self.camera_pitch_duration = 0.0;
+        self.camera_pitch_elapsed = 0.0;
+        self.camera_pitch_ease_in = 0.0;
+        self.camera_pitch_ease_out = 0.0;
+
+        self.camera_yaw_target = None;
+        self.camera_yaw_start = self.camera_yaw_radians;
+        self.camera_yaw_duration = 0.0;
+        self.camera_yaw_elapsed = 0.0;
+        self.camera_yaw_ease_in = 0.0;
+        self.camera_yaw_ease_out = 0.0;
+
+        self.apply_camera_orbit_transform();
+    }
+
+    pub(super) fn apply_script_camera_pitch_request(&mut self, request: CameraPitchRequest) {
+        let target_pitch = Self::script_pitch_to_radians(request.pitch);
+        if request.duration_seconds <= 0.0 {
+            self.camera_pitch_radians = target_pitch;
+            self.camera_pitch_target = None;
+            self.camera_pitch_start = self.camera_pitch_radians;
+            self.camera_pitch_duration = 0.0;
+            self.camera_pitch_elapsed = 0.0;
+            self.camera_pitch_ease_in = 0.0;
+            self.camera_pitch_ease_out = 0.0;
+            self.apply_camera_orbit_transform();
+            return;
+        }
+
+        self.camera_pitch_start = self.camera_pitch_radians;
+        self.camera_pitch_target = Some(target_pitch);
+        self.camera_pitch_duration = request.duration_seconds;
+        self.camera_pitch_elapsed = 0.0;
+        self.camera_pitch_ease_in = request.ease_in_seconds.max(0.0);
+        self.camera_pitch_ease_out = request.ease_out_seconds.max(0.0);
+    }
+
+    pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
+        let target_yaw = self.camera_yaw_radians + request.rotations * TAU;
+        if request.duration_seconds <= 0.0 {
+            self.camera_yaw_radians = target_yaw;
+            self.camera_yaw_target = None;
+            self.camera_yaw_start = self.camera_yaw_radians;
+            self.camera_yaw_duration = 0.0;
+            self.camera_yaw_elapsed = 0.0;
+            self.camera_yaw_ease_in = 0.0;
+            self.camera_yaw_ease_out = 0.0;
+            self.apply_camera_orbit_transform();
+            return;
+        }
+
+        self.camera_yaw_start = self.camera_yaw_radians;
+        self.camera_yaw_target = Some(target_yaw);
+        self.camera_yaw_duration = request.duration_seconds;
+        self.camera_yaw_elapsed = 0.0;
+        self.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
+        self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
+    }
+
+    /// Wave 568: InGame script FPS residual — prefer presentation freeze, always drain
+    /// live queue after apply (peeked freeze must not re-apply next frame).
+    pub(super) fn apply_ingame_script_fps_limit_residual(&mut self) {
+        // Wave 568/907/910: presentation freeze owns script FPS residual when present.
+        if let Some(fps) = self
+            .last_presentation_frame
+            .as_ref()
+            .and_then(|p| p.script_fps_limit)
+        {
+            self.apply_script_fps_limit_request(fps);
+            // Freeze installed: do not dual-read/drain live GameLogic queue.
+            return;
+        }
+        // Wave 910: cold residual fail-closed — no take_script_fps_limit_request dual-read.
+        // Script FPS applies only via presentation freeze residual.
+    }
+
+    /// Wave 568: shell/menu script FPS residual — only trust freeze when it affirms
+    /// shell-map (`fow_shell_bypass`); otherwise boot take_script_fps_limit_request.
+    pub(super) fn apply_shell_script_fps_limit_residual(&mut self) {
+        // Wave 568/900: shell freeze owns FPS residual; no live take dual-read.
+        if let Some(fps) = self
+            .last_presentation_frame
+            .as_ref()
+            .filter(|p| p.fow_shell_bypass)
+            .and_then(|p| p.script_fps_limit)
+        {
+            self.apply_script_fps_limit_request(fps);
+        }
+        // Wave 900: boot/no-freeze fail-closed (no take_script_fps_limit_request dual-read).
+    }
+
+    pub(super) fn apply_script_fps_limit_request(&mut self, fps: i32) {
+        let global_default = {
+            let mut global = game_engine::common::global_data::write();
+            global.writable.use_fps_limit = true;
+            Some(global.writable.frames_per_second_limit)
+        };
+
+        let resolved_fps = if fps <= 0 {
+            global_default.unwrap_or_else(|| {
+                game_engine::common::global_data::read()
+                    .writable
+                    .frames_per_second_limit
+            })
+        } else {
+            fps
+        };
+
+        self.script_fps_limit = u32::try_from(resolved_fps).ok().filter(|fps| *fps > 0);
+        self.script_fps_limit_last_tick = None;
+    }
+
+    pub(super) fn effective_fps_limit_for_frame(
+        script_fps_limit: Option<u32>,
+        global_use_fps_limit: bool,
+        global_frames_per_second_limit: i32,
+        visual_speed_multiplier: f32,
+        tivo_fast_mode: bool,
+        in_replay_game: bool,
+    ) -> Option<u32> {
+        if let Some(script_fps) = script_fps_limit.filter(|fps| *fps > 0) {
+            return Some(script_fps);
+        }
+
+        // C++ parity: skip frame limiting when tactical time multiplier is above normal.
+        if visual_speed_multiplier > 1.0 {
+            return None;
+        }
+
+        if !global_use_fps_limit {
+            return None;
+        }
+
+        // C++ parity: TiVO fast mode disables frame limiting for replay playback.
+        if tivo_fast_mode && in_replay_game {
+            return None;
+        }
+
+        u32::try_from(global_frames_per_second_limit)
+            .ok()
+            .filter(|fps| *fps > 0)
+    }
+
+    pub(super) fn apply_script_frame_limit(&mut self) {
+        let global_data = game_engine::common::global_data::read();
+        // Wave 550: presentation freeze owns FPS-limit visual_speed residual when
+        // installed (no host visual_speed_multiplier dual-read).
+        // Wave 557: presentation freeze owns replay-mode residual when installed.
+        let visual_speed = self.presentation_or_boot_visual_speed();
+        let in_replay = self.presentation_or_boot_in_replay_game();
+
+        let max_fps = Self::effective_fps_limit_for_frame(
+            self.script_fps_limit,
+            global_data.writable.use_fps_limit,
+            global_data.writable.frames_per_second_limit,
+            visual_speed,
+            global_data.tivo_fast_mode,
+            in_replay,
+        );
+        drop(global_data);
+
+        let Some(max_fps) = max_fps else {
+            self.script_fps_limit_last_tick = None;
+            return;
+        };
+
+        // Mirrors C++ GameEngine::execute frame pacing: (1000 / fps) - 1, Sleep(0) loop.
+        let limit_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
+        if limit_ms <= 0.0 {
+            self.script_fps_limit_last_tick = Some(Instant::now());
+            return;
+        }
+
+        let limit = Duration::from_millis(limit_ms as u64);
+        if let Some(previous) = self.script_fps_limit_last_tick {
+            let mut now = Instant::now();
+            while now.duration_since(previous) < limit {
+                std::thread::sleep(Duration::ZERO);
+                now = Instant::now();
+            }
+            self.script_fps_limit_last_tick = Some(now);
+        } else {
+            self.script_fps_limit_last_tick = Some(Instant::now());
+        }
+    }
+
+    pub(super) fn screen_shake_value_for_type(shake_type: i32) -> f32 {
+        let data = game_engine::common::global_data::read();
+        match shake_type.clamp(0, 5) {
+            0 => data.shake_subtle_intensity,
+            1 => data.shake_normal_intensity,
+            2 => data.shake_strong_intensity,
+            3 => data.shake_severe_intensity,
+            4 => data.shake_cine_extreme_intensity,
+            _ => data.shake_cine_insane_intensity,
+        }
+    }
+
+    pub(super) fn enqueue_script_screen_shake(&mut self, intensity: i32) {
+        let shake_value = Self::screen_shake_value_for_type(intensity);
+        if !shake_value.is_finite() || shake_value <= 0.0 {
+            return;
+        }
+
+        let seed = self
+            .frame_counter
+            .wrapping_mul(1_664_525)
+            .wrapping_add((intensity as u32).wrapping_mul(1_013_904_223));
+        let angle = (seed as f32 / u32::MAX as f32) * TAU;
+        self.screen_shake_angle_cos = angle.cos();
+        self.screen_shake_angle_sin = angle.sin();
+
+        self.screen_shake_intensity += shake_value;
+        let data = game_engine::common::global_data::read();
+        if self.screen_shake_intensity > data.max_shake_intensity {
+            // C++ parity from W3DView::shake: overflow clamps to fixed 3.0.
+            self.screen_shake_intensity = 3.0;
+        }
+    }
+
+    pub(super) fn enqueue_script_camera_shaker(&mut self, request: CameraAddShakerRequest) {
+        if !request.position.is_finite()
+            || !request.amplitude.is_finite()
+            || !request.duration_seconds.is_finite()
+            || !request.radius.is_finite()
+        {
+            return;
+        }
+        if request.duration_seconds <= 0.0 || request.radius <= 0.0 || request.amplitude <= 0.0 {
+            return;
+        }
+
+        self.script_camera_shakers.push(ScriptCameraShaker::new(
+            request.position,
+            request.radius,
+            request.duration_seconds,
+            request.amplitude,
+        ));
+    }
+
+    pub(super) fn update_script_camera_shake(&mut self, dt: f32) -> bool {
+        let previous = self.camera_shake_offset;
+        let mut offset = Vec3::ZERO;
+
+        if self.screen_shake_intensity > 0.01 {
+            offset.x += self.screen_shake_intensity * self.screen_shake_angle_cos;
+            offset.z += self.screen_shake_intensity * self.screen_shake_angle_sin;
+            self.screen_shake_intensity *= 0.75;
+            self.screen_shake_angle_cos = -self.screen_shake_angle_cos;
+            self.screen_shake_angle_sin = -self.screen_shake_angle_sin;
+        } else {
+            self.screen_shake_intensity = 0.0;
+            self.screen_shake_angle_cos = 0.0;
+            self.screen_shake_angle_sin = 0.0;
+        }
+
+        if dt > 0.0 {
+            for shaker in &mut self.script_camera_shakers {
+                shaker.elapsed_seconds += dt.max(0.0);
+            }
+        }
+        self.script_camera_shakers
+            .retain(|s| s.elapsed_seconds < s.duration_seconds);
+
+        #[cfg(feature = "game_client")]
+        {
+            // FXList ViewShake writes THE_TACTICAL_VIEW; fold that impulse into
+            // the wgpu camera so explosions shake the live view like C++ W3DView.
+            game_client::display::view::with_tactical_view_ref(|view| {
+                let impulse = view.impulse_shake_offset();
+                offset.x += impulse.x;
+                offset.z += impulse.y;
+            });
+        }
+
+        let camera_position = self.camera_position;
+        for shaker in &self.script_camera_shakers {
+            let dist = Vec2::new(
+                camera_position.x - shaker.epicenter.x,
+                camera_position.z - shaker.epicenter.z,
+            )
+            .length();
+            if dist > shaker.radius {
+                continue;
+            }
+
+            let distance_factor = (1.0 - dist / shaker.radius).clamp(0.0, 1.0);
+            let life = (1.0 - shaker.elapsed_seconds / shaker.duration_seconds).clamp(0.0, 1.0);
+            let amplitude_world = shaker.amplitude_degrees.to_radians().sin().abs()
+                * self.camera_orbit_distance.max(1.0)
+                * 0.5;
+            let magnitude = amplitude_world * distance_factor * life;
+            if magnitude <= f32::EPSILON {
+                continue;
+            }
+
+            let t = shaker.elapsed_seconds.max(0.0);
+            let omega = TAU * shaker.frequency_hz;
+            let phase_a = shaker.phase + omega * t;
+            let phase_b = shaker.phase * 1.37 + omega * 0.79 * t;
+
+            offset.x += phase_a.sin() * magnitude;
+            offset.z += phase_a.cos() * magnitude;
+            offset.y += phase_b.sin() * magnitude * 0.2;
+        }
+
+        self.camera_shake_offset = offset;
+        (self.camera_shake_offset - previous).length_squared() > 0.000001
+    }
+
+    pub(super) fn normalize_signed_angle(mut angle: f32) -> f32 {
+        while angle > PI {
+            angle -= TAU;
+        }
+        while angle < -PI {
+            angle += TAU;
+        }
+        angle
+    }
+
+    pub(super) fn apply_camera_look_toward_request(&mut self, request: CameraLookTowardWaypointRequest) {
+        let to_target = request.position - self.camera_target;
+        let horiz = Vec2::new(to_target.x, to_target.z);
+        if horiz.length_squared() <= f32::EPSILON {
+            return;
+        }
+
+        let target_yaw = to_target.x.atan2(to_target.z);
+        let mut delta = Self::normalize_signed_angle(target_yaw - self.camera_yaw_radians);
+        if request.reverse_rotation {
+            if delta >= 0.0 {
+                delta -= TAU;
+            } else {
+                delta += TAU;
+            }
+        }
+        let target_yaw = self.camera_yaw_radians + delta;
+
+        if request.duration_seconds <= 0.0 {
+            self.camera_yaw_radians = target_yaw;
+            self.camera_yaw_target = None;
+            self.camera_yaw_start = self.camera_yaw_radians;
+            self.camera_yaw_duration = 0.0;
+            self.camera_yaw_elapsed = 0.0;
+            self.camera_yaw_ease_in = 0.0;
+            self.camera_yaw_ease_out = 0.0;
+            self.apply_camera_orbit_transform();
+            return;
+        }
+
+        self.camera_yaw_start = self.camera_yaw_radians;
+        self.camera_yaw_target = Some(target_yaw);
+        self.camera_yaw_duration = request.duration_seconds;
+        self.camera_yaw_elapsed = 0.0;
+        self.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
+        self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
+    }
+
+    /// Wave 611: via `host_center_camera_on`.
+    pub(super) fn center_camera_on(&mut self, world_pos: Vec3) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_center_camera_on(world_pos)
+    }
+
+    pub(super) fn host_center_camera_on(&mut self, world_pos: Vec3) {
+        // Wave 611: host residual helper.
+        let clamped = self.clamp_to_world_bounds(world_pos);
+        // Wave 460: prefer presentation-frozen height grid; live terrain only when
+        // no PresentationFrame is installed (boot residual).
+        let ground_height = if let Some(pres) = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref())
+        {
+            pres.world_env
+                .sample_height(clamped.x, clamped.z)
+                .unwrap_or(self.camera_target.y)
+        } else {
+            // Wave 905: fail-closed boot height (no terrain_height_at dual-read).
+            self.camera_target.y
+        };
+        self.camera_target.x = clamped.x;
+        self.camera_target.y = ground_height;
+        self.camera_target.z = clamped.z;
+        self.apply_camera_orbit_transform();
+    }
+
+    /// Placement ghost footprint + pending map radius cursor residual for 3D overlay.
+    pub(super) fn collect_ground_marker_circles(
+        &self,
+    ) -> Vec<crate::graphics::selection_renderer::SelectedUnit> {
+        use crate::graphics::selection_renderer::SelectedUnit;
+        let mut out = Vec::new();
+
+        // Structure placement ghost residual (green legal / red illegal).
+        let placement = self.game_hud.construction_panel.placement_preview();
+        if placement.is_active() {
+            let half = placement.footprint_half_extents;
+            let radius = half.0.max(half.1).max(8.0);
+            let color = if placement.is_legal {
+                [0.15, 0.95, 0.2, 0.45]
+            } else {
+                [0.95, 0.15, 0.1, 0.5]
+            };
+            out.push(SelectedUnit {
+                position: glam::Vec3::new(placement.world_pos.0, 0.0, placement.world_pos.1),
+                radius,
+                team_color: color,
+            });
+        }
+
+        // Special-power / AttackMove / Guard radius cursor residual.
+        if let Some(ov) = self.game_hud.construction_panel.radius_overlay() {
+            if ov.radius > 0.0 {
+                let color = if ov.is_legal {
+                    [ov.color.0, ov.color.1, ov.color.2, ov.color.3.max(0.35)]
+                } else {
+                    [1.0, 0.1, 0.1, 0.5]
+                };
+                out.push(SelectedUnit {
+                    position: glam::Vec3::new(ov.centre.0, 0.0, ov.centre.1),
+                    radius: ov.radius.max(1.0),
+                    team_color: color,
+                });
+            }
+        }
+
+        // Active guard-area residual for selected units (C++ Guard area ring).
+        const GUARD_AREA_RADIUS: f32 = 100.0; // matches RadiusCursor GUARD_AREA
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            for o in &frame.objects {
+                if o.destroyed || !o.selected {
+                    continue;
+                }
+                let Some(gp) = o.guard_position else {
+                    continue;
+                };
+                out.push(SelectedUnit {
+                    position: glam::Vec3::new(gp.x, 0.0, gp.z),
+                    radius: GUARD_AREA_RADIUS,
+                    team_color: [0.35, 0.75, 1.0, 0.35],
+                });
+            }
+        }
+
+        out
+    }
+
+    pub(super) fn issue_minimap_move(&mut self, world_pos: Vec3) {
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(self.current_player_id);
+        if selected.is_empty() {
+            return;
+        }
+
+        let clamped = self.clamp_to_world_bounds(world_pos);
+
+        // C++ InGameUI minimap RMB residual: same context-sensitive path as world
+        // right-click (attack enemy / gather / enter / move).
+        let target_object = self.find_object_at_position(clamped, true);
+        let ctrl = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Control)
+            )
+        });
+        let shift = self.keys_pressed.iter().any(|k| {
+            matches!(
+                k,
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Shift)
+            )
+        });
+        let alt = self.sticky_waypoint_mode
+            || self.keys_pressed.iter().any(|k| {
+                matches!(
+                    k,
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
+                )
+            });
+
+        let context = crate::command_system::MouseCommandContext {
+            world_position: clamped,
+            target_object,
+            target_presentation: target_object.and_then(|id| self.presentation_target_hint(id)),
+            selected_presentation: self.presentation_selected_unit_hints(&selected),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: crate::command_system::MouseButton::Right,
+            modifier_keys: crate::command_system::ModifierKeys { ctrl, shift, alt },
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+
+        let mut cmd_sys = crate::command_system::CommandSystem::new();
+        // Wave 236: presentation-only mouse path when frame installed.
+        let command = cmd_sys.process_mouse_input(
+            &context,
+            &selected,
+            self.current_player_id,
+            self.presentation_mouse_game_logic(),
+        );
+
+        if let Some(mut command) = command {
+            if self.sticky_auto_attack {
+                if let crate::command_system::CommandType::MoveTo { destination, .. } =
+                    command.command_type
+                {
+                    command.command_type = crate::command_system::CommandType::AttackMoveTo {
+                        destination,
+                        max_shots: -1,
+                    };
+                }
+            }
+            self.host_queue_and_process_command(command);
+            return;
+        }
+
+        // Fail-closed fallback residual: move if context path produced nothing.
+        if self.sticky_auto_attack {
+            self.host_command_attack_move(self.current_player_id, clamped);
+        } else {
+            self.host_command_move(self.current_player_id, clamped);
+        }
+        self.play_sound_effect(SoundType::Command);
+    }
+
+    /// Wave 461: single presentation-first world bounds probe for camera/HUD/minimap.
+    /// Prefers pipeline freeze, then last_presentation_frame, then host GameLogic.
+    pub(super) fn presentation_world_bounds(&self) -> (Vec3, Vec3) {
+        if let Some(frame) = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_ref())
+        {
+            frame.world_env.world_bounds_vec3()
+        } else {
+            self.host_world_bounds()
+        }
+    }
+
+    pub(super) fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
+        // Wave 461: presentation-first bounds via shared probe.
+        let (world_min, world_max) = self.presentation_world_bounds();
+        position.x = position.x.clamp(world_min.x, world_max.x);
+        position.z = position.z.clamp(world_min.z, world_max.z);
+        position
+    }
+
+    pub(super) fn drain_renderer_attachments(&mut self) {
+        match ww3d_renderer_3d::Renderer::with_global_mut(|renderer| {
+            Ok(renderer.take_pending_attachments())
+        }) {
+            Ok(records) if !records.is_empty() => {
+                AttachmentDispatcher::dispatch(records);
+            }
+            Ok(_) => {}
+            Err(err) => {
+                warn!("Failed to dispatch WW3D attachments: {err}");
+            }
+        }
+    }
+
+    pub(super) fn debug_show_victory(&mut self, winner: Option<u32>) {
+        info!("Debug: showing victory screen (winner: {:?})", winner);
+        self.show_victory_screen(winner);
+    }
+
+    pub(super) fn show_victory_screen(&mut self, winner: Option<u32>) {
+        // Prefer presentation-frozen summary when available (no live re-aggregate).
+        // Wave 584: victory summary residual via helper.
+        let summary = self.presentation_or_boot_victory_summary(winner);
+        let queued_summary = summary.clone();
+        self.victory_summary = Some(summary.clone());
+        if let Err(err) = crate::game_results_queue::queue_victory_summary(queued_summary) {
+            warn!("Failed to enqueue victory summary: {err}");
+        }
+        self.game_paused = true;
+        self.match_over = true;
+        match winner {
+            Some(id) if id == self.current_player_id => {
+                self.ui_manager.set_victory_with_summary(id, Some(summary));
+                self.request_state_change(GameState::Victory);
+            }
+            Some(_) => {
+                self.ui_manager.set_defeat_with_summary(Some(summary));
+                self.request_state_change(GameState::Defeat);
+            }
+            None => {
+                self.ui_manager.set_draw_with_summary(Some(summary));
+                // Draw freezes with Defeat residual (no separate Draw state).
+                self.request_state_change(GameState::Defeat);
+            }
+        }
+    }
+
+    pub(super) fn reset_match_state(&mut self) {
+        info!("Resetting gameplay state after match completion");
+        self.drain_renderer_attachments();
+
+        self.host_reset_game_logic();
+        self.resource_manager = ResourceManager::new();
+
+        // Path grid rebuild is owned by GameLogic on map load/reset.
+        self.selected_objects.clear();
+        self.keys_pressed.clear();
+        self.mouse_position = (0.0, 0.0);
+        self.mouse_world_position = Vec3::ZERO;
+        self.selection_start = None;
+        self.rmb_scroll_anchor = None;
+        self.is_rmb_scrolling = false;
+
+        for sink in &self.sound_effects {
+            sink.stop();
+        }
+        self.sound_effects.clear();
+        if let Some(sink) = self.background_music.take() {
+            sink.stop();
+        }
+
+        self.match_over = false;
+        self.game_paused = false;
+        self.victory_summary = None;
+        self.ui_manager.clear_victory_screen();
+        self.diagnostics_overlay = None;
+
+        self.frame_counter = 0;
+        self.fps = 0.0;
+        self.last_frame_timing = None;
+        self.frame_clock = FrameClock::new();
+        NetworkClock::clear_override();
+
+        self.game_hud = GameHUD::new();
+        let size = self.window.inner_size();
+        self.game_hud.resize(size.width, size.height);
+
+        self.camera_position = Vec3::new(0.0, 200.0, 200.0);
+        self.camera_target = Vec3::new(0.0, 0.0, 0.0);
+        self.camera_zoom = 1.0;
+        self.camera_zoom_target = None;
+        self.camera_zoom_start = self.camera_zoom;
+        self.camera_zoom_duration = 0.0;
+        self.camera_zoom_elapsed = 0.0;
+        self.camera_zoom_ease_in = 0.0;
+        self.camera_zoom_ease_out = 0.0;
+        self.camera_shake_offset = Vec3::ZERO;
+        self.screen_shake_intensity = 0.0;
+        self.screen_shake_angle_cos = 0.0;
+        self.screen_shake_angle_sin = 0.0;
+        self.script_camera_shakers.clear();
+        self.script_fps_limit = None;
+        self.script_fps_limit_last_tick = None;
+        self.camera_slave_mode = None;
+        self.sync_orbit_from_camera_transform();
+        let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
+        self.projection_matrix = Mat4::perspective_rh(
+            DEFAULT_VIEW_FOV_RADIANS,
+            aspect,
+            DEFAULT_VIEW_NEAR_CLIP,
+            DEFAULT_VIEW_FAR_CLIP,
+        );
+    }
+
+    pub(super) fn return_to_main_menu_after_match(&mut self) {
+        self.reset_match_state();
+        self.transition_to_state(GameState::Menu);
+    }
+
+    pub(super) fn exit_to_main_menu_from_victory(&mut self) {
+        self.return_to_main_menu_after_match();
+    }
+}

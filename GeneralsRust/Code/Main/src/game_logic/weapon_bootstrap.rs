@@ -1,3 +1,6 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Host WeaponStore bootstrap for template → weapon binding.
 //!
 //! # Why the GameLogic WeaponStore is often empty

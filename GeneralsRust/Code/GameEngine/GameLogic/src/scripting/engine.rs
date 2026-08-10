@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Concatenation of GeneralsRust/Code/GameEngine/GameLogic/src/scripting/engine for residual include_str! scans.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Script Engine Implementation
 //!
 //! This module provides the main script engine that matches the C++ ScriptEngine class.

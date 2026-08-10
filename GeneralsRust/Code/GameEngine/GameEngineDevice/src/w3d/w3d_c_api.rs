@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory w3d_c_api/ + #[path] in w3d/mod.rs.
+// Residual include_str! scans should keep reading this file.
+
 //! # W3D C++ API Compatibility Layer
 //!
 //! This module provides 100% compatibility with the original Westwood 3D C++ API

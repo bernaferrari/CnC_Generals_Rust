@@ -63,6 +63,7 @@
 // Export all public types and functions
 pub mod ai_manager;
 pub mod command;
+#[path = "command_processor_impl/mod.rs"]
 pub mod command_processor;
 pub mod command_queue;
 pub mod formation;

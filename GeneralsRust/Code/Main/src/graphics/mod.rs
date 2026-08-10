@@ -23,6 +23,7 @@ pub use particle_system_upload::{
 pub use projectile_segment_upload::ProjectileSegmentUpload;
 pub mod minimap_renderer;
 pub mod render_item;
+#[path = "render_pipeline_impl/mod.rs"]
 pub mod render_pipeline;
 pub use render_pipeline::{
     residual_presentation_boundary_last_action, residual_presentation_boundary_ok,

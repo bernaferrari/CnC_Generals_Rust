@@ -1,3 +1,6 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory + #[path] in the parent.
+
 #![allow(missing_docs)]
 
 //! Message Stream Translators

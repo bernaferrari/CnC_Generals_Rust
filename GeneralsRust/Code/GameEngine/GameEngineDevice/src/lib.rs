@@ -424,7 +424,7 @@ impl GameEngineDevice {
 
     /// Get system status for all initialized devices
     pub async fn get_system_status(&self) -> Result<Vec<DeviceStatus>> {
-        let statuses = Vec::new();
+        let mut statuses = Vec::new();
 
         #[cfg(feature = "audio")]
         if let Some(audio_manager) = self.audio_manager.read().await.as_ref() {
@@ -473,7 +473,7 @@ impl GameEngineDevice {
     pub async fn get_performance_metrics(
         &self,
     ) -> Result<std::collections::HashMap<DeviceType, PerformanceMetrics>> {
-        let metrics = std::collections::HashMap::new();
+        let mut metrics = std::collections::HashMap::new();
 
         #[cfg(feature = "audio")]
         if let Some(audio_manager) = self.audio_manager.read().await.as_ref() {

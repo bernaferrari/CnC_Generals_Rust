@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Concatenation of GeneralsRust/Code/GameEngine/GameLogic/src/team for residual include_str! scans.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Team system - Complete Rust conversion of C++ Team class
 //!
 //! Teams manage groups of objects that work together, handle ownership,

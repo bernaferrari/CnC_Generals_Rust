@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Residual include_str! scans keep reading this sibling file.
+// Live module is ai_player/ + #[path = "ai_player/mod.rs"] in the parent.
+
 //! AIPlayer - Computer player AI system
 //!
 //! This module implements the computerized opponent AI that manages all aspects
@@ -9063,7 +9067,16 @@ mod tests {
             w.contains("ai.join_team()") && !w.contains("Residual: always move toward teammate"),
             "reinforcement must call full joinTeam, not residual move-only"
         );
-        let unit = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/object/unit.rs"));
+        let unit = concat!(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/object/unit/ai_loco.rs"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/object/unit/ai_interface.rs"
+            )),
+        );
         let j = unit
             .find("fn join_team(&mut self)")
             .expect("UnitAI join_team");

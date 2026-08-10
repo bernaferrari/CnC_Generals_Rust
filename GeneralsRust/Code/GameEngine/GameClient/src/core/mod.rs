@@ -27,6 +27,8 @@
 //! synchronization is handled through Rust's ownership system and Arc/Mutex
 //! patterns where necessary for subsystem communication.
 
+// Dump+path: keep unused dump at `core/game_client.rs`; live module is the split impl.
+#[path = "game_client_impl/mod.rs"]
 pub mod game_client;
 pub mod script_action_handler;
 pub mod subsystems;

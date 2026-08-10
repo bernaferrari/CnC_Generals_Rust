@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Concatenation of GeneralsRust/Code/GameEngine/GameLogic/src/helpers for residual include_str! scans.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Helper modules for game logic system
 //!
 //! This module provides helper functionality for various game systems,

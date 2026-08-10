@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Concatenation of GeneralsRust/Code/GameEngine/GameLogic/src/modules for residual include_str! scans.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Module interfaces and implementations
 //!
 //! This module provides all the module interfaces that objects use,

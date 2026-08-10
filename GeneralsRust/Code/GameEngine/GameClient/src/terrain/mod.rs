@@ -55,6 +55,7 @@ pub mod scorch_mesh;
 pub mod terrain_background;
 pub mod terrain_roads;
 pub mod terrain_tracks;
+#[path = "terrain_visual/mod.rs"]
 pub mod terrain_visual;
 pub mod textures;
 pub mod tree_buffer;

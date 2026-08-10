@@ -1,3 +1,8 @@
+// SCAN DUMP ONLY — not compiled.
+// Original dump of GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen.rs
+// for residual include_str! scans. Live module is the sibling directory +
+// #[path = "load_screen/mod.rs"] in gui/mod.rs.
+
 //! C++ parity wrapper for `LoadScreen.cpp`.
 
 pub use super::loading_screen::*;

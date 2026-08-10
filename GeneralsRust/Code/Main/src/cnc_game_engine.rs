@@ -1,4 +1,7 @@
-#![allow(unused_imports, unused_variables, dead_code)]
+// AUTO-GENERATED source-scan dump for residual include_str! tests.
+// Compiled module lives in cnc_game_engine/mod.rs (lib.rs #[path]).
+
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 
 /*
 ** Command & Conquer Generals Zero Hour(tm) - Actual Game Engine
@@ -70,6 +73,10 @@ use winit::{
 use ww3d_core::ww3d::WW3D;
 use ww3d_engine::{self, EngineConfig, EngineError, FrameTiming};
 use ww3d_renderer_3d::core::error::Error as RendererError;
+use crate::graphics::{
+    graphics_system::MAX_STAGE_TEXTURES, render_pipeline::gameplay_to_render_transform,
+    GraphicsSystem, RenderPipeline,
+};
 
 #[cfg(feature = "network")]
 use game_network::time::NetworkClock;
@@ -83,50 +90,112 @@ impl NetworkClock {
     fn clear_override() {}
 }
 
-#[path = "cnc_game_engine_runtime.rs"]
-mod cnc_game_engine_runtime;
-#[path = "cnc_game_engine_host.rs"]
-mod cnc_game_engine_host;
-use cnc_game_engine_runtime::{RuntimeHostBridge, RuntimeHostSnapshot};
-
-#[cfg(test)]
-#[path = "cnc_game_engine_tests.rs"]
-mod tests;
-
-const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
-const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
-const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
-const DEFAULT_LOADING_PHASE: &str = "Loading assets...";
-
 #[cfg(feature = "game_client")]
 thread_local! {
     static LOADING_PROGRESS: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
     static LOADING_PHASE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
-// Window names from ShellGameLoadScreen.wnd (C++ parity: winCreateFromScript)
-const LOAD_SCREEN_ROOT: &str = "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen";
-const LOAD_SCREEN_PROGRESS: &str = "ShellGameLoadScreen.wnd:ProgressLoad";
+mod types;
+mod runtime;
+mod host;
+mod dispatch;
+mod runtime_host;
+mod shell;
+mod boot;
+mod input;
+mod ui_commands;
+mod camera_drain;
+mod host_authority;
+mod start_game;
+mod hotkeys;
+mod selection;
+mod mouse;
+mod audio;
+mod run_loop;
 
-fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
+pub use types::{CnCGameEngine, VertexXYZNDUV2};
+#[cfg(feature = "internal")]
+pub use types::parity_test_support;
+pub use run_loop::run_cnc_game;
+use types::*;
+use runtime::{RuntimeHostBridge, RuntimeHostSnapshot};
+use run_loop::{SoundType, resolve_ui_structure_template_name};
+
+enum StartupLoadMessage {
+    Progress { progress: f32, phase: String },
+    Complete(std::result::Result<StartupLoadResult, String>),
+}
+
+enum StartupLoadState {
+    Idle,
+    InProgress {
+        receiver: Receiver<StartupLoadMessage>,
+        started_at: Instant,
+        last_worker_progress: f32,
+        last_worker_phase: Option<String>,
+        last_worker_logged_bucket: u8,
+    },
+    Complete,
+}
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod source_scan_tests;
+
+/// Concatenated engine source for residual `include_str!` scans.
+pub const ENGINE_SRC: &str = concat!(
+    include_str!("types.rs"),
+    include_str!("dispatch.rs"),
+    include_str!("runtime_host.rs"),
+    include_str!("shell.rs"),
+    include_str!("boot.rs"),
+    include_str!("input.rs"),
+    include_str!("ui_commands.rs"),
+    include_str!("camera_drain.rs"),
+    include_str!("host_authority.rs"),
+    include_str!("start_game.rs"),
+    include_str!("hotkeys.rs"),
+    include_str!("selection.rs"),
+    include_str!("mouse.rs"),
+    include_str!("audio.rs"),
+    include_str!("run_loop.rs"),
+    include_str!("runtime.rs"),
+    include_str!("host.rs"),
+);
+
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+
+pub(super) const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
+pub(super) const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
+pub(super) const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
+pub(super) const DEFAULT_LOADING_PHASE: &str = "Loading assets...";
+
+// Window names from ShellGameLoadScreen.wnd (C++ parity: winCreateFromScript)
+pub(super) const LOAD_SCREEN_ROOT: &str = "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen";
+pub(super) const LOAD_SCREEN_PROGRESS: &str = "ShellGameLoadScreen.wnd:ProgressLoad";
+
+pub(super) fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
 }
-const DEFAULT_VIEW_FAR_CLIP: f32 = 20_000.0;
+pub(super) const DEFAULT_VIEW_FAR_CLIP: f32 = 20_000.0;
 
-fn should_keep_logic_running_while_iconic(mode: GameMode) -> bool {
+pub(super) fn should_keep_logic_running_while_iconic(mode: GameMode) -> bool {
     matches!(
         mode,
         GameMode::Multiplayer | GameMode::Lan | GameMode::Internet
     )
 }
 
-fn query_window_is_iconic(window: &Window, fallback: bool) -> bool {
+pub(super) fn query_window_is_iconic(window: &Window, fallback: bool) -> bool {
     let size = window.inner_size();
     let zero_sized = size.width == 0 || size.height == 0;
     window.is_minimized().unwrap_or(fallback || zero_sized) || zero_sized
 }
 
-fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
+pub(super) fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
     let was_minimized = *minimized;
     *minimized = query_window_is_iconic(window, *minimized);
 
@@ -140,7 +209,7 @@ fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
     }
 }
 
-fn should_exit_for_smoke_test(
+pub(super) fn should_exit_for_smoke_test(
     smoke_test: bool,
     state: GameState,
     startup_progress: f32,
@@ -149,11 +218,6 @@ fn should_exit_for_smoke_test(
     smoke_test && matches!(state, GameState::Menu) && startup_progress >= 1.0 && !exiting_pending
 }
 
-// C++ SAGE Engine equivalent modules
-use crate::graphics::{
-    graphics_system::MAX_STAGE_TEXTURES, render_pipeline::gameplay_to_render_transform,
-    GraphicsSystem, RenderPipeline,
-};
 
 #[cfg(feature = "internal")]
 pub mod parity_test_support {
@@ -167,16 +231,16 @@ pub mod parity_test_support {
     /// start, exit-to-menu, and quit deduplication coverage.
     #[derive(Debug, Clone)]
     pub struct StateMachineParityHarness {
-        current_state: GameState,
-        pending_state: Option<GameState>,
-        ui_screen: Option<Screen>,
-        game_paused: bool,
-        game_logic_paused: bool,
-        match_over: bool,
-        victory_summary_present: bool,
-        selected_objects: Vec<u32>,
-        quit_requests_emitted: usize,
-        menu_world_frames_rendered: u32,
+        pub(crate) current_state: GameState,
+        pub(crate) pending_state: Option<GameState>,
+        pub(crate) ui_screen: Option<Screen>,
+        pub(crate) game_paused: bool,
+        pub(crate) game_logic_paused: bool,
+        pub(crate) match_over: bool,
+        pub(crate) victory_summary_present: bool,
+        pub(crate) selected_objects: Vec<u32>,
+        pub(crate) quit_requests_emitted: usize,
+        pub(crate) menu_world_frames_rendered: u32,
     }
 
     impl Default for StateMachineParityHarness {
@@ -338,18 +402,18 @@ pub mod parity_test_support {
 }
 
 #[derive(Debug, Clone)]
-struct ScriptCameraShaker {
-    epicenter: Vec3,
-    radius: f32,
-    duration_seconds: f32,
-    elapsed_seconds: f32,
-    amplitude_degrees: f32,
-    phase: f32,
-    frequency_hz: f32,
+pub(crate) struct ScriptCameraShaker {
+    pub(crate) epicenter: Vec3,
+    pub(crate) radius: f32,
+    pub(crate) duration_seconds: f32,
+    pub(crate) elapsed_seconds: f32,
+    pub(crate) amplitude_degrees: f32,
+    pub(crate) phase: f32,
+    pub(crate) frequency_hz: f32,
 }
 
 impl ScriptCameraShaker {
-    fn new(epicenter: Vec3, radius: f32, duration_seconds: f32, amplitude_degrees: f32) -> Self {
+    pub(super) fn new(epicenter: Vec3, radius: f32, duration_seconds: f32, amplitude_degrees: f32) -> Self {
         // Deterministic phase/frequency seed from shaker parameters.
         let seed = (epicenter.x * 0.013
             + epicenter.y * 0.021
@@ -369,44 +433,27 @@ impl ScriptCameraShaker {
     }
 }
 
-struct StartupLoadResult {
-    game_logic: GameLogic,
-    loaded_map_name: Option<String>,
-    start_in_menu: bool,
-    map_requested_from_cli: bool,
-    replay_requested: bool,
+pub(crate) struct StartupLoadResult {
+    pub(crate) game_logic: GameLogic,
+    pub(crate) loaded_map_name: Option<String>,
+    pub(crate) start_in_menu: bool,
+    pub(crate) map_requested_from_cli: bool,
+    pub(crate) replay_requested: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct StartupNewGameDispatch {
-    game_mode_code: i32,
-    game_mode: GameMode,
-    difficulty_code: i32,
-    difficulty: GameDifficulty,
-    rank_points: i32,
-    max_fps: Option<i32>,
-}
-
-enum StartupLoadMessage {
-    Progress { progress: f32, phase: String },
-    Complete(std::result::Result<StartupLoadResult, String>),
-}
-
-enum StartupLoadState {
-    Idle,
-    InProgress {
-        receiver: Receiver<StartupLoadMessage>,
-        started_at: Instant,
-        last_worker_progress: f32,
-        last_worker_phase: Option<String>,
-        last_worker_logged_bucket: u8,
-    },
-    Complete,
+pub(crate) struct StartupNewGameDispatch {
+    pub(crate) game_mode_code: i32,
+    pub(crate) game_mode: GameMode,
+    pub(crate) difficulty_code: i32,
+    pub(crate) difficulty: GameDifficulty,
+    pub(crate) rank_points: i32,
+    pub(crate) max_fps: Option<i32>,
 }
 
 /// Map-click command residual armed by ControlBar buttons.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum PendingMapCommand {
+pub(super) enum PendingMapCommand {
     AttackMove,
     /// C++ GuardMode carried from the arming command button.
     Guard(crate::game_logic::GuardMode),
@@ -423,7 +470,7 @@ enum PendingMapCommand {
 
 /// ControlBar unit ability that needs a target click residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PendingUnitAbility {
+pub(super) enum PendingUnitAbility {
     Hijack,
     Sabotage,
     CaptureBuilding,
@@ -449,33 +496,33 @@ enum PendingUnitAbility {
 /// control file.  It also makes the in-game status useful to a real player
 /// without weakening the headless vertical-slice checks.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct InteractivePlayabilityEvidence {
+pub(super) struct InteractivePlayabilityEvidence {
     /// A physical left click was hit-tested and consumed by a visible shell WND
     /// widget while the engine was in its menu state.
-    menu_wnd_click: bool,
+    pub(crate) menu_wnd_click: bool,
     /// That menu interaction subsequently started an offline match through the
     /// normal `start_game_from_ui` authority path.
-    match_started_from_menu_wnd: bool,
+    pub(crate) match_started_from_menu_wnd: bool,
     /// A physical context-click issued an order after that match began.  Selection
     /// alone is intentionally insufficient: this proves a player can command a
     /// unit, not merely move the pointer over the HUD.
-    gameplay_order: bool,
+    pub(crate) gameplay_order: bool,
 }
 
 impl InteractivePlayabilityEvidence {
-    fn note_menu_wnd_click(&mut self, windowed: bool, wnd_consumed: bool, hit_widget: bool) {
+    pub(super) fn note_menu_wnd_click(&mut self, windowed: bool, wnd_consumed: bool, hit_widget: bool) {
         if windowed && wnd_consumed && hit_widget {
             self.menu_wnd_click = true;
         }
     }
 
-    fn note_offline_match_started(&mut self, was_menu: bool, offline_mode: bool) {
+    pub(super) fn note_offline_match_started(&mut self, was_menu: bool, offline_mode: bool) {
         if self.menu_wnd_click && was_menu && offline_mode {
             self.match_started_from_menu_wnd = true;
         }
     }
 
-    fn note_gameplay_order(&mut self, windowed: bool, had_selection: bool) {
+    pub(super) fn note_gameplay_order(&mut self, windowed: bool, had_selection: bool) {
         if windowed && self.match_started_from_menu_wnd && had_selection {
             self.gameplay_order = true;
         }
@@ -484,294 +531,294 @@ impl InteractivePlayabilityEvidence {
     /// The WND-navigation component of the retail claim requires the complete
     /// menu-to-match chain, rather than a broad sticky "some gadget was hovered"
     /// bit from the GUI singleton.
-    fn wnd_menu_to_match_complete(self) -> bool {
+    pub(super) fn wnd_menu_to_match_complete(self) -> bool {
         self.menu_wnd_click && self.match_started_from_menu_wnd
     }
 
-    fn gameplay_complete(self) -> bool {
+    pub(super) fn gameplay_complete(self) -> bool {
         self.match_started_from_menu_wnd && self.gameplay_order
     }
 }
 
 #[cfg(test)]
-#[path = "cnc_game_engine_evidence_tests.rs"]
-mod interactive_playability_evidence_tests;
+#[path = "evidence_tests.rs"]
+mod evidence_tests;
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
-    window: Arc<Window>,
+    pub(crate) window: Arc<Window>,
     #[allow(dead_code)] // C++ parity: stored for future command-line query access
-    command_line: Arc<CommandLineArgs>,
+    pub(crate) command_line: Arc<CommandLineArgs>,
 
     // C++ SAGE equivalent rendering subsystems
-    graphics_system: GraphicsSystem,
-    render_pipeline: RenderPipeline,
+    pub(crate) graphics_system: GraphicsSystem,
+    pub(crate) render_pipeline: RenderPipeline,
 
     // Platform message handling
-    message_processor: WindowMessageProcessor,
+    pub(crate) message_processor: WindowMessageProcessor,
 
     // Audio system
     #[allow(dead_code)] // C++ parity: audio stream handle kept alive to prevent drop
-    audio_output: Option<OutputStream>,
-    audio_handle: Option<OutputStreamHandle>,
-    background_music: Option<Sink>,
-    sound_effects: Vec<Sink>,
-    ui_sound_cache: HashMap<String, Arc<[u8]>>,
+    pub(crate) audio_output: Option<OutputStream>,
+    pub(crate) audio_handle: Option<OutputStreamHandle>,
+    pub(crate) background_music: Option<Sink>,
+    pub(crate) sound_effects: Vec<Sink>,
+    pub(crate) ui_sound_cache: HashMap<String, Arc<[u8]>>,
 
     // Game state machine - matches C++ GameEngine m_quitting and state management
-    current_state: GameState,
-    pending_state: Option<GameState>,
-    startup_load_state: StartupLoadState,
-    startup_target_state: Option<GameState>,
-    startup_start_in_menu: bool,
-    last_loading_title_update: Option<Instant>,
-    startup_last_reported_progress: f32,
-    startup_loading_phase: String,
-    startup_last_progress_change_at: Instant,
-    startup_last_stall_warning_at: Option<Instant>,
-    startup_stall_events: u32,
-    startup_max_stall_duration: Duration,
-    startup_health_summary_logged: bool,
-    last_caustic_warmup_attempt: Option<Instant>,
-    loading_overlay_active: bool,
+    pub(crate) current_state: GameState,
+    pub(crate) pending_state: Option<GameState>,
+    pub(crate) startup_load_state: StartupLoadState,
+    pub(crate) startup_target_state: Option<GameState>,
+    pub(crate) startup_start_in_menu: bool,
+    pub(crate) last_loading_title_update: Option<Instant>,
+    pub(crate) startup_last_reported_progress: f32,
+    pub(crate) startup_loading_phase: String,
+    pub(crate) startup_last_progress_change_at: Instant,
+    pub(crate) startup_last_stall_warning_at: Option<Instant>,
+    pub(crate) startup_stall_events: u32,
+    pub(crate) startup_max_stall_duration: Duration,
+    pub(crate) startup_health_summary_logged: bool,
+    pub(crate) last_caustic_warmup_attempt: Option<Instant>,
+    pub(crate) loading_overlay_active: bool,
     #[cfg(feature = "game_client")]
-    active_load_screen: Option<game_client::gui::load_screen::LoadScreenKind>,
-    shell_menu_active: bool, // C++ parity: Shell::push("Menus/MainMenu.wnd") / Shell::pop()
+    pub(crate) active_load_screen: Option<game_client::gui::load_screen::LoadScreenKind>,
+    pub(crate) shell_menu_active: bool, // C++ parity: Shell::push("Menus/MainMenu.wnd") / Shell::pop()
 
     // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop
     // for drawable updates and display draw. Full GameClient::update() OS-input path
     // is not used (Main owns input→commands); drawables always tick with the frame.
     #[cfg(feature = "game_client")]
-    game_client: game_client::core::game_client::GameClient,
+    pub(crate) game_client: game_client::core::game_client::GameClient,
     /// ControlBar selection panel (portrait + health). Presentation-fed; WND load optional.
     #[cfg(feature = "game_client")]
-    control_bar: game_client::gui::control_bar::ControlBar,
+    pub(crate) control_bar: game_client::gui::control_bar::ControlBar,
 
     // Game state
-    game_logic: GameLogic,
+    pub(crate) game_logic: GameLogic,
     /// Immutable presentation feed for client/render after last logic step.
-    last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    pub(crate) last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
     /// Wave 842: host-owned match mode residual set at start_game_from_ui.
     /// Prefer over live GameLogic::game_mode when presentation freeze is missing.
-    host_match_game_mode: Option<GameMode>,
+    pub(crate) host_match_game_mode: Option<GameMode>,
     /// Wave 843: host-owned match map / local player / AI difficulty residuals.
-    host_match_map_name: Option<String>,
-    host_match_local_player_id: Option<u32>,
-    host_match_ai_difficulty: Option<crate::ai::AIDifficulty>,
+    pub(crate) host_match_map_name: Option<String>,
+    pub(crate) host_match_local_player_id: Option<u32>,
+    pub(crate) host_match_ai_difficulty: Option<crate::ai::AIDifficulty>,
     /// Wave 844: host-owned sim timing residuals (prefer over live GameLogic probes).
-    host_match_visual_speed: Option<f32>,
-    host_match_time_frozen: Option<bool>,
-    host_match_total_play_time: Option<f32>,
-    host_match_logic_frame: Option<u32>,
-    host_match_logic_steps: Option<(u32, bool, f32)>,
-    host_match_in_replay: Option<bool>,
+    pub(crate) host_match_visual_speed: Option<f32>,
+    pub(crate) host_match_time_frozen: Option<bool>,
+    pub(crate) host_match_total_play_time: Option<f32>,
+    pub(crate) host_match_logic_frame: Option<u32>,
+    pub(crate) host_match_logic_steps: Option<(u32, bool, f32)>,
+    pub(crate) host_match_in_replay: Option<bool>,
     /// Wave 845: host-owned shell/team residuals for presentation_or_boot peels.
-    host_match_in_shell: Option<bool>,
-    host_match_local_team: Option<crate::game_logic::Team>,
+    pub(crate) host_match_in_shell: Option<bool>,
+    pub(crate) host_match_local_team: Option<crate::game_logic::Team>,
     /// Wave 846: host-owned diplomacy / template / sciences residuals.
-    host_match_diplomacy_players: Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
-    host_match_known_template_names: Option<Vec<String>>,
-    host_match_unlocked_sciences: Option<std::collections::HashMap<u32, Vec<String>>>,
+    pub(crate) host_match_diplomacy_players: Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
+    pub(crate) host_match_known_template_names: Option<Vec<String>>,
+    pub(crate) host_match_unlocked_sciences: Option<std::collections::HashMap<u32, Vec<String>>>,
     /// Wave 847: host-owned camera-follow residuals for presentation_or_boot peels.
-    host_match_camera_follow_active: Option<bool>,
-    host_match_camera_follow_position: Option<[f32; 3]>,
+    pub(crate) host_match_camera_follow_active: Option<bool>,
+    pub(crate) host_match_camera_follow_position: Option<[f32; 3]>,
     /// Wave 913: last camera-follow object residual (skip redundant authority writes).
-    host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
+    pub(crate) host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
     /// Wave 848: host-owned local train producers residual (barracks / other).
-    host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,
-    host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
-    host_match_local_unfinished_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
-    host_match_local_team_sample_pos: Option<[f32; 3]>,
+    pub(crate) host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    pub(crate) host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    pub(crate) host_match_local_unfinished_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    pub(crate) host_match_local_team_sample_pos: Option<[f32; 3]>,
     /// Wave 849: host-owned match outcome residuals (victory peels).
-    host_match_over: Option<bool>,
-    host_match_victory_label: Option<String>,
+    pub(crate) host_match_over: Option<bool>,
+    pub(crate) host_match_victory_label: Option<String>,
     /// Meaningful when `host_match_over == Some(true)`: None=draw, Some(id)=winner.
-    host_match_victory_winner: Option<Option<u32>>,
-    host_match_victory_summary: Option<crate::game_logic::VictorySummary>,
+    pub(crate) host_match_victory_winner: Option<Option<u32>>,
+    pub(crate) host_match_victory_summary: Option<crate::game_logic::VictorySummary>,
     /// Wave 850: host-owned selection residual (peels player_selected_objects boot dual-read).
-    host_match_selected_ids: Option<Vec<crate::game_logic::ObjectId>>,
+    pub(crate) host_match_selected_ids: Option<Vec<crate::game_logic::ObjectId>>,
     /// Wave 851: host-owned alive-object residual (peels object_is_alive boot dual-read).
-    host_match_alive_object_ids: Option<std::collections::HashSet<u32>>,
+    pub(crate) host_match_alive_object_ids: Option<std::collections::HashSet<u32>>,
     /// Wave 852: host-owned purchasable science residual per player.
-    host_match_purchasable_sciences:
+    pub(crate) host_match_purchasable_sciences:
         Option<std::collections::HashMap<u32, std::collections::HashSet<String>>>,
     /// Wave 868: host-owned local science purchase points residual.
-    host_match_local_science_purchase_points: Option<i32>,
+    pub(crate) host_match_local_science_purchase_points: Option<i32>,
     /// Wave 921: local supplies residual (presentation stamp; supplies floor peel).
-    host_match_local_supplies: Option<u32>,
+    pub(crate) host_match_local_supplies: Option<u32>,
     /// Wave 854/857: host-owned special-power-ready object residual (unified scan stamp).
-    host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
+    pub(crate) host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
     /// Wave 855: boot victory condition residual (single evaluate stamp).
     /// None = not stamped; Some(None) = no winner yet; Some(Some(cond)) = outcome.
-    host_match_boot_victory_condition: Option<Option<crate::game_logic::VictoryCondition>>,
+    pub(crate) host_match_boot_victory_condition: Option<Option<crate::game_logic::VictoryCondition>>,
     /// Wave 911: per-frame legal-build residual cache (construct pad scan peel).
-    host_legal_build_cache_frame: Option<u32>,
-    host_legal_build_cache:
+    pub(crate) host_legal_build_cache_frame: Option<u32>,
+    pub(crate) host_legal_build_cache:
         std::collections::HashMap<(crate::game_logic::Team, i32, i32, u64, u32), u32>,
     /// Wave 858: host-owned script camera default residuals.
-    host_match_script_camera_max_height: Option<f32>,
-    host_match_script_camera_pitch: Option<f32>,
+    pub(crate) host_match_script_camera_max_height: Option<f32>,
+    pub(crate) host_match_script_camera_pitch: Option<f32>,
     /// Wave 861: host-owned multiplayer residual (presentation dual-read peel).
-    host_match_in_multiplayer: Option<bool>,
+    pub(crate) host_match_in_multiplayer: Option<bool>,
     /// Wave 862: host-owned world bounds residual (min, max).
-    host_match_world_bounds: Option<(glam::Vec3, glam::Vec3)>,
+    pub(crate) host_match_world_bounds: Option<(glam::Vec3, glam::Vec3)>,
     /// Wave 863: host-owned first-opponent residual (debug victory hotkey peel).
-    host_match_first_opponent_id: Option<Option<u32>>,
+    pub(crate) host_match_first_opponent_id: Option<Option<u32>>,
     /// Optional GameWorld shadow session (stable ObjectId→EntityId).
     /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
     /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
-    gameworld_shadow: Option<crate::gameworld_shadow::GameWorldShadow>,
+    pub(crate) gameworld_shadow: Option<crate::gameworld_shadow::GameWorldShadow>,
     /// Observe-path entity count from GameWorld presentation view after coupled tick
     /// (architecture residual: GameWorld → presentation without Main dual-read).
-    last_gameworld_presentation_entity_count: usize,
+    pub(crate) last_gameworld_presentation_entity_count: usize,
     /// Last presentation-overlaid UI state (selection health/minimap identity retained
     /// after render build so consumers are not dropped each frame).
-    last_ui_state: Option<GameUIState>,
-    resource_manager: ResourceManager,
-    save_file_manager: SaveFileManager,
+    pub(crate) last_ui_state: Option<GameUIState>,
+    pub(crate) resource_manager: ResourceManager,
+    pub(crate) save_file_manager: SaveFileManager,
 
     // Camera system
-    camera_position: Vec3,
-    camera_target: Vec3,
-    camera_zoom: f32,
-    camera_zoom_target: Option<f32>,
-    camera_zoom_start: f32,
-    camera_zoom_duration: f32,
-    camera_zoom_elapsed: f32,
-    camera_zoom_ease_in: f32,
-    camera_zoom_ease_out: f32,
-    camera_orbit_distance: f32,
-    camera_pitch_radians: f32,
-    camera_pitch_target: Option<f32>,
-    camera_pitch_start: f32,
-    camera_pitch_duration: f32,
-    camera_pitch_elapsed: f32,
-    camera_pitch_ease_in: f32,
-    camera_pitch_ease_out: f32,
-    camera_yaw_radians: f32,
-    camera_yaw_target: Option<f32>,
-    camera_yaw_start: f32,
-    camera_yaw_duration: f32,
-    camera_yaw_elapsed: f32,
-    camera_yaw_ease_in: f32,
-    camera_yaw_ease_out: f32,
-    camera_shake_offset: Vec3,
-    screen_shake_intensity: f32,
-    screen_shake_angle_cos: f32,
-    screen_shake_angle_sin: f32,
-    script_camera_shakers: Vec<ScriptCameraShaker>,
-    script_fps_limit: Option<u32>,
-    script_fps_limit_last_tick: Option<Instant>,
-    camera_slave_mode: Option<CameraSlaveModeRequest>,
-    view_matrix: Mat4,
-    projection_matrix: Mat4,
+    pub(crate) camera_position: Vec3,
+    pub(crate) camera_target: Vec3,
+    pub(crate) camera_zoom: f32,
+    pub(crate) camera_zoom_target: Option<f32>,
+    pub(crate) camera_zoom_start: f32,
+    pub(crate) camera_zoom_duration: f32,
+    pub(crate) camera_zoom_elapsed: f32,
+    pub(crate) camera_zoom_ease_in: f32,
+    pub(crate) camera_zoom_ease_out: f32,
+    pub(crate) camera_orbit_distance: f32,
+    pub(crate) camera_pitch_radians: f32,
+    pub(crate) camera_pitch_target: Option<f32>,
+    pub(crate) camera_pitch_start: f32,
+    pub(crate) camera_pitch_duration: f32,
+    pub(crate) camera_pitch_elapsed: f32,
+    pub(crate) camera_pitch_ease_in: f32,
+    pub(crate) camera_pitch_ease_out: f32,
+    pub(crate) camera_yaw_radians: f32,
+    pub(crate) camera_yaw_target: Option<f32>,
+    pub(crate) camera_yaw_start: f32,
+    pub(crate) camera_yaw_duration: f32,
+    pub(crate) camera_yaw_elapsed: f32,
+    pub(crate) camera_yaw_ease_in: f32,
+    pub(crate) camera_yaw_ease_out: f32,
+    pub(crate) camera_shake_offset: Vec3,
+    pub(crate) screen_shake_intensity: f32,
+    pub(crate) screen_shake_angle_cos: f32,
+    pub(crate) screen_shake_angle_sin: f32,
+    pub(crate) script_camera_shakers: Vec<ScriptCameraShaker>,
+    pub(crate) script_fps_limit: Option<u32>,
+    pub(crate) script_fps_limit_last_tick: Option<Instant>,
+    pub(crate) camera_slave_mode: Option<CameraSlaveModeRequest>,
+    pub(crate) view_matrix: Mat4,
+    pub(crate) projection_matrix: Mat4,
 
     // Input state
-    keys_pressed: HashSet<Key>,
-    mouse_position: (f32, f32),
-    mouse_world_position: Vec3,
+    pub(crate) keys_pressed: HashSet<Key>,
+    pub(crate) mouse_position: (f32, f32),
+    pub(crate) mouse_world_position: Vec3,
     /// Last applied context cursor residual (avoid spam set_cursor).
-    last_context_cursor: Option<&'static str>,
+    pub(crate) last_context_cursor: Option<&'static str>,
     /// EVA LOWPOWER residual edge counter.
-    last_eva_low_power_count: u32,
-    last_eva_insufficient_funds_count: u32,
-    last_eva_base_under_attack_count: u32,
-    last_eva_ally_under_attack_count: u32,
+    pub(crate) last_eva_low_power_count: u32,
+    pub(crate) last_eva_insufficient_funds_count: u32,
+    pub(crate) last_eva_base_under_attack_count: u32,
+    pub(crate) last_eva_ally_under_attack_count: u32,
     /// C++ sticky waypoint mode residual (Alt hold still works; Z toggles).
-    sticky_waypoint_mode: bool,
+    pub(crate) sticky_waypoint_mode: bool,
     /// Sticky auto-attack residual (Ctrl+Shift+A): convert plain moves to attack-move.
-    sticky_auto_attack: bool,
-    is_dragging: bool,
-    selection_start: Option<Vec3>,
+    pub(crate) sticky_auto_attack: bool,
+    pub(crate) is_dragging: bool,
+    pub(crate) selection_start: Option<Vec3>,
     /// Screen-space drag origin for selection box overlay residual.
-    selection_start_screen: Option<(f32, f32)>,
-    last_click_time: Option<Instant>,
-    last_click_position: Option<Vec3>,
-    is_windowed: bool,
-    rmb_scroll_anchor: Option<(f32, f32)>,
-    is_rmb_scrolling: bool,
-    is_mmb_rotating: bool,
-    mmb_anchor: Option<(f32, f32)>,
+    pub(crate) selection_start_screen: Option<(f32, f32)>,
+    pub(crate) last_click_time: Option<Instant>,
+    pub(crate) last_click_position: Option<Vec3>,
+    pub(crate) is_windowed: bool,
+    pub(crate) rmb_scroll_anchor: Option<(f32, f32)>,
+    pub(crate) is_rmb_scrolling: bool,
+    pub(crate) is_mmb_rotating: bool,
+    pub(crate) mmb_anchor: Option<(f32, f32)>,
 
     // Game state
-    selected_objects: Vec<ObjectId>,
-    control_groups: HashMap<u8, Vec<ObjectId>>,
+    pub(crate) selected_objects: Vec<ObjectId>,
+    pub(crate) control_groups: HashMap<u8, Vec<ObjectId>>,
     /// Last control-group digit select (group, Instant) for double-tap camera jump residual.
-    last_control_group_select: Option<(u8, Instant)>,
+    pub(crate) last_control_group_select: Option<(u8, Instant)>,
     /// Retail SAVE_VIEW1..8 / VIEW_VIEW1..8 camera bookmark residual (F1-F8).
-    camera_view_bookmarks: [Option<Vec3>; 8],
-    camera_rotate_left_held: bool,
-    camera_rotate_right_held: bool,
-    camera_zoom_in_held: bool,
-    camera_zoom_out_held: bool,
+    pub(crate) camera_view_bookmarks: [Option<Vec3>; 8],
+    pub(crate) camera_rotate_left_held: bool,
+    pub(crate) camera_rotate_right_held: bool,
+    pub(crate) camera_zoom_in_held: bool,
+    pub(crate) camera_zoom_out_held: bool,
     /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
-    camera_tracking_selection: bool,
+    pub(crate) camera_tracking_selection: bool,
     /// Retail TOGGLE_FAST_FORWARD_REPLAY residual (TiVO fast mode).
-    replay_fast_forward: bool,
+    pub(crate) replay_fast_forward: bool,
     /// Retail DIPLOMACY KEY_TAB residual panel.
-    diplomacy_panel: crate::ui::DiplomacyPanel,
+    pub(crate) diplomacy_panel: crate::ui::DiplomacyPanel,
     /// Retail CHAT_EVERYONE / CHAT_ALLIES residual panel.
-    chat_panel: crate::ui::ChatPanel,
-    current_player_id: u32,
-    game_paused: bool,
+    pub(crate) chat_panel: crate::ui::ChatPanel,
+    pub(crate) current_player_id: u32,
+    pub(crate) game_paused: bool,
 
     // UI state
-    show_debug_info: bool,
-    show_health_bars: bool,
+    pub(crate) show_debug_info: bool,
+    pub(crate) show_health_bars: bool,
     /// FPS counter residual (options game.show_fps).
-    show_fps: bool,
+    pub(crate) show_fps: bool,
     /// Draw movement path lines residual.
-    show_move_lines: bool,
+    pub(crate) show_move_lines: bool,
     /// Draw attack-order lines residual.
-    show_attack_lines: bool,
-    frame_counter: u32,
-    fps: f32,
-    last_frame_timing: Option<FrameTiming>,
-    frame_clock: FrameClock,
-    menu_loading_tick_accumulator: Duration,
-    menu_loading_last_tick: Instant,
-    diagnostics_overlay: Option<DiagnosticsOverlayStats>,
+    pub(crate) show_attack_lines: bool,
+    pub(crate) frame_counter: u32,
+    pub(crate) fps: f32,
+    pub(crate) last_frame_timing: Option<FrameTiming>,
+    pub(crate) frame_clock: FrameClock,
+    pub(crate) menu_loading_tick_accumulator: Duration,
+    pub(crate) menu_loading_last_tick: Instant,
+    pub(crate) diagnostics_overlay: Option<DiagnosticsOverlayStats>,
 
     // UI system
-    ui_manager: UIManager,
-    game_hud: GameHUD,
+    pub(crate) ui_manager: UIManager,
+    pub(crate) game_hud: GameHUD,
     /// C++ structure placement template residual (awaiting map click).
-    pending_structure_placement: Option<String>,
+    pub(crate) pending_structure_placement: Option<String>,
     /// C++ context command awaiting map click (AttackMove/Guard/SetRally residual).
-    pending_map_command: Option<PendingMapCommand>,
-    active_menu_shell_hook: Option<&'static str>,
-    runtime_host_headless: bool,
+    pub(crate) pending_map_command: Option<PendingMapCommand>,
+    pub(crate) active_menu_shell_hook: Option<&'static str>,
+    pub(crate) runtime_host_headless: bool,
     /// True when `--runtime_host` is set (headless or windowed). Host cmds/status.
-    runtime_host_active: bool,
-    runtime_host_base_ui_screen: Option<String>,
-    runtime_host_ui_screen_override: Option<String>,
+    pub(crate) runtime_host_active: bool,
+    pub(crate) runtime_host_base_ui_screen: Option<String>,
+    pub(crate) runtime_host_ui_screen_override: Option<String>,
     /// Sticky: open_skirmish_menu / Skirmish UI was entered this host session.
-    runtime_host_saw_skirmish_menu: bool,
-    runtime_host_last_gameplay_cmd: String,
+    pub(crate) runtime_host_saw_skirmish_menu: bool,
+    pub(crate) runtime_host_last_gameplay_cmd: String,
     /// Real-person, windowed input evidence for the retail playable claim.
     /// Deliberately separate from `runtime_host_last_gameplay_cmd`.
-    interactive_playability: InteractivePlayabilityEvidence,
+    pub(crate) interactive_playability: InteractivePlayabilityEvidence,
     /// Cumulative HP damage applied this match (host_damage_log residual).
-    match_damage_applied: f32,
+    pub(crate) match_damage_applied: f32,
     /// Cumulative destroy events from damage this match.
-    match_kills: u32,
+    pub(crate) match_kills: u32,
     /// Host asked for an immediate screenshot residual (bridge/event-loop consumes).
-    runtime_host_pending_capture: bool,
+    pub(crate) runtime_host_pending_capture: bool,
 
     // Model loading state
-    models_loaded: bool,
-    pending_shell_model_prewarm: VecDeque<String>,
-    menu_enter_frame: Option<u64>,
-    shell_ui_enqueued_frame: Option<u64>,
-    last_shell_prewarm_log: Option<Instant>,
-    shell_prewarm_completion_logged: bool,
+    pub(crate) models_loaded: bool,
+    pub(crate) pending_shell_model_prewarm: VecDeque<String>,
+    pub(crate) menu_enter_frame: Option<u64>,
+    pub(crate) shell_ui_enqueued_frame: Option<u64>,
+    pub(crate) last_shell_prewarm_log: Option<Instant>,
+    pub(crate) shell_prewarm_completion_logged: bool,
     /// How many Menu frames have rendered the full world scene so far.
     /// The first few Menu frames skip the world render to avoid a freeze while
     /// models/textures/terrain are loaded lazily for the first time.
-    menu_world_frames_rendered: u32,
-    last_slow_menu_tick_log: Option<Instant>,
-    match_over: bool,
-    victory_summary: Option<VictorySummary>,
+    pub(crate) menu_world_frames_rendered: u32,
+    pub(crate) last_slow_menu_tick_log: Option<Instant>,
+    pub(crate) match_over: bool,
+    pub(crate) victory_summary: Option<VictorySummary>,
 }
 
 /// C++ SAGE engine VertexFormatXYZNDUV2 equivalent - matches original vertex declarations
@@ -834,49 +881,49 @@ impl VertexXYZNDUV2 {
 /// C++ SAGE engine equivalent uniforms - matches GlobalUniforms structure
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct SAGEUniforms {
-    view_projection: [[f32; 4]; 4],
-    view_matrix: [[f32; 4]; 4],
-    projection_matrix: [[f32; 4]; 4],
-    camera_position: [f32; 4],
-    time: f32,
-    ambient_light: [f32; 3],
-    sun_direction: [f32; 3],
-    sun_color: [f32; 3],
-    _padding: f32,
+pub(super) struct SAGEUniforms {
+    pub(crate) view_projection: [[f32; 4]; 4],
+    pub(crate) view_matrix: [[f32; 4]; 4],
+    pub(crate) projection_matrix: [[f32; 4]; 4],
+    pub(crate) camera_position: [f32; 4],
+    pub(crate) time: f32,
+    pub(crate) ambient_light: [f32; 3],
+    pub(crate) sun_direction: [f32; 3],
+    pub(crate) sun_color: [f32; 3],
+    pub(crate) _padding: f32,
 }
 
 /// C++ SAGE VertexMaterialClass equivalent - matches original material properties
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct MaterialProperties {
-    diffuse_color: [f32; 4],   // Base color reflected by lighting
-    specular_color: [f32; 4],  // Sharp reflective highlights
-    emissive_color: [f32; 4],  // Self-illumination color
-    opacity: f32,              // Transparency (1.0 = opaque, 0.0 = transparent)
-    shininess: f32,            // Specular power
-    stage0_uv_scale: [f32; 2], // UV scaling for stage 0
-    stage1_uv_scale: [f32; 2], // UV scaling for stage 1
+pub(super) struct MaterialProperties {
+    pub(crate) diffuse_color: [f32; 4],   // Base color reflected by lighting
+    pub(crate) specular_color: [f32; 4],  // Sharp reflective highlights
+    pub(crate) emissive_color: [f32; 4],  // Self-illumination color
+    pub(crate) opacity: f32,              // Transparency (1.0 = opaque, 0.0 = transparent)
+    pub(crate) shininess: f32,            // Specular power
+    pub(crate) stage0_uv_scale: [f32; 2], // UV scaling for stage 0
+    pub(crate) stage1_uv_scale: [f32; 2], // UV scaling for stage 1
 }
 
 #[derive(Debug, Clone, Copy)]
-struct StartupCameraDefaults {
-    pitch_degrees: f32,
-    yaw_degrees: f32,
-    camera_height: f32,
-    max_camera_height: f32,
+pub(crate) struct StartupCameraDefaults {
+    pub(crate) pitch_degrees: f32,
+    pub(crate) yaw_degrees: f32,
+    pub(crate) camera_height: f32,
+    pub(crate) max_camera_height: f32,
 }
 
 #[cfg(feature = "game_client")]
-struct RegisteredGameClientBridge {
-    client: crate::subsystem_manager::GameClientSubsystem,
-    active: bool,
-    state: SubsystemState,
+pub(super) struct RegisteredGameClientBridge {
+    pub(crate) client: crate::subsystem_manager::GameClientSubsystem,
+    pub(crate) active: bool,
+    pub(crate) state: SubsystemState,
 }
 
 #[cfg(feature = "game_client")]
 impl RegisteredGameClientBridge {
-    fn new() -> SubsystemResult<Self> {
+    pub(super) fn new() -> SubsystemResult<Self> {
         Ok(Self {
             client: crate::subsystem_manager::GameClientSubsystem::new(),
             active: true,
@@ -939,7 +986,7 @@ impl GameClientInterface for RegisteredGameClientBridge {
 }
 
 #[cfg(feature = "game_client")]
-fn register_command_list_bootstrap() {
+pub(super) fn register_command_list_bootstrap() {
     use game_client::message_stream::command_list::get_command_list;
     use game_engine::common::message_stream::SubsystemInterface;
     register_command_list_init(|| {
@@ -950,15 +997,18 @@ fn register_command_list_bootstrap() {
 }
 
 #[cfg(feature = "game_client")]
-fn register_real_game_client_bootstrap() {
+pub(super) fn register_real_game_client_bootstrap() {
     register_command_list_bootstrap();
 }
 
 #[cfg(not(feature = "game_client"))]
-fn register_real_game_client_bootstrap() {}
+pub(super) fn register_real_game_client_bootstrap() {}
 
+
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
 impl CnCGameEngine {
-    fn append_message_argument_to_common_stream(
+    pub(super) fn append_message_argument_to_common_stream(
         target: &mut game_engine::common::message_stream::GameMessage,
         arg: &game_engine::common::message_stream::GameMessageArgumentType,
     ) {
@@ -982,7 +1032,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn append_common_message_to_stream(
+    pub(super) fn append_common_message_to_stream(
         stream: &mut game_engine::common::message_stream::MessageStream,
         message: &game_engine::common::message_stream::GameMessage,
     ) {
@@ -992,7 +1042,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn legacy_game_mode_from_new_game_code(mode: i32) -> Option<GameMode> {
+    pub(super) fn legacy_game_mode_from_new_game_code(mode: i32) -> Option<GameMode> {
         match mode {
             0 => Some(GameMode::SinglePlayer), // GAME_SINGLE_PLAYER
             1 => Some(GameMode::Multiplayer),  // GAME_LAN
@@ -1003,7 +1053,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn legacy_game_difficulty_from_new_game_code(difficulty: i32) -> GameDifficulty {
+    pub(super) fn legacy_game_difficulty_from_new_game_code(difficulty: i32) -> GameDifficulty {
         match difficulty {
             0 => GameDifficulty::Easy,
             1 => GameDifficulty::Medium,
@@ -1012,7 +1062,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn startup_new_game_dispatch_from_message(
+    pub(super) fn startup_new_game_dispatch_from_message(
         message: &game_engine::common::message_stream::GameMessage,
     ) -> Option<StartupNewGameDispatch> {
         use game_engine::common::message_stream::GameMessageArgumentType;
@@ -1065,7 +1115,7 @@ impl CnCGameEngine {
         })
     }
 
-    fn startup_new_game_dispatch_from_messages(
+    pub(super) fn startup_new_game_dispatch_from_messages(
         messages: &[game_engine::common::message_stream::GameMessage],
     ) -> Option<StartupNewGameDispatch> {
         let mut resolved = None;
@@ -1077,7 +1127,7 @@ impl CnCGameEngine {
         resolved
     }
 
-    fn take_startup_messages_from_stream(
+    pub(super) fn take_startup_messages_from_stream(
     ) -> Result<Vec<game_engine::common::message_stream::GameMessage>, String> {
         let stream = game_engine::common::message_stream::get_message_stream();
         let mut stream_guard = stream
@@ -1092,7 +1142,7 @@ impl CnCGameEngine {
         Ok(messages)
     }
 
-    fn apply_startup_new_game_dispatch(dispatch: StartupNewGameDispatch) -> Option<String> {
+    pub(super) fn apply_startup_new_game_dispatch(dispatch: StartupNewGameDispatch) -> Option<String> {
         let mut prepared_map_name = None;
         let mut global = game_engine::common::global_data::write();
 
@@ -1116,7 +1166,7 @@ impl CnCGameEngine {
         prepared_map_name
     }
 
-    fn resolve_startup_mode_from_dispatch(
+    pub(super) fn resolve_startup_mode_from_dispatch(
         start_in_menu: &mut bool,
         map_to_load: &mut Option<String>,
         startup_new_game: Option<StartupNewGameDispatch>,
@@ -1156,7 +1206,7 @@ impl CnCGameEngine {
 
     /// Pull MSG_NEW_GAME out of the common message stream without discarding
     /// unrelated messages. Returns a fully resolved start_game_from_ui tuple.
-    fn take_pending_new_game_start_request(
+    pub(super) fn take_pending_new_game_start_request(
         &self,
     ) -> Option<(
         GameMode,
@@ -1170,7 +1220,7 @@ impl CnCGameEngine {
 
     /// Remove every `NewGame` message from the common stream, keeping others.
     /// Returns the last NewGame dispatch (C++ prefers the latest enqueue).
-    fn take_new_game_dispatch_from_common_stream() -> Option<StartupNewGameDispatch> {
+    pub(super) fn take_new_game_dispatch_from_common_stream() -> Option<StartupNewGameDispatch> {
         let stream = game_engine::common::message_stream::get_message_stream();
         let mut stream_guard = match stream.write() {
             Ok(g) => g,
@@ -1206,7 +1256,7 @@ impl CnCGameEngine {
     }
 
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
-    fn build_start_request_from_pending_globals(
+    pub(super) fn build_start_request_from_pending_globals(
         &self,
         dispatch: Option<StartupNewGameDispatch>,
     ) -> Option<(
@@ -1264,10 +1314,10 @@ impl CnCGameEngine {
         Some((mode, faction, map, skirmish))
     }
 
-    const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;
-    const CAUSTIC_WARMUP_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+    pub(super) const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;
+    pub(super) const CAUSTIC_WARMUP_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
-    fn runtime_host_enabled(&self) -> bool {
+    pub(super) fn runtime_host_enabled(&self) -> bool {
         self.runtime_host_active
     }
 
@@ -1277,7 +1327,7 @@ impl CnCGameEngine {
     /// (`Some(true)`), or the platform cannot query visibility (`None` →
     /// `unwrap_or(!headless)`). Headless stays false even if the hidden
     /// window later reports `Some(true)`.
-    fn runtime_host_window_visible(&self) -> bool {
+    pub(super) fn runtime_host_window_visible(&self) -> bool {
         !self.runtime_host_headless
             && self
                 .window
@@ -1285,7 +1335,7 @@ impl CnCGameEngine {
                 .unwrap_or(!self.runtime_host_headless)
     }
 
-    fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
+    pub(super) fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
         let projected = match state {
             UISystemState::MainMenu => "MainMenu",
             UISystemState::FactionSelection => "FactionSelection",
@@ -1297,20 +1347,20 @@ impl CnCGameEngine {
         self.runtime_host_base_ui_screen = Some(projected.to_string());
     }
 
-    fn set_runtime_host_ui_screen_override(&mut self, screen: Option<&str>) {
+    pub(super) fn set_runtime_host_ui_screen_override(&mut self, screen: Option<&str>) {
         self.runtime_host_ui_screen_override = screen
             .map(|value| value.trim())
             .filter(|value| !value.is_empty())
             .map(str::to_string);
     }
 
-    fn take_runtime_host_pending_capture(&mut self) -> bool {
+    pub(super) fn take_runtime_host_pending_capture(&mut self) -> bool {
         let pending = self.runtime_host_pending_capture;
         self.runtime_host_pending_capture = false;
         pending
     }
 
-    fn runtime_host_status_snapshot(&mut self) -> RuntimeHostSnapshot {
+    pub(super) fn runtime_host_status_snapshot(&mut self) -> RuntimeHostSnapshot {
         // Wave 556: prefer presentation victory residual when installed (no live
         // re-evaluate dual-read). Boot residual only without freeze.
         let (match_over, victory_label) = self.presentation_or_boot_match_over_label();
@@ -1495,11 +1545,11 @@ impl CnCGameEngine {
     /// Unknown residual-audit host actions fail closed.
     /// Default production builds do not compile residual packs; callers pass `false`.
     #[inline]
-    fn host_unknown_action_fail_closed(&self, residual_pack_ok: bool) -> bool {
+    pub(super) fn host_unknown_action_fail_closed(&self, residual_pack_ok: bool) -> bool {
         residual_pack_ok
     }
 
-    fn parse_runtime_host_mode(mode: Option<&str>) -> GameMode {
+    pub(super) fn parse_runtime_host_mode(mode: Option<&str>) -> GameMode {
         match mode
             .unwrap_or("skirmish")
             .trim()
@@ -1515,8 +1565,12 @@ impl CnCGameEngine {
             _ => GameMode::Skirmish,
         }
     }
+}
 
-    fn apply_runtime_host_command(&mut self, raw_command: &str) {
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn apply_runtime_host_command(&mut self, raw_command: &str) {
         let mut parts = raw_command.split('|');
         let command = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
         if command.is_empty() {
@@ -11734,8 +11788,12 @@ impl CnCGameEngine {
             }
         }
     }
+}
 
-    fn enter_shell_menu_from_runtime_host(&mut self, override_screen: Option<&'static str>) {
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn enter_shell_menu_from_runtime_host(&mut self, override_screen: Option<&'static str>) {
         self.set_runtime_host_ui_screen_override(override_screen);
         self.ui_manager.suspend_for_shell_overlay();
         // Wave 845: shell residual — presentation peels treat FOW shell bypass as true.
@@ -11745,7 +11803,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn enter_shell_screen_from_runtime_host(
+    pub(super) fn enter_shell_screen_from_runtime_host(
         &mut self,
         override_screen: Option<&'static str>,
         layout_file: &'static str,
@@ -11771,7 +11829,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn enter_shell_options_from_runtime_host(&mut self) {
+    pub(super) fn enter_shell_options_from_runtime_host(&mut self) {
         self.enter_shell_menu_from_runtime_host(Some("Options"));
         #[cfg(feature = "game_client")]
         {
@@ -11789,7 +11847,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn loading_visual_phase(elapsed_seconds: f32) -> (&'static str, f32) {
+    pub(super) fn loading_visual_phase(elapsed_seconds: f32) -> (&'static str, f32) {
         if elapsed_seconds < 1.0 {
             ("Initializing engine", (elapsed_seconds / 1.0) * 0.15)
         } else if elapsed_seconds < 4.0 {
@@ -11810,7 +11868,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn ui_window_manager_has_windows(&self) -> bool {
+    pub(super) fn ui_window_manager_has_windows(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
             game_client::gui::with_window_manager_ref(|wm| wm.window_count() > 0)
@@ -11821,7 +11879,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn gameplay_ui_active(&self) -> bool {
+    pub(super) fn gameplay_ui_active(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
             game_client::helpers::TheInGameUI::get_input_enabled()
@@ -11833,7 +11891,7 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    fn load_screen_game_mode(mode: GameMode) -> game_client::gui::load_screen::LoadScreenGameMode {
+    pub(super) fn load_screen_game_mode(mode: GameMode) -> game_client::gui::load_screen::LoadScreenGameMode {
         match mode {
             GameMode::SinglePlayer => {
                 game_client::gui::load_screen::LoadScreenGameMode::SinglePlayer
@@ -11849,7 +11907,7 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    fn select_cpp_load_screen(
+    pub(super) fn select_cpp_load_screen(
         &self,
         mode: GameMode,
         loading_save_game: bool,
@@ -11873,12 +11931,12 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    fn prepare_cpp_load_screen_for_mode(&mut self, mode: GameMode, loading_save_game: bool) {
+    pub(super) fn prepare_cpp_load_screen_for_mode(&mut self, mode: GameMode, loading_save_game: bool) {
         self.active_load_screen = self.select_cpp_load_screen(mode, loading_save_game);
     }
 
     #[cfg(feature = "game_client")]
-    fn load_screen_init_context(&self) -> game_client::gui::load_screen::LoadScreenInitContext {
+    pub(super) fn load_screen_init_context(&self) -> game_client::gui::load_screen::LoadScreenInitContext {
         // Prefer presentation game_mode residual when installed.
         let game_info_context = match self.presentation_or_live_game_mode() {
             GameMode::Lan | GameMode::Multiplayer => Some({
@@ -11971,7 +12029,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn ensure_shell_loading_overlay(&mut self) {
+    pub(super) fn ensure_shell_loading_overlay(&mut self) {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = DEFAULT_LOADING_PHASE.to_string();
         }
@@ -12014,7 +12072,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn hide_shell_loading_overlay(&mut self) {
+    pub(super) fn hide_shell_loading_overlay(&mut self) {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = "Startup complete".to_string();
         }
@@ -12036,7 +12094,7 @@ impl CnCGameEngine {
     /// C++ parity: Shell::push("Menus/MainMenu.wnd") + Shell::doPush()
     /// GameLogic::startNewGame() line 2198: TheShell->push("Menus/MainMenu.wnd")
     /// when m_gameMode == GAME_SHELL && screenCount == 0.
-    fn show_shell_menu(&mut self) {
+    pub(super) fn show_shell_menu(&mut self) {
         #[cfg(feature = "game_client")]
         {
             if self.shell_menu_active {
@@ -12089,7 +12147,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn hide_shell_menu(&mut self) {
+    pub(super) fn hide_shell_menu(&mut self) {
         #[cfg(feature = "game_client")]
         {
             if !self.shell_menu_active {
@@ -12104,7 +12162,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn log_startup_health_summary(&mut self) {
+    pub(super) fn log_startup_health_summary(&mut self) {
         if self.startup_health_summary_logged {
             return;
         }
@@ -12122,7 +12180,7 @@ impl CnCGameEngine {
         self.startup_health_summary_logged = true;
     }
 
-    fn update_shell_loading_progress(&mut self, progress: f32, phase: Option<&str>) {
+    pub(super) fn update_shell_loading_progress(&mut self, progress: f32, phase: Option<&str>) {
         self.startup_last_reported_progress = progress.clamp(0.0, 1.0);
         if let Some(phase) = phase {
             let phase = phase.trim();
@@ -12143,7 +12201,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn observe_startup_progress(&mut self, progress: f32, phase: &str) {
+    pub(super) fn observe_startup_progress(&mut self, progress: f32, phase: &str) {
         let progress = progress.clamp(0.0, 1.0);
         if progress > self.startup_last_reported_progress + 0.001 {
             self.startup_last_reported_progress = progress;
@@ -12188,7 +12246,7 @@ impl CnCGameEngine {
         self.startup_last_stall_warning_at = Some(Instant::now());
     }
 
-    fn startup_stall_warning_threshold(progress: f32, phase: &str) -> Duration {
+    pub(super) fn startup_stall_warning_threshold(progress: f32, phase: &str) -> Duration {
         let phase = phase.trim().to_ascii_lowercase();
         if phase.contains("priming shell simulation") {
             Duration::from_secs(25)
@@ -12205,7 +12263,7 @@ impl CnCGameEngine {
     }
 
     /// Hide in-game layouts when returning to shell menus (C++ HideControlBar parity).
-    fn hide_gameplay_layouts(&mut self) {
+    pub(super) fn hide_gameplay_layouts(&mut self) {
         info!(
             "hide_gameplay_layouts: ControlBar / in-game layout teardown (shell overlay owns UI)"
         );
@@ -12219,7 +12277,7 @@ impl CnCGameEngine {
     /// C++ `ShowControlBar` loads ControlBar.wnd. This is **not** a silent no-op:
     /// it resolves retail assets, validates them, and attempts a window load when
     /// the client GUI is available. Missing assets are logged honestly.
-    fn ensure_gameplay_layouts(&mut self) {
+    pub(super) fn ensure_gameplay_layouts(&mut self) {
         // C++ ShowControlBar residual: resolve + validate + headless WindowManager load
         // when assets present. Does not claim windowed W3D retail draw.
         let honesty = crate::gameplay_layout::control_bar_layout_honesty(true);
@@ -12247,7 +12305,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn to_engine_timing(clock: ClockFrameTiming, frame_start: Instant) -> FrameTiming {
+    pub(super) fn to_engine_timing(clock: ClockFrameTiming, frame_start: Instant) -> FrameTiming {
         let sync_time = clock.total_time.as_millis() as u32;
         let previous_sync_time = sync_time.saturating_sub(clock.delta_time.as_millis() as u32);
         FrameTiming {
@@ -12265,7 +12323,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn configured_startup_shell_map() -> Option<String> {
+    pub(super) fn configured_startup_shell_map() -> Option<String> {
         let global = game_engine::common::global_data::read();
         if !global.writable.shell_map_on {
             return None;
@@ -12288,20 +12346,20 @@ impl CnCGameEngine {
         None
     }
 
-    fn current_startup_logic_frame(&self) -> u64 {
+    pub(super) fn current_startup_logic_frame(&self) -> u64 {
         // Use engine frame cadence for startup budgeting. Game-logic frame counters can jump
         // during long blocking startup operations, which over-ages menu startup budgets.
         self.frame_counter as u64
     }
 
-    fn shell_start_frame(&self) -> Option<u64> {
+    pub(super) fn shell_start_frame(&self) -> Option<u64> {
         // Anchor startup age to the frame where menu state became active when available.
         // Shell enqueue can happen earlier during loading and should not age out menu
         // startup budgets before first visible menu frames.
         self.menu_enter_frame.or(self.shell_ui_enqueued_frame)
     }
 
-    fn startup_deferred_model_load_budget(
+    pub(super) fn startup_deferred_model_load_budget(
         current_state: GameState,
         startup_frame: Option<u64>,
         current_logic_frame: u64,
@@ -12323,12 +12381,12 @@ impl CnCGameEngine {
         }
     }
 
-    fn maybe_trigger_deferred_caustic_warmup(&mut self) {
+    pub(super) fn maybe_trigger_deferred_caustic_warmup(&mut self) {
         let _ = self;
     }
 
     #[cfg(feature = "game_client")]
-    fn should_skip_world_scene_for_shell_menu(&self) -> bool {
+    pub(super) fn should_skip_world_scene_for_shell_menu(&self) -> bool {
         // Loading: no 3D world.
         // Menu: draw shell-map world for a short warmup, then UI-only.
         // InGame/Paused/Victory/Defeat: always draw the match world.
@@ -12344,11 +12402,11 @@ impl CnCGameEngine {
     }
 
     #[cfg(not(feature = "game_client"))]
-    fn should_skip_world_scene_for_shell_menu(&self) -> bool {
+    pub(super) fn should_skip_world_scene_for_shell_menu(&self) -> bool {
         false
     }
 
-    fn configured_startup_camera_defaults() -> StartupCameraDefaults {
+    pub(super) fn configured_startup_camera_defaults() -> StartupCameraDefaults {
         let global = game_engine::common::global_data::read();
         StartupCameraDefaults {
             pitch_degrees: global.camera_pitch,
@@ -12358,7 +12416,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn select_startup_camera_focus(
+    pub(super) fn select_startup_camera_focus(
         is_shell_game: bool,
         metadata_target: Option<Vec2>,
         team_target: Option<Vec2>,
@@ -12376,7 +12434,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn bootstrap_camera_for_loaded_map(
+    pub(super) fn bootstrap_camera_for_loaded_map(
         // Wave 473: presentation freeze only — no live GameLogic dual-read.
         is_shell_game: bool,
         current_player_id: u32,
@@ -12493,7 +12551,7 @@ impl CnCGameEngine {
         (camera_target, camera_position, zoom)
     }
 
-    fn sample_startup_camera_heights(
+    pub(super) fn sample_startup_camera_heights(
         // Wave 473: presentation height grid only — no live GameLogic dual-read.
         terrain_target: Vec3,
         fallback_ground_height: f32,
@@ -12543,7 +12601,7 @@ impl CnCGameEngine {
         (ground_height, terrain_height_max)
     }
 
-    fn compute_default_camera_zoom_from_heights(
+    pub(super) fn compute_default_camera_zoom_from_heights(
         ground_height: f32,
         terrain_height_max: f32,
         defaults: StartupCameraDefaults,
@@ -12561,7 +12619,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn compute_default_camera_zoom_for_target(&self, target: Vec3, max_height_scale: f32) -> f32 {
+    pub(super) fn compute_default_camera_zoom_for_target(&self, target: Vec3, max_height_scale: f32) -> f32 {
         let defaults = Self::configured_startup_camera_defaults();
         // Wave 241: no live dual-read when presentation freeze is installed.
         let (ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
@@ -12577,11 +12635,11 @@ impl CnCGameEngine {
         )
     }
 
-    fn write_startup_debug_state(&self) {
+    pub(super) fn write_startup_debug_state(&self) {
         let _ = self;
     }
 
-    fn emit_startup_load_progress(
+    pub(super) fn emit_startup_load_progress(
         sender: &mpsc::Sender<StartupLoadMessage>,
         progress: f32,
         phase: &str,
@@ -12592,7 +12650,7 @@ impl CnCGameEngine {
         });
     }
 
-    fn spawn_startup_map_load(
+    pub(super) fn spawn_startup_map_load(
         start_in_menu: bool,
         map_to_load: Option<String>,
         map_requested_from_cli: bool,
@@ -13261,12 +13319,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 610: via `host_finalize_startup_map_load`.
-    fn finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
+    pub(super) fn finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
         // Wave 610: thin wrapper — residual via host helper.
         self.host_finalize_startup_map_load(result)
     }
 
-    fn host_finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
+    pub(super) fn host_finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
         // Wave 610: host residual helper.
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
         self.host_replace_game_logic(result.game_logic);
@@ -13363,7 +13421,7 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    fn update_startup_loading(&mut self) -> Result<()> {
+    pub(super) fn update_startup_loading(&mut self) -> Result<()> {
         let mut result: Option<std::result::Result<StartupLoadResult, String>> = None;
         let mut visual_phase = None::<String>;
         let mut visual_progress = None::<f32>;
@@ -13457,7 +13515,11 @@ impl CnCGameEngine {
             Err(err) => Err(anyhow::anyhow!(err)),
         }
     }
+}
 
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
     pub async fn new(window: Arc<Window>, command_line: Arc<CommandLineArgs>) -> Result<Self> {
         let total_timer = InitTimer::new("🎮 Engine initialization");
         info!("🎮 Initializing Command & Conquer Generals Zero Hour Game Engine");
@@ -14114,7 +14176,7 @@ impl CnCGameEngine {
         Ok(engine)
     }
 
-    fn apply_command_line_overrides(command_line: &CommandLineArgs) {
+    pub(super) fn apply_command_line_overrides(command_line: &CommandLineArgs) {
         let allow_debug_flags = Self::allow_debug_startup_flags();
         let shell_map_override = if allow_debug_flags {
             Self::command_line_option_value_case_insensitive(command_line, "shellmap")
@@ -14213,17 +14275,17 @@ impl CnCGameEngine {
         localization::set_language(language);
     }
 
-    fn initialize_cpp_startup_masks() {
+    pub(super) fn initialize_cpp_startup_masks() {
         game_engine::common::system::kind_of::init_kind_of_masks();
         Self::init_disabled_masks();
         gamelogic::damage::init_damage_type_flags();
     }
 
-    fn init_disabled_masks() {
+    pub(super) fn init_disabled_masks() {
         game_engine::common::system::disabled_types::init_disabled_masks();
     }
 
-    fn startup_water_weather_ini_paths() -> [&'static str; 4] {
+    pub(super) fn startup_water_weather_ini_paths() -> [&'static str; 4] {
         [
             "Data/INI/Default/Water.ini",
             "Data/INI/Water.ini",
@@ -14232,7 +14294,7 @@ impl CnCGameEngine {
         ]
     }
 
-    fn preload_startup_water_weather_inis() {
+    pub(super) fn preload_startup_water_weather_inis() {
         let mut ini = game_engine::common::ini::INI::new();
         for path in Self::startup_water_weather_ini_paths() {
             match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
@@ -14247,13 +14309,13 @@ impl CnCGameEngine {
 
     /// C++ parity: GameEngine.cpp:480 — AIData.ini load paths.
     /// Loaded after Upgrade, before Crate.
-    fn startup_ai_data_ini_paths() -> [&'static str; 2] {
+    pub(super) fn startup_ai_data_ini_paths() -> [&'static str; 2] {
         ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"]
     }
 
     /// Load AIData.ini (Default + override) into the AI data store.
     /// C++ parity: GameEngine.cpp:480 initSubsystem(TheAI, ..., "Data\\INI\\Default\\AIData.ini", "Data\\INI\\AIData.ini")
-    fn preload_startup_ai_data_inis() {
+    pub(super) fn preload_startup_ai_data_inis() {
         let mut ini = game_engine::common::ini::INI::new();
         for path in Self::startup_ai_data_ini_paths() {
             match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
@@ -14266,11 +14328,11 @@ impl CnCGameEngine {
         }
     }
 
-    fn startup_audio_should_quit(no_audio: bool, audio_ready: bool) -> bool {
+    pub(super) fn startup_audio_should_quit(no_audio: bool, audio_ready: bool) -> bool {
         !no_audio && !audio_ready
     }
 
-    fn apply_startup_audio_channel_flags() {
+    pub(super) fn apply_startup_audio_channel_flags() {
         let global = game_engine::common::global_data::read();
         let audio_on = global.writable.audio_on;
         let music_on = global.writable.music_on;
@@ -14290,13 +14352,13 @@ impl CnCGameEngine {
         });
     }
 
-    fn allow_debug_startup_flags() -> bool {
+    pub(super) fn allow_debug_startup_flags() -> bool {
         // PARITY_NOTE: C++ gates debug flags on internal builds only.
         // Rust allows -noaudio and similar flags in all builds for cross-platform compatibility.
         true
     }
 
-    fn remove_legacy_duplicate_inizh_big_best_effort() {
+    pub(super) fn remove_legacy_duplicate_inizh_big_best_effort() {
         let legacy_path = std::path::Path::new("Data").join("INI").join("INIZH.big");
         if !legacy_path.exists() {
             return;
@@ -14315,12 +14377,12 @@ impl CnCGameEngine {
         }
     }
 
-    fn hide_control_bar(&mut self) {
+    pub(super) fn hide_control_bar(&mut self) {
         // GameHUD only exposes a visibility toggle; it starts visible at boot.
         self.game_hud.toggle_visibility();
     }
 
-    fn load_mods_best_effort() {
+    pub(super) fn load_mods_best_effort() {
         game_engine::common::system::archive_file_system::init_archive_file_system();
 
         let (mod_dir, mod_big) = {
@@ -14347,7 +14409,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_fps_limit_overrides_from_raw_args(
+    pub(super) fn apply_fps_limit_overrides_from_raw_args(
         raw_args: &[String],
         writable: &mut game_engine::common::command_line::WritableGlobalData,
     ) {
@@ -14388,7 +14450,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_ordered_startup_overrides_from_raw_args(
+    pub(super) fn apply_ordered_startup_overrides_from_raw_args(
         raw_args: &[String],
         writable: &mut game_engine::common::command_line::WritableGlobalData,
         allow_debug_flags: bool,
@@ -14578,7 +14640,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn consume_startup_value(
+    pub(super) fn consume_startup_value(
         raw_args: &[String],
         arg_index: &mut usize,
         inline_value: Option<&str>,
@@ -14595,11 +14657,11 @@ impl CnCGameEngine {
         None
     }
 
-    fn parse_startup_i32_like_atoi(value: &str) -> i32 {
+    pub(super) fn parse_startup_i32_like_atoi(value: &str) -> i32 {
         value.trim().parse::<i32>().unwrap_or(0)
     }
 
-    fn has_command_line_option_case_insensitive(
+    pub(super) fn has_command_line_option_case_insensitive(
         command_line: &CommandLineArgs,
         option: &str,
     ) -> bool {
@@ -14609,7 +14671,7 @@ impl CnCGameEngine {
             .any(|name| name.eq_ignore_ascii_case(option))
     }
 
-    fn command_line_option_value_case_insensitive(
+    pub(super) fn command_line_option_value_case_insensitive(
         command_line: &CommandLineArgs,
         option: &str,
     ) -> Option<String> {
@@ -14622,7 +14684,7 @@ impl CnCGameEngine {
         })
     }
 
-    fn startup_initial_file_from_command_line(
+    pub(super) fn startup_initial_file_from_command_line(
         command_line: &CommandLineArgs,
         allow_debug_flags: bool,
     ) -> Option<String> {
@@ -14643,7 +14705,7 @@ impl CnCGameEngine {
             .filter(|value| !value.is_empty())
     }
 
-    fn split_startup_initial_file(
+    pub(super) fn split_startup_initial_file(
         initial_file: Option<String>,
     ) -> (Option<String>, Option<String>) {
         let Some(initial_file) = initial_file else {
@@ -14660,7 +14722,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn sync_after_intro_when_intro_disabled() {
+    pub(super) fn sync_after_intro_when_intro_disabled() {
         let mut global = game_engine::common::global_data::write();
         if !global.writable.play_intro {
             global.writable.after_intro = true;
@@ -14668,7 +14730,7 @@ impl CnCGameEngine {
     }
 
     /// Pre-load all unit models into the graphics system
-    async fn preload_unit_models_to_graphics_system(
+    pub(super) async fn preload_unit_models_to_graphics_system(
         graphics_system: &mut GraphicsSystem,
     ) -> Result<()> {
         info!("🎮 Pre-loading C&C unit models into graphics system...");
@@ -14771,7 +14833,7 @@ impl CnCGameEngine {
     }
 
     /// Pre-load all unit models that will be used in the game
-    async fn preload_unit_models(loaded_models: &mut HashMap<String, Arc<W3DModel>>) -> Result<()> {
+    pub(super) async fn preload_unit_models(loaded_models: &mut HashMap<String, Arc<W3DModel>>) -> Result<()> {
         info!("🎮 Pre-loading C&C unit models...");
 
         // Initialize a temporary game logic instance to get the templates
@@ -14874,7 +14936,7 @@ impl CnCGameEngine {
     }
 
     /// Create GPU buffers for all loaded W3D models
-    fn create_model_buffers(
+    pub(super) fn create_model_buffers(
         loaded_models: &HashMap<String, Arc<W3DModel>>,
         device: &wgpu::Device,
         model_buffers: &mut HashMap<String, (wgpu::Buffer, wgpu::Buffer, u32)>,
@@ -14963,7 +15025,11 @@ impl CnCGameEngine {
         );
         Ok(())
     }
+}
 
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             if let Err(err) = ww3d_engine::resize(new_size.width.max(1), new_size.height.max(1)) {
@@ -15245,7 +15311,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn to_ui_mouse_button(button: MouseButton) -> Option<crate::ui::MouseButton> {
+    pub(super) fn to_ui_mouse_button(button: MouseButton) -> Option<crate::ui::MouseButton> {
         match button {
             MouseButton::Left => Some(crate::ui::MouseButton::Left),
             MouseButton::Right => Some(crate::ui::MouseButton::Right),
@@ -15256,7 +15322,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn to_ui_key_code(key: &Key) -> Option<crate::ui::KeyCode> {
+    pub(super) fn to_ui_key_code(key: &Key) -> Option<crate::ui::KeyCode> {
         match key {
             Key::Named(NamedKey::Escape) => Some(crate::ui::KeyCode::Escape),
             Key::Named(NamedKey::Enter) => Some(crate::ui::KeyCode::Enter),
@@ -15400,7 +15466,7 @@ impl CnCGameEngine {
         self.update_internal(adjusted_dt);
     }
 
-    fn apply_frame_timing(&mut self, timing: FrameTiming) -> f32 {
+    pub(super) fn apply_frame_timing(&mut self, timing: FrameTiming) -> f32 {
         if matches!(self.current_state, GameState::Menu | GameState::Loading) {
             // Shell/loading frame cadence is managed by update_with_frame_clock() and event-loop
             // pacing. Running gameplay script FPS spin-waits here can stall the UI thread.
@@ -15450,7 +15516,7 @@ impl CnCGameEngine {
 
     /// Process pending state transitions
     /// Called at beginning of update cycle to handle state changes
-    fn process_state_transitions(&mut self) {
+    pub(super) fn process_state_transitions(&mut self) {
         if let Some(new_state) = self.pending_state.take() {
             self.transition_to_state(new_state);
         }
@@ -15459,14 +15525,14 @@ impl CnCGameEngine {
     /// Execute state transition with proper setup/cleanup
     /// Matches C++ GameEngine reset() and initialization patterns
     /// Wave 612: via `host_transition_to_state`.
-    fn transition_to_state(&mut self, new_state: GameState) {
+    pub(super) fn transition_to_state(&mut self, new_state: GameState) {
         // Wave 612: thin wrapper — residual via host helper.
         self.host_transition_to_state(new_state)
     }
 
     /// Execute state transition with proper setup/cleanup
     /// Matches C++ GameEngine reset() and initialization patterns
-    fn host_transition_to_state(&mut self, new_state: GameState) {
+    pub(super) fn host_transition_to_state(&mut self, new_state: GameState) {
         // Wave 612: host residual helper.
         let old_state = self.current_state;
 
@@ -15607,7 +15673,7 @@ impl CnCGameEngine {
         self.current_state == GameState::Exiting
     }
 
-    fn network_frame_data_ready_gate(multiplayer_session_active: bool) -> Option<bool> {
+    pub(super) fn network_frame_data_ready_gate(multiplayer_session_active: bool) -> Option<bool> {
         if !multiplayer_session_active {
             // C++ startup leaves `TheNetwork` unset until a live multiplayer session exists.
             return None;
@@ -15645,7 +15711,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn should_update_game_logic_frame(
+    pub(super) fn should_update_game_logic_frame(
         game_paused: bool,
         network_frame_data_ready: Option<bool>,
     ) -> bool {
@@ -15655,7 +15721,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn update_runtime_subsystems(&mut self, dt: f32) {
+    pub(super) fn update_runtime_subsystems(&mut self, dt: f32) {
         if let Some(subsystem_manager) = get_subsystem_manager() {
             let mut guard = subsystem_manager.lock();
             if let Some(timing) = self.last_frame_timing {
@@ -15668,7 +15734,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn prime_subsystems_before_menu_transition(&mut self) {
+    pub(super) fn prime_subsystems_before_menu_transition(&mut self) {
         let started = Instant::now();
         let mut max_step = Duration::ZERO;
         let mut steps = 0usize;
@@ -15694,7 +15760,7 @@ impl CnCGameEngine {
         );
     }
 
-    fn update_internal(&mut self, dt: f32) {
+    pub(super) fn update_internal(&mut self, dt: f32) {
         // Process any pending state transitions first
         self.process_state_transitions();
 
@@ -15779,7 +15845,7 @@ impl CnCGameEngine {
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
     /// Wave 609: via `host_presentation_mouse_game_logic`.
-    fn presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
+    pub(super) fn presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
         // Wave 609: thin wrapper — UI/presentation residual via host helper.
         // Wave 236: None when last_presentation_frame.is_some(); boot Some(&self.game_logic).
         if self.last_presentation_frame.is_some() {
@@ -15791,7 +15857,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
-    fn host_presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
+    pub(super) fn host_presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
         // Wave 609/841/906: always presentation-only mouse classification.
         // No live GameLogic dual-read for cursor/command classification.
         let _ = self;
@@ -15832,7 +15898,7 @@ impl CnCGameEngine {
     /// the first InGame frame has units/minimap/selection identity without waiting for
     /// the next dual-tick. Does not advance logic frames.
     /// Wave 590: via `host_seed_presentation_after_match_start`.
-    fn seed_presentation_after_match_start(&mut self) {
+    pub(super) fn seed_presentation_after_match_start(&mut self) {
         self.host_seed_presentation_after_match_start();
     }
 
@@ -16005,7 +16071,7 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
+    pub(super) fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
         // Prefer presentation world_env when installed (camera-relative minimap viewport).
         // Boot residual without a frame still uses host GameLogic bounds.
         let (world_min, world_max) = self.presentation_world_bounds();
@@ -16024,7 +16090,7 @@ impl CnCGameEngine {
     }
 
     /// Process UI events emitted by UIManager and apply to engine/game state.
-    fn process_ui_events(&mut self) {
+    pub(super) fn process_ui_events(&mut self) {
         while let Some(event) = self.ui_manager.pop_event() {
             match event {
                 UIEvent::StartGame {
@@ -16170,7 +16236,7 @@ impl CnCGameEngine {
     /// historically only updated `self.game_hud`. Dual-apply closes that gap.
 
     /// C++ TheEva residual → chat EVA lines when honesty counters advance.
-    fn sync_eva_messages_from_logic(&mut self) {
+    pub(super) fn sync_eva_messages_from_logic(&mut self) {
         // Prefer presentation-frozen EVA counters when a frame is installed
         // (no live GameLogic dual-read mid-HUD apply).
         if let Some(pres) = self.last_presentation_frame.clone() {
@@ -16182,7 +16248,7 @@ impl CnCGameEngine {
         self.sync_eva_messages_from_host_counts(lp, funds, base, ally);
     }
 
-    fn sync_eva_messages_from_presentation(
+    pub(super) fn sync_eva_messages_from_presentation(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
@@ -16204,7 +16270,7 @@ impl CnCGameEngine {
     /// Wave 538/539: presentation-only radar ping + GUIMessageReceived SFX.
     /// Fail-closed: does not dual-write GameLogic mid-frame.
     /// Wave 606: via `host_notify_presentation_ui_message`.
-    fn notify_presentation_ui_message(&mut self, message: &str) {
+    pub(super) fn notify_presentation_ui_message(&mut self, message: &str) {
         // Wave 606: thin wrapper — presentation UI notify via host helper.
         self.host_notify_presentation_ui_message(message);
     }
@@ -16213,7 +16279,7 @@ impl CnCGameEngine {
     ///
     /// Wave 536/537/538/539: presentation-only radar ping + GUIMessageReceived SFX.
     /// Fail-closed: does not dual-write GameLogic mid-frame.
-    fn host_notify_presentation_ui_message(&mut self, message: &str) {
+    pub(super) fn host_notify_presentation_ui_message(&mut self, message: &str) {
         // Wave 606: host presentation UI notify residual.
         self.game_hud
             .add_radar_message(message, None, crate::ui::RadarPingKind::Generic);
@@ -16233,13 +16299,13 @@ impl CnCGameEngine {
     /// Wave 566/603: boot residual radar + GUIMessageReceived via host GameLogic.
     /// Presentation freeze must use `notify_presentation_ui_message` instead
     /// (no mid-frame GameLogic dual-write).
-    fn notify_boot_ui_message(&mut self, message: &str, team: Option<crate::game_logic::Team>) {
+    pub(super) fn notify_boot_ui_message(&mut self, message: &str, team: Option<crate::game_logic::Team>) {
         // Wave 603: thin wrapper.
         self.host_notify_boot_ui_message(message, team);
     }
 
     /// Wave 603: host boot UI message residual (radar queue + GUIMessageReceived).
-    fn host_notify_boot_ui_message(
+    pub(super) fn host_notify_boot_ui_message(
         &mut self,
         message: &str,
         team: Option<crate::game_logic::Team>,
@@ -16251,7 +16317,7 @@ impl CnCGameEngine {
     }
 
     /// Classic-four tokens also advance `last_eva_*` so counter residual does not re-push.
-    fn apply_presentation_eva_alerts(
+    pub(super) fn apply_presentation_eva_alerts(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
@@ -16301,7 +16367,7 @@ impl CnCGameEngine {
     }
 
     /// `EVA_LOWPOWER` / table token → chat line residual.
-    fn eva_alert_human_message(name: &str) -> String {
+    pub(super) fn eva_alert_human_message(name: &str) -> String {
         let key = name
             .strip_prefix("EVA_")
             .unwrap_or(name)
@@ -16327,14 +16393,14 @@ impl CnCGameEngine {
     }
 
     /// `EVA_LOWPOWER` → `LOWPOWER` for `EvaMessage::from_name` (C++ table token).
-    fn eva_alert_client_token(name: &str) -> String {
+    pub(super) fn eva_alert_client_token(name: &str) -> String {
         name.strip_prefix("EVA_")
             .unwrap_or(name)
             .trim()
             .to_ascii_uppercase()
     }
 
-    fn sync_eva_messages_from_host_counts(
+    pub(super) fn sync_eva_messages_from_host_counts(
         &mut self,
         low_power: u32,
         funds: u32,
@@ -16370,20 +16436,24 @@ impl CnCGameEngine {
     /// Retired dual-path residual: presentation events map to AudioManager via
     /// `PresentationFrame::dispatch_audio_events_direct`. No-op so engine SFX
     /// does not double-play construction/production/upgrade cues.
-    fn play_presentation_event_sfx(
+    pub(super) fn play_presentation_event_sfx(
         &mut self,
         _frame: &crate::presentation_frame::PresentationFrame,
     ) {
         let _ = self;
     }
 
-    fn apply_presentation_to_huds(&mut self, pres: &crate::presentation_frame::PresentationFrame) {
+    pub(super) fn apply_presentation_to_huds(&mut self, pres: &crate::presentation_frame::PresentationFrame) {
         // Dual GameHUD residual: engine HUD + interactive UIManager HUD.
         pres.apply_to_game_hud(&mut self.game_hud);
         pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
     }
+}
 
-    fn commit_pending_map_command(
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn commit_pending_map_command(
         &mut self,
         location: glam::Vec3,
         target_object: Option<crate::game_logic::ObjectId>,
@@ -16498,7 +16568,7 @@ impl CnCGameEngine {
         self.host_process_commands_with_command_sound();
     }
 
-    fn cancel_structure_placement_from_ui(&mut self) {
+    pub(super) fn cancel_structure_placement_from_ui(&mut self) {
         self.pending_structure_placement = None;
         self.game_hud.construction_panel.clear_structure_placement();
         self.ui_manager
@@ -16509,7 +16579,7 @@ impl CnCGameEngine {
 
     /// Update structure placement ghost legality under cursor residual.
 
-    fn radius_cursor_type_for_special_power(
+    pub(super) fn radius_cursor_type_for_special_power(
         power: &crate::command_system::SpecialPowerType,
     ) -> &'static str {
         use crate::command_system::SpecialPowerType as P;
@@ -16537,7 +16607,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn arm_radius_cursor_for_pending(&mut self, cursor_type: &str) {
+    pub(super) fn arm_radius_cursor_for_pending(&mut self, cursor_type: &str) {
         use crate::ui::construction_panel::RadiusCursorOverlay;
         let r = RadiusCursorOverlay::radius_for_type(cursor_type);
         let mut ov = RadiusCursorOverlay::new(cursor_type, r);
@@ -16552,7 +16622,7 @@ impl CnCGameEngine {
             .set_radius_overlay(Some(ov));
     }
 
-    fn clear_radius_cursor_overlays(&mut self) {
+    pub(super) fn clear_radius_cursor_overlays(&mut self) {
         self.game_hud.construction_panel.clear_radius_overlay();
         self.ui_manager
             .game_hud_mut()
@@ -16560,7 +16630,7 @@ impl CnCGameEngine {
             .clear_radius_overlay();
     }
 
-    fn sync_pending_map_command_radius_cursor(&mut self) {
+    pub(super) fn sync_pending_map_command_radius_cursor(&mut self) {
         let Some(kind) = self.pending_map_command.clone() else {
             // Keep structure placement path separate; clear only if no pending map cmd.
             return;
@@ -16588,7 +16658,7 @@ impl CnCGameEngine {
             .sync_radius_overlay_cursor(loc.x, loc.z);
     }
 
-    fn sync_pending_structure_placement_cursor(&mut self) {
+    pub(super) fn sync_pending_structure_placement_cursor(&mut self) {
         let Some(template) = self.pending_structure_placement.clone() else {
             return;
         };
@@ -16613,7 +16683,7 @@ impl CnCGameEngine {
             .sync_structure_placement_cursor(loc.x, loc.z, legal);
     }
 
-    fn begin_structure_placement_from_ui(&mut self, template_name: &str) {
+    pub(super) fn begin_structure_placement_from_ui(&mut self, template_name: &str) {
         if template_name.trim().is_empty() {
             return;
         }
@@ -16630,7 +16700,7 @@ impl CnCGameEngine {
     }
 
     /// Pick nearest alive friendly dozer/worker for structure placement residual.
-    fn find_nearest_friendly_dozer(
+    pub(super) fn find_nearest_friendly_dozer(
         &self,
         player_id: u32,
         location: glam::Vec3,
@@ -16683,7 +16753,7 @@ impl CnCGameEngine {
         .map(|(id, _, _)| id)
     }
 
-    fn is_wall_structure_template(template_name: &str) -> bool {
+    pub(super) fn is_wall_structure_template(template_name: &str) -> bool {
         let n = template_name.to_ascii_lowercase();
         n.contains("wall")
             || n.contains("fence")
@@ -16695,7 +16765,7 @@ impl CnCGameEngine {
     /// Presentation-owned object identity for UI/command residual (InGame).
     /// Live GameLogic is boot residual only when no frame is installed.
     #[inline]
-    fn presentation_ro(
+    pub(super) fn presentation_ro(
         &self,
         id: crate::game_logic::ObjectId,
     ) -> Option<&crate::presentation_frame::RenderableObject> {
@@ -16709,7 +16779,7 @@ impl CnCGameEngine {
     /// Wave 580: host cancel-production residual — GameLogic cancel + construction
     /// panel queue head sync (presentation HUD residual).
     #[inline]
-    fn host_cancel_production_and_sync_hud(
+    pub(super) fn host_cancel_production_and_sync_hud(
         &mut self,
         id: crate::game_logic::ObjectId,
         template_name: String,
@@ -16745,7 +16815,7 @@ impl CnCGameEngine {
     /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
     #[inline]
-    fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
+    pub(super) fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
         // Wave 579/866/913/933: selection residual via session-control authority.
         // Skip authority select_objects when residual already matches.
         let already =
@@ -16765,7 +16835,7 @@ impl CnCGameEngine {
 
     /// Wave 579: host map-load residual with default fallback.
     #[inline]
-    fn host_load_map_or_default(&mut self, map_name: &str) {
+    pub(super) fn host_load_map_or_default(&mut self, map_name: &str) {
         // Wave 579/871/918/922: load_map_or_fallback residual (single authority boundary).
         // Skip reload dual-write when host residual already matches this map identity.
         if self.host_match_map_name.as_deref() == Some(map_name) {
@@ -16783,7 +16853,7 @@ impl CnCGameEngine {
         self.host_stamp_sim_timing_residuals();
     }
 
-    fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
+    pub(super) fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
         // Wave 577/868/903: host camera target residual only (no request_camera_focus dual-read).
         // Presentation freeze / Main camera_target own observe path.
         let clamped = self.clamp_to_world_bounds(world_pos);
@@ -16794,7 +16864,7 @@ impl CnCGameEngine {
 
     /// Wave 577: host start-new-game residual with faction team (optional skirmish AI).
     #[inline]
-    fn host_start_new_game_with_faction(
+    pub(super) fn host_start_new_game_with_faction(
         &mut self,
         mode: crate::game_logic::GameMode,
         faction_team: crate::game_logic::Team,
@@ -16818,7 +16888,7 @@ impl CnCGameEngine {
         self.host_stamp_sim_timing_residuals();
     }
 
-    fn host_process_commands_with_command_sound(&mut self) {
+    pub(super) fn host_process_commands_with_command_sound(&mut self) {
         // Wave 576/870/914/915/918/932: process + Command SFX via command-pipeline authority.
         // Empty queue skips process dual-write and Command SFX (no has_pending dual-read).
         if !self
@@ -16836,7 +16906,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host queue-command residual (no immediate process flush).
     #[inline]
-    fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
+    pub(super) fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
         // Wave 584/872/874/916/932: host queue residual via command-pipeline authority.
         // Queue-only path does not stamp sim timing — process/tick residuals own clocks.
         let _ = self
@@ -16846,7 +16916,7 @@ impl CnCGameEngine {
 
     /// Wave 576: queue a GameCommand then flush with Command SFX.
     #[inline]
-    fn host_queue_and_process_command(&mut self, command: crate::command_system::GameCommand) {
+    pub(super) fn host_queue_and_process_command(&mut self, command: crate::command_system::GameCommand) {
         // Wave 576/874: queue + process + Command SFX residual via host helpers.
         self.host_queue_command(command);
         self.host_process_commands_with_command_sound();
@@ -16855,7 +16925,7 @@ impl CnCGameEngine {
     /// Wave 576/578: queue + process without Command SFX (upgrade/honesty/UI residual paths).
     /// Wave 578: force_attack/construct/science residual peels use this helper.
     #[inline]
-    fn host_queue_and_process_command_silent(
+    pub(super) fn host_queue_and_process_command_silent(
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
@@ -16869,7 +16939,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn host_set_paused(&mut self, paused: bool) {
+    pub(super) fn host_set_paused(&mut self, paused: bool) {
         // Wave 575/601/867/892/913/933: pause residual via session-control authority.
         // Skip authority set_paused when host residual already matches.
         if self.game_paused != paused {
@@ -16889,7 +16959,7 @@ impl CnCGameEngine {
         self.host_match_time_frozen = Some(script_frozen || paused);
     }
 
-    fn boot_local_player_id_from_host(&self) -> u32 {
+    pub(super) fn boot_local_player_id_from_host(&self) -> u32 {
         // Wave 574/892/897: prefer stamped host_match_local_player_id before host residual.
         if let Some(id) = self.host_match_local_player_id {
             return id;
@@ -16901,14 +16971,14 @@ impl CnCGameEngine {
     /// Local/human player id for UI command issue. Prefers presentation freeze.
     /// Wave 574: boot path via `boot_local_player_id_from_host`.
     /// Wave 607: via `host_local_player_id_for_ui`.
-    fn local_player_id_for_ui(&self) -> u32 {
+    pub(super) fn local_player_id_for_ui(&self) -> u32 {
         // Wave 607: thin wrapper — UI residual via host helper.
         self.host_local_player_id_for_ui()
     }
 
     /// Local/human player id for UI command issue. Prefers presentation freeze.
     /// Wave 574: boot path via `boot_local_player_id_from_host`.
-    fn host_local_player_id_for_ui(&self) -> u32 {
+    pub(super) fn host_local_player_id_for_ui(&self) -> u32 {
         // Wave 607: host UI residual helper.
         // Wave 240/555: presentation freeze owns local player residual when installed.
         if self.last_presentation_frame.is_some() {
@@ -16922,13 +16992,13 @@ impl CnCGameEngine {
 
     /// Local team for UI. Prefers presentation freeze.
     /// Wave 607: via `host_local_team_for_ui`.
-    fn local_team_for_ui(&self) -> crate::game_logic::Team {
+    pub(super) fn local_team_for_ui(&self) -> crate::game_logic::Team {
         // Wave 607: thin wrapper — UI residual via host helper.
         self.host_local_team_for_ui()
     }
 
     /// Local team for UI. Prefers presentation freeze.
-    fn host_local_team_for_ui(&self) -> crate::game_logic::Team {
+    pub(super) fn host_local_team_for_ui(&self) -> crate::game_logic::Team {
         // Wave 607: host UI residual helper.
         // Wave 240/555: via presentation_or_boot_local_team helper.
         self.presentation_or_boot_local_team()
@@ -16936,7 +17006,7 @@ impl CnCGameEngine {
 
     /// Wave 573: boot residual player roster probe (no presentation freeze).
     /// Shared by `ui_player_info` and `presentation_or_boot_diplomacy_players`.
-    fn boot_player_info_from_host(
+    pub(super) fn boot_player_info_from_host(
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
@@ -16952,7 +17022,7 @@ impl CnCGameEngine {
         None
     }
 
-    fn ui_player_info(
+    pub(super) fn ui_player_info(
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
@@ -16964,7 +17034,7 @@ impl CnCGameEngine {
     /// When freeze is installed, missing player_info fails closed (no host
     /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
     /// Wave 573: boot path via `boot_player_info_from_host`.
-    fn host_ui_player_info(
+    pub(super) fn host_ui_player_info(
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
@@ -16982,26 +17052,26 @@ impl CnCGameEngine {
 
     #[inline]
     /// Wave 607: via `host_ui_player_team`.
-    fn ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
+    pub(super) fn ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
         // Wave 607: thin wrapper — UI residual via host helper.
         self.host_ui_player_team(player_id)
     }
 
     #[inline]
-    fn host_ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
+    pub(super) fn host_ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
         // Wave 607: host UI residual helper.
         self.ui_player_info(player_id).map(|p| p.team)
     }
 
     #[inline]
     /// Wave 607: via `host_ui_player_name`.
-    fn ui_player_name(&self, player_id: u32) -> Option<String> {
+    pub(super) fn ui_player_name(&self, player_id: u32) -> Option<String> {
         // Wave 607: thin wrapper — UI residual via host helper.
         self.host_ui_player_name(player_id)
     }
 
     #[inline]
-    fn host_ui_player_name(&self, player_id: u32) -> Option<String> {
+    pub(super) fn host_ui_player_name(&self, player_id: u32) -> Option<String> {
         // Wave 607: host UI residual helper.
         self.ui_player_info(player_id).map(|p| p.name)
     }
@@ -17009,14 +17079,14 @@ impl CnCGameEngine {
     #[inline]
     /// Wave 575: local team name via presentation_or_boot_local_team (freeze prefer).
     /// Wave 607: via `host_ui_local_player_team_name`.
-    fn ui_local_player_team_name(&self) -> Option<String> {
+    pub(super) fn ui_local_player_team_name(&self) -> Option<String> {
         // Wave 607: thin wrapper — UI residual via host helper.
         self.host_ui_local_player_team_name()
     }
 
     #[inline]
     /// Wave 575: local team name via presentation_or_boot_local_team (freeze prefer).
-    fn host_ui_local_player_team_name(&self) -> Option<String> {
+    pub(super) fn host_ui_local_player_team_name(&self) -> Option<String> {
         // Wave 607: host UI residual helper.
         // Wave 575: prefer presentation-or-boot local team residual.
         Some(
@@ -17029,14 +17099,14 @@ impl CnCGameEngine {
     /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
     /// Wave 252: script default camera residuals via presentation freeze.
     /// Wave 607: via `host_ui_script_default_camera_max_height`.
-    fn ui_script_default_camera_max_height(&self) -> f32 {
+    pub(super) fn ui_script_default_camera_max_height(&self) -> f32 {
         // Wave 607: thin wrapper — UI residual via host helper.
         self.host_ui_script_default_camera_max_height()
     }
 
     /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
     /// Wave 252: script default camera residuals via presentation freeze.
-    fn host_ui_script_default_camera_max_height(&self) -> f32 {
+    pub(super) fn host_ui_script_default_camera_max_height(&self) -> f32 {
         // Wave 607/858: host UI residual helper.
         // Wave 252: presentation freeze first.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -17050,12 +17120,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 609: via `host_ui_script_default_camera_pitch`.
-    fn ui_script_default_camera_pitch(&self) -> f32 {
+    pub(super) fn ui_script_default_camera_pitch(&self) -> f32 {
         // Wave 609: thin wrapper — UI/presentation residual via host helper.
         self.host_ui_script_default_camera_pitch()
     }
 
-    fn host_ui_script_default_camera_pitch(&self) -> f32 {
+    pub(super) fn host_ui_script_default_camera_pitch(&self) -> f32 {
         // Wave 609/858: host UI/presentation residual helper.
         // Wave 252: presentation freeze first.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -17069,12 +17139,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 609: via `host_ui_selection_seed_id`.
-    fn ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+    pub(super) fn ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
         // Wave 609: thin wrapper — UI/presentation residual via host helper.
         self.host_ui_selection_seed_id()
     }
 
-    fn host_ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+    pub(super) fn host_ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
         // Wave 609/850: host UI/presentation residual helper.
         // Wave 215/544: prefer engine selection residual, then presentation freeze.
         // When a presentation freeze is installed, empty selection seed fails closed
@@ -17102,13 +17172,13 @@ impl CnCGameEngine {
 
     /// Wave 234: local science purchase points prefer presentation freeze.
     /// Wave 610: via `host_ui_local_science_purchase_points`.
-    fn ui_local_science_purchase_points(&self) -> i32 {
+    pub(super) fn ui_local_science_purchase_points(&self) -> i32 {
         // Wave 610: thin wrapper — residual via host helper.
         self.host_ui_local_science_purchase_points()
     }
 
     /// Wave 234: local science purchase points prefer presentation freeze.
-    fn host_ui_local_science_purchase_points(&self) -> i32 {
+    pub(super) fn host_ui_local_science_purchase_points(&self) -> i32 {
         // Wave 610/868: host residual helper.
         // Presentation freeze first, then host-stamped residual, then boot probe.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
@@ -17123,7 +17193,7 @@ impl CnCGameEngine {
 
     /// Wave 238: local economy prefers presentation freeze.
     /// Wave 609: via `host_ui_local_economy`.
-    fn ui_local_economy(
+    pub(super) fn ui_local_economy(
         &self,
     ) -> (
         i32, /*money*/
@@ -17135,7 +17205,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 238: local economy prefers presentation freeze.
-    fn host_ui_local_economy(
+    pub(super) fn host_ui_local_economy(
         &self,
     ) -> (
         i32, /*money*/
@@ -17154,14 +17224,14 @@ impl CnCGameEngine {
     }
 
     #[inline]
-    fn ui_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn ui_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
         // Presentation-only identity for InGame UI residual.
         self.presentation_ro(id)
             .is_some_and(|o| !o.destroyed && o.health_current > 0.0)
     }
 
     #[inline]
-    fn ui_object_is_dozer(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn ui_object_is_dozer(&self, id: crate::game_logic::ObjectId) -> bool {
         // Presentation-only identity for InGame UI residual.
         let Some(o) = self.presentation_ro(id) else {
             return false;
@@ -17180,7 +17250,7 @@ impl CnCGameEngine {
     }
 
     #[inline]
-    fn ui_object_can_produce(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn ui_object_can_produce(&self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 215: presentation-only (no live GameLogic dual-read residual).
         self.presentation_ro(id).is_some_and(|o| {
             o.can_produce && !o.destroyed && !o.under_construction && o.health_current > 0.0
@@ -17188,21 +17258,21 @@ impl CnCGameEngine {
     }
 
     #[inline]
-    fn ui_object_under_construction(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn ui_object_under_construction(&self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 215: presentation-only (no live GameLogic dual-read residual).
         self.presentation_ro(id)
             .is_some_and(|o| o.under_construction && !o.destroyed && o.health_current > 0.0)
     }
 
     #[inline]
-    fn ui_production_queue_head(&self, id: crate::game_logic::ObjectId) -> Option<String> {
+    pub(super) fn ui_production_queue_head(&self, id: crate::game_logic::ObjectId) -> Option<String> {
         // Presentation-only identity for InGame UI residual.
         self.presentation_ro(id)
             .and_then(|o| o.production_queue.first().map(|p| p.template_name.clone()))
     }
 
     #[inline]
-    fn ui_special_power_ready(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn ui_special_power_ready(&self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 215: presentation-only (no live GameLogic dual-read residual).
         self.presentation_ro(id).is_some_and(|o| {
             o.special_power_ready && !o.destroyed && o.health_current > 0.0 && !o.under_construction
@@ -17211,7 +17281,7 @@ impl CnCGameEngine {
 
     /// Presentation special-power type residual when ready.
     #[inline]
-    fn ui_special_power_type_if_ready(
+    pub(super) fn ui_special_power_type_if_ready(
         &self,
         id: crate::game_logic::ObjectId,
     ) -> Option<crate::command_system::SpecialPowerType> {
@@ -17226,12 +17296,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 610: via `host_ui_selected_ids`.
-    fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
+    pub(super) fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
         // Wave 610: thin wrapper — residual via host helper.
         self.host_ui_selected_ids(player_id)
     }
 
-    fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
+    pub(super) fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
         // Wave 215: presentation freeze owns InGame selection residual (fail-closed
         // even if empty). No GameLogic get_player / player_selected_objects dual-read.
         let _ = player_id;
@@ -17242,7 +17312,7 @@ impl CnCGameEngine {
         )
     }
 
-    fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
+    pub(super) fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
         use crate::game_logic::host_production_buildable_command_residual::{
             lbc_help_message_residual, LBC_OK,
         };
@@ -17345,7 +17415,7 @@ impl CnCGameEngine {
         });
     }
 
-    fn place_wall_line_from_ui(&mut self, template_name: &str, start: glam::Vec3, end: glam::Vec3) {
+    pub(super) fn place_wall_line_from_ui(&mut self, template_name: &str, start: glam::Vec3, end: glam::Vec3) {
         let template = template_name.to_string();
         let player_id = self.current_player_id;
         // Wave 219: selection via presentation-first ui_selected_ids.
@@ -17388,7 +17458,7 @@ impl CnCGameEngine {
     }
 
     /// Cancel production queue head on selected producers residual (Delete key).
-    fn cancel_selected_production_queue_head(&mut self) -> bool {
+    pub(super) fn cancel_selected_production_queue_head(&mut self) -> bool {
         let player_id = self.current_player_id;
         // Wave 219: selection via presentation-first ui_selected_ids.
         let selected = self.ui_selected_ids(player_id);
@@ -17416,7 +17486,7 @@ impl CnCGameEngine {
     }
 
     /// Cancel entire production queue on selected producers residual (Ctrl+Delete).
-    fn cancel_all_selected_production(&mut self) -> bool {
+    pub(super) fn cancel_all_selected_production(&mut self) -> bool {
         let player_id = self.current_player_id;
         // Wave 219: selection via presentation-first ui_selected_ids.
         let selected = self.ui_selected_ids(player_id);
@@ -17447,7 +17517,7 @@ impl CnCGameEngine {
         any
     }
 
-    fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
+    pub(super) fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
         if template_name.trim().is_empty() {
             return;
         }
@@ -17490,7 +17560,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
+    pub(super) fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
         if template_name.trim().is_empty() || quantity == 0 {
             return;
         }
@@ -17529,7 +17599,7 @@ impl CnCGameEngine {
 
     /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
 
-    fn arm_pending_unit_ability(&mut self, ability: PendingUnitAbility, msg: &str) {
+    pub(super) fn arm_pending_unit_ability(&mut self, ability: PendingUnitAbility, msg: &str) {
         self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
         self.pending_structure_placement = None;
         self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
@@ -17537,7 +17607,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
-    fn issue_named_command_from_ui(&mut self, command_name: &str) {
+    pub(super) fn issue_named_command_from_ui(&mut self, command_name: &str) {
         let Some(command_type) = crate::command_system::command_type_from_button_name(command_name)
         else {
             log::debug!("IssueCommand unmapped: {command_name}");
@@ -17814,16 +17884,20 @@ impl CnCGameEngine {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
     }
+}
 
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
     /// Wave 602: via `host_route_shell_owned_screen_change`.
-    fn route_shell_owned_screen_change(&mut self, screen: Screen) {
+    pub(super) fn route_shell_owned_screen_change(&mut self, screen: Screen) {
         // Wave 602: thin wrapper — shell screen route via host helper.
         self.host_route_shell_owned_screen_change(screen);
     }
 
     /// Wave 602: host shell-owned screen route residual (MainMenu/Options/Credits/
     /// LoadGame/Skirmish WND push path).
-    fn host_route_shell_owned_screen_change(&mut self, screen: Screen) {
+    pub(super) fn host_route_shell_owned_screen_change(&mut self, screen: Screen) {
         // Wave 602: host shell screen route residual.
         match screen {
             Screen::MainMenu => self.enter_shell_menu_from_runtime_host(None),
@@ -17842,7 +17916,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_pending_script_camera_requests(&mut self) {
+    pub(super) fn apply_pending_script_camera_requests(&mut self) {
         // Prefer presentation-frozen camera residual when a frame is installed (InGame).
         // Live take_* path is boot/menu residual only. Fail-closed: ease curves not frozen
         // on PresentationFrame (duration-only zoom/pitch/rotate).
@@ -17859,7 +17933,7 @@ impl CnCGameEngine {
 
     /// Wave 572: boot residual camera — live take_* dual-reads when no presentation freeze.
     /// Presentation path uses `apply_presentation_camera_residual` + drain.
-    fn apply_boot_camera_residual(&mut self) {
+    pub(super) fn apply_boot_camera_residual(&mut self) {
         // Wave 572/899: boot residual from host_match only (no live take_* dual-read).
         // InGame uses apply_presentation_camera_residual when freeze is installed.
         if let Some(focus) = self.host_match_camera_follow_position.map(glam::Vec3::from) {
@@ -17870,7 +17944,7 @@ impl CnCGameEngine {
     /// Play presentation-frozen script/radar movies (C++ script display residual).
     /// Drains live pending movie queues after apply. Fail-closed: not full BINK parity.
     /// Wave 567: pairs with `apply_boot_movie_residual` for freeze/boot split.
-    fn apply_presentation_movie_residual(
+    pub(super) fn apply_presentation_movie_residual(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
@@ -17901,7 +17975,7 @@ impl CnCGameEngine {
 
     /// Wave 571: presentation popup/music residual — apply freeze fields then drain live queues.
     /// Callers should follow with `apply_presentation_movie_residual`.
-    fn apply_presentation_popup_music_residual(
+    pub(super) fn apply_presentation_popup_music_residual(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
@@ -17926,19 +18000,19 @@ impl CnCGameEngine {
 
     /// Wave 571: boot residual popup/music — live take only (no presentation freeze).
     /// Callers should follow with `apply_boot_movie_residual`.
-    fn apply_boot_popup_music_residual(&mut self) {
+    pub(super) fn apply_boot_popup_music_residual(&mut self) {
         // Wave 571/899: fail-closed no-op (no popup/music take dual-read).
         // InGame uses apply_presentation_popup_music_residual when freeze is installed.
     }
 
-    fn apply_boot_movie_residual(&mut self) {
+    pub(super) fn apply_boot_movie_residual(&mut self) {
         // Wave 567/899: fail-closed no-op (no take_pending_* dual-read).
         // InGame uses apply_presentation_movie_residual when freeze is installed.
     }
 
     /// Apply camera residual frozen on `PresentationFrame` (no live take dual-read).
     /// Wave 572: pairs with `apply_boot_camera_residual` for freeze/boot split.
-    fn apply_presentation_camera_residual(
+    pub(super) fn apply_presentation_camera_residual(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
@@ -18044,7 +18118,7 @@ impl CnCGameEngine {
 
     /// Consume live camera request queues without applying (presentation already applied).
     /// Wave 596: via `host_drain_live_camera_request_queues`.
-    fn drain_live_camera_request_queues(&mut self) {
+    pub(super) fn drain_live_camera_request_queues(&mut self) {
         // Wave 596: thin wrapper — takes live behind host_drain helper.
         self.host_drain_live_camera_request_queues();
     }
@@ -18054,7 +18128,7 @@ impl CnCGameEngine {
     /// When presentation already applied camera residuals, drop live host camera
     /// request queues so the next frame does not double-apply. All takes stay
     /// behind this single host dual-read surface.
-    fn host_drain_live_camera_request_queues(&mut self) {
+    pub(super) fn host_drain_live_camera_request_queues(&mut self) {
         // Wave 596/865/899: presentation owns camera residual; boot path no longer
         // dual-reads take_* queues (fail-closed no-op). Live queues are not drained
         // via GameLogic observe path.
@@ -18062,7 +18136,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 601: via `host_restart_mission_from_ui`.
-    fn restart_mission_from_ui(&mut self) {
+    pub(super) fn restart_mission_from_ui(&mut self) {
         // Wave 601: thin wrapper — restart via host helper.
         self.host_restart_mission_from_ui();
     }
@@ -18072,7 +18146,7 @@ impl CnCGameEngine {
     /// Shell map tick + script FPS, menu commands, script camera, camera, slow-tick
     /// diagnostics, shell prewarm logs, MainMenu UI projection, and GameClient menu
     /// shell / NewGame drain. Returns `true` when a NewGame start consumed the frame.
-    fn host_tick_menu_client_residuals(&mut self, visual_dt: f32, dt: f32) -> bool {
+    pub(super) fn host_tick_menu_client_residuals(&mut self, visual_dt: f32, dt: f32) -> bool {
         // Wave 605: Menu client residual.
         self.cleanup_sound_effects();
         let menu_tick_started = Instant::now();
@@ -18174,7 +18248,7 @@ impl CnCGameEngine {
     ///
     /// Runs startup loading progress, then projects Loading UI when still in
     /// Loading after the tick (load may transition away mid-call).
-    fn host_tick_loading_client_residuals(&mut self) -> Result<()> {
+    pub(super) fn host_tick_loading_client_residuals(&mut self) -> Result<()> {
         // Wave 604: loading client residual.
         // In loading: minimal updates, mainly for loading screen animations
         self.update_startup_loading()?;
@@ -18189,7 +18263,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 603: paused-state client residual (camera/audio/UI; no logic tick).
-    fn host_tick_paused_client_residuals(&mut self, visual_dt: f32, dt: f32) {
+    pub(super) fn host_tick_paused_client_residuals(&mut self, visual_dt: f32, dt: f32) {
         // Wave 603: paused client residual.
         // In paused: update UI and camera, but not game logic
         // (matches C++ where TheGameLogic->isGamePaused() prevents update)
@@ -18202,7 +18276,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 603: endgame client residual (Victory/Defeat score screen).
-    fn host_tick_endgame_client_residuals(&mut self, visual_dt: f32, dt: f32) {
+    pub(super) fn host_tick_endgame_client_residuals(&mut self, visual_dt: f32, dt: f32) {
         // Wave 603: endgame client residual.
         // End-of-match screen: keep UI alive, game logic frozen.
         // C++ shows the score screen then transitions to Menu on user input.
@@ -18219,7 +18293,7 @@ impl CnCGameEngine {
     /// Couples GameWorld shadow when live, advances host logic (with retail FF /
     /// headless budget), optionally dual-ticks the ported crate, then runs the
     /// post-logic shadow session and presentation finalize helpers.
-    fn host_run_ingame_logic_presentation_frame(&mut self, dt: f32) {
+    pub(super) fn host_run_ingame_logic_presentation_frame(&mut self, dt: f32) {
         // Wave 602: InGame logic+presentation residual.
         // Retail m_TiVOFastMode residual: extra logic steps while armed.
         let ff_steps = if self.replay_fast_forward { 4 } else { 1 };
@@ -18324,7 +18398,7 @@ impl CnCGameEngine {
     ///
     /// Presentation freeze owns map/faction when installed; boot residual uses
     /// host probes. Starts a new match through `start_game_from_ui`.
-    fn host_restart_mission_from_ui(&mut self) {
+    pub(super) fn host_restart_mission_from_ui(&mut self) {
         // Wave 601: host restart-mission residual.
         // Wave 545: presentation freeze owns restart map/faction residual.
         // Wave 554: via presentation_or_boot_map_name / presentation_or_live_game_mode.
@@ -18346,13 +18420,13 @@ impl CnCGameEngine {
 
     /// Prefer presentation-frozen game mode when a frame is installed.
     /// Wave 609: via `host_presentation_or_live_game_mode`.
-    fn presentation_or_live_game_mode(&self) -> GameMode {
+    pub(super) fn presentation_or_live_game_mode(&self) -> GameMode {
         // Wave 609: thin wrapper — UI/presentation residual via host helper.
         self.host_presentation_or_live_game_mode()
     }
 
     /// Prefer presentation-frozen game mode when a frame is installed.
-    fn host_presentation_or_live_game_mode(&self) -> GameMode {
+    pub(super) fn host_presentation_or_live_game_mode(&self) -> GameMode {
         // Wave 609/842: host UI/presentation residual helper.
         // Prefer freeze, then host-owned match mode residual, then boot GameLogic.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -18378,7 +18452,7 @@ impl CnCGameEngine {
     /// producers, and special-power-ready ids. Prefer presentation freeze when
     /// installed (no host dual-read); otherwise one `get_objects` pass fills all
     /// residual families.
-    fn host_refresh_local_train_producer_residuals(&mut self) {
+    pub(super) fn host_refresh_local_train_producer_residuals(&mut self) {
         let team = self
             .host_match_local_team
             .or_else(|| {
@@ -18447,7 +18521,7 @@ impl CnCGameEngine {
         self.host_match_special_power_ready_ids = Some(special_ready);
     }
 
-    fn host_refresh_match_sim_residuals_from_logic(&mut self) {
+    pub(super) fn host_refresh_match_sim_residuals_from_logic(&mut self) {
         // Wave 893: prefer presentation freeze for sim timing + replay/team when live.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
@@ -18603,7 +18677,7 @@ impl CnCGameEngine {
         // host_refresh_local_train_producer_residuals (single freeze/host scan).
     }
 
-    fn presentation_or_boot_visual_speed(&self) -> f32 {
+    pub(super) fn presentation_or_boot_visual_speed(&self) -> f32 {
         // Wave 550/844: presentation freeze owns visual speed residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.visual_speed_multiplier;
@@ -18618,7 +18692,7 @@ impl CnCGameEngine {
     /// Wave 551: presentation freeze owns time-frozen residual when installed.
     /// Boot residual without freeze uses host GameLogic probe.
     #[inline]
-    fn presentation_or_boot_time_frozen(&self) -> bool {
+    pub(super) fn presentation_or_boot_time_frozen(&self) -> bool {
         // Wave 551/844: presentation freeze owns time-frozen residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.time_frozen_for_simulation;
@@ -18634,7 +18708,7 @@ impl CnCGameEngine {
     /// (`fow_shell_bypass`, even if false). Boot residual without freeze uses
     /// host `isInShellGame`.
     #[inline]
-    fn presentation_or_boot_shell_bypass(&self) -> bool {
+    pub(super) fn presentation_or_boot_shell_bypass(&self) -> bool {
         // Wave 552/845: presentation freeze owns shell-bypass residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.fow_shell_bypass;
@@ -18651,7 +18725,7 @@ impl CnCGameEngine {
     /// (pipeline freeze preferred, then last frame). Boot residual without freeze
     /// uses host `get_total_play_time`.
     #[inline]
-    fn presentation_or_boot_total_play_time(&self) -> f32 {
+    pub(super) fn presentation_or_boot_total_play_time(&self) -> f32 {
         // Wave 553/844: presentation freeze owns total play-time residual when installed.
         if let Some(pres) = self
             .render_pipeline
@@ -18677,14 +18751,14 @@ impl CnCGameEngine {
     /// Wave 570: script message residual — prefer pipeline/last presentation freeze
     /// `new_script_messages`, drain live queue when freeze installed; boot residual takes live.
     /// Wave 607: via `host_take_presentation_or_boot_new_script_messages`.
-    fn take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
+    pub(super) fn take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
         // Wave 607: thin wrapper — presentation/boot drain via host helper.
         self.host_take_presentation_or_boot_new_script_messages()
     }
 
     /// Wave 570: script message residual — prefer pipeline/last presentation freeze
     /// `new_script_messages`, drain live queue when freeze installed; boot residual takes live.
-    fn host_take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
+    pub(super) fn host_take_presentation_or_boot_new_script_messages(&mut self) -> Vec<String> {
         // Wave 607/900: presentation freeze owns script message residual when installed.
         // No live take drain dual-read; boot fail-closed empty.
         if let Some(pres) = self
@@ -18699,12 +18773,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 607: via `host_take_presentation_or_boot_defeat_events`.
-    fn take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
+    pub(super) fn take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
         // Wave 607: thin wrapper — presentation/boot drain via host helper.
         self.host_take_presentation_or_boot_defeat_events()
     }
 
-    fn host_take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
+    pub(super) fn host_take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
         // Wave 607/900: presentation freeze owns defeat residual when installed.
         // No live take drain dual-read; boot fail-closed empty.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -18717,7 +18791,7 @@ impl CnCGameEngine {
     /// Wave 569: alliance residual — prefer presentation freeze `alliance_events`,
     /// drain live queue when freeze installed; boot residual takes live.
     /// Wave 607: via `host_take_presentation_or_boot_alliance_events`.
-    fn take_presentation_or_boot_alliance_events(
+    pub(super) fn take_presentation_or_boot_alliance_events(
         &mut self,
     ) -> Vec<crate::game_logic::AllianceNotification> {
         // Wave 607: thin wrapper — presentation/boot drain via host helper.
@@ -18726,7 +18800,7 @@ impl CnCGameEngine {
 
     /// Wave 569: alliance residual — prefer presentation freeze `alliance_events`,
     /// drain live queue when freeze installed; boot residual takes live.
-    fn host_take_presentation_or_boot_alliance_events(
+    pub(super) fn host_take_presentation_or_boot_alliance_events(
         &mut self,
     ) -> Vec<crate::game_logic::AllianceNotification> {
         // Wave 607/900: presentation freeze owns alliance residual when installed.
@@ -18738,7 +18812,7 @@ impl CnCGameEngine {
         Vec::new()
     }
 
-    fn presentation_or_boot_local_player_id(&self) -> Option<u32> {
+    pub(super) fn presentation_or_boot_local_player_id(&self) -> Option<u32> {
         // Wave 553/843: presentation freeze owns local player id residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return Some(pres.local_player_id);
@@ -18753,7 +18827,7 @@ impl CnCGameEngine {
     /// Wave 554: presentation freeze owns map-name residual when installed
     /// (even if empty). Boot residual without freeze uses host map probe.
     #[inline]
-    fn presentation_or_boot_map_name(&self) -> String {
+    pub(super) fn presentation_or_boot_map_name(&self) -> String {
         // Wave 554/860: presentation freeze owns map-name residual when installed.
         // Wave 840/843/860: if freeze still holds shell residual after match load, prefer
         // host_match_map_name (no live GameLogic dual-read). Live probe only when residual cold.
@@ -18786,7 +18860,7 @@ impl CnCGameEngine {
     /// Wave 554: presentation freeze owns AI difficulty residual when installed.
     /// Boot residual without freeze uses host difficulty probe.
     #[inline]
-    fn presentation_or_boot_ai_difficulty(&self) -> crate::ai::AIDifficulty {
+    pub(super) fn presentation_or_boot_ai_difficulty(&self) -> crate::ai::AIDifficulty {
         // Wave 554/843: presentation freeze owns AI difficulty residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.ai_difficulty;
@@ -18801,7 +18875,7 @@ impl CnCGameEngine {
     /// Wave 557: presentation freeze owns replay-mode residual when installed.
     /// Boot residual without freeze uses host `isInReplayGame`.
     #[inline]
-    fn presentation_or_boot_in_replay_game(&self) -> bool {
+    pub(super) fn presentation_or_boot_in_replay_game(&self) -> bool {
         // Wave 557/844: presentation freeze owns replay-mode residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.in_replay_game;
@@ -18817,7 +18891,7 @@ impl CnCGameEngine {
     /// Boot residual without freeze uses host player_* probes (no get_players dual-read).
     /// Wave 573: boot roster build via `boot_player_info_from_host`.
     #[inline]
-    fn presentation_or_boot_diplomacy_players(
+    pub(super) fn presentation_or_boot_diplomacy_players(
         &self,
     ) -> Vec<crate::presentation_frame::PresentationPlayerInfo> {
         // Wave 558/846: presentation freeze owns diplomacy roster residual when installed.
@@ -18835,7 +18909,7 @@ impl CnCGameEngine {
     /// Wave 560: presentation freeze owns logic-frame residual when installed.
     /// Boot residual without freeze uses host `get_frame`.
     #[inline]
-    fn presentation_or_boot_logic_frame(&self) -> u32 {
+    pub(super) fn presentation_or_boot_logic_frame(&self) -> u32 {
         // Wave 560/844: presentation freeze owns logic-frame residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.frame.0;
@@ -18850,7 +18924,7 @@ impl CnCGameEngine {
     /// Wave 561: presentation freeze owns fixed-step catch-up residual when installed.
     /// Boot residual without freeze uses host `fixed_step_diagnostics().steps_run`.
     #[inline]
-    fn presentation_or_boot_logic_steps(&self) -> u32 {
+    pub(super) fn presentation_or_boot_logic_steps(&self) -> u32 {
         self.presentation_or_boot_fixed_step_diagnostics().0
     }
 
@@ -18858,7 +18932,7 @@ impl CnCGameEngine {
     /// installed (`steps_run`, `budget_hit`, `accumulated_time_seconds`). Boot residual
     /// without freeze uses host `fixed_step_diagnostics`.
     #[inline]
-    fn presentation_or_boot_fixed_step_diagnostics(&self) -> (u32, bool, f32) {
+    pub(super) fn presentation_or_boot_fixed_step_diagnostics(&self) -> (u32, bool, f32) {
         // Wave 564/844: presentation freeze owns fixed-step diagnostics residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return (
@@ -18877,7 +18951,7 @@ impl CnCGameEngine {
     /// Wave 563/565: presentation freeze owns template-name residual when installed
     /// (train + construct). Boot residual without freeze uses host `templates.contains_key`.
     #[inline]
-    fn presentation_or_boot_has_template(&self, name: &str) -> bool {
+    pub(super) fn presentation_or_boot_has_template(&self, name: &str) -> bool {
         // Wave 563/846/859: presentation freeze owns template-name residual when installed.
         // Wave 565: construct residual shares this helper with train.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -18893,7 +18967,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 581: ensure GoldenRanger host template residual for train honesty path.
-    fn host_ensure_golden_ranger_template(&mut self) {
+    pub(super) fn host_ensure_golden_ranger_template(&mut self) {
         // Wave 581/722/872/915/934: mid-command host insert residual (callers must opt in).
         // Prefer residual template table when warm (no live dual-read on hit).
         if let Some(names) = self.host_match_known_template_names.as_ref() {
@@ -18927,7 +19001,7 @@ impl CnCGameEngine {
 
     /// Wave 872: keep host_match_known_template_names residual warm after inserts.
     #[inline]
-    fn host_stamp_known_template_name(&mut self, name: &str) {
+    pub(super) fn host_stamp_known_template_name(&mut self, name: &str) {
         let key = name.to_string();
         let entry = self
             .host_match_known_template_names
@@ -18946,7 +19020,7 @@ impl CnCGameEngine {
     /// (inserts after last PresentationFrame). Boot without freeze uses host only.
     #[inline]
     /// Wave 610: via `host_presentation_or_live_has_template`.
-    fn presentation_or_live_has_template(&self, name: &str) -> bool {
+    pub(super) fn presentation_or_live_has_template(&self, name: &str) -> bool {
         // Wave 610: thin wrapper — residual via host helper.
         self.host_presentation_or_live_has_template(name)
     }
@@ -18955,7 +19029,7 @@ impl CnCGameEngine {
     /// Prefer freeze known names; if freeze misses, allow live host `templates`
     /// (inserts after last PresentationFrame). Boot without freeze uses host only.
     #[inline]
-    fn host_presentation_or_live_has_template(&self, name: &str) -> bool {
+    pub(super) fn host_presentation_or_live_has_template(&self, name: &str) -> bool {
         // Wave 610/846/859: host residual helper.
         // Wave 581: freeze known names OR host residual OR live host insert residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -18986,7 +19060,7 @@ impl CnCGameEngine {
     /// Distinct from InGame `host_tick_game_client_presentation_shell` (no FOW/pose;
     /// NewGame intercept is Menu-only). Full `GameClient::update` stays disconnected.
     #[cfg(feature = "game_client")]
-    fn host_tick_game_client_menu_shell(&mut self) -> bool {
+    pub(super) fn host_tick_game_client_menu_shell(&mut self) -> bool {
         // Wave 588: Menu shell residual.
         let early_menu_frame = self.menu_world_frames_rendered < 5;
         let t0 = std::time::Instant::now();
@@ -19091,7 +19165,7 @@ impl CnCGameEngine {
     /// After overlays + `process_ui_events`, stamps minimap texture/coords/viewport,
     /// radar pings/messages from presentation world bounds, match-over/victory
     /// summary, and retains `last_ui_state`.
-    fn host_finalize_render_ui_state(&mut self, ui_state: &mut crate::ui::GameUIState) {
+    pub(super) fn host_finalize_render_ui_state(&mut self, ui_state: &mut crate::ui::GameUIState) {
         // Wave 593: render UI finalize residual.
         ui_state.minimap_texture_id = self.render_pipeline.get_minimap_texture_id();
         ui_state.minimap_coordinates = self.render_pipeline.get_minimap_coordinates().cloned();
@@ -19124,7 +19198,7 @@ impl CnCGameEngine {
         self.last_ui_state = Some(ui_state.clone());
     }
 
-    fn host_apply_render_ui_presentation_overlays(
+    pub(super) fn host_apply_render_ui_presentation_overlays(
         &mut self,
         ui_state: &mut crate::ui::GameUIState,
     ) {
@@ -19172,7 +19246,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState {
+    pub(super) fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState {
         // Wave 591: render UI presentation consumer residual.
         // Wave 462: prefer pipeline freeze, then last_presentation_frame.
         // Boot residual: update_ui_state only when no frame is installed yet.
@@ -19202,7 +19276,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn host_sync_shadow_and_build_presentation(
+    pub(super) fn host_sync_shadow_and_build_presentation(
         &mut self,
         with_victory: bool,
     ) -> crate::presentation_frame::PresentationFrame {
@@ -19226,7 +19300,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn host_seed_presentation_after_match_start(&mut self) {
+    pub(super) fn host_seed_presentation_after_match_start(&mut self) {
         // Wave 590: match-start presentation seed residual.
         self.match_damage_applied = 0.0;
         self.match_kills = 0;
@@ -19258,7 +19332,7 @@ impl CnCGameEngine {
     /// Wave 590: boot/render residual — freeze a PresentationFrame if none installed.
     /// Ensures execute never dual-reads live GameLogic mid-draw.
     #[inline]
-    fn host_ensure_presentation_frame_for_render(&mut self) {
+    pub(super) fn host_ensure_presentation_frame_for_render(&mut self) {
         // Wave 590: boot presentation seed residual.
         if self.last_presentation_frame.is_some() {
             return;
@@ -19270,7 +19344,7 @@ impl CnCGameEngine {
 
     /// Wave 590: pipeline env seed residual (host+GW) when pipeline has no frame.
     #[inline]
-    fn host_ensure_presentation_env_for_hints(&mut self) {
+    pub(super) fn host_ensure_presentation_env_for_hints(&mut self) {
         // Wave 590: pipeline env seed residual.
         // Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists.
         // Wave 455: presentation-only env boundary — seed via build_for_engine only.
@@ -19294,7 +19368,7 @@ impl CnCGameEngine {
     ///
     /// After HUD apply: non-Menu camera + SFX cleanup, InGame UI projection,
     /// script camera residual, and presentation-or-boot popup/music/movies.
-    fn host_tick_post_presentation_client_residuals(&mut self, visual_dt: f32, dt: f32) {
+    pub(super) fn host_tick_post_presentation_client_residuals(&mut self, visual_dt: f32, dt: f32) {
         // Wave 600: post-presentation client residual.
         // Update camera
         if self.current_state != GameState::Menu {
@@ -19334,7 +19408,7 @@ impl CnCGameEngine {
     ///
     /// Presentation-or-boot defeat and alliance event drains, FOW/script side
     /// effects, and victory screen when freeze/boot says the match ended.
-    fn host_broadcast_match_outcome_residuals(&mut self) {
+    pub(super) fn host_broadcast_match_outcome_residuals(&mut self) {
         // Wave 599: match outcome broadcast residual.
         // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow.
         // Wave 569: presentation-or-boot defeat residual via helper.
@@ -19460,7 +19534,7 @@ impl CnCGameEngine {
     /// Prefers last presentation freeze for HUD/EVA/ControlBar; boot residual
     /// without freeze uses `ui_local_economy`. Also advances HUD/diplomacy/chat
     /// panels and placement cursors for the InGame state only.
-    fn host_apply_ingame_hud_from_presentation(&mut self, dt: f32) {
+    pub(super) fn host_apply_ingame_hud_from_presentation(&mut self, dt: f32) {
         // Wave 598: InGame HUD presentation residual.
         if self.current_state != GameState::InGame {
             return;
@@ -19504,7 +19578,7 @@ impl CnCGameEngine {
     /// `last_gameworld_presentation_entity_count` from observe-path view, and
     /// ends a coupled shadow tick when requested. Host remains temporary
     /// mid-frame owner; shadow is last-writer for HP/cash/pose.
-    fn host_run_gameworld_shadow_after_logic(&mut self, couple_shadow: bool) {
+    pub(super) fn host_run_gameworld_shadow_after_logic(&mut self, couple_shadow: bool) {
         // Wave 597/680/927: GameWorld shadow session residual via single boundary.
         // AFTER host logic + projectiles + path; host temporary mid-frame owner.
         crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
@@ -19541,7 +19615,7 @@ impl CnCGameEngine {
     ///
     /// Call after host logic + shadow writeback. Borrow-first: no live dual-read
     /// during later render. Fail-closed: not sole GameWorld authority / playable_claim.
-    fn host_finalize_presentation_after_logic(&mut self) {
+    pub(super) fn host_finalize_presentation_after_logic(&mut self) {
         // Wave 985: drain ControlBar host production-pause residual onto BuildingData.
         for (producer_id, paused) in
             game_client::gui::control_bar::take_host_production_pause_requests()
@@ -19588,7 +19662,7 @@ impl CnCGameEngine {
     /// Dual-world registry path remains available inside GameClient when
     /// `OBJECT_REGISTRY` is populated (opt-in bridge); production host keeps it empty.
     #[cfg(feature = "game_client")]
-    fn host_tick_game_client_presentation_shell(&mut self) {
+    pub(super) fn host_tick_game_client_presentation_shell(&mut self) {
         // Wave 587: process Main-injected device state before shell UI residual.
         // inject_game_client_* already wrote THE_MOUSE/THE_KEYBOARD from OS events;
         // update_input only runs Keyboard/Mouse::update bookkeeping (no second OS poll).
@@ -19883,10 +19957,13 @@ impl CnCGameEngine {
             log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
         }
     }
+}
 
-    /// Wave 585: host UI-state residual (boot/loading without presentation freeze).
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
     #[inline]
-    fn host_update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
+    pub(super) fn host_update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
         // Wave 585/862/872/880: prefer last presentation UI residual when freeze installed.
         if let Some(ui) = self.last_ui_state.clone() {
             let _ = player_id;
@@ -19909,7 +19986,7 @@ impl CnCGameEngine {
 
     /// Wave 585: host shell-map probe residual (`isInShellGame`).
     #[inline]
-    fn host_is_in_shell_game(&self) -> bool {
+    pub(super) fn host_is_in_shell_game(&self) -> bool {
         // Wave 585/845/896: prefer host_match_in_shell residual after match stamp.
         if let Some(v) = self.host_match_in_shell {
             return v;
@@ -19920,7 +19997,7 @@ impl CnCGameEngine {
 
     /// Wave 585: host world-size override residual (minimap/heightmap repair path).
     #[inline]
-    fn host_override_world_size(&mut self, width: f32, height: f32) {
+    pub(super) fn host_override_world_size(&mut self, width: f32, height: f32) {
         // Wave 585/865/891/915/933: world size via session-control authority.
         // Skip authority write when residual bounds already match requested size.
         let half_w = width * 0.5;
@@ -19937,7 +20014,7 @@ impl CnCGameEngine {
 
     /// Wave 585: host world-bounds residual (boot path without presentation freeze).
     #[inline]
-    fn host_world_bounds(&self) -> (glam::Vec3, glam::Vec3) {
+    pub(super) fn host_world_bounds(&self) -> (glam::Vec3, glam::Vec3) {
         // Wave 585/862: prefer freeze / host residual before live dual-read.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.world_env.world_bounds_vec3();
@@ -19951,7 +20028,7 @@ impl CnCGameEngine {
 
     /// Wave 585: host first-opponent residual (debug victory hotkey).
     #[inline]
-    fn host_first_opponent_id(&self, player_id: u32) -> Option<u32> {
+    pub(super) fn host_first_opponent_id(&self, player_id: u32) -> Option<u32> {
         // Wave 585/863: prefer host residual when stamped for local player.
         if player_id
             == self
@@ -19978,7 +20055,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host object-alive probe residual (upgrade honesty boot fallback).
     #[inline]
-    fn host_object_is_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn host_object_is_alive(&self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 584/851/897: prefer host-stamped alive residual before fail-closed.
         if let Some(alive) = self.host_match_alive_object_ids.as_ref() {
             return alive.contains(&id.0);
@@ -19991,7 +20068,7 @@ impl CnCGameEngine {
     /// Wave 584: presentation freeze owns object-alive residual when installed.
     /// Boot residual without freeze uses host object_is_alive probe.
     #[inline]
-    fn presentation_or_boot_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn presentation_or_boot_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 584/851: presentation-first alive residual (ui_object_alive).
         if self.ui_object_alive(id) {
             return true;
@@ -20008,7 +20085,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host shell-map tick residual (menu frame budgeted update).
     #[inline]
-    fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
+    pub(super) fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
         // Wave 584/872/908/920/934: shell update via host-support authority.
         // Skip empty-dt authority shell tick dual-write.
         if dt <= 0.0 {
@@ -20026,7 +20103,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     #[inline]
-    fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
+    pub(super) fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
         // Wave 584/870/908/919/923/929: single tick_logic_frame authority boundary + stamp snapshot.
         // Skip authority tick dual-write when host residual is paused (GameLogic also
         // no-ops is_paused; avoid the call entirely).
@@ -20042,7 +20119,7 @@ impl CnCGameEngine {
 
     /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.
     #[inline]
-    fn host_stamp_sim_timing_from_snapshot(&mut self, snap: crate::game_logic::SimTimingSnapshot) {
+    pub(super) fn host_stamp_sim_timing_from_snapshot(&mut self, snap: crate::game_logic::SimTimingSnapshot) {
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             // Freeze still preferred when installed (presentation owns residual clocks).
             self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
@@ -20070,7 +20147,7 @@ impl CnCGameEngine {
     /// Wave 909: runtime-host supplies floor residual.
     /// Skip authority write when presentation residual already meets floor.
     #[inline]
-    fn host_ensure_player_min_supplies_residual(&mut self, floor: u32) {
+    pub(super) fn host_ensure_player_min_supplies_residual(&mut self, floor: u32) {
         // Wave 909/921/934: supplies residual via host-support authority.
         let pid = self.current_player_id;
         if let Some(frame) = self.last_presentation_frame.as_ref() {
@@ -20090,7 +20167,7 @@ impl CnCGameEngine {
 
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
     #[inline]
-    fn host_clear_match_residuals(&mut self) {
+    pub(super) fn host_clear_match_residuals(&mut self) {
         self.host_match_map_name = None;
         self.host_match_local_player_id = None;
         self.host_match_ai_difficulty = None;
@@ -20136,7 +20213,7 @@ impl CnCGameEngine {
 
     /// Wave 870: keep host_match_* sim timing residuals warm after host ticks.
     #[inline]
-    fn host_stamp_sim_timing_residuals(&mut self) {
+    pub(super) fn host_stamp_sim_timing_residuals(&mut self) {
         // Wave 893/908/909: prefer presentation freeze; cold path keeps prior residual
         // or fail-closed zeros (ticks stamp via SimTimingSnapshot return — no live probe).
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -20161,7 +20238,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host multiplayer gate residual (network frame-data readiness).
     #[inline]
-    fn host_is_in_multiplayer_game(&self) -> bool {
+    pub(super) fn host_is_in_multiplayer_game(&self) -> bool {
         // Wave 584/861: prefer host_match_in_multiplayer residual after stamp.
         if let Some(v) = self.host_match_in_multiplayer {
             return v;
@@ -20172,7 +20249,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host special-power ready residual (boot-only UI fallback).
     #[inline]
-    fn host_is_special_power_ready_for(
+    pub(super) fn host_is_special_power_ready_for(
         &self,
         id: crate::game_logic::ObjectId,
         power: &crate::command_system::SpecialPowerType,
@@ -20193,7 +20270,7 @@ impl CnCGameEngine {
     /// Wave 584: presentation freeze owns victory summary residual when installed.
     /// Boot residual without freeze uses host build_victory_summary.
     #[inline]
-    fn presentation_or_boot_victory_summary(
+    pub(super) fn presentation_or_boot_victory_summary(
         &self,
         winner: Option<u32>,
     ) -> crate::game_logic::VictorySummary {
@@ -20219,7 +20296,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host match reset residual (GameLogic::reset boundary).
     #[inline]
-    fn host_reset_game_logic(&mut self) {
+    pub(super) fn host_reset_game_logic(&mut self) {
         // Wave 584/871/933: host reset residual via session-control authority.
         self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
@@ -20231,7 +20308,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host destroy-object residual (debug Shift+Delete path).
     #[inline]
-    fn host_destroy_object(&mut self, id: crate::game_logic::ObjectId) {
+    pub(super) fn host_destroy_object(&mut self, id: crate::game_logic::ObjectId) {
         // Wave 584/867/916/920/931: host destroy residual via object-lifecycle authority.
         // Skip authority destroy when presentation residual already marks destroyed.
         let already_destroyed = self.last_presentation_frame.as_ref().is_some_and(|pres| {
@@ -20256,7 +20333,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host science purchase capability residual (boot-only).
     #[inline]
-    fn host_player_can_purchase_science(&self, player_id: u32, name: &str) -> bool {
+    pub(super) fn host_player_can_purchase_science(&self, player_id: u32, name: &str) -> bool {
         // Wave 584/852/861: warm purchasable residual is fail-closed (no live dual-read).
         if let Some(map) = self.host_match_purchasable_sciences.as_ref() {
             return map
@@ -20271,7 +20348,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host clear unit path residual (waypoint clear path).
     #[inline]
-    fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 584/869/918/920/931: clear path via object-lifecycle authority.
         // Skip authority clear when presentation residual already has no move destination.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
@@ -20295,7 +20372,7 @@ impl CnCGameEngine {
 
     /// Wave 584: host guard-radius adjust residual.
     #[inline]
-    fn host_adjust_unit_guard_radius(
+    pub(super) fn host_adjust_unit_guard_radius(
         &mut self,
         id: crate::game_logic::ObjectId,
         delta: f32,
@@ -20324,7 +20401,7 @@ impl CnCGameEngine {
 
     /// Wave 583: host force-complete construction residual (runtime train honesty).
     #[inline]
-    fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 583/867/917/920/931: force-complete via object-lifecycle authority.
         // Skip authority force-complete when presentation residual is already complete.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
@@ -20348,7 +20425,7 @@ impl CnCGameEngine {
 
     /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
     #[inline]
-    fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
         // Wave 583/723/872/917/920/934: barracks ensure via host-support authority.
         // Skip authority ensure when residual already lists this barracks producer.
         if self
@@ -20371,7 +20448,7 @@ impl CnCGameEngine {
     }
 
     #[inline]
-    fn host_force_ensure_barracks_building_data(
+    pub(super) fn host_force_ensure_barracks_building_data(
         &mut self,
         id: crate::game_logic::ObjectId,
     ) -> bool {
@@ -20398,20 +20475,20 @@ impl CnCGameEngine {
 
     /// Wave 929: single direct-order authority boundary + residual stamp.
     #[inline]
-    fn host_issue_direct_player_order(&mut self, order: crate::game_logic::DirectPlayerOrder) {
+    pub(super) fn host_issue_direct_player_order(&mut self, order: crate::game_logic::DirectPlayerOrder) {
         // Wave 929/930: single GameLogic direct-order authority boundary + stamp.
         self.host_game_logic_mut().apply_direct_player_order(order);
         self.host_stamp_after_authority_command();
     }
 
-    fn host_stamp_after_authority_command(&mut self) {
+    pub(super) fn host_stamp_after_authority_command(&mut self) {
         // Wave 917/927: skip mid-command stamp when presentation freeze owns clocks.
         if self.last_presentation_frame.is_none() {
             self.host_stamp_sim_timing_residuals();
         }
     }
 
-    fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
+    pub(super) fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
         // Wave 583/871/917/927/929: host attack residual via direct-order boundary.
         self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::Attack {
             player_id,
@@ -20421,7 +20498,7 @@ impl CnCGameEngine {
 
     /// Wave 583: host stop-selected residual (runtime honesty path).
     #[inline]
-    fn host_command_stop(&mut self, player_id: u32) {
+    pub(super) fn host_command_stop(&mut self, player_id: u32) {
         // Wave 583/871/917/927/929: host stop residual via direct-order boundary.
         self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::Stop {
             player_id,
@@ -20430,7 +20507,7 @@ impl CnCGameEngine {
 
     /// Wave 583: host attack-move residual (minimap/right-click fallback).
     #[inline]
-    fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
+    pub(super) fn host_command_attack_move(&mut self, player_id: u32, dest: glam::Vec3) {
         // Wave 583/871/917/927/929: host attack-move residual via direct-order boundary.
         self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::AttackMove {
             player_id,
@@ -20440,7 +20517,7 @@ impl CnCGameEngine {
 
     /// Wave 583: host move residual (minimap/right-click fallback).
     #[inline]
-    fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
+    pub(super) fn host_command_move(&mut self, player_id: u32, dest: glam::Vec3) {
         // Wave 583/871/917/927/929: host move residual via direct-order boundary.
         self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::Move {
             player_id,
@@ -20450,7 +20527,7 @@ impl CnCGameEngine {
 
     /// Wave 583: host legal-build probe residual (construct honesty path).
     #[inline]
-    fn host_legal_build_code_at_for_builder(
+    pub(super) fn host_legal_build_code_at_for_builder(
         &mut self,
         team: crate::game_logic::Team,
         loc: glam::Vec3,
@@ -20489,7 +20566,7 @@ impl CnCGameEngine {
 
     /// Wave 583: host legal-build location residual (construct honesty path).
     #[inline]
-    fn host_is_location_legal_to_build_for_builder(
+    pub(super) fn host_is_location_legal_to_build_for_builder(
         &mut self,
         team: crate::game_logic::Team,
         loc: glam::Vec3,
@@ -20503,7 +20580,7 @@ impl CnCGameEngine {
 
     /// Wave 583: host camera-follow write residual.
     #[inline]
-    fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
+    pub(super) fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
         // Wave 583/847/891/903/904/913/933: camera follow via session-control authority.
         // (no get_object dual-read). Skip authority write when residual already matches.
         let stamped_pos = id.and_then(|oid| {
@@ -20527,7 +20604,7 @@ impl CnCGameEngine {
     /// Wave 583: presentation freeze owns follow-active residual when installed.
     /// Boot residual without freeze uses host camera_follow_object_id probe.
     #[inline]
-    fn presentation_or_boot_camera_follow_active(&self) -> bool {
+    pub(super) fn presentation_or_boot_camera_follow_active(&self) -> bool {
         // Wave 583/847: presentation freeze owns follow-active residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.camera_follow_position.is_some();
@@ -20541,7 +20618,7 @@ impl CnCGameEngine {
 
     /// Wave 583: boot residual EVA counter bundle (no presentation freeze).
     #[inline]
-    fn boot_eva_counter_bundle_from_host(&self) -> (u32, u32, u32, u32) {
+    pub(super) fn boot_eva_counter_bundle_from_host(&self) -> (u32, u32, u32, u32) {
         // Wave 583/898: prefer presentation EVA residual when freeze installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return (
@@ -20557,7 +20634,7 @@ impl CnCGameEngine {
 
     /// Wave 582: host production enqueue residual (train honesty path boundary).
     #[inline]
-    fn host_enqueue_production(
+    pub(super) fn host_enqueue_production(
         &mut self,
         producer: crate::game_logic::ObjectId,
         template_name: String,
@@ -20582,7 +20659,7 @@ impl CnCGameEngine {
     /// Wave 582: shell/menu frame process_commands residual (no Command SFX).
     /// Distinct from InGame `host_process_commands_with_command_sound`.
     #[inline]
-    fn host_process_shell_menu_commands(&mut self) {
+    pub(super) fn host_process_shell_menu_commands(&mut self) {
         // Wave 582/871/914/918/932: shell/menu command drain via command-pipeline authority.
         // Empty queue skips process dual-write; stamp only when work ran without freeze.
         let processed = self
@@ -20595,7 +20672,7 @@ impl CnCGameEngine {
 
     /// Wave 581: host create_object residual (thin authority spawn boundary).
     #[inline]
-    fn host_create_object(
+    pub(super) fn host_create_object(
         &mut self,
         name: &str,
         team: crate::game_logic::Team,
@@ -20623,7 +20700,7 @@ impl CnCGameEngine {
     /// Wave 555: presentation freeze owns local team residual when installed.
     /// Boot residual without freeze uses host player_team probe.
     #[inline]
-    fn presentation_or_boot_local_team(&self) -> crate::game_logic::Team {
+    pub(super) fn presentation_or_boot_local_team(&self) -> crate::game_logic::Team {
         // Wave 555/845: presentation freeze owns local team residual when installed.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_team();
@@ -20635,7 +20712,7 @@ impl CnCGameEngine {
         crate::game_logic::Team::USA
     }
 
-    fn presentation_or_boot_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
+    pub(super) fn presentation_or_boot_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
         // Wave 555/846/859/894: multi-player residual map first (stamped from freeze).
         // Fail-closed empty on miss — no dual-read while residual/freeze is warm.
         if let Some(map) = self.host_match_unlocked_sciences.as_ref() {
@@ -20662,7 +20739,7 @@ impl CnCGameEngine {
     /// Presentation freeze / host_match_over already own InGame outcomes; this only
     /// covers freeze-miss boot probes so match_over and winner share one evaluate.
     #[inline]
-    fn host_boot_victory_condition_residual(
+    pub(super) fn host_boot_victory_condition_residual(
         &mut self,
     ) -> Option<crate::game_logic::VictoryCondition> {
         if let Some(cached) = self.host_match_boot_victory_condition.as_ref() {
@@ -20686,7 +20763,7 @@ impl CnCGameEngine {
         None
     }
 
-    fn presentation_or_boot_match_over_label(&mut self) -> (bool, String) {
+    pub(super) fn presentation_or_boot_match_over_label(&mut self) -> (bool, String) {
         // Wave 556/849: presentation freeze owns match-over / victory-label residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return (
@@ -20712,7 +20789,7 @@ impl CnCGameEngine {
     /// and winner id; boot residual evaluates host victory condition.
     /// Returns `Some(winner)` when a victory screen should show (`None` winner = draw).
     #[inline]
-    fn presentation_or_boot_victory_winner(&mut self) -> Option<Option<u32>> {
+    pub(super) fn presentation_or_boot_victory_winner(&mut self) -> Option<Option<u32>> {
         // Wave 556/849: presentation freeze owns victory winner residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             if !pres.match_over {
@@ -20739,7 +20816,7 @@ impl CnCGameEngine {
     /// mode. Stale InGame frames (`fow_shell_bypass=false`) fall through to live
     /// `isInShellGame` so shell ticks are not suppressed after a match.
     #[inline]
-    fn presentation_affirms_shell_or_boot(&self) -> bool {
+    pub(super) fn presentation_affirms_shell_or_boot(&self) -> bool {
         // Wave 552: menu residual — freeze must affirm shell, else boot probe.
         match self.last_presentation_frame.as_ref() {
             Some(pres) if pres.fow_shell_bypass => true,
@@ -20750,7 +20827,7 @@ impl CnCGameEngine {
     /// Wave 552: shell-bypass from an optional presentation frame (pipeline or
     /// last). Missing frame → boot `isInShellGame`.
     #[inline]
-    fn shell_bypass_from_presentation(
+    pub(super) fn shell_bypass_from_presentation(
         &self,
         frame: Option<&crate::presentation_frame::PresentationFrame>,
     ) -> bool {
@@ -20761,7 +20838,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn map_ai_difficulty_to_save(difficulty: crate::ai::AIDifficulty) -> GameDifficulty {
+    pub(super) fn map_ai_difficulty_to_save(difficulty: crate::ai::AIDifficulty) -> GameDifficulty {
         match difficulty {
             crate::ai::AIDifficulty::Easy => GameDifficulty::Easy,
             crate::ai::AIDifficulty::Medium => GameDifficulty::Medium,
@@ -20769,7 +20846,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn build_save_info(
+    pub(super) fn build_save_info(
         &self,
         slot: &str,
         display_name: &str,
@@ -20806,7 +20883,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 611: via `host_quick_save_from_hotkey`.
-    fn quick_save_from_hotkey(&mut self, source: &str) {
+    pub(super) fn quick_save_from_hotkey(&mut self, source: &str) {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_quick_save_from_hotkey(source)
     }
@@ -20814,23 +20891,23 @@ impl CnCGameEngine {
     /// Wave 935/936: intentional immutable GameLogic borrow boundary.
     /// Wave 936: sole-authority surface honesty lock (apply_* + split-borrow adapters only).
     #[inline]
-    fn host_game_logic(&self) -> &crate::game_logic::GameLogic {
+    pub(super) fn host_game_logic(&self) -> &crate::game_logic::GameLogic {
         &self.game_logic
     }
 
     /// Wave 935: intentional mutable GameLogic borrow boundary.
     #[inline]
-    fn host_game_logic_mut(&mut self) -> &mut crate::game_logic::GameLogic {
+    pub(super) fn host_game_logic_mut(&mut self) -> &mut crate::game_logic::GameLogic {
         &mut self.game_logic
     }
 
     /// Wave 935: intentional full GameLogic replace boundary (map-load install).
     #[inline]
-    fn host_replace_game_logic(&mut self, logic: crate::game_logic::GameLogic) {
+    pub(super) fn host_replace_game_logic(&mut self, logic: crate::game_logic::GameLogic) {
         self.game_logic = logic;
     }
 
-    fn host_save_game_authority(
+    pub(super) fn host_save_game_authority(
         &mut self,
         slot: &str,
         save_info: &SaveGameInfo,
@@ -20843,7 +20920,7 @@ impl CnCGameEngine {
 
     /// Wave 928: single load authority boundary.
     #[inline]
-    fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
+    pub(super) fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
         // Wave 928: single load authority boundary.
 
         self.save_file_manager
@@ -20853,7 +20930,7 @@ impl CnCGameEngine {
 
     /// Wave 928: single skirmish-config authority boundary.
     #[inline]
-    fn host_apply_skirmish_config_authority(
+    pub(super) fn host_apply_skirmish_config_authority(
         &mut self,
         config: &crate::skirmish_config::SkirmishMatchConfig,
     ) -> Result<(), String> {
@@ -20864,13 +20941,13 @@ impl CnCGameEngine {
 
     /// Wave 928: runtime-host GameWorld authority probe boundary.
     #[inline]
-    fn host_simulate_gameworld_authority_probe(&mut self) -> bool {
+    pub(super) fn host_simulate_gameworld_authority_probe(&mut self) -> bool {
         // Wave 928: runtime-host GameWorld authority probe boundary.
 
         crate::gameworld_shadow::simulate_gameworld_authority_probe(&mut self.game_logic)
     }
 
-    fn host_quick_save_from_hotkey(&mut self, source: &str) {
+    pub(super) fn host_quick_save_from_hotkey(&mut self, source: &str) {
         // Wave 611: host residual helper.
         // Prefer presentation game_mode residual when installed.
         let mode = self.presentation_or_live_game_mode();
@@ -20897,7 +20974,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn quick_load_from_hotkey(&mut self, source: &str) {
+    pub(super) fn quick_load_from_hotkey(&mut self, source: &str) {
         let restore_screen = match self.current_state {
             GameState::Paused => Some(Screen::PauseMenu),
             GameState::InGame => Some(Screen::GameHUD),
@@ -20936,12 +21013,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 611: via `host_save_game_from_ui`.
-    fn save_game_from_ui(&mut self, slot: &str, display_name: &str) {
+    pub(super) fn save_game_from_ui(&mut self, slot: &str, display_name: &str) {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_save_game_from_ui(slot, display_name)
     }
 
-    fn host_save_game_from_ui(&mut self, slot: &str, display_name: &str) {
+    pub(super) fn host_save_game_from_ui(&mut self, slot: &str, display_name: &str) {
         // Wave 611: host residual helper.
         let slot = slot.trim();
         if slot.is_empty() {
@@ -20959,12 +21036,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 611: via `host_load_game_from_ui`.
-    fn load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
+    pub(super) fn load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_load_game_from_ui(slot)
     }
 
-    fn host_load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
+    pub(super) fn host_load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
         // Wave 611: host residual helper.
         let slot = slot.trim();
         if slot.is_empty() {
@@ -21027,8 +21104,12 @@ impl CnCGameEngine {
             }
         }
     }
+}
 
-    fn play_ui_sound_effect(&mut self, path: String) {
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn play_ui_sound_effect(&mut self, path: String) {
         let Some(bytes) = self.ui_sound_cache.get(&path).cloned() else {
             return;
         };
@@ -21049,7 +21130,7 @@ impl CnCGameEngine {
     }
 
     #[inline]
-    fn map_name_is_shell_residual(map: &str) -> bool {
+    pub(super) fn map_name_is_shell_residual(map: &str) -> bool {
         let t = map.trim();
         if t.is_empty() {
             return true;
@@ -21064,7 +21145,7 @@ impl CnCGameEngine {
 
     /// Wave 840: skirmish start must not keep boot ShellMapMD when a real control/
     /// setup map is available (or when empty → DEFAULT_SKIRMISH_MAP).
-    fn resolve_skirmish_start_map_name(mode: GameMode, map: String) -> String {
+    pub(super) fn resolve_skirmish_start_map_name(mode: GameMode, map: String) -> String {
         let mut map_name = if map.trim().is_empty() {
             DEFAULT_SKIRMISH_MAP.to_string()
         } else {
@@ -21101,7 +21182,7 @@ impl CnCGameEngine {
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     /// Wave 611: via `host_start_game_from_ui`.
-    fn start_game_from_ui(
+    pub(super) fn start_game_from_ui(
         &mut self,
         mode: GameMode,
         faction: String,
@@ -21113,7 +21194,7 @@ impl CnCGameEngine {
     }
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
-    fn host_start_game_from_ui(
+    pub(super) fn host_start_game_from_ui(
         &mut self,
         mode: GameMode,
         faction: String,
@@ -21247,7 +21328,7 @@ impl CnCGameEngine {
     ///
     /// Do **not** average every local object — map-wide centroid pulls the camera
     /// between bases and frustum-culls everything.
-    fn snap_camera_to_local_units_if_needed(&mut self) {
+    pub(super) fn snap_camera_to_local_units_if_needed(&mut self) {
         // Presentation-only: compute focus from snapshot, then apply camera mutably.
         let Some(focus) = (|| {
             let frame = self.last_presentation_frame.as_ref()?;
@@ -21370,7 +21451,7 @@ impl CnCGameEngine {
         self.apply_camera_orbit_transform();
     }
 
-    fn apply_map_lighting(
+    pub(super) fn apply_map_lighting(
         graphics_system: &mut GraphicsSystem,
         render_pipeline: &mut RenderPipeline,
     ) {
@@ -21435,7 +21516,7 @@ impl CnCGameEngine {
     }
 
     /// Wave 467: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
-    fn ensure_presentation_env_seeded(&mut self) {
+    pub(super) fn ensure_presentation_env_seeded(&mut self) {
         // Wave 467/474: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
         self.ensure_presentation_env_for_hints();
         if self.last_presentation_frame.is_none() {
@@ -21443,13 +21524,13 @@ impl CnCGameEngine {
         }
     }
 
-    fn ensure_presentation_env_for_hints(&mut self) {
+    pub(super) fn ensure_presentation_env_for_hints(&mut self) {
         // Wave 474: instance seed only — no free-fn GameLogic dual-read surface.
         // Wave 474/466/455/590: pipeline env seed via host helper.
         self.host_ensure_presentation_env_for_hints();
     }
 
-    fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline) {
+    pub(super) fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline) {
         // Wave 455: presentation-only env boundary — no live GameLogic dual-read.
         let Some(pres) = render_pipeline.presentation_frame() else {
             return;
@@ -21468,7 +21549,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn sync_render_terrain_visual(
+    pub(super) fn sync_render_terrain_visual(
         render_pipeline: &mut RenderPipeline,
         graphics_system: &GraphicsSystem,
         map_name: &str,
@@ -21537,7 +21618,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_skybox_hint(render_pipeline: &mut RenderPipeline) {
+    pub(super) fn apply_skybox_hint(render_pipeline: &mut RenderPipeline) {
         // Wave 455: presentation-only env boundary — no live GameLogic dual-read.
         let Some(pres) = render_pipeline.presentation_frame() else {
             return;
@@ -21550,7 +21631,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn reinitialize_minimap_renderer(&mut self) -> anyhow::Result<()> {
+    pub(super) fn reinitialize_minimap_renderer(&mut self) -> anyhow::Result<()> {
         // Wave 468: instance path — presentation-first bounds via shared probe;
         // heightmap repair stamps freeze then mirrors host world size for pathfinding.
         // Wave 594: heightmap repair + last_presentation align via host helper.
@@ -21576,7 +21657,7 @@ impl CnCGameEngine {
     /// When presentation world bounds are degenerate, stamps heightmap-derived
     /// extents into the pipeline freeze, mirrors host world size for pathfinding,
     /// and keeps `last_presentation_frame` aligned with the stamp.
-    fn host_repair_minimap_presentation_bounds(
+    pub(super) fn host_repair_minimap_presentation_bounds(
         &mut self,
         mut world_bounds: (Vec3, Vec3),
     ) -> (Vec3, Vec3) {
@@ -21608,7 +21689,7 @@ impl CnCGameEngine {
     }
 
     /// Convert a UI faction string into a Team.
-    fn team_from_faction(faction: &str) -> Team {
+    pub(super) fn team_from_faction(faction: &str) -> Team {
         match faction.to_ascii_lowercase().as_str() {
             "usa" | "us" | "america" => Team::USA,
             "gla" => Team::GLA,
@@ -21617,7 +21698,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn handle_minimap_interaction(&mut self, interaction: MinimapInteraction) {
+    pub(super) fn handle_minimap_interaction(&mut self, interaction: MinimapInteraction) {
         let pointer = Vec2::new(interaction.screen_position.x, interaction.screen_position.y);
         let Some(world_pos) = self.render_pipeline.handle_minimap_click(pointer) else {
             return;
@@ -21633,7 +21714,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn script_pitch_to_radians(pitch: f32) -> f32 {
+    pub(super) fn script_pitch_to_radians(pitch: f32) -> f32 {
         // Script pitch semantics: 1.0 is default, 0.0 trends toward horizon, >1.0 toward ground.
         let clamped = pitch.clamp(-0.25, 2.0);
         let degrees = if clamped <= 1.0 {
@@ -21646,7 +21727,7 @@ impl CnCGameEngine {
             .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians())
     }
 
-    fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {
+    pub(super) fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {
         let param = param.clamp(0.0, 1.0);
         let mut in_t = ease_in_time.clamp(0.0, 1.0);
         let out_t = 1.0 - ease_out_time.clamp(0.0, 1.0);
@@ -21671,7 +21752,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_camera_orbit_transform(&mut self) {
+    pub(super) fn apply_camera_orbit_transform(&mut self) {
         self.camera_pitch_radians = self
             .camera_pitch_radians
             .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
@@ -21687,7 +21768,7 @@ impl CnCGameEngine {
         self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
     }
 
-    fn sync_orbit_from_camera_transform(&mut self) {
+    pub(super) fn sync_orbit_from_camera_transform(&mut self) {
         let offset = self.camera_position - self.camera_target;
         self.camera_orbit_distance = offset.length().max(1.0);
         let horizontal = Vec2::new(offset.x, offset.z).length();
@@ -21714,7 +21795,7 @@ impl CnCGameEngine {
         self.apply_camera_orbit_transform();
     }
 
-    fn apply_script_camera_pitch_request(&mut self, request: CameraPitchRequest) {
+    pub(super) fn apply_script_camera_pitch_request(&mut self, request: CameraPitchRequest) {
         let target_pitch = Self::script_pitch_to_radians(request.pitch);
         if request.duration_seconds <= 0.0 {
             self.camera_pitch_radians = target_pitch;
@@ -21736,7 +21817,7 @@ impl CnCGameEngine {
         self.camera_pitch_ease_out = request.ease_out_seconds.max(0.0);
     }
 
-    fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
+    pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
         let target_yaw = self.camera_yaw_radians + request.rotations * TAU;
         if request.duration_seconds <= 0.0 {
             self.camera_yaw_radians = target_yaw;
@@ -21760,7 +21841,7 @@ impl CnCGameEngine {
 
     /// Wave 568: InGame script FPS residual — prefer presentation freeze, always drain
     /// live queue after apply (peeked freeze must not re-apply next frame).
-    fn apply_ingame_script_fps_limit_residual(&mut self) {
+    pub(super) fn apply_ingame_script_fps_limit_residual(&mut self) {
         // Wave 568/907/910: presentation freeze owns script FPS residual when present.
         if let Some(fps) = self
             .last_presentation_frame
@@ -21777,7 +21858,7 @@ impl CnCGameEngine {
 
     /// Wave 568: shell/menu script FPS residual — only trust freeze when it affirms
     /// shell-map (`fow_shell_bypass`); otherwise boot take_script_fps_limit_request.
-    fn apply_shell_script_fps_limit_residual(&mut self) {
+    pub(super) fn apply_shell_script_fps_limit_residual(&mut self) {
         // Wave 568/900: shell freeze owns FPS residual; no live take dual-read.
         if let Some(fps) = self
             .last_presentation_frame
@@ -21790,7 +21871,7 @@ impl CnCGameEngine {
         // Wave 900: boot/no-freeze fail-closed (no take_script_fps_limit_request dual-read).
     }
 
-    fn apply_script_fps_limit_request(&mut self, fps: i32) {
+    pub(super) fn apply_script_fps_limit_request(&mut self, fps: i32) {
         let global_default = {
             let mut global = game_engine::common::global_data::write();
             global.writable.use_fps_limit = true;
@@ -21811,7 +21892,7 @@ impl CnCGameEngine {
         self.script_fps_limit_last_tick = None;
     }
 
-    fn effective_fps_limit_for_frame(
+    pub(super) fn effective_fps_limit_for_frame(
         script_fps_limit: Option<u32>,
         global_use_fps_limit: bool,
         global_frames_per_second_limit: i32,
@@ -21842,7 +21923,7 @@ impl CnCGameEngine {
             .filter(|fps| *fps > 0)
     }
 
-    fn apply_script_frame_limit(&mut self) {
+    pub(super) fn apply_script_frame_limit(&mut self) {
         let global_data = game_engine::common::global_data::read();
         // Wave 550: presentation freeze owns FPS-limit visual_speed residual when
         // installed (no host visual_speed_multiplier dual-read).
@@ -21885,7 +21966,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn screen_shake_value_for_type(shake_type: i32) -> f32 {
+    pub(super) fn screen_shake_value_for_type(shake_type: i32) -> f32 {
         let data = game_engine::common::global_data::read();
         match shake_type.clamp(0, 5) {
             0 => data.shake_subtle_intensity,
@@ -21897,7 +21978,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn enqueue_script_screen_shake(&mut self, intensity: i32) {
+    pub(super) fn enqueue_script_screen_shake(&mut self, intensity: i32) {
         let shake_value = Self::screen_shake_value_for_type(intensity);
         if !shake_value.is_finite() || shake_value <= 0.0 {
             return;
@@ -21919,7 +22000,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn enqueue_script_camera_shaker(&mut self, request: CameraAddShakerRequest) {
+    pub(super) fn enqueue_script_camera_shaker(&mut self, request: CameraAddShakerRequest) {
         if !request.position.is_finite()
             || !request.amplitude.is_finite()
             || !request.duration_seconds.is_finite()
@@ -21939,7 +22020,7 @@ impl CnCGameEngine {
         ));
     }
 
-    fn update_script_camera_shake(&mut self, dt: f32) -> bool {
+    pub(super) fn update_script_camera_shake(&mut self, dt: f32) -> bool {
         let previous = self.camera_shake_offset;
         let mut offset = Vec3::ZERO;
 
@@ -22009,7 +22090,7 @@ impl CnCGameEngine {
         (self.camera_shake_offset - previous).length_squared() > 0.000001
     }
 
-    fn normalize_signed_angle(mut angle: f32) -> f32 {
+    pub(super) fn normalize_signed_angle(mut angle: f32) -> f32 {
         while angle > PI {
             angle -= TAU;
         }
@@ -22019,7 +22100,7 @@ impl CnCGameEngine {
         angle
     }
 
-    fn apply_camera_look_toward_request(&mut self, request: CameraLookTowardWaypointRequest) {
+    pub(super) fn apply_camera_look_toward_request(&mut self, request: CameraLookTowardWaypointRequest) {
         let to_target = request.position - self.camera_target;
         let horiz = Vec2::new(to_target.x, to_target.z);
         if horiz.length_squared() <= f32::EPSILON {
@@ -22058,12 +22139,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 611: via `host_center_camera_on`.
-    fn center_camera_on(&mut self, world_pos: Vec3) {
+    pub(super) fn center_camera_on(&mut self, world_pos: Vec3) {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_center_camera_on(world_pos)
     }
 
-    fn host_center_camera_on(&mut self, world_pos: Vec3) {
+    pub(super) fn host_center_camera_on(&mut self, world_pos: Vec3) {
         // Wave 611: host residual helper.
         let clamped = self.clamp_to_world_bounds(world_pos);
         // Wave 460: prefer presentation-frozen height grid; live terrain only when
@@ -22087,7 +22168,7 @@ impl CnCGameEngine {
     }
 
     /// Placement ghost footprint + pending map radius cursor residual for 3D overlay.
-    fn collect_ground_marker_circles(
+    pub(super) fn collect_ground_marker_circles(
         &self,
     ) -> Vec<crate::graphics::selection_renderer::SelectedUnit> {
         use crate::graphics::selection_renderer::SelectedUnit;
@@ -22147,7 +22228,7 @@ impl CnCGameEngine {
         out
     }
 
-    fn issue_minimap_move(&mut self, world_pos: Vec3) {
+    pub(super) fn issue_minimap_move(&mut self, world_pos: Vec3) {
         // Wave 219: selection via presentation-first ui_selected_ids.
         let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
@@ -22234,7 +22315,7 @@ impl CnCGameEngine {
 
     /// Wave 461: single presentation-first world bounds probe for camera/HUD/minimap.
     /// Prefers pipeline freeze, then last_presentation_frame, then host GameLogic.
-    fn presentation_world_bounds(&self) -> (Vec3, Vec3) {
+    pub(super) fn presentation_world_bounds(&self) -> (Vec3, Vec3) {
         if let Some(frame) = self
             .render_pipeline
             .presentation_frame()
@@ -22246,7 +22327,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
+    pub(super) fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
         // Wave 461: presentation-first bounds via shared probe.
         let (world_min, world_max) = self.presentation_world_bounds();
         position.x = position.x.clamp(world_min.x, world_max.x);
@@ -22254,7 +22335,7 @@ impl CnCGameEngine {
         position
     }
 
-    fn drain_renderer_attachments(&mut self) {
+    pub(super) fn drain_renderer_attachments(&mut self) {
         match ww3d_renderer_3d::Renderer::with_global_mut(|renderer| {
             Ok(renderer.take_pending_attachments())
         }) {
@@ -22268,12 +22349,12 @@ impl CnCGameEngine {
         }
     }
 
-    fn debug_show_victory(&mut self, winner: Option<u32>) {
+    pub(super) fn debug_show_victory(&mut self, winner: Option<u32>) {
         info!("Debug: showing victory screen (winner: {:?})", winner);
         self.show_victory_screen(winner);
     }
 
-    fn show_victory_screen(&mut self, winner: Option<u32>) {
+    pub(super) fn show_victory_screen(&mut self, winner: Option<u32>) {
         // Prefer presentation-frozen summary when available (no live re-aggregate).
         // Wave 584: victory summary residual via helper.
         let summary = self.presentation_or_boot_victory_summary(winner);
@@ -22301,7 +22382,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn reset_match_state(&mut self) {
+    pub(super) fn reset_match_state(&mut self) {
         info!("Resetting gameplay state after match completion");
         self.drain_renderer_attachments();
 
@@ -22368,16 +22449,20 @@ impl CnCGameEngine {
         );
     }
 
-    fn return_to_main_menu_after_match(&mut self) {
+    pub(super) fn return_to_main_menu_after_match(&mut self) {
         self.reset_match_state();
         self.transition_to_state(GameState::Menu);
     }
 
-    fn exit_to_main_menu_from_victory(&mut self) {
+    pub(super) fn exit_to_main_menu_from_victory(&mut self) {
         self.return_to_main_menu_after_match();
     }
+}
 
-    fn handle_key_press(&mut self, key: &Key) {
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn handle_key_press(&mut self, key: &Key) {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             match key {
                 Key::Character(c) if c == "m" || c == "M" => {
@@ -23380,7 +23465,7 @@ impl CnCGameEngine {
     }
 
     /// Retail SAVE_VIEW / VIEW_VIEW (Ctrl+Fn save, Fn recall) residual.
-    fn handle_camera_view_hotkey(&mut self, slot: usize) {
+    pub(super) fn handle_camera_view_hotkey(&mut self, slot: usize) {
         if slot >= self.camera_view_bookmarks.len() {
             return;
         }
@@ -23404,7 +23489,7 @@ impl CnCGameEngine {
     }
 
     /// Retail CHAT_EVERYONE / CHAT_ALLIES residual.
-    fn open_chat_hotkey(&mut self, target: crate::ui::ChatTarget) {
+    pub(super) fn open_chat_hotkey(&mut self, target: crate::ui::ChatTarget) {
         let name = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame
                 .players
@@ -23430,7 +23515,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn route_key_to_chat_panel(&mut self, key: &Key) -> bool {
+    pub(super) fn route_key_to_chat_panel(&mut self, key: &Key) -> bool {
         use crate::ui::KeyCode;
         // Prefer UI key mapping then character text insert.
         if let Some(ui_key) = Self::to_ui_key_code(key) {
@@ -23460,7 +23545,7 @@ impl CnCGameEngine {
     }
 
     /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
-    fn toggle_camera_tracking_drawable_hotkey(&mut self) {
+    pub(super) fn toggle_camera_tracking_drawable_hotkey(&mut self) {
         self.camera_tracking_selection = !self.camera_tracking_selection;
         let msg = if self.camera_tracking_selection {
             "Camera tracking selection: ON"
@@ -23473,7 +23558,7 @@ impl CnCGameEngine {
     }
 
     /// Retail TOGGLE_FAST_FORWARD_REPLAY (m_TiVOFastMode) residual.
-    fn toggle_replay_fast_forward_hotkey(&mut self) {
+    pub(super) fn toggle_replay_fast_forward_hotkey(&mut self) {
         // C++ only applies in replay games (or debug). Residual: always toggle flag + HUD.
         self.replay_fast_forward = !self.replay_fast_forward;
         let msg = if self.replay_fast_forward {
@@ -23487,7 +23572,7 @@ impl CnCGameEngine {
     }
 
     /// Follow selection centroid when camera tracking residual is armed.
-    fn update_camera_tracking_drawable(&mut self) {
+    pub(super) fn update_camera_tracking_drawable(&mut self) {
         if !self.camera_tracking_selection {
             return;
         }
@@ -23508,7 +23593,7 @@ impl CnCGameEngine {
     }
 
     /// Retail TAKE_SCREENSHOT (KEY_F12) residual.
-    fn take_screenshot_hotkey(&mut self) {
+    pub(super) fn take_screenshot_hotkey(&mut self) {
         let dir = std::env::temp_dir().join("generals_screenshots");
         let _ = std::fs::create_dir_all(&dir);
         let stamp = std::time::SystemTime::now()
@@ -23533,7 +23618,7 @@ impl CnCGameEngine {
     }
 
     /// Retail DIPLOMACY (KEY_TAB) residual.
-    fn toggle_diplomacy_panel_hotkey(&mut self) {
+    pub(super) fn toggle_diplomacy_panel_hotkey(&mut self) {
         self.sync_diplomacy_panel_from_world();
         self.diplomacy_panel.toggle();
         let msg = if self.diplomacy_panel.is_active() {
@@ -23546,7 +23631,7 @@ impl CnCGameEngine {
         info!("{msg}");
     }
 
-    fn sync_diplomacy_panel_from_world(&mut self) {
+    pub(super) fn sync_diplomacy_panel_from_world(&mut self) {
         use crate::ui::{DiplomacyPlayerEntry, DiplomacyPlayerStatus, DiplomacyRelation};
         let local_id = self.current_player_id as i32;
         self.diplomacy_panel.set_local_player_id(local_id);
@@ -23595,7 +23680,7 @@ impl CnCGameEngine {
     }
 
     /// Retail CAMERA_RESET (KEY_KP5) residual.
-    fn reset_camera_view_hotkey(&mut self) {
+    pub(super) fn reset_camera_view_hotkey(&mut self) {
         // Wave 226: prefer presentation freeze for reset focus (team base / friendlies).
         let focus = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame
@@ -23621,9 +23706,13 @@ impl CnCGameEngine {
         );
         info!("CAMERA_RESET residual -> {:?}", clamped);
     }
+}
 
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
     /// Retail SELECT_NEXT/PREV_UNIT residual.
-    fn cycle_friendly_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_friendly_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -23655,7 +23744,7 @@ impl CnCGameEngine {
     }
 
     /// Retail SELECT_NEXT/PREV_WORKER residual — prefer dozers/workers/harvesters.
-    fn cycle_friendly_worker_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_friendly_worker_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -23701,7 +23790,7 @@ impl CnCGameEngine {
     }
 
     /// Retail-ish SELECT_NEXT/PREV_STRUCTURE residual.
-    fn cycle_friendly_structure_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_friendly_structure_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -23758,13 +23847,13 @@ impl CnCGameEngine {
 
     /// Resume unfinished construction with selected dozers residual (Alt+E).
     /// Wave 612: via `host_resume_selected_construction`.
-    fn resume_selected_construction(&mut self) {
+    pub(super) fn resume_selected_construction(&mut self) {
         // Wave 612: thin wrapper — residual via host helper.
         self.host_resume_selected_construction()
     }
 
     /// Resume unfinished construction with selected dozers residual (Alt+E).
-    fn host_resume_selected_construction(&mut self) {
+    pub(super) fn host_resume_selected_construction(&mut self) {
         // Wave 612: host residual helper.
         let player_id = self.current_player_id;
         // Wave 226: selection/team via presentation-first helpers.
@@ -23855,7 +23944,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
-    fn cycle_unfinished_construction(&mut self, delta: i32) {
+    pub(super) fn cycle_unfinished_construction(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -23899,7 +23988,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
-    fn cycle_damaged_structure_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_damaged_structure_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -23946,7 +24035,7 @@ impl CnCGameEngine {
     /// Select all idle friendly combat units residual (Ctrl+I).
 
     /// Purchase next available GeneralsExperience science residual (Alt+G).
-    fn try_purchase_next_generals_science(&mut self) {
+    pub(super) fn try_purchase_next_generals_science(&mut self) {
         // Wave 234: science points/team prefer presentation freeze for UI gate.
         let player_id = self.current_player_id;
         let spp = self.ui_local_science_purchase_points();
@@ -24029,7 +24118,7 @@ impl CnCGameEngine {
     }
 
     /// Cycle idle friendly combat units residual (Ctrl+Alt+, / .).
-    fn cycle_idle_military_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_idle_military_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24074,7 +24163,7 @@ impl CnCGameEngine {
     }
 
     /// Select all friendly units currently repairing residual (Ctrl+Alt+R).
-    fn select_all_repairing_units(&mut self) {
+    pub(super) fn select_all_repairing_units(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24096,7 +24185,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn select_all_idle_military(&mut self) {
+    pub(super) fn select_all_idle_military(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24119,7 +24208,7 @@ impl CnCGameEngine {
     }
 
     /// Select all friendly harvesters / supply collectors residual (Ctrl+Shift+I).
-    fn select_all_harvesters(&mut self) {
+    pub(super) fn select_all_harvesters(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24143,7 +24232,7 @@ impl CnCGameEngine {
     }
 
     /// Select idle friendly harvesters residual (Ctrl+Alt+I).
-    fn select_idle_harvesters(&mut self) {
+    pub(super) fn select_idle_harvesters(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24166,7 +24255,7 @@ impl CnCGameEngine {
     }
 
     /// Cycle construction panel tab residual (`[` / `]`).
-    fn cycle_construction_tab(&mut self, delta: i32) {
+    pub(super) fn cycle_construction_tab(&mut self, delta: i32) {
         use crate::ui::ConstructionTab;
         if !self.game_hud.construction_panel.is_visible() {
             return;
@@ -24199,7 +24288,7 @@ impl CnCGameEngine {
     /// Select friendly units near camera (on-screen residual, Ctrl+Alt+A).
 
     /// Select all friendly structures residual (Ctrl+Alt+S).
-    fn select_all_friendly_structures(&mut self) {
+    pub(super) fn select_all_friendly_structures(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24233,7 +24322,7 @@ impl CnCGameEngine {
     /// Adjust guard radius on selected guarding units residual (Alt+[ / ]).
 
     /// Clear movement path / waypoints on selection residual (Alt+Z).
-    fn clear_selected_path_waypoints(&mut self) {
+    pub(super) fn clear_selected_path_waypoints(&mut self) {
         // Wave 225: selection via presentation-first ui_selected_ids; mutation via GameLogic API.
         let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
@@ -24264,7 +24353,7 @@ impl CnCGameEngine {
     }
 
     /// Cycle damaged friendly mobile units residual (Ctrl+Alt+Up/Down).
-    fn cycle_damaged_unit_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_damaged_unit_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24308,7 +24397,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
-    fn adjust_selected_guard_radius(&mut self, delta: f32) {
+    pub(super) fn adjust_selected_guard_radius(&mut self, delta: f32) {
         // Wave 225: selection via presentation-first ui_selected_ids; mutation via GameLogic API.
         let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
@@ -24335,7 +24424,7 @@ impl CnCGameEngine {
     /// Select all friendly units currently moving residual (Ctrl+Alt+M).
 
     /// Select all friendly units currently attacking residual (Ctrl+Alt+T).
-    fn select_all_friendly_attacking(&mut self) {
+    pub(super) fn select_all_friendly_attacking(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24361,7 +24450,7 @@ impl CnCGameEngine {
     /// Ctrl+Shift+Period residual: stop everything friendly.
 
     /// Runtime-host residual: ensure at least one local mobile is selected.
-    fn ensure_host_mobile_selection(&mut self) {
+    pub(super) fn ensure_host_mobile_selection(&mut self) {
         if !self.selected_objects.is_empty() {
             return;
         }
@@ -24395,12 +24484,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 611: via `host_stop_all_friendly_units`.
-    fn stop_all_friendly_units(&mut self) {
+    pub(super) fn stop_all_friendly_units(&mut self) {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_stop_all_friendly_units()
     }
 
-    fn host_stop_all_friendly_units(&mut self) {
+    pub(super) fn host_stop_all_friendly_units(&mut self) {
         // Wave 611: host residual helper.
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
@@ -24432,7 +24521,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn select_all_friendly_moving(&mut self) {
+    pub(super) fn select_all_friendly_moving(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24454,7 +24543,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
     /// Select friendly transports currently carrying units residual (Ctrl+Alt+J).
-    fn select_all_occupied_transports(&mut self) {
+    pub(super) fn select_all_occupied_transports(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24481,7 +24570,7 @@ impl CnCGameEngine {
     }
 
     /// Toggle attack-order line drawing residual (Ctrl+F4).
-    fn toggle_attack_lines_hotkey(&mut self) {
+    pub(super) fn toggle_attack_lines_hotkey(&mut self) {
         self.show_attack_lines = !self.show_attack_lines;
         let msg = if self.show_attack_lines {
             "Attack lines: ON"
@@ -24493,7 +24582,7 @@ impl CnCGameEngine {
     }
 
     /// Toggle movement path line drawing residual (Ctrl+F3).
-    fn toggle_move_lines_hotkey(&mut self) {
+    pub(super) fn toggle_move_lines_hotkey(&mut self) {
         self.show_move_lines = !self.show_move_lines;
         let msg = if self.show_move_lines {
             "Move lines: ON"
@@ -24505,7 +24594,7 @@ impl CnCGameEngine {
     }
 
     /// Select structures that currently hold garrisoned units residual (Ctrl+Alt+U).
-    fn select_all_garrisoned_structures(&mut self) {
+    pub(super) fn select_all_garrisoned_structures(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24534,7 +24623,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn toggle_fps_counter_hotkey(&mut self) {
+    pub(super) fn toggle_fps_counter_hotkey(&mut self) {
         self.show_fps = !self.show_fps;
         let msg = if self.show_fps {
             "FPS counter: ON"
@@ -24549,7 +24638,7 @@ impl CnCGameEngine {
 
     /// Cycle non-empty control groups residual (Ctrl+Alt+Left/Right already damaged structures).
     /// Use Ctrl+Shift+Tab residual: next/prev control group.
-    fn cycle_control_group_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_control_group_selection(&mut self, delta: i32) {
         let mut groups: Vec<u8> = self
             .control_groups
             .iter()
@@ -24608,7 +24697,7 @@ impl CnCGameEngine {
     }
 
     /// Select all friendly effectively stealthed units residual (Ctrl+Alt+K).
-    fn select_all_friendly_stealthed(&mut self) {
+    pub(super) fn select_all_friendly_stealthed(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24630,7 +24719,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn select_all_friendly_veterans(&mut self) {
+    pub(super) fn select_all_friendly_veterans(&mut self) {
         use crate::game_logic::VeterancyLevel;
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
@@ -24654,7 +24743,7 @@ impl CnCGameEngine {
     }
 
     /// Select aircraft currently docked/parked residual (Ctrl+Alt+W).
-    fn select_all_docked_aircraft(&mut self) {
+    pub(super) fn select_all_docked_aircraft(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24676,7 +24765,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn toggle_debug_info_hotkey(&mut self) {
+    pub(super) fn toggle_debug_info_hotkey(&mut self) {
         self.show_debug_info = !self.show_debug_info;
         let msg = if self.show_debug_info {
             "Debug overlay: ON"
@@ -24688,7 +24777,7 @@ impl CnCGameEngine {
     }
 
     /// Cycle friendly producers with a non-empty queue residual (Ctrl+Alt+P).
-    fn cycle_busy_producer_selection(&mut self, delta: i32) {
+    pub(super) fn cycle_busy_producer_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24735,7 +24824,7 @@ impl CnCGameEngine {
     /// Select all friendly units currently guarding residual (Ctrl+Alt+G).
 
     /// Select all friendly units currently patrolling residual (Ctrl+Alt+Y).
-    fn select_all_friendly_patrolling(&mut self) {
+    pub(super) fn select_all_friendly_patrolling(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24758,7 +24847,7 @@ impl CnCGameEngine {
     }
 
     /// Select all friendly units currently gathering residual (Ctrl+Alt+H).
-    fn select_all_friendly_gathering(&mut self) {
+    pub(super) fn select_all_friendly_gathering(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24781,7 +24870,7 @@ impl CnCGameEngine {
     }
 
     /// Cycle structures with ready special power residual (Ctrl+Alt+V).
-    fn cycle_ready_special_power_structure(&mut self, delta: i32) {
+    pub(super) fn cycle_ready_special_power_structure(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24825,7 +24914,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
-    fn select_all_friendly_guarding(&mut self) {
+    pub(super) fn select_all_friendly_guarding(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24847,7 +24936,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn toggle_health_bars_hotkey(&mut self) {
+    pub(super) fn toggle_health_bars_hotkey(&mut self) {
         self.show_health_bars = !self.show_health_bars;
         let msg = if self.show_health_bars {
             "Health bars: ON"
@@ -24858,7 +24947,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
-    fn select_all_friendly_combat(&mut self) {
+    pub(super) fn select_all_friendly_combat(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24880,7 +24969,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn select_all_friendly_on_screen(&mut self) {
+    pub(super) fn select_all_friendly_on_screen(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24907,7 +24996,7 @@ impl CnCGameEngine {
     /// Toggle camera follow on primary selection residual (Alt+F).
 
     /// Snap camera to centroid of current selection residual (Alt+Space).
-    fn center_camera_on_selection(&mut self) {
+    pub(super) fn center_camera_on_selection(&mut self) {
         // Wave 234: selection prefers engine/presentation freeze.
         let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
@@ -24932,7 +25021,7 @@ impl CnCGameEngine {
     }
 
     /// Select friendly dozers/workers currently constructing residual (Ctrl+Alt+B).
-    fn select_all_constructing_workers(&mut self) {
+    pub(super) fn select_all_constructing_workers(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24954,7 +25043,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
-    fn toggle_camera_follow_selection(&mut self) {
+    pub(super) fn toggle_camera_follow_selection(&mut self) {
         // Wave 548: presentation freeze owns follow-active residual when installed
         // (`camera_follow_position`; no live `camera_follow_object_id` dual-read).
         // Command authority still writes `set_camera_follow_object` for host follow state.
@@ -24981,7 +25070,7 @@ impl CnCGameEngine {
     }
 
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
-    fn select_all_friendly_units(&mut self) {
+    pub(super) fn select_all_friendly_units(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -24995,7 +25084,7 @@ impl CnCGameEngine {
     }
 
     /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
-    fn select_all_friendly_aircraft(&mut self) {
+    pub(super) fn select_all_friendly_aircraft(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -25011,7 +25100,7 @@ impl CnCGameEngine {
     }
 
     /// Retail SELECT_HERO (Ctrl+H) residual.
-    fn select_hero_units_hotkey(&mut self) {
+    pub(super) fn select_hero_units_hotkey(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -25030,15 +25119,19 @@ impl CnCGameEngine {
     }
 
     /// Retail SELECT_MATCHING_UNITS (KEY_E) residual — type-select from current selection.
-    fn select_matching_units_hotkey(&mut self) {
+    pub(super) fn select_matching_units_hotkey(&mut self) {
         let seed = self.ui_selection_seed_id();
         let Some(seed) = seed else {
             return;
         };
         self.select_similar_units(seed);
     }
+}
 
-    fn handle_left_click(&mut self) {
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn handle_left_click(&mut self) {
         self.is_dragging = true;
         self.selection_start = Some(self.mouse_world_position);
         self.selection_start_screen = Some(self.mouse_position);
@@ -25118,7 +25211,7 @@ impl CnCGameEngine {
     }
 
     /// Shift+click residual: add friendly unit or remove if already selected.
-    fn toggle_select_object(&mut self, object_id: ObjectId) {
+    pub(super) fn toggle_select_object(&mut self, object_id: ObjectId) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -25154,7 +25247,7 @@ impl CnCGameEngine {
 
     /// Ctrl+LMB ForceAttack residual (object or ground).
     /// Wave 612: via `host_issue_force_attack_from_left_click`.
-    fn issue_force_attack_from_left_click(
+    pub(super) fn issue_force_attack_from_left_click(
         &mut self,
         location: Vec3,
         target_object: Option<ObjectId>,
@@ -25164,7 +25257,7 @@ impl CnCGameEngine {
     }
 
     /// Ctrl+LMB ForceAttack residual (object or ground).
-    fn host_issue_force_attack_from_left_click(
+    pub(super) fn host_issue_force_attack_from_left_click(
         &mut self,
         location: Vec3,
         target_object: Option<ObjectId>,
@@ -25196,7 +25289,7 @@ impl CnCGameEngine {
         self.host_process_commands_with_command_sound();
     }
 
-    fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
+    pub(super) fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
@@ -25222,7 +25315,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn handle_left_release(&mut self) {
+    pub(super) fn handle_left_release(&mut self) {
         self.is_dragging = false;
         self.selection_start_screen = None;
 
@@ -25296,7 +25389,7 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
     }
 
-    fn handle_right_click(&mut self) {
+    pub(super) fn handle_right_click(&mut self) {
         let mouse_pos = self.mouse_world_position;
 
         // Prefer live player selection; fall back to engine selection residual.
@@ -25382,7 +25475,7 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Command);
     }
 
-    fn handle_mouse_wheel(&mut self, delta: &winit::event::MouseScrollDelta) {
+    pub(super) fn handle_mouse_wheel(&mut self, delta: &winit::event::MouseScrollDelta) {
         use winit::event::MouseScrollDelta;
 
         let delta_y = match delta {
@@ -25416,7 +25509,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn update_camera(&mut self, dt: f32) {
+    pub(super) fn update_camera(&mut self, dt: f32) {
         // Retail KP4/KP6 rotate and KP8/KP2 zoom hold residual.
         const ROTATE_RAD_PER_SEC: f32 = 1.2;
         const ZOOM_PER_SEC: f32 = 0.85;
@@ -25660,14 +25753,14 @@ impl CnCGameEngine {
         }
     }
 
-    fn is_character_key_pressed(&self, expected: &str) -> bool {
+    pub(super) fn is_character_key_pressed(&self, expected: &str) -> bool {
         self.keys_pressed.iter().any(|key| match key {
             Key::Character(ch) => ch.eq_ignore_ascii_case(expected),
             _ => false,
         })
     }
 
-    fn camera_scroll_world_delta(&self, screen_scroll: Vec2) -> Vec3 {
+    pub(super) fn camera_scroll_world_delta(&self, screen_scroll: Vec2) -> Vec3 {
         if screen_scroll.length_squared() <= f32::EPSILON {
             return Vec3::ZERO;
         }
@@ -25690,7 +25783,7 @@ impl CnCGameEngine {
     ///
     /// Fail-closed vs full Mouse.cpp ANI/CUR assets — uses platform icons with
     /// residual names from `MOUSE_CURSOR_INI_NAME_LIST`.
-    fn sync_context_mouse_cursor(&mut self) {
+    pub(super) fn sync_context_mouse_cursor(&mut self) {
         use winit::window::CursorIcon;
         let (name, icon) = self.resolve_context_cursor_icon();
         if self.last_context_cursor == Some(name) {
@@ -25701,12 +25794,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 612: via `host_resolve_context_cursor_icon`.
-    fn resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
+    pub(super) fn resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
         // Wave 612: thin wrapper — residual via host helper.
         self.host_resolve_context_cursor_icon()
     }
 
-    fn host_resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
+    pub(super) fn host_resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
         // Wave 612: host residual helper.
         use winit::window::CursorIcon;
 
@@ -25866,14 +25959,14 @@ impl CnCGameEngine {
     /// Main still owns command translation / hotkeys.
     /// Wave 606: via `host_inject_game_client_key`.
     #[cfg(feature = "game_client")]
-    fn inject_game_client_key(&self, physical_key: &winit::keyboard::PhysicalKey, pressed: bool) {
+    pub(super) fn inject_game_client_key(&self, physical_key: &winit::keyboard::PhysicalKey, pressed: bool) {
         // Wave 606: thin wrapper — OS key inject via host helper.
         self.host_inject_game_client_key(physical_key, pressed);
     }
 
     /// Wave 606: host OS→GameClient key inject residual.
     #[cfg(feature = "game_client")]
-    fn host_inject_game_client_key(
+    pub(super) fn host_inject_game_client_key(
         &self,
         physical_key: &winit::keyboard::PhysicalKey,
         pressed: bool,
@@ -25888,7 +25981,7 @@ impl CnCGameEngine {
 
     /// Map winit physical keys to GameClient KeyCode without sharing winit types across crates.
     #[cfg(feature = "game_client")]
-    fn to_game_client_key_code(
+    pub(super) fn to_game_client_key_code(
         physical_key: &winit::keyboard::PhysicalKey,
     ) -> Option<game_client::input::KeyCode> {
         use game_client::input::KeyCode as Gk;
@@ -25974,14 +26067,14 @@ impl CnCGameEngine {
     /// for presentation-shell UI without dual OS event ownership.
     /// Wave 606: via `host_inject_game_client_mouse_move`.
     #[cfg(feature = "game_client")]
-    fn inject_game_client_mouse_move(&self, x: f32, y: f32) {
+    pub(super) fn inject_game_client_mouse_move(&self, x: f32, y: f32) {
         // Wave 606: thin wrapper — OS mouse move inject via host helper.
         self.host_inject_game_client_mouse_move(x, y);
     }
 
     /// Wave 606: host OS→GameClient mouse-move inject residual.
     #[cfg(feature = "game_client")]
-    fn host_inject_game_client_mouse_move(&self, x: f32, y: f32) {
+    pub(super) fn host_inject_game_client_mouse_move(&self, x: f32, y: f32) {
         // Wave 606: host OS mouse move inject residual.
         game_client::input::mouse::with_mouse(|mouse| {
             let _ = mouse.handle_mouse_move(x, y);
@@ -25990,7 +26083,7 @@ impl CnCGameEngine {
 
     /// Wave 606: via `host_inject_game_client_mouse_button`.
     #[cfg(feature = "game_client")]
-    fn inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
+    pub(super) fn inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
         // Wave 606: thin wrapper — OS mouse button inject via host helper.
         self.host_inject_game_client_mouse_button(button, pressed);
     }
@@ -25998,7 +26091,7 @@ impl CnCGameEngine {
     /// C++ WindowXlat: OS button → `TheWindowManager` gadget hit-test.
     /// Returns true when the WND consumed the click (shell active or gadget Used).
     /// C++ WindowXlat RAW_KEY → focused gadget `GWM_CHAR`.
-    fn dispatch_os_key_to_window_manager(
+    pub(super) fn dispatch_os_key_to_window_manager(
         &self,
         physical_key: &winit::keyboard::PhysicalKey,
         pressed: bool,
@@ -26021,7 +26114,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn winit_physical_key_to_wnd_vk(physical_key: &winit::keyboard::PhysicalKey) -> Option<u8> {
+    pub(super) fn winit_physical_key_to_wnd_vk(physical_key: &winit::keyboard::PhysicalKey) -> Option<u8> {
         use winit::keyboard::{KeyCode as Wk, PhysicalKey};
         let PhysicalKey::Code(code) = physical_key else {
             return None;
@@ -26081,7 +26174,7 @@ impl CnCGameEngine {
         })
     }
 
-    fn dispatch_os_mouse_to_window_manager(
+    pub(super) fn dispatch_os_mouse_to_window_manager(
         &self,
         button: MouseButton,
         pressed: bool,
@@ -26110,7 +26203,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn dispatch_os_mouse_move(&self, x: i32, y: i32) -> bool {
+    pub(super) fn dispatch_os_mouse_move(&self, x: i32, y: i32) -> bool {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
@@ -26124,7 +26217,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn dispatch_os_mouse_wheel(
+    pub(super) fn dispatch_os_mouse_wheel(
         &self,
         delta: &winit::event::MouseScrollDelta,
         x: i32,
@@ -26157,7 +26250,7 @@ impl CnCGameEngine {
 
     /// Wave 606: host OS→GameClient mouse-button inject residual.
     #[cfg(feature = "game_client")]
-    fn host_inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
+    pub(super) fn host_inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
         // Wave 606: host OS mouse button inject residual.
         use game_client::input::mouse::MouseButton as GcMouseButton;
         use std::time::Instant;
@@ -26176,21 +26269,21 @@ impl CnCGameEngine {
 
     /// Wave 606: via `host_inject_game_client_mouse_scroll`.
     #[cfg(feature = "game_client")]
-    fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
+    pub(super) fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
         // Wave 606: thin wrapper — OS mouse scroll inject via host helper.
         self.host_inject_game_client_mouse_scroll(delta_y);
     }
 
     /// Wave 606: host OS→GameClient mouse-scroll inject residual.
     #[cfg(feature = "game_client")]
-    fn host_inject_game_client_mouse_scroll(&self, delta_y: f32) {
+    pub(super) fn host_inject_game_client_mouse_scroll(&self, delta_y: f32) {
         // Wave 606: host OS mouse scroll inject residual.
         game_client::input::mouse::with_mouse(|mouse| {
             let _ = mouse.handle_scroll_lines(delta_y);
         });
     }
 
-    fn update_mouse_world_position(&mut self) {
+    pub(super) fn update_mouse_world_position(&mut self) {
         // Convert screen coordinates to world coordinates using current world bounds.
         // Prefer presentation world_env when installed (no live dual-read for click map).
         // Boot/loading without a frame still uses host GameLogic bounds.
@@ -26213,7 +26306,7 @@ impl CnCGameEngine {
     /// Wave 228: build presentation target hint for RMB classification.
 
     /// Wave 229: presentation-frozen selected-unit capabilities for RMB classification.
-    fn presentation_selected_unit_hints(
+    pub(super) fn presentation_selected_unit_hints(
         &self,
         ids: &[crate::game_logic::ObjectId],
     ) -> Vec<crate::command_system::PresentationSelectedUnitHint> {
@@ -26296,7 +26389,7 @@ impl CnCGameEngine {
         out
     }
 
-    fn presentation_target_hint(
+    pub(super) fn presentation_target_hint(
         &self,
         id: crate::game_logic::ObjectId,
     ) -> Option<crate::command_system::PresentationTargetHint> {
@@ -26367,7 +26460,7 @@ impl CnCGameEngine {
         })
     }
 
-    fn find_object_at_position(&self, position: Vec3, command_context: bool) -> Option<ObjectId> {
+    pub(super) fn find_object_at_position(&self, position: Vec3, command_context: bool) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 20.0;
         // Wave 222: presentation-only pick (no GameLogic dual-read residual).
 
@@ -26392,7 +26485,7 @@ impl CnCGameEngine {
     /// Actual rendering is handled by RenderPipeline::execute() -> ForwardPass::render()
     /// which queues MeshClass instances into the WW3D Renderer and issues real draw calls.
     #[allow(dead_code)] // Legacy stub: superseded by RenderPipeline, retained for reference
-    fn render_game_objects<'a>(&'a self, _render_pass: &mut wgpu::RenderPass<'a>) {
+    pub(super) fn render_game_objects<'a>(&'a self, _render_pass: &mut wgpu::RenderPass<'a>) {
         // Presentation-only stub: RenderPipeline is the sole draw path.
         let n = self
             .last_presentation_frame
@@ -26410,7 +26503,7 @@ impl CnCGameEngine {
     /// RenderItem list and ForwardPass::prepare_mesh_instance() which creates actual
     /// MeshClass instances submitted to the WW3D Renderer.
     #[allow(dead_code)] // Legacy stub: superseded by RenderPipeline, retained for reference
-    fn render_object<'a>(&'a self, obj: &Object, _render_pass: &mut wgpu::RenderPass<'a>) {
+    pub(super) fn render_object<'a>(&'a self, obj: &Object, _render_pass: &mut wgpu::RenderPass<'a>) {
         let model_name = obj.get_template().get_model_name();
 
         log::trace!(
@@ -26448,7 +26541,7 @@ impl CnCGameEngine {
     }
 
     #[allow(dead_code)] // Legacy stub: selection_renderer + PresentationFrame own production path
-    fn render_selection_indicators(&self, _render_pass: &mut wgpu::RenderPass) {
+    pub(super) fn render_selection_indicators(&self, _render_pass: &mut wgpu::RenderPass) {
         // Prefer presentation selected residual when installed (no live find_object dual-read).
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             let n = frame
@@ -26467,11 +26560,11 @@ impl CnCGameEngine {
         }
     }
 
-    fn render_projectiles(&self, _render_pass: &mut wgpu::RenderPass) {
+    pub(super) fn render_projectiles(&self, _render_pass: &mut wgpu::RenderPass) {
         // Projectiles render from PresentationFrame (host CombatSystem freeze).
     }
 
-    fn render_ui(&self, _render_pass: &mut wgpu::RenderPass) {
+    pub(super) fn render_ui(&self, _render_pass: &mut wgpu::RenderPass) {
         if let Err(err) = self.ui_manager.render() {
             log::warn!("UI manager render failed: {}", err);
         }
@@ -26480,8 +26573,12 @@ impl CnCGameEngine {
             self.selected_objects.len()
         );
     }
+}
 
-    fn toggle_pause(&mut self) {
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn toggle_pause(&mut self) {
         self.host_set_paused(!self.game_paused);
 
         info!(
@@ -26501,7 +26598,7 @@ impl CnCGameEngine {
         });
     }
 
-    fn start_background_music(&mut self) {
+    pub(super) fn start_background_music(&mut self) {
         let handle = match &self.audio_handle {
             Some(handle) => handle,
             None => {
@@ -26538,7 +26635,7 @@ impl CnCGameEngine {
         info!("Background music started");
     }
 
-    fn toggle_background_music(&mut self) {
+    pub(super) fn toggle_background_music(&mut self) {
         if self.audio_handle.is_none() {
             info!("Background music unavailable (-noaudio)");
             return;
@@ -26560,12 +26657,12 @@ impl CnCGameEngine {
     }
 
     /// Wave 604: via `host_play_sound_effect`.
-    fn play_sound_effect(&mut self, sound_type: SoundType) {
+    pub(super) fn play_sound_effect(&mut self, sound_type: SoundType) {
         // Wave 604: thin wrapper — UI SFX via host helper.
         self.host_play_sound_effect(sound_type);
     }
 
-    fn host_play_sound_effect(&mut self, sound_type: SoundType) {
+    pub(super) fn host_play_sound_effect(&mut self, sound_type: SoundType) {
         // Wave 604: host UI SFX residual.
         // Prefer presentation/host audio event residual when a frame is installed
         // (InGame path). Avoid dual synthetic rodio tones competing with event queue.
@@ -26632,12 +26729,12 @@ impl CnCGameEngine {
         self.sound_effects.push(sink);
     }
 
-    fn cleanup_sound_effects(&mut self) {
+    pub(super) fn cleanup_sound_effects(&mut self) {
         self.sound_effects.retain(|sink| !sink.empty());
     }
 
     /// Get or create a texture bind group for a material (delegated to graphics system)
-    fn get_material_bind_group(
+    pub(super) fn get_material_bind_group(
         &mut self,
         material: &crate::assets::W3DMaterial,
     ) -> Option<&wgpu::BindGroup> {
@@ -26647,7 +26744,7 @@ impl CnCGameEngine {
 
     /// Async texture loading method (for future implementation)
     /// This would be called from a background thread to load textures from BIG archives
-    async fn load_texture_async(
+    pub(super) async fn load_texture_async(
         &mut self,
         texture_name: &str,
         material_name: &str,
@@ -26667,7 +26764,7 @@ impl CnCGameEngine {
     /// creates a W3DModel-based fallback cube cached in the model cache and used by
     /// RenderPipeline::collect_render_items() for objects with missing W3D assets.
     #[allow(dead_code)] // Legacy stub: superseded by GraphicsSystem, retained for reference
-    fn create_fallback_cube(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer, u32) {
+    pub(super) fn create_fallback_cube(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer, u32) {
         // C++ SAGE compatible cube vertices using VertexFormatXYZNDUV2
         let vertices = vec![
             // Front face
@@ -26885,8 +26982,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
 }
 
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+
 #[derive(Debug, Clone, Copy)]
-enum SoundType {
+pub(super) enum SoundType {
     Select,
     Command,
     ConstructionComplete,
@@ -26897,7 +26997,7 @@ enum SoundType {
     Build,
 }
 
-struct NoopWake;
+pub(super) struct NoopWake;
 
 impl Wake for NoopWake {
     fn wake(self: Arc<Self>) {}
@@ -27514,7 +27614,7 @@ pub async fn run_cnc_game(
 
 
 /// Map HUD structure cameo labels to ThingTemplate residual names.
-fn resolve_ui_structure_template_name(name: &str) -> String {
+pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {
     let n = name.trim();
     if n.is_empty() {
         return String::new();
@@ -27543,6 +27643,982 @@ fn resolve_ui_structure_template_name(name: &str) -> String {
     }
 }
 
-#[cfg(test)]
-#[path = "cnc_game_engine_source_scan_tests.rs"]
-mod source_scan_tests;
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+//! Runtime-host GPUI control/status/frame bridge extracted from `cnc_game_engine`.
+//!
+//! Mechanical split: types + I/O live here; `CnCGameEngine` still owns command
+//! dispatch and snapshot assembly.
+
+use super::*;
+use crate::command_line::CommandLineArgs;
+use log::{info, warn};
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone)]
+pub(super) struct RuntimeHostSnapshot {
+    pub(super) state: String,
+    pub(super) ui_screen: String,
+    /// Sticky skirmish menu residual (survives InGame ui_screen clear).
+    pub(super) skirmish_menu_ok: bool,
+    pub(super) paused: bool,
+    pub(super) fps: f32,
+    pub(super) startup_progress: f32,
+    pub(super) startup_phase: String,
+    pub(super) map: String,
+    pub(super) frame: u32,
+    /// Host GameLogic fixed-step frame counter (30 Hz residual).
+    pub(super) logic_frame: u32,
+    /// Last step_simulation steps_run (catch-up residual).
+    pub(super) logic_steps: u32,
+    /// Friendly under-construction structures (local player team).
+    pub(super) under_construction: u32,
+    /// Match damage applied residual (host combat honesty).
+    pub(super) match_damage_applied: f32,
+    /// Match kill events residual (host combat honesty).
+    pub(super) match_kills: u32,
+    pub(super) selected_count: u32,
+    pub(super) local_mobile_units: u32,
+    pub(super) last_gameplay_cmd: String,
+    pub(super) match_over: bool,
+    pub(super) victory_label: String,
+    /// PresentationFrame installed for client/render residual.
+    pub(super) presentation_frame_ok: bool,
+    /// GameWorld observe-path presentation entity count (after coupled shadow tick).
+    pub(super) gameworld_presentation_entities: u32,
+    /// PresentationFrame.gameworld_overlay_stamped after last overlay call.
+    pub(super) gameworld_overlay_stamped: u32,
+    /// PresentationFrame.gameworld_appended after last append_missing_from_gameworld.
+    pub(super) gameworld_appended: u32,
+    /// PresentationFrame.gameworld_rebuilt after last rebuild_objects_from_gameworld.
+    pub(super) gameworld_rebuilt: u32,
+    /// PresentationFrame.gameworld_primary_objects residual.
+    pub(super) gameworld_primary_objects: bool,
+    /// Shell screen stack depth residual (retail WND push honesty).
+    pub(super) shell_screen_count: u32,
+    /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
+    pub(super) shell_top_wnd: String,
+    /// Shell::is_shell_active residual.
+    pub(super) shell_active: bool,
+    /// Live GameLogic dual-reads during last presentation-owned collect (must be 0 in-game).
+    pub(super) presentation_live_fallback_reads: u32,
+    /// Sticky waypoint mode residual.
+    pub(super) waypoint_mode: bool,
+    /// Live GPU/screenshot frame published (not shell fallback only).
+    pub(super) live_frame_ok: bool,
+    /// winit window is visible and host is not headless.
+    pub(super) window_visible: bool,
+    /// Physical WND menu click completed an offline menu-to-match transition.
+    pub(super) wnd_widget_tree_nav: bool,
+    /// Physical in-game command after a physical WND menu→match transition.
+    pub(super) interactive_gameplay: bool,
+    /// Host requested capture this frame (bridge should force screenshot).
+    pub(super) pending_capture: bool,
+    /// Last unit-pass collect honesty (presentation residual).
+    pub(super) render_alive_objects: u32,
+    pub(super) render_fow_filtered: u32,
+    pub(super) render_item_count: u32,
+    pub(super) render_model_missing: u32,
+    pub(super) render_frustum_culled: u32,
+    pub(super) camera_pos: String,
+    pub(super) camera_target: String,
+    pub(super) sample_unit_pos: String,
+}
+
+#[derive(Debug)]
+pub(super) struct RuntimeHostBridge {
+    control_path: PathBuf,
+    status_path: PathBuf,
+    frame_path: PathBuf,
+    capture_path: PathBuf,
+    frame_meta_path: PathBuf,
+    fallback_frame_png: Option<Vec<u8>>,
+    fallback_frame_luma: f32,
+    last_published_frame: u32,
+    last_capture_request_at: Option<Instant>,
+    capture_request_in_flight: bool,
+    capture_request_started_at: Option<Instant>,
+    screenshot_enqueue_failed: bool,
+    has_published_live_frame: bool,
+    created_at: Instant,
+    last_capture_health_log_at: Option<Instant>,
+}
+
+impl RuntimeHostBridge {
+    pub(super) const CAPTURE_REQUEST_INTERVAL_LOADING: Duration = Duration::from_millis(120);
+    pub(super) const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(40);
+    pub(super) const CAPTURE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+
+    pub(super) fn force_capture_request(&mut self) {
+        // Drop interval gate so next publish_frame requests a screenshot immediately.
+        self.last_capture_request_at = None;
+        self.capture_request_in_flight = false;
+        self.capture_request_started_at = None;
+        // Best-effort immediate request.
+        match ww3d_engine::make_screenshot(&self.capture_path) {
+            Ok(()) => {
+                self.last_capture_request_at = Some(Instant::now());
+                self.capture_request_in_flight = true;
+                self.capture_request_started_at = Some(Instant::now());
+            }
+            Err(err) => {
+                log::trace!("force_capture_request screenshot failed: {err:?}");
+            }
+        }
+    }
+
+    pub(super) fn capture_interval_for_state(state: &str) -> Duration {
+        match state {
+            "Menu" | "InGame" | "Paused" => Self::CAPTURE_REQUEST_INTERVAL_INTERACTIVE,
+            _ => Self::CAPTURE_REQUEST_INTERVAL_LOADING,
+        }
+    }
+
+    pub(super) fn is_headless_mode(args: &CommandLineArgs) -> bool {
+        args.get_option_value("runtime_host")
+            .map(|mode| mode.trim().eq_ignore_ascii_case("headless"))
+            .unwrap_or(false)
+    }
+
+    /// Any non-empty `--runtime_host` (headless or windowed) with GPUI paths.
+    pub(super) fn is_runtime_host_requested(args: &CommandLineArgs) -> bool {
+        args.get_option_value("runtime_host")
+            .map(|mode| !mode.trim().is_empty())
+            .unwrap_or(false)
+    }
+
+    pub(super) fn from_command_line(args: &CommandLineArgs) -> Option<Self> {
+        if !Self::is_runtime_host_requested(args) {
+            return None;
+        }
+        let control_path = PathBuf::from(args.get_option_value("gpui_control")?);
+        let status_path = PathBuf::from(args.get_option_value("gpui_status")?);
+        let frame_path = PathBuf::from(args.get_option_value("gpui_frame")?);
+        let capture_path = frame_path.with_extension("png.capture");
+        let frame_meta_path = frame_path.with_extension("png.meta");
+
+        let _ = fs::remove_file(&control_path);
+        let _ = fs::remove_file(&status_path);
+        let _ = fs::remove_file(&frame_path);
+        let _ = fs::remove_file(&capture_path);
+        let _ = fs::remove_file(&frame_meta_path);
+
+        let (fallback_frame_png, fallback_frame_luma) = Self::load_fallback_frame_png();
+        Some(Self {
+            control_path,
+            status_path,
+            frame_path,
+            capture_path,
+            frame_meta_path,
+            fallback_frame_png,
+            fallback_frame_luma,
+            last_published_frame: 0,
+            last_capture_request_at: None,
+            capture_request_in_flight: false,
+            capture_request_started_at: None,
+            screenshot_enqueue_failed: false,
+            has_published_live_frame: false,
+            created_at: Instant::now(),
+            last_capture_health_log_at: None,
+        })
+    }
+
+    pub(super) fn drain_commands(&mut self) -> Vec<String> {
+        // Wave 833: read via fs::read_to_string + atomic clear. OpenOptions
+        // read/write without an explicit seek(0) can miss peer writes on some
+        // platforms; empty drains left smoke stuck at MainMenu forever.
+        let payload = match fs::read_to_string(&self.control_path) {
+            Ok(text) => text,
+            Err(_) => return Vec::new(),
+        };
+        if payload.trim().is_empty() {
+            return Vec::new();
+        }
+        // Clear after successful read so each command is consumed once.
+        if let Err(err) = fs::write(&self.control_path, b"") {
+            warn!(
+                "Runtime host failed clearing control file {}: {err}",
+                self.control_path.display()
+            );
+        }
+        let cmds: Vec<String> = payload
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| line.to_string())
+            .collect();
+        if !cmds.is_empty() {
+            info!(
+                "Runtime host drained {} control command(s): {:?}",
+                cmds.len(),
+                cmds.iter().take(4).collect::<Vec<_>>()
+            );
+        }
+        cmds
+    }
+
+    pub(super) fn publish_booting(&mut self) {
+        let snapshot = RuntimeHostSnapshot {
+            state: "Booting".to_string(),
+            ui_screen: "None".to_string(),
+            skirmish_menu_ok: false,
+            paused: false,
+            fps: 0.0,
+            startup_progress: 0.0,
+            startup_phase: "Booting runtime".to_string(),
+            map: "-".to_string(),
+            frame: self.last_published_frame,
+            logic_frame: 0,
+            logic_steps: 0,
+            under_construction: 0,
+            match_damage_applied: 0.0,
+            match_kills: 0,
+            selected_count: 0,
+            local_mobile_units: 0,
+            last_gameplay_cmd: String::new(),
+            match_over: false,
+            victory_label: String::new(),
+            presentation_frame_ok: false,
+            gameworld_presentation_entities: 0,
+            gameworld_overlay_stamped: 0,
+            gameworld_appended: 0,
+            gameworld_rebuilt: 0,
+            gameworld_primary_objects: false,
+            shell_screen_count: 0,
+            shell_top_wnd: String::new(),
+            shell_active: false,
+            presentation_live_fallback_reads: 0,
+            waypoint_mode: false,
+            live_frame_ok: false,
+            window_visible: false,
+            wnd_widget_tree_nav: false,
+            interactive_gameplay: false,
+            pending_capture: false,
+            render_alive_objects: 0,
+            render_fow_filtered: 0,
+            render_item_count: 0,
+            render_model_missing: 0,
+            render_frustum_culled: 0,
+            camera_pos: String::new(),
+            camera_target: String::new(),
+            sample_unit_pos: String::new(),
+        };
+        self.publish_status(&snapshot);
+    }
+
+    pub(super) fn publish_runtime(&mut self, snapshot: &RuntimeHostSnapshot) {
+        // Promote capture before status so live_frame_ok reflects this frame.
+        self.publish_frame(snapshot.frame, &snapshot.state);
+        self.publish_status(snapshot);
+    }
+
+    pub(super) fn publish_status(&mut self, snapshot: &RuntimeHostSnapshot) {
+        let mut payload = String::new();
+        payload.push_str(&format!("state={}\n", snapshot.state));
+        payload.push_str(&format!("ui_screen={}\n", snapshot.ui_screen));
+        payload.push_str(&format!("skirmish_menu_ok={}\n", snapshot.skirmish_menu_ok));
+        payload.push_str(&format!("paused={}\n", snapshot.paused));
+        payload.push_str(&format!("fps={:.3}\n", snapshot.fps.max(0.0)));
+        payload.push_str(&format!(
+            "startup_progress={:.4}\n",
+            snapshot.startup_progress.clamp(0.0, 1.0)
+        ));
+        payload.push_str(&format!("startup_phase={}\n", snapshot.startup_phase));
+        payload.push_str(&format!("map={}\n", snapshot.map));
+        payload.push_str(&format!("frame={}\n", snapshot.frame));
+        payload.push_str(&format!("logic_frame={}\n", snapshot.logic_frame));
+        payload.push_str(&format!("logic_steps={}\n", snapshot.logic_steps));
+        payload.push_str(&format!(
+            "under_construction={}\n",
+            snapshot.under_construction
+        ));
+        payload.push_str(&format!(
+            "match_damage_applied={:.3}\n",
+            snapshot.match_damage_applied
+        ));
+        payload.push_str(&format!("match_kills={}\n", snapshot.match_kills));
+        payload.push_str(&format!("selected_count={}\n", snapshot.selected_count));
+        payload.push_str(&format!(
+            "local_mobile_units={}\n",
+            snapshot.local_mobile_units
+        ));
+        payload.push_str(&format!(
+            "last_gameplay_cmd={}\n",
+            snapshot.last_gameplay_cmd
+        ));
+        payload.push_str(&format!("match_over={}\n", snapshot.match_over));
+        payload.push_str(&format!("victory_label={}\n", snapshot.victory_label));
+        payload.push_str(&format!(
+            "presentation_frame_ok={}\n",
+            snapshot.presentation_frame_ok
+        ));
+        payload.push_str(&format!(
+            "gameworld_presentation_entities={}\n",
+            snapshot.gameworld_presentation_entities
+        ));
+        payload.push_str(&format!(
+            "gameworld_overlay_stamped={}\n",
+            snapshot.gameworld_overlay_stamped
+        ));
+        payload.push_str(&format!(
+            "gameworld_appended={}\n",
+            snapshot.gameworld_appended
+        ));
+        payload.push_str(&format!(
+            "gameworld_rebuilt={}\n",
+            snapshot.gameworld_rebuilt
+        ));
+        payload.push_str(&format!(
+            "gameworld_primary_objects={}\n",
+            snapshot.gameworld_primary_objects
+        ));
+        payload.push_str(&format!(
+            "shell_screen_count={}\n",
+            snapshot.shell_screen_count
+        ));
+        payload.push_str(&format!("shell_top_wnd={}\n", snapshot.shell_top_wnd));
+        payload.push_str(&format!("shell_active={}\n", snapshot.shell_active));
+        payload.push_str(&format!(
+            "presentation_live_fallback_reads={}\n",
+            snapshot.presentation_live_fallback_reads
+        ));
+        payload.push_str(&format!("waypoint_mode={}\n", snapshot.waypoint_mode));
+        // Honest: only a promoted GPU/screenshot capture (or an explicit snapshot
+        // flag). Fallback PNGs written to frame_path must not flip live_frame_ok.
+        payload.push_str(&format!(
+            "live_frame_ok={}\n",
+            snapshot.live_frame_ok || self.has_published_live_frame
+        ));
+        payload.push_str(&format!("window_visible={}\n", snapshot.window_visible));
+        payload.push_str(&format!(
+            "wnd_widget_tree_nav={}\n",
+            snapshot.wnd_widget_tree_nav
+        ));
+        // Five-flag sit-through diagnostic. `live_frame_ok` above is
+        // capture-promoted only; gameplay is physical input evidence, never a
+        // runtime-host command string.
+        let live_frame_ok = snapshot.live_frame_ok || self.has_published_live_frame;
+        let ingame = matches!(snapshot.state.as_str(), "InGame" | "Paused");
+        let gameplay = snapshot.interactive_gameplay;
+        let sit_through_missing =
+            crate::executable_smoke::ExecutableSmokeResult::retail_sit_through_missing_flags(
+                snapshot.window_visible,
+                snapshot.wnd_widget_tree_nav,
+                live_frame_ok,
+                ingame,
+                gameplay,
+            );
+        payload.push_str(&format!("ingame={ingame}\n"));
+        payload.push_str(&format!("gameplay={gameplay}\n"));
+        payload.push_str(&format!(
+            "interactive_menu_wnd_match={}\n",
+            snapshot.wnd_widget_tree_nav
+        ));
+        payload.push_str(&format!(
+            "retail_sit_through_missing={sit_through_missing}\n"
+        ));
+        payload.push_str(&format!(
+            "render_alive_objects={}\n",
+            snapshot.render_alive_objects
+        ));
+        payload.push_str(&format!(
+            "render_fow_filtered={}\n",
+            snapshot.render_fow_filtered
+        ));
+        payload.push_str(&format!(
+            "render_item_count={}\n",
+            snapshot.render_item_count
+        ));
+        payload.push_str(&format!(
+            "render_model_missing={}\n",
+            snapshot.render_model_missing
+        ));
+        payload.push_str(&format!(
+            "render_frustum_culled={}\n",
+            snapshot.render_frustum_culled
+        ));
+        payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
+        payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
+        payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));
+        payload.push_str(&format!("pending_capture={}\n", snapshot.pending_capture));
+        payload.push_str(&format!(
+            "frame_path={}\n",
+            self.frame_path.to_string_lossy()
+        ));
+        let _ = fs::write(&self.status_path, payload);
+    }
+
+    pub(super) fn publish_frame(&mut self, frame: u32, state: &str) {
+        if frame <= self.last_published_frame {
+            return;
+        }
+        self.last_published_frame = frame;
+
+        self.promote_capture_frame_if_ready();
+
+        if self.capture_request_in_flight {
+            let timed_out = self
+                .capture_request_started_at
+                .map(|started| started.elapsed() >= Self::CAPTURE_REQUEST_TIMEOUT)
+                .unwrap_or(false);
+            if timed_out {
+                warn!(
+                    "Runtime host capture request timed out after {:?} (frame={}, in_flight={})",
+                    Self::CAPTURE_REQUEST_TIMEOUT,
+                    frame,
+                    self.capture_request_in_flight
+                );
+                self.capture_request_in_flight = false;
+                self.capture_request_started_at = None;
+            }
+        }
+
+        let capture_interval = Self::capture_interval_for_state(state);
+        let should_request_capture = !self.capture_request_in_flight
+            && self
+                .last_capture_request_at
+                .map(|last| last.elapsed() >= capture_interval)
+                .unwrap_or(true);
+        if should_request_capture {
+            let requested_at = Instant::now();
+            match ww3d_engine::make_screenshot(&self.capture_path) {
+                Ok(()) => {
+                    self.last_capture_request_at = Some(requested_at);
+                    self.capture_request_in_flight = true;
+                    self.capture_request_started_at = Some(requested_at);
+                    self.screenshot_enqueue_failed = false;
+                }
+                Err(err) => {
+                    if !self.screenshot_enqueue_failed {
+                        warn!(
+                            "Runtime host frame capture unavailable ({err:?}); falling back to static frame"
+                        );
+                        self.screenshot_enqueue_failed = true;
+                    }
+                }
+            }
+        }
+
+        self.promote_capture_frame_if_ready();
+
+        if Self::png_file_looks_usable(&self.frame_path) {
+            // Keep an already-written PNG (live capture or previous fallback) so
+            // we do not clobber it. Do not treat fallback bytes as live_frame_ok;
+            // only promote_capture_frame_if_ready latches has_published_live_frame.
+            return;
+        }
+        if self.has_published_live_frame {
+            // Keep the most recent live frame while a newer capture is pending.
+            return;
+        }
+
+        let should_log_capture_health = self
+            .last_capture_health_log_at
+            .map(|last| last.elapsed() >= Duration::from_secs(2))
+            .unwrap_or_else(|| self.created_at.elapsed() >= Duration::from_secs(2));
+        if should_log_capture_health {
+            warn!(
+                "Runtime host awaiting first live frame: frame={} in_flight={} enqueue_failed={} capture_path={}",
+                frame,
+                self.capture_request_in_flight,
+                self.screenshot_enqueue_failed,
+                self.capture_path.display()
+            );
+            self.last_capture_health_log_at = Some(Instant::now());
+        }
+
+        let fallback_bytes = if let Some(bytes) = self.fallback_frame_png.as_ref() {
+            bytes.clone()
+        } else {
+            let (generated, generated_luma) = Self::build_procedural_fallback_png();
+            self.fallback_frame_luma = generated_luma;
+            let generated = generated.unwrap_or_else(|| {
+                // 1x1 opaque black PNG
+                vec![
+                    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0,
+                    0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156,
+                    99, 96, 96, 96, 248, 15, 0, 1, 4, 1, 0, 95, 161, 122, 86, 0, 0, 0, 0, 73, 69,
+                    78, 68, 174, 66, 96, 130,
+                ]
+            });
+            self.fallback_frame_png = Some(generated.clone());
+            generated
+        };
+        if let Err(err) = fs::write(&self.frame_path, &fallback_bytes) {
+            warn!(
+                "Failed writing GPUI runtime fallback frame {:?}: {err}",
+                self.frame_path
+            );
+        } else {
+            let _ = fs::write(
+                &self.frame_meta_path,
+                format!("luma={:.3}\n", self.fallback_frame_luma),
+            );
+        }
+    }
+
+    pub(super) fn promote_capture_frame_if_ready(&mut self) {
+        if !Self::png_file_looks_usable(&self.capture_path) {
+            return;
+        }
+        if let Err(err) = fs::rename(&self.capture_path, &self.frame_path) {
+            warn!(
+                "Failed to promote GPUI runtime capture {:?} -> {:?}: {err}",
+                self.capture_path, self.frame_path
+            );
+            self.capture_request_in_flight = false;
+            self.capture_request_started_at = None;
+            return;
+        }
+        self.capture_request_in_flight = false;
+        self.capture_request_started_at = None;
+        if !self.has_published_live_frame {
+            info!(
+                "Runtime host promoted first live frame from capture (frame={})",
+                self.last_published_frame
+            );
+        }
+        self.has_published_live_frame = true;
+        let _ = fs::write(&self.frame_meta_path, "luma=0.0\n");
+    }
+
+    pub(super) fn png_file_looks_usable(path: &Path) -> bool {
+        let Ok(metadata) = fs::metadata(path) else {
+            return false;
+        };
+        if metadata.len() < 128 {
+            return false;
+        }
+        let mut signature = [0u8; 8];
+        let Ok(mut file) = fs::File::open(path) else {
+            return false;
+        };
+        if file.read_exact(&mut signature).is_err() {
+            return false;
+        }
+        signature == [137, 80, 78, 71, 13, 10, 26, 10]
+    }
+
+    pub(super) fn load_fallback_frame_png() -> (Option<Vec<u8>>, f32) {
+        let candidates = [
+            "Data/English/Art/Textures/loadpageuserinterface.tga",
+            "Data/English/Art/Textures/TitleScreenuserinterface.tga",
+            "MapsZH/Maps/ShellMapMD/ShellMapMD.tga",
+        ];
+
+        // Use the mounted game file system first (C++ W3DFileSystem semantics).
+        {
+            let fs = game_engine::common::system::file_system::get_file_system();
+            let fs_guard_result = fs.lock();
+            if let Ok(mut fs_guard) = fs_guard_result {
+                for candidate in candidates {
+                    if let Some(mut file) = fs_guard.open_file(
+                        candidate,
+                        game_engine::common::system::file::FileAccess::READ
+                            .combine(game_engine::common::system::file::FileAccess::BINARY),
+                    ) {
+                        let Ok(bytes) = file.read_entire_and_close() else {
+                            continue;
+                        };
+                        let Ok(image) = image::load_from_memory(&bytes) else {
+                            continue;
+                        };
+                        let rgba = image.to_rgba8();
+                        let luma = if rgba.is_empty() {
+                            0.0
+                        } else {
+                            let sum = rgba
+                                .chunks_exact(4)
+                                .map(|px| {
+                                    0.2126 * px[0] as f32 / 255.0
+                                        + 0.7152 * px[1] as f32 / 255.0
+                                        + 0.0722 * px[2] as f32 / 255.0
+                                })
+                                .sum::<f32>();
+                            (sum / (rgba.len() as f32 / 4.0)).clamp(0.0, 1.0) * 255.0
+                        };
+                        let mut png_bytes = Vec::new();
+                        let mut cursor = std::io::Cursor::new(&mut png_bytes);
+                        if image.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                            return (Some(png_bytes), luma);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Final local fallback: try plain filesystem copies.
+        for candidate in candidates {
+            let Ok(bytes) = fs::read(candidate) else {
+                continue;
+            };
+            let Ok(image) = image::load_from_memory(&bytes) else {
+                continue;
+            };
+            let rgba = image.to_rgba8();
+            let luma = if rgba.is_empty() {
+                0.0
+            } else {
+                let sum = rgba
+                    .chunks_exact(4)
+                    .map(|px| {
+                        0.2126 * px[0] as f32 / 255.0
+                            + 0.7152 * px[1] as f32 / 255.0
+                            + 0.0722 * px[2] as f32 / 255.0
+                    })
+                    .sum::<f32>();
+                (sum / (rgba.len() as f32 / 4.0)).clamp(0.0, 1.0) * 255.0
+            };
+            let mut png_bytes = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut png_bytes);
+            if image.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                return (Some(png_bytes), luma);
+            }
+        }
+        Self::build_procedural_fallback_png()
+    }
+
+    pub(super) fn build_procedural_fallback_png() -> (Option<Vec<u8>>, f32) {
+        let width = 1280u32;
+        let height = 720u32;
+        let mut rgba = image::RgbaImage::new(width, height);
+        for y in 0..height {
+            let v = y as f32 / (height.saturating_sub(1).max(1)) as f32;
+            for x in 0..width {
+                let u = x as f32 / (width.saturating_sub(1).max(1)) as f32;
+                let r = (22.0 + 26.0 * (1.0 - v) + 12.0 * u).clamp(0.0, 255.0) as u8;
+                let g = (34.0 + 38.0 * (1.0 - v)).clamp(0.0, 255.0) as u8;
+                let b = (48.0 + 58.0 * v).clamp(0.0, 255.0) as u8;
+                rgba.put_pixel(x, y, image::Rgba([r, g, b, 255]));
+            }
+        }
+
+        let mut png_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut png_bytes);
+        if image::DynamicImage::ImageRgba8(rgba)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .is_ok()
+        {
+            return (Some(png_bytes), 96.0);
+        }
+        (None, 0.0)
+    }
+}
+
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+//! Extra `CnCGameEngine` impl chunk (texture preload) extracted from the god file.
+//!
+//! Mechanical split: keeps the second impl block out of `cnc_game_engine.rs`.
+
+use super::*;
+use crate::assets::W3DModel;
+use crate::graphics::{graphics_system::MAX_STAGE_TEXTURES, GraphicsSystem};
+use log::{debug, info, warn};
+use std::collections::HashSet;
+use std::sync::Arc;
+
+impl CnCGameEngine {
+    /// Preload textures from all cached models using C++ approach - material names as texture files
+    pub(super) async fn preload_model_textures(graphics_system: &mut GraphicsSystem) -> anyhow::Result<()> {
+        use std::collections::HashSet;
+
+        log::info!(
+            "🎨 TEXTURE: Loading textures using C++ approach - material names as texture filenames"
+        );
+
+        // Get all models from graphics system cache and collect material names as texture names
+        let mut texture_names: HashSet<String> = HashSet::new();
+
+        // Get all cached models from graphics system
+        for (model_name, model) in graphics_system.get_all_models() {
+            log::debug!(
+                "🔍 TEXTURE: Scanning model '{}' for referenced stage textures...",
+                model_name
+            );
+
+            Self::collect_material_textures(model, &mut texture_names);
+
+            for mesh in &model.meshes {
+                // Direct material reference on mesh (fallback path)
+                if let Some(ref tex_name) = mesh.material.texture_name {
+                    if Self::is_valid_texture_name(tex_name) {
+                        texture_names.insert(tex_name.clone());
+                        log::debug!("  📄 Found mesh embedded texture: {}", tex_name);
+                    }
+                }
+
+                // Authoritative per-pass stage texture names (preferred)
+                for (pass_idx, stage_sets) in mesh.per_pass_stage_texture_names.iter().enumerate() {
+                    for (stage_idx, names) in stage_sets.iter().enumerate() {
+                        let mut stage_populated = false;
+                        for texture_name in names {
+                            if Self::is_valid_texture_name(texture_name) {
+                                texture_names.insert(texture_name.clone());
+                                stage_populated = true;
+                                log::debug!(
+                                    "  📄 Pass {} Stage {} texture: {}",
+                                    pass_idx,
+                                    stage_idx,
+                                    texture_name
+                                );
+                            }
+                        }
+
+                        if !stage_populated {
+                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
+                                if Self::is_valid_texture_name(&fallback) {
+                                    texture_names.insert(fallback.clone());
+                                    log::debug!(
+                                        "  📄 Pass {} Stage {} texture (from IDs): {}",
+                                        pass_idx,
+                                        stage_idx,
+                                        fallback
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if mesh.per_pass_stage_texture_names.is_empty()
+                    && !mesh.per_pass_stage_texture_ids.is_empty()
+                {
+                    for (pass_idx, stages) in mesh.per_pass_stage_texture_ids.iter().enumerate() {
+                        for stage_idx in 0..stages.len() {
+                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
+                                if Self::is_valid_texture_name(&fallback) {
+                                    texture_names.insert(fallback.clone());
+                                    log::debug!(
+                                        "  📄 Pass {} Stage {} texture (from IDs): {}",
+                                        pass_idx,
+                                        stage_idx,
+                                        fallback
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        log::info!(
+            "🎨 TEXTURE: Found {} unique material-based textures to load",
+            texture_names.len()
+        );
+        log::info!(
+            "🎨 TEXTURE: First 10 texture names: {:?}",
+            texture_names.iter().take(10).collect::<Vec<_>>()
+        );
+
+        if texture_names.is_empty() {
+            log::warn!("⚠️  TEXTURE: No material names found - skipping preload");
+            return Ok(());
+        }
+
+        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+            let mut loaded_count = 0;
+            let mut failed_count = 0;
+            let total_textures = texture_names.len();
+            let texture_names: Vec<_> = texture_names.iter().collect();
+
+            log::info!(
+                "🎨 TEXTURE: Starting preload of {} textures",
+                total_textures
+            );
+
+            for (index, texture_name) in texture_names.iter().enumerate() {
+                log::debug!(
+                    "🎯 Loading texture {}/{}: {}",
+                    index + 1,
+                    total_textures,
+                    texture_name
+                );
+
+                let load_result = async {
+                    match asset_manager_arc.lock() {
+                        Ok(mut asset_manager) => {
+                            asset_manager
+                                .load_texture(
+                                    graphics_system.device(),
+                                    graphics_system.queue(),
+                                    texture_name,
+                                )
+                                .await;
+                            true
+                        }
+                        Err(_) => {
+                            log::warn!(
+                                "Could not acquire asset manager lock for texture: {}",
+                                texture_name
+                            );
+                            false
+                        }
+                    }
+                }
+                .await;
+
+                if load_result {
+                    loaded_count += 1;
+                } else {
+                    failed_count += 1;
+                }
+            }
+
+            log::info!(
+                "✅ TEXTURE PRELOAD: Loaded {} textures ({} failed/timeout)",
+                loaded_count,
+                failed_count
+            );
+        } else {
+            log::error!("❌ TEXTURE PRELOAD: Asset manager not available");
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn collect_material_textures(model: &Arc<W3DModel>, texture_names: &mut HashSet<String>) {
+        for (material_name, material) in &model.materials {
+            if Self::is_valid_texture_name(material_name) {
+                texture_names.insert(material_name.clone());
+                log::debug!("  📄 Found material-as-texture: {}", material_name);
+            }
+
+            if let Some(ref texture_name) = material.texture_name {
+                if Self::is_valid_texture_name(texture_name) {
+                    texture_names.insert(texture_name.clone());
+                    log::debug!("  📄 Found explicit material texture: {}", texture_name);
+                }
+            }
+
+            for stage_idx in 0..MAX_STAGE_TEXTURES {
+                if let Some(stage_texture) = GraphicsSystem::stage_texture_name(material, stage_idx)
+                {
+                    if Self::is_valid_texture_name(stage_texture) {
+                        texture_names.insert(stage_texture.clone());
+                        log::debug!(
+                            "  📄 Material stage{} texture: {}",
+                            stage_idx,
+                            stage_texture
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn is_valid_texture_name(name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        if name.eq_ignore_ascii_case("default") {
+            return false;
+        }
+        name.parse::<usize>().is_err()
+    }
+
+    /// Preload textures using WW3D Asset Manager definitions
+    /// This loads textures defined in INI object definitions from INIZH.big
+    pub(super) async fn preload_ww3d_textures(graphics_system: &mut GraphicsSystem) -> anyhow::Result<()> {
+        info!("🎨 TEXTURE: Preloading textures from WW3D Asset Manager definitions...");
+
+        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+            // First, get the list of texture filenames
+            let texture_filenames = {
+                let asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
+                asset_manager.get_all_texture_filenames()
+            };
+
+            info!(
+                "🎨 TEXTURE: WW3D Asset Manager has {} unique texture filenames to load",
+                texture_filenames.len()
+            );
+
+            // Show first 20 texture names for debugging
+            for (index, name) in texture_filenames.iter().take(20).enumerate() {
+                debug!("  📄 Texture {}: {}", index + 1, name);
+            }
+
+            if texture_filenames.len() > 20 {
+                info!("  ... and {} more textures", texture_filenames.len() - 20);
+            }
+
+            // Load ALL textures (matching C++ behavior - no artificial limit)
+            let mut loaded_count = 0;
+            let mut failed_count = 0;
+            let total_to_load = texture_filenames.len(); // Load all textures upfront like C++
+
+            info!(
+                "🎨 TEXTURE: Loading ALL {} textures from BIG archives (matching C++ behavior)...",
+                total_to_load
+            );
+
+            for (index, texture_name) in texture_filenames.iter().enumerate() {
+                debug!(
+                    "🎯 Loading WW3D texture {}/{}: {}",
+                    index + 1,
+                    total_to_load,
+                    texture_name
+                );
+
+                // Try to load the texture with timeout
+                let load_future = async {
+                    match asset_manager_arc.lock() {
+                        Ok(mut asset_manager) => {
+                            // Load the texture asynchronously
+                            match asset_manager
+                                .load_texture_async(
+                                    graphics_system.device(),
+                                    graphics_system.queue(),
+                                    texture_name,
+                                )
+                                .await
+                            {
+                                Ok(_) => {
+                                    debug!("✅ Loaded texture: {}", texture_name);
+                                    true
+                                }
+                                Err(e) => {
+                                    warn!("⚠️ Failed to load texture {}: {}", texture_name, e);
+                                    false
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            warn!("Could not lock asset manager for texture: {}", texture_name);
+                            false
+                        }
+                    }
+                };
+
+                match tokio::time::timeout(tokio::time::Duration::from_millis(500), load_future)
+                    .await
+                {
+                    Ok(true) => loaded_count += 1,
+                    Ok(false) => failed_count += 1,
+                    Err(_) => {
+                        failed_count += 1;
+                        warn!("⏰ Texture '{}' timeout (500ms)", texture_name);
+                    }
+                }
+
+                // Small delay between textures
+                tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+            }
+
+            info!(
+                "✅ WW3D TEXTURE PRELOAD: Loaded {} textures ({} failed/timeout) from {} available",
+                loaded_count,
+                failed_count,
+                texture_filenames.len()
+            );
+        } else {
+            warn!("⚠️ WW3D TEXTURE PRELOAD: Asset manager not available");
+        }
+
+        Ok(())
+    }
+}
+

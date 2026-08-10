@@ -1,0 +1,636 @@
+use super::*;
+
+/// Logic-frame index (30 Hz authority).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LogicFrame(pub u32);
+
+/// ControlBar production cameo CanMake residual frozen for presentation/UI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationCanMakeCameo {
+    pub template_name: String,
+    /// C++ CanMakeType ordinal residual (CANMAKE_*).
+    pub can_make: u32,
+    /// True when CANMAKE_OK residual.
+    pub available: bool,
+    /// Optional HelpBox status message residual (None when OK / silent statuses).
+    pub help_status: Option<String>,
+}
+
+/// Snapshot-owned factory production queue entry (host BuildingData residual).
+/// Fail-closed: not full ControlBar queue UI / cancel-button WND parity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationProductionItem {
+    pub template_name: String,
+    /// Absolute research/build progress seconds residual.
+    pub progress: f32,
+    pub total_time: f32,
+    pub cost_supplies: u32,
+    /// C++ PRODUCTION_UPGRADE residual on producer queue.
+    pub is_upgrade: bool,
+    /// Normalized 0..1 residual for ControlBar / build-queue strip.
+    pub progress_ratio: f32,
+}
+
+impl PresentationProductionItem {
+    #[inline]
+    pub fn from_host_item(item: &crate::game_logic::buildings::ProductionItem) -> Self {
+        let ratio = if item.total_time <= 0.0 {
+            1.0
+        } else {
+            (item.progress / item.total_time).clamp(0.0, 1.0)
+        };
+        Self {
+            template_name: item.template_name.clone(),
+            progress: item.progress,
+            total_time: item.total_time,
+            cost_supplies: item.cost.supplies,
+            is_upgrade: item.is_upgrade(),
+            progress_ratio: ratio,
+        }
+    }
+
+    /// Wave 489: GameWorld entity production queue → presentation strip.
+    #[inline]
+    pub fn from_entity_item(item: &gamelogic::world::entities::EntityProductionItem) -> Self {
+        let ratio = if item.total_time <= 0.0 {
+            1.0
+        } else {
+            (item.progress / item.total_time).clamp(0.0, 1.0)
+        };
+        Self {
+            template_name: item.template_name.clone(),
+            progress: item.progress,
+            total_time: item.total_time,
+            cost_supplies: item.cost_supplies,
+            is_upgrade: item.is_upgrade,
+            progress_ratio: ratio,
+        }
+    }
+}
+
+/// Snapshot-owned veterancy rank (host Experience residual).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationVeterancy {
+    Rookie,
+    Veteran,
+    Elite,
+    Heroic,
+}
+
+impl PresentationVeterancy {
+    pub fn from_host(level: crate::game_logic::VeterancyLevel) -> Self {
+        use crate::game_logic::VeterancyLevel as V;
+        match level {
+            V::Rookie => Self::Rookie,
+            V::Veteran => Self::Veteran,
+            V::Elite => Self::Elite,
+            V::Heroic => Self::Heroic,
+        }
+    }
+
+    /// Wave 490: GameWorld entity veterancy_ordinal residual.
+    #[inline]
+    pub fn from_ordinal(ord: u8) -> Self {
+        match ord {
+            1 => Self::Veteran,
+            2 => Self::Elite,
+            3 => Self::Heroic,
+            _ => Self::Rookie,
+        }
+    }
+
+    /// C++ ControlBar portrait chevron image residual (SSChevron*).
+    pub fn chevron_overlay(self) -> Option<&'static str> {
+        match self {
+            Self::Rookie => None,
+            Self::Veteran => Some("SSChevron1L"),
+            Self::Elite => Some("SSChevron2L"),
+            Self::Heroic => Some("SSChevron3L"),
+        }
+    }
+}
+
+/// Snapshot-owned object kind residual (host ObjectType).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationObjectType {
+    Infantry,
+    Vehicle,
+    Aircraft,
+    Building,
+    Supply,
+    Projectile,
+    Neutral,
+}
+
+impl PresentationObjectType {
+    pub fn from_host(t: crate::game_logic::ObjectType) -> Self {
+        use crate::game_logic::ObjectType as T;
+        match t {
+            T::Infantry => Self::Infantry,
+            T::Vehicle => Self::Vehicle,
+            T::Aircraft => Self::Aircraft,
+            T::Building => Self::Building,
+            T::Supply => Self::Supply,
+            T::Projectile => Self::Projectile,
+            T::Neutral => Self::Neutral,
+        }
+    }
+}
+
+/// Snapshot-owned structure kind residual (host BuildingType).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationBuildingType {
+    CommandCenter,
+    Barracks,
+    WarFactory,
+    Airfield,
+    RepairPad,
+    HealPad,
+    SupplyCenter,
+    PowerPlant,
+    DefenseTurret,
+    SupplyDropZone,
+    Palace,
+    Propaganda,
+    Bunker,
+}
+
+impl PresentationBuildingType {
+    pub fn from_host(t: crate::game_logic::BuildingType) -> Self {
+        use crate::game_logic::BuildingType as B;
+        match t {
+            B::CommandCenter => Self::CommandCenter,
+            B::Barracks => Self::Barracks,
+            B::WarFactory => Self::WarFactory,
+            B::Airfield => Self::Airfield,
+            B::RepairPad => Self::RepairPad,
+            B::HealPad => Self::HealPad,
+            B::SupplyCenter => Self::SupplyCenter,
+            B::PowerPlant => Self::PowerPlant,
+            B::DefenseTurret => Self::DefenseTurret,
+            B::SupplyDropZone => Self::SupplyDropZone,
+            B::Palace => Self::Palace,
+            B::Propaganda => Self::Propaganda,
+            B::Bunker => Self::Bunker,
+        }
+    }
+
+    /// Wave 490: GameWorld entity building_type_ordinal residual (255 = none).
+    #[inline]
+    pub fn from_ordinal(ord: u8) -> Option<Self> {
+        match ord {
+            0 => Some(Self::CommandCenter),
+            1 => Some(Self::Barracks),
+            2 => Some(Self::WarFactory),
+            3 => Some(Self::Airfield),
+            4 => Some(Self::RepairPad),
+            5 => Some(Self::HealPad),
+            6 => Some(Self::SupplyCenter),
+            7 => Some(Self::PowerPlant),
+            8 => Some(Self::DefenseTurret),
+            9 => Some(Self::SupplyDropZone),
+            10 => Some(Self::Palace),
+            11 => Some(Self::Propaganda),
+            12 => Some(Self::Bunker),
+            _ => None,
+        }
+    }
+
+    /// Factory / barracks / airfield residual for unit production UI.
+    pub fn is_unit_producer(self) -> bool {
+        matches!(self, Self::Barracks | Self::WarFactory | Self::Airfield)
+    }
+}
+
+/// One renderable object as seen after a completed logic step.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderableObject {
+    pub id: ObjectId,
+    pub template_name: String,
+    pub team: Team,
+    /// Team tint for presentation-only draw (RGBA 0..1), mirrors Object::team_color.
+    pub team_color: [f32; 4],
+    pub position: Vec3,
+    pub orientation: f32,
+    /// C++ ToppleUpdate lean residual (radians fallen about fall axis).
+    #[serde(default)]
+    pub topple_lean_radians: f32,
+    /// Current movement order destination (host Movement::target_position).
+    pub move_destination: Option<Vec3>,
+    /// Host Object::target_location residual (script/order point).
+    pub target_location: Option<Vec3>,
+    /// Host guard_target residual.
+    pub guard_target: Option<ObjectId>,
+    /// Host ObjectStatus::using_ability residual.
+    pub using_ability: bool,
+    /// Host ObjectStatus::airborne_target residual.
+    pub airborne_target: bool,
+    /// Wave 982: producer/slaver residual for IgnoredInGui mouseover remap.
+    #[serde(default)]
+    pub producer_id: Option<ObjectId>,
+    /// Wave 983: healing icon residual (sole-benefactor / heal timer).
+    #[serde(default)]
+    pub show_healing: bool,
+    #[serde(default)]
+    pub healing_icon_type: u8,
+    /// Wave 505: C++ OBJECT_STATUS_PARACHUTING residual.
+    pub parachuting: bool,
+    /// Wave 509: C++ parachute open residual (false + parachuting => FREEFALL).
+    pub parachute_open: bool,
+    /// Wave 510: C++ CAPTURED model-condition residual.
+    pub captured: bool,
+    /// Wave 512: C++ prone residual (Infantry goProne timer).
+    pub prone: bool,
+    /// Wave 514: C++ Drawable emoticon residual name.
+    pub emoticon_name: String,
+    /// Wave 514: remaining logic frames for emoticon.
+    pub emoticon_frames_left: i32,
+    /// Wave 515: C++ AIUpdateInterface::setSurrendered residual.
+    pub is_surrendered: bool,
+    /// Wave 515: C++ Object::m_formationID residual (0 = none).
+    pub formation_id: u32,
+    /// Wave 515: C++ Object::m_formationOffset residual.
+    pub formation_offset: glam::Vec2,
+    /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
+    pub over_water: bool,
+    /// Wave 526: MOVING/ATTACKING via name-table helpers.
+    /// Wave 525: FRONTCRUSHED/BACKCRUSHED/PREORDER/USER_1/USER_2 residual.
+    /// Wave 524: multi-door DOOR_2..4 banks + SMOLDERING residual.
+    /// Wave 523: stamp STUNNED_FLAILING / SECOND_LIFE / POST_COLLAPSE / SPECIAL_DAMAGED.
+    /// Wave 522: C++ terrain cell cliff residual.
+    pub cell_is_cliff: bool,
+    /// Wave 522: C++ terrain cell underwater residual.
+    pub cell_is_underwater: bool,
+    /// Host movement max speed residual.
+    pub move_max_speed: f32,
+    /// Host velocity residual.
+    pub velocity: Vec3,
+    /// Host AI state ordinal residual.
+    pub ai_state_ordinal: u8,
+    /// Attack target object id when set.
+    pub attack_target: Option<ObjectId>,
+    /// Path waypoints residual (capped) for line pack / debug draw.
+    pub path_waypoints: Vec<Vec3>,
+    /// Host movement path length residual.
+    pub path_len: u16,
+    /// Host movement current path index residual.
+    pub path_index: u16,
+    /// Host occupant_count residual (transport/contain).
+    pub occupant_count: u16,
+    /// Structure production queue residual (empty for non-buildings).
+    pub production_queue: Vec<PresentationProductionItem>,
+    /// Wave 986: host BuildingData production pause residual.
+    #[serde(default)]
+    pub production_paused: bool,
+    /// Structure rally point residual.
+    pub rally_point: Option<Vec3>,
+    /// Guard position residual (units).
+    pub guard_position: Option<Vec3>,
+    /// Contained unit ids (garrison / transport residual, capped).
+    pub garrisoned_units: Vec<ObjectId>,
+    /// Max garrison slots (0 = not a container).
+    pub max_garrison: usize,
+    /// Structure/unit power provided residual.
+    pub power_provided: i32,
+    /// Structure/unit power consumed residual.
+    pub power_consumed: i32,
+    /// Host Object::stored_resources.supplies residual (supply center / drop zone).
+    pub stored_supplies: u32,
+    pub health_current: f32,
+    pub health_max: f32,
+    pub selected: bool,
+    /// C++ OBJECT_STATUS_DEPLOYED residual.
+    pub is_deployed: bool,
+    /// C++ Drawable selection flash envelope residual frames.
+    pub selection_flash_remaining: u32,
+    pub destroyed: bool,
+    /// C++ ModelConditionFlags residual (ALLOW_SURRENDER-off bit layout, low 128).
+    pub model_condition_bits: u128,
+    /// C++ RadarUpdate m_radarActive residual.
+    pub radar_active: bool,
+    /// C++ RadarUpdate m_extendComplete residual.
+    pub radar_extend_complete: bool,
+    /// C++ ProductionUpdate door residual phase (0 idle .. 3 closing).
+    pub production_door_phase: u8,
+    /// C++ BodyDamageType residual ordinal (0 pristine .. 3 rubble).
+    pub body_damage_state: u8,
+    /// C++ TransitionDamageFX / FXListDie residual name frozen at snapshot.
+    #[serde(default)]
+    pub damage_fx_name: Option<String>,
+    /// C++ BoneFXDamage / BoneFXUpdate residual FXList name.
+    #[serde(default)]
+    pub bone_fx_name: Option<String>,
+    /// C++ TINT_STATUS_POISONED residual.
+    #[serde(default)]
+    pub poison_tinted: bool,
+    /// C++ UNDETECTED_DEFECTOR residual.
+    #[serde(default)]
+    pub undetected_defector: bool,
+    /// C++ DefectionHelper selection flash residual.
+    #[serde(default)]
+    pub defector_flash: bool,
+    /// C++ FXListDie death FX residual name.
+    #[serde(default)]
+    pub death_fx_name: Option<String>,
+    /// C++ DeathType residual name for death FX (empty when alive).
+    pub death_type_name: String,
+    pub under_construction: bool,
+    /// Construction progress 0..1 residual (structures / dozer builds).
+    pub construction_percent: f32,
+    /// Wave 1031: OCL timer residual seconds (ControlBar OclTimer dual path).
+    pub ocl_timer_seconds: u32,
+    /// C++ OBJECT_STATUS_SOLD residual frozen for presentation/UI.
+    pub sold: bool,
+    /// C++ OBJECT_STATUS_UNSELECTABLE residual frozen for presentation/UI.
+    pub unselectable: bool,
+    /// C++ RebuildHole residual frozen for presentation/UI.
+    pub is_rebuild_hole: bool,
+    /// Wave 993: C++ RebuildHoleBehavior m_rebuildTemplate residual.
+    #[serde(default)]
+    pub rebuild_template_name: String,
+    /// Wave 993: host rebuild_ready_frame residual.
+    #[serde(default)]
+    pub rebuild_ready_frame: u32,
+    /// Wave 993: RebuildHoleBehavior m_spawnerID residual.
+    #[serde(default)]
+    pub rebuild_spawner_id: Option<ObjectId>,
+    /// Wave 993: RebuildHoleBehavior m_workerID residual.
+    #[serde(default)]
+    pub rebuild_worker_id: Option<ObjectId>,
+    /// Wave 993: RebuildHoleBehavior m_reconstructingID residual.
+    #[serde(default)]
+    pub rebuild_reconstructing_id: Option<ObjectId>,
+    /// C++ OBJECT_STATUS_RECONSTRUCTING residual frozen for presentation.
+    pub reconstructing: bool,
+    /// Veterancy rank residual for chevrons / UI.
+    pub veterancy: PresentationVeterancy,
+    /// Experience points residual (display / debug).
+    pub experience_points: f32,
+    /// Host ObjectStatus::moving residual.
+    pub moving: bool,
+    /// Host ObjectStatus::attacking residual.
+    pub attacking: bool,
+    /// Host ObjectStatus::is_firing_weapon residual.
+    pub is_firing_weapon: bool,
+    /// Host ObjectStatus::is_aiming_weapon residual.
+    pub is_aiming_weapon: bool,
+    /// Host ObjectStatus::disabled_emp residual.
+    pub disabled_emp: bool,
+    /// Host ObjectStatus::disabled_paralyzed residual.
+    pub disabled_paralyzed: bool,
+    /// Host ObjectStatus::weapons_jammed residual.
+    pub weapons_jammed: bool,
+    /// Host ObjectStatus::masked residual.
+    pub masked: bool,
+    /// Host ObjectStatus::ignoring_stealth residual.
+    pub ignoring_stealth: bool,
+    /// Host ObjectStatus::repulsor residual.
+    pub repulsor: bool,
+    /// C++ OBJECT_STATUS_STEALTHED residual.
+    pub stealthed: bool,
+    /// C++ OBJECT_STATUS_DETECTED residual.
+    pub detected: bool,
+    /// Stealthed && !detected && !disguised (not a legal auto-target).
+    pub effectively_stealthed: bool,
+    /// Any host disable residual that blocks acting.
+    pub disabled: bool,
+    /// Container residual when this unit is inside another object.
+    pub contained_by: Option<ObjectId>,
+    /// Force-attack order residual.
+    pub force_attack: bool,
+    /// Primary weapon present residual.
+    pub has_weapon: bool,
+    /// Primary weapon range residual (0 when unarmed).
+    pub weapon_range: f32,
+    /// Primary weapon damage residual (0 when unarmed).
+    pub weapon_damage: f32,
+    /// Primary weapon min range residual.
+    pub weapon_min_range: f32,
+    /// Primary weapon reload time residual (seconds-ish).
+    pub weapon_reload_time: f32,
+    /// Primary weapon ammo residual (`u32::MAX` = unlimited).
+    pub weapon_ammo: u32,
+    /// C++ getAmmoPipShowingInfo residual (0 = no ShowsAmmoPips weapon).
+    pub ammo_pip_total: u32,
+    /// Remaining rounds for the ShowsAmmoPips weapon.
+    pub ammo_pip_full: u32,
+    /// C++ getMostPercentReadyToFireAnyWeapon residual (0..100).
+    pub weapon_ready_percent: u32,
+    /// Primary weapon air/ground targeting residual.
+    pub weapon_can_target_air: bool,
+    pub weapon_can_target_ground: bool,
+    /// Primary weapon projectile speed residual.
+    pub weapon_projectile_speed: f32,
+    /// Host armed_riders_upgrade_weapon_set residual.
+    pub armed_riders_upgrade_weapon_set: bool,
+    /// Host weapon_set_player_upgrade residual.
+    pub weapon_set_player_upgrade: bool,
+    /// Wave 523: C++ ARMORSET_SECOND_LIFE / battle bus second life residual.
+    pub second_life: bool,
+    /// Wave 525: C++ front crushed residual.
+    pub front_crushed: bool,
+    /// Wave 525: C++ back crushed residual.
+    pub back_crushed: bool,
+    /// Wave 525: host model-condition USER_1 residual.
+    pub user_1: bool,
+    /// Wave 525: host model-condition USER_2 residual.
+    pub user_2: bool,
+    /// Wave 518: C++ weapon_crate_upgrade residual (0/1/2).
+    pub weapon_crate_upgrade: u8,
+    /// Wave 518: C++ armor_crate_upgrade residual (0/1/2).
+    pub armor_crate_upgrade: u8,
+    /// Wave 518: C++ EnemyNearUpdate model_enemy_near residual.
+    pub enemy_near: bool,
+    /// Wave 518: C++ armed riders / ARMED model residual.
+    pub armed: bool,
+    /// CamoNetting StealthLook ordinal residual (0..5).
+    pub camo_stealth_look: u8,
+    /// Bomb-truck disguise template residual.
+    pub disguise_as_template: Option<String>,
+    /// Apparent team while disguised.
+    pub disguise_as_team: Option<Team>,
+    /// C++ OBJECT_STATUS_DISGUISED residual.
+    pub disguised: bool,
+    /// Host ObjectStatus::disabled_subdued residual.
+    pub disabled_subdued: bool,
+    /// Host ObjectStatus::is_carbomb residual.
+    pub is_carbomb: bool,
+    /// Host ObjectStatus::hijacked residual.
+    pub hijacked: bool,
+    /// C++ StealthUpdate disguise transition opacity residual (0..1).
+    pub disguise_transition_opacity: f32,
+    /// Stealth detector range residual (0 = none).
+    pub detection_range: f32,
+    /// Host detection_rate_frames residual (0 = continuous).
+    pub detection_rate_frames: u32,
+    /// Host stealth_breaks_on_attack residual.
+    pub stealth_breaks_on_attack: bool,
+    /// Host stealth_breaks_on_move residual.
+    pub stealth_breaks_on_move: bool,
+    /// Host innate_stealth residual.
+    pub innate_stealth: bool,
+    /// Host weapon_bonus_frenzy_until_frame residual.
+    pub weapon_bonus_frenzy_until_frame: u32,
+    /// Host continuous_fire_consecutive residual.
+    pub continuous_fire_consecutive: u16,
+    /// Host continuous_fire_coast_until_frame residual.
+    pub continuous_fire_coast_until_frame: u32,
+    /// Host battle_plan_sight_scalar_applied residual (1.0 = none).
+    pub battle_plan_sight_scalar_applied: f32,
+    /// Special power ready residual (superweapon / hero ability).
+    pub special_power_ready: bool,
+    /// Special power full cooldown seconds residual.
+    pub special_power_cooldown: f32,
+    /// Special power remaining cooldown seconds residual.
+    pub special_power_cooldown_remaining: f32,
+    /// Host ObjectType residual (UI / command set feed).
+    pub object_type: PresentationObjectType,
+    /// Applied upgrade tags residual (capped, sorted).
+    pub applied_upgrades: Vec<String>,
+    /// Secondary weapon present residual.
+    pub has_secondary_weapon: bool,
+    /// Secondary weapon range residual (0 when none).
+    pub secondary_weapon_range: f32,
+    /// Secondary weapon damage residual (0 when none).
+    pub secondary_weapon_damage: f32,
+    /// Host turret yaw residual (degrees).
+    pub turret_angle_deg: f32,
+    /// Host turret pitch residual (degrees).
+    pub turret_pitch_deg: f32,
+    /// Host turret idle-scan residual.
+    pub turret_idle_scanning: bool,
+    /// Host weapon-bonus residual flags (presentation UI/FX).
+    pub weapon_bonus_enthusiastic: bool,
+    pub weapon_bonus_subliminal: bool,
+    pub weapon_bonus_horde: bool,
+    pub weapon_bonus_nationalism: bool,
+    pub weapon_bonus_frenzy: bool,
+    pub weapon_bonus_frenzy_level: u8,
+    /// Host battle-plan weapon-bonus residual (Strategy Center).
+    pub weapon_bonus_battle_plan_bombardment: bool,
+    pub weapon_bonus_battle_plan_hold_the_line: bool,
+    pub weapon_bonus_battle_plan_search_and_destroy: bool,
+    /// Host continuous-fire residual (gattling spin-up).
+    pub continuous_fire_level: u8,
+    /// Host faerie_fire_until_frame residual.
+    pub faerie_fire_until_frame: u32,
+    /// Host hive slave residual (Stinger Site etc.).
+    pub hive_slave_count: u8,
+    pub hive_slave_hp: f32,
+    /// Host AI attitude residual.
+    pub ai_attitude: i8,
+    /// Host camo friendly opacity residual.
+    pub camo_friendly_opacity: f32,
+    /// Host vision_spied_mask residual.
+    pub vision_spied_mask: u32,
+    /// Wave 994: host Object::vision_range residual.
+    #[serde(default)]
+    pub vision_range: f32,
+    /// Wave 994: host Object::shroud_clearing_range residual.
+    #[serde(default)]
+    pub shroud_clearing_range: f32,
+    /// Wave 994: host Object::crusher_level residual.
+    #[serde(default)]
+    pub crusher_level: u8,
+    /// Wave 994: host Object::crushable_level residual.
+    #[serde(default)]
+    pub crushable_level: u8,
+    /// Host cheer_timer residual.
+    pub cheer_timer: f32,
+    /// Host transport-kind residual markers.
+    pub is_humvee_transport: bool,
+    pub is_listening_outpost_transport: bool,
+    pub is_troop_crawler_transport: bool,
+    pub is_helix_transport: bool,
+    pub has_overlord_gattling_addon: bool,
+    pub has_overlord_propaganda_addon: bool,
+    pub is_battle_bus_transport: bool,
+    pub is_technical_transport: bool,
+    pub is_combat_cycle_transport: bool,
+    pub combat_cycle_rider: u8,
+    pub is_tunnel_network: bool,
+    pub is_combat_chinook_transport: bool,
+    pub max_transport: usize,
+    pub overlord_bunker_capacity: usize,
+    pub passengers_allowed_to_fire: bool,
+    pub display_name: String,
+    pub demo_suicided_detonating: bool,
+    /// Host turret_holding residual.
+    pub turret_holding: bool,
+    /// Host last_damage_source residual (0 = none).
+    pub last_damage_source_host: u32,
+    /// Host Object::command_set_override residual (empty = template default).
+    pub command_set_override: String,
+    /// Effective command-set name freeze (override or ThingFactory template).
+    pub command_set_name: String,
+    /// Host Object::is_detector residual.
+    pub is_detector: bool,
+    /// Host Object::active_weapon_slot residual.
+    pub active_weapon_slot: u8,
+    /// Wave 517: C++ WeaponFireStatus ordinal residual (Ready/OutOfAmmo/Between/Reload/PreAttack).
+    pub weapon_fire_status: u8,
+    /// Wave 517: C++ loco/AI panicking residual.
+    pub is_panicking: bool,
+    /// Wave 517: C++ moving_backwards residual.
+    pub moving_backwards: bool,
+    /// Host Object::overcharge_enabled residual.
+    pub overcharge_enabled: bool,
+    /// Wave 519: C++ shockwave airborne residual.
+    pub shock_was_airborne: bool,
+    /// Wave 519: C++ shock allow bounce residual.
+    pub shock_allow_bounce: bool,
+    /// Wave 519: C++ shock grounded-once residual.
+    pub shock_grounded_once: bool,
+    /// Wave 519: remaining shock stun frames.
+    pub shock_stun_frames: u32,
+    /// Wave 519: C++ PowerPlantUpdate m_extended residual.
+    pub power_plant_rods_extended: bool,
+    /// Wave 519: frame when rods finish upgrading (0 idle).
+    pub power_plant_rods_done_frame: u32,
+    /// Wave 519: jet slow-death residual active.
+    pub jet_slow_death_active: bool,
+    /// Wave 520: C++ AnimationSteeringUpdate turn anim ordinal residual
+    /// (0 invalid, 1 CTR, 2 CTL, 3 LTC, 4 RTC).
+    pub anim_steer_turn: u8,
+    /// Host Object::show_health_bar residual.
+    pub show_health_bar: bool,
+    /// Host Object::guard_radius residual.
+    pub guard_radius: f32,
+    /// Mine / demo-trap residual present.
+    pub has_mine: bool,
+    /// Host ThingTemplate KindOf set residual (sorted, capped).
+    /// Lets ControlBar / unit_control classify without live template re-read.
+    pub kind_of: Vec<crate::game_logic::KindOf>,
+    pub is_structure: bool,
+    pub is_unit: bool,
+    /// Mobile residual (infantry/vehicle/aircraft) for runtime-host select.
+    pub is_mobile: bool,
+    /// Structure can enqueue production (host building_data present + constructed).
+    pub can_produce: bool,
+    /// Host BuildingType residual when structure has building_data.
+    pub building_type: Option<PresentationBuildingType>,
+    /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
+    /// mesh pass does not re-read live ThingTemplate during GPU collect.
+    pub model_key: Option<String>,
+    /// Mesh scale residual (Object INI Scale; common combat units retail **1.0**).
+    /// Snapshot-owned so the unit mesh pass does not re-read live template Scale.
+    /// Fail-closed: not full draw-scale bone / animation scale matrix.
+    pub mesh_scale: f32,
+    /// Cull / selection radius for presentation-only draw (no live GameLogic re-read).
+    pub selection_radius: f32,
+    /// True when bridged to GameEngine ObjectFactory (retired host dual-id).
+    /// Presentation-owned so the unit mesh pass can skip double-draw without
+    /// locking live GameLogic for identity.
+    pub engine_bridged: bool,
+    /// FOW visibility for `PresentationFrame.local_player_id` at snapshot time.
+    /// Unit mesh pass applies alpha / never-explored skip from this only — no
+    /// live shroud re-query mid-render.
+    pub fow_visibility: ObjectVisibility,
+    /// Terrain ground-height residual sampled at object XY (Wave 77 deepen).
+    /// Defaults to `PRESENTATION_DEFAULT_GROUND_HEIGHT` when map height unavailable.
+    /// Fail-closed: not full HeightMap bilinear / bridge-aware sample; does **not**
+    /// rewrite `position.y` (locomotor ground clamp residual separate).
+    pub ground_height: f32,
+    /// True when `ground_height` came from terrain sample (not default-0).
+    pub ground_height_from_terrain: bool,
+}
