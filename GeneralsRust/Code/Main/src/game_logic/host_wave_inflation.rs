@@ -105,9 +105,20 @@ mod tests {
 
     #[test]
     fn host_wave_inflation_production_default_does_not_mod_wave_files() {
-        // Source-scan game_logic/mod.rs: audit wave/residual mods are cfg-gated
+        // Source-scan game_logic listings: audit wave/residual mods are cfg-gated
         // so the default `generals` binary does not compile them.
         let src = include_str!("mod.rs");
+        let listing_src = concat!(
+            include_str!("mod.rs"),
+            include_str!("host_mods_combat.rs"),
+            include_str!("host_mods_logs_a.rs"),
+            include_str!("host_mods_logs_b.rs"),
+            include_str!("host_mods_logs_c.rs"),
+            include_str!("host_mods_special_powers.rs"),
+            include_str!("host_mods_structures.rs"),
+            include_str!("host_mods_residuals_on.rs"),
+            include_str!("host_mods_units.rs"),
+        );
         let cfg = r#"#[cfg(any(test, feature = "host-residuals"))]"#;
         assert!(
             src.contains(cfg),
@@ -119,21 +130,34 @@ mod tests {
             "pub mod host_combat_attack_log;",
             "pub mod host_microwave;",
         ] {
-            let idx = src.find(always).unwrap_or_else(|| panic!("missing {always}"));
-            let prev = src[..idx].trim_end().rsplit('\n').next().unwrap_or("");
+            let idx = listing_src
+                .find(always)
+                .unwrap_or_else(|| panic!("missing {always}"));
+            // Skip a `#[path = "..."]` line so we inspect the real cfg (if any).
+            let before = listing_src[..idx].trim_end();
+            let mut prev_lines = before.rsplit('\n');
+            let mut prev = prev_lines.next().unwrap_or("").trim();
+            if prev.starts_with("#[path") {
+                prev = prev_lines.next().unwrap_or("").trim();
+            }
             assert_ne!(
-                prev.trim(),
-                cfg,
+                prev, cfg,
                 "{always} is real host gameplay and must stay in the default build"
             );
         }
 
         for audit in ["pub mod host_wave_inflation;"] {
-            let idx = src.find(audit).unwrap_or_else(|| panic!("missing {audit}"));
-            let prev = src[..idx].trim_end().rsplit('\n').next().unwrap_or("");
+            let idx = listing_src
+                .find(audit)
+                .unwrap_or_else(|| panic!("missing {audit}"));
+            let before = listing_src[..idx].trim_end();
+            let mut prev_lines = before.rsplit('\n');
+            let mut prev = prev_lines.next().unwrap_or("").trim();
+            if prev.starts_with("#[path") {
+                prev = prev_lines.next().unwrap_or("").trim();
+            }
             assert_eq!(
-                prev.trim(),
-                cfg,
+                prev, cfg,
                 "{audit} must not be compiled into the default generals binary"
             );
         }

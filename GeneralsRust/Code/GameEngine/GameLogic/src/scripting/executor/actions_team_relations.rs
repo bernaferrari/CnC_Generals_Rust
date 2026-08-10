@@ -1,0 +1,1576 @@
+//! Team flash, transfer, relations, garrison, guard, attack, and sequential-script actions
+//!
+//! Split from `scripting/executor.rs` for module-size parity.
+//! Observable script behavior is unchanged.
+
+use super::*;
+
+impl ScriptActionDispatcher {
+    pub(crate) fn do_team_flash(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let time_in_seconds = self.get_int_param(action, 1)?;
+        log::debug!("Flashing team '{}' for {}s", team_name, time_in_seconds);
+
+        let members = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name))
+            .and_then(|team| team.read().ok().map(|t| t.get_members().to_vec()))
+            .unwrap_or_default();
+
+        for member_id in members {
+            self.flash_object_by_id(member_id, time_in_seconds, None);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_flash_white(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let time_in_seconds = self.get_int_param(action, 1)?;
+        log::debug!(
+            "Flashing team '{}' white for {}s",
+            team_name,
+            time_in_seconds
+        );
+
+        let members = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name))
+            .and_then(|team| team.read().ok().map(|t| t.get_members().to_vec()))
+            .unwrap_or_default();
+
+        for member_id in members {
+            self.flash_object_by_id(member_id, time_in_seconds, Some(Color::white()));
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTransferTeamToPlayer()
+    /// Reassigns the team's controlling player; members stay on the same team.
+    pub(crate) fn do_team_transfer_to_player(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 1)?);
+        log::info!(
+            "Transferring team '{}' to player '{}'",
+            team_name,
+            player_name
+        );
+
+        let Some(target_player) = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.find_player_by_name(&player_name))
+        else {
+            log::warn!("Player '{}' not found for team transfer", player_name);
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(player_id) = target_player
+            .read()
+            .ok()
+            .map(|player| player.get_player_index() as u32)
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let Some(team_arc) = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name))
+        else {
+            log::warn!("Team '{}' not found for transfer", team_name);
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let members = team_arc
+            .read()
+            .ok()
+            .map(|team| team.get_members().to_vec())
+            .unwrap_or_default();
+        if let Ok(mut team_guard) = team_arc.write() {
+            // Team::set_controlling_player_id walks members and calls
+            // Object::handle_partition_cell_maintenance, which re-locks the team
+            // via get_controlling_player(). Detach first so the owner swap cannot
+            // deadlock, then restore membership (C++ never captures the units).
+            for object_id in &members {
+                team_guard.remove_member(*object_id);
+            }
+            team_guard.set_controlling_player_id(Some(player_id));
+            for object_id in &members {
+                team_guard.add_member(*object_id);
+            }
+        }
+
+        let night_time = global_data::read().time_of_day == global_data::TimeOfDay::Night;
+        for object_id in members {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                continue;
+            };
+            let Ok(mut obj_guard) = obj_arc.write() else {
+                continue;
+            };
+            obj_guard.handle_partition_cell_maintenance();
+            obj_guard.update_upgrade_modules_from_player();
+            let color = if night_time {
+                obj_guard.get_night_indicator_color()
+            } else {
+                obj_guard.get_indicator_color()
+            };
+            if let Some(drawable) = obj_guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.set_indicator_color(color);
+                }
+            }
+        }
+
+        log::info!(
+            "Team '{}' transferred to player '{}'",
+            team_name,
+            player_name
+        );
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_set_override_relation_to_team(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let target_team = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
+        let relation = self.get_int_param(action, 2)?;
+        let relationship = self.relation_from_script_value(relation);
+        log::debug!(
+            "Team '{}' override relation to team '{}' ({})",
+            team_name,
+            target_team,
+            relation
+        );
+
+        let (team_arc, target_team_id) = if let Ok(mut factory) = get_team_factory().lock() {
+            (
+                factory.find_team(&team_name),
+                factory
+                    .find_team(&target_team)
+                    .and_then(|team| team.read().ok().map(|team| team.get_id())),
+            )
+        } else {
+            (None, None)
+        };
+        if let (Some(team_arc), Some(target_team_id)) = (team_arc, target_team_id) {
+            if let Ok(mut team_guard) = team_arc.write() {
+                team_guard.set_override_team_relationship(target_team_id, relationship);
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_remove_override_relation_to_team(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let target_team = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
+        log::debug!(
+            "Team '{}' remove override relation to team '{}'",
+            team_name,
+            target_team
+        );
+
+        let (team_arc, target_team_id) = if let Ok(mut factory) = get_team_factory().lock() {
+            (
+                factory.find_team(&team_name),
+                factory
+                    .find_team(&target_team)
+                    .and_then(|team| team.read().ok().map(|team| team.get_id())),
+            )
+        } else {
+            (None, None)
+        };
+        if let (Some(team_arc), Some(target_team_id)) = (team_arc, target_team_id) {
+            if let Ok(mut team_guard) = team_arc.write() {
+                let _ = team_guard.remove_override_team_relationship(target_team_id);
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_remove_all_override_relations(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        log::debug!("Team '{}' remove all override relations", team_name);
+
+        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+            factory.find_team(&team_name)
+        } else {
+            None
+        };
+        if let Some(team_arc) = team_arc {
+            if let Ok(mut team_guard) = team_arc.write() {
+                team_guard.clear_override_team_relationships();
+                team_guard.clear_override_player_relationships();
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_set_override_relation_to_player(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 1)?);
+        let relation = self.get_int_param(action, 2)?;
+        let relationship = self.relation_from_script_value(relation);
+        log::debug!(
+            "Team '{}' override relation to player '{}' ({})",
+            team_name,
+            player_name,
+            relation
+        );
+
+        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+            factory.find_team(&team_name)
+        } else {
+            None
+        };
+        let player_index = if let Ok(players) = player_list().read() {
+            players
+                .find_player_by_name(&player_name)
+                .and_then(|player| player.read().ok().map(|player| player.get_player_index()))
+        } else {
+            None
+        };
+        if let (Some(team_arc), Some(player_index)) = (team_arc, player_index) {
+            if let Ok(mut team_guard) = team_arc.write() {
+                team_guard.set_override_player_relationship(player_index, relationship);
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_remove_override_relation_to_player(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 1)?);
+        log::debug!(
+            "Team '{}' remove override relation to player '{}'",
+            team_name,
+            player_name
+        );
+
+        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+            factory.find_team(&team_name)
+        } else {
+            None
+        };
+        let player_index = if let Ok(players) = player_list().read() {
+            players
+                .find_player_by_name(&player_name)
+                .and_then(|player| player.read().ok().map(|player| player.get_player_index()))
+        } else {
+            None
+        };
+        if let (Some(team_arc), Some(player_index)) = (team_arc, player_index) {
+            if let Ok(mut team_guard) = team_arc.write() {
+                let _ = team_guard.remove_override_player_relationship(player_index);
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamLoadTransports()
+    /// Team loads into their transport vehicles
+    pub(crate) fn do_team_load_transports(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        log::info!("Team '{}' loading transports", team_name);
+
+        let group_arc = self.create_ai_group_from_team(&team_name)?;
+        if let Ok(mut group) = group_arc.write() {
+            let params = AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+            let _ = group.ai_do_command(&params);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamEnterNamed()
+    /// Team enters a specific named object (building/transport)
+    pub(crate) fn do_team_enter_named(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let target_name = self.get_string_param(action, 1)?;
+        log::info!("Team '{}' entering '{}'", team_name, target_name);
+
+        // Get the target object ID
+        let tracker = get_named_object_tracker();
+        let target_id = tracker.get_object_id(&target_name).ok().flatten();
+
+        if let Some(tid) = target_id {
+            // Create group first, then use it
+            let group_arc = self.create_ai_group_from_team(&team_name)?;
+            let write_result = group_arc.write();
+            if let Ok(mut group) = write_result {
+                let mut params =
+                    AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+                params.obj = Some(tid);
+                let _ = group.ai_do_command(&params);
+            }
+        } else {
+            log::warn!("Target '{}' not found for team enter", target_name);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamExitAll()
+    /// All team members exit from containers/transports
+    pub(crate) fn do_team_exit_all(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        log::info!("Team '{}' exiting all", team_name);
+
+        let group_arc = self.create_ai_group_from_team(&team_name)?;
+        let write_result = group_arc.write();
+        if let Ok(mut group) = write_result {
+            let params =
+                AiCommandParams::new(AiCommandType::Evacuate, CommandSourceType::FromScript);
+            let _ = group.ai_do_command(&params);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamGarrisonSpecificBuilding()
+    /// Team garrisons a specific named building
+    pub(crate) fn do_team_garrison_specific_building(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let building_name = self.get_string_param(action, 1)?;
+        log::info!(
+            "Team '{}' garrisoning building '{}'",
+            team_name,
+            building_name
+        );
+
+        let team_player_mask = self
+            .get_team_by_name(&team_name)
+            .ok()
+            .and_then(|team| team.read().ok().and_then(|t| t.get_controlling_player_id()))
+            .and_then(|player_id| {
+                player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as i32).cloned())
+            })
+            .and_then(|player| player.read().ok().map(|p| p.get_player_mask()))
+            .unwrap_or_else(crate::common::PlayerMaskType::none);
+
+        let tracker = get_named_object_tracker();
+        let target_id = tracker.get_object_id(&building_name).ok().flatten();
+
+        if let Some(tid) = target_id {
+            let Some(building_obj) = TheGameLogic::find_object_by_id(tid) else {
+                return Ok(ScriptActionResult::Success);
+            };
+            let can_garrison = if let Ok(building_guard) = building_obj.read() {
+                if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
+                    false
+                } else if let Some(contain) = building_guard.get_contain() {
+                    let entered_mask = contain
+                        .lock()
+                        .ok()
+                        .map(|c| c.get_player_who_entered())
+                        .unwrap_or_else(crate::common::PlayerMaskType::none);
+                    entered_mask == crate::common::PlayerMaskType::none()
+                        || entered_mask == team_player_mask
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if !can_garrison {
+                return Ok(ScriptActionResult::Success);
+            }
+
+            let group_arc = self.create_ai_group_from_team(&team_name)?;
+            let write_result = group_arc.write();
+            if let Ok(mut group) = write_result {
+                let mut params =
+                    AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+                params.obj = Some(tid);
+                let _ = group.ai_do_command(&params);
+            }
+        } else {
+            log::warn!("Building '{}' not found for team garrison", building_name);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamGarrisonNearestBuilding()
+    /// Team finds and garrisons nearest garrisonable building
+    pub(crate) fn do_team_garrison_nearest_building(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        log::info!("Team '{}' garrisoning nearest building", team_name);
+
+        let group_arc = self.create_ai_group_from_team(&team_name)?;
+        let write_result = group_arc.write();
+        if let Ok(mut group) = write_result {
+            let params = AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+            let _ = group.ai_do_command(&params);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamExitAllBuildings()
+    /// Team exits from all garrisoned buildings
+    pub(crate) fn do_team_exit_all_buildings(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        log::info!("Team '{}' exiting all buildings", team_name);
+
+        let Some(team_arc) = self.get_team_by_name(&team_name).ok() else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let members = team_arc
+            .read()
+            .ok()
+            .map(|team| team.get_members().to_vec())
+            .unwrap_or_default();
+
+        for member_id in members {
+            let Some(member_obj) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            if let Ok(mut member_guard) = member_obj.write() {
+                let Some(ai_arc) = member_guard.get_ai_update_interface() else {
+                    continue;
+                };
+                member_guard.leave_group();
+                if let Ok(mut ai_guard) = ai_arc.lock() {
+                    let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    let params =
+                        AiCommandParams::new(AiCommandType::Exit, CommandSourceType::FromScript);
+                    let _ = ai_guard.execute_command(&params);
+                };
+            };
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamGuardPosition()
+    /// Team guards at a specified waypoint position
+    pub(crate) fn do_team_guard_position(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let waypoint_name = self.get_string_param(action, 1)?;
+        log::debug!(
+            "Team '{}' guarding position at '{}'",
+            team_name,
+            waypoint_name
+        );
+
+        // Get waypoint position
+        let waypoint_name_ascii = AsciiString::from(waypoint_name.as_str());
+        let waypoint_pos = get_terrain_logic().read().ok().and_then(|terrain| {
+            terrain
+                .get_waypoint_by_name(&waypoint_name_ascii)
+                .map(|w| w.get_location().clone())
+        });
+
+        if let Some(position) = waypoint_pos {
+            let group_arc = self.create_ai_group_from_team(&team_name)?;
+            let write_result = group_arc.write();
+            if let Ok(mut group) = write_result {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::GuardPosition,
+                    CommandSourceType::FromScript,
+                );
+                params.pos = position;
+                params.int_value = 0; // GUARDMODE_NORMAL
+                let _ = group.ai_do_command(&params);
+            }
+        } else {
+            log::warn!(
+                "Waypoint '{}' not found for team guard position",
+                waypoint_name
+            );
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamGuardObject()
+    /// Team guards a specific named object
+    pub(crate) fn do_team_guard_object(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let object_name = self.get_string_param(action, 1)?;
+        log::debug!("Team '{}' guarding object '{}'", team_name, object_name);
+
+        // Get the object ID from name tracker
+        let tracker = get_named_object_tracker();
+        let target_id = tracker.get_object_id(&object_name).ok().flatten();
+
+        if let Some(tid) = target_id {
+            if TheGameLogic::find_object_by_id(tid).is_none() {
+                log::warn!("Object '{}' object {} no longer exists", object_name, tid);
+                return Ok(ScriptActionResult::Success);
+            }
+
+            let group_arc = self.create_ai_group_from_team(&team_name)?;
+            let write_result = group_arc.write();
+            if let Ok(mut group) = write_result {
+                let mut params =
+                    AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
+                params.obj = Some(tid);
+                params.int_value = GuardMode::Normal.as_i32();
+                let _ = group.ai_do_command(&params);
+            }
+        } else {
+            log::warn!("Object '{}' not found for team guard", object_name);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_guard_area(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let area_name = self.get_string_param(action, 1)?;
+        log::debug!("Team '{}' guarding area '{}'", team_name, area_name);
+
+        let (area_center, trigger_id) = if let Ok(terrain) = get_terrain_logic().read() {
+            if let Some(trigger) = terrain.get_trigger_area_by_name(&area_name) {
+                (trigger.get_center_point(), trigger.get_id())
+            } else {
+                log::warn!("Trigger area '{}' not found for guard", area_name);
+                return Ok(ScriptActionResult::Success);
+            }
+        } else {
+            return Err(ScriptError::ExecutionFailed(
+                "Failed to lock terrain logic".to_string(),
+            ));
+        };
+
+        let group_arc = self.create_ai_group_from_team(&team_name)?;
+        if let Ok(mut group) = group_arc.write() {
+            let mut params =
+                AiCommandParams::new(AiCommandType::GuardArea, CommandSourceType::FromScript);
+            params.pos = area_center;
+            params.polygon = Some(trigger_id);
+            params.int_value = GuardMode::Normal.as_i32();
+            let _ = group.ai_do_command(&params);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_guard_supply_center(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let min_supplies = self.get_int_param(action, 1)?;
+        log::debug!(
+            "Team '{}' guarding supply center with >= {} supplies",
+            team_name,
+            min_supplies
+        );
+
+        let team_arc = self.get_team_by_name(&team_name)?;
+        let (members, controlling_player_id) = if let Ok(team) = team_arc.read() {
+            (
+                team.get_members().to_vec(),
+                team.get_controlling_player_id(),
+            )
+        } else {
+            (Vec::new(), None)
+        };
+        if members.is_empty() {
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let anchor = members
+            .iter()
+            .find_map(|&id| {
+                TheGameLogic::find_object_by_id(id)
+                    .and_then(|o| o.read().ok().map(|g| *g.get_position()))
+            })
+            .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
+
+        let base_box_value = global_data::read_safe()
+            .map(|d| d.base_value_per_supply_box.max(1))
+            .unwrap_or(1) as i32;
+
+        let controlling_player = controlling_player_id.and_then(|id| {
+            player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(id as i32).cloned())
+        });
+
+        // Host path: empty dual-world registry → no supply-center guard residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(ScriptActionResult::Success);
+        }
+        let mut best_target: Option<(f32, ObjectID)> = None;
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if obj.is_destroyed() || obj.is_off_map() {
+                continue;
+            }
+            if !obj.is_kind_of(crate::common::KindOf::SupplySource)
+                && !obj.is_kind_of(crate::common::KindOf::ResourceNode)
+                && !obj.is_kind_of(crate::common::KindOf::FSSupplyCenter)
+            {
+                continue;
+            }
+
+            if let (Some(owner_id), Some(controller_arc)) =
+                (obj.get_controlling_player_id(), controlling_player.as_ref())
+            {
+                if let Some(owner_arc) = player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(owner_id as i32).cloned())
+                {
+                    if let (Ok(controller), Ok(owner)) = (controller_arc.read(), owner_arc.read()) {
+                        if controller.get_relationship(&owner) == Relationship::Enemies {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            let mut supply_value = i32::MAX;
+            if let Some(module) = obj.find_update_module("SupplyWarehouseDockUpdate") {
+                let mut boxes = None;
+                module.with_module(|module| {
+                    if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                        boxes = Some(warehouse.boxes_stored());
+                    }
+                });
+                if let Some(boxes) = boxes {
+                    supply_value = boxes.saturating_mul(base_box_value);
+                }
+            }
+            if min_supplies > 0 && supply_value < min_supplies {
+                continue;
+            }
+
+            let pos = obj.get_position();
+            let dx = pos.x - anchor.x;
+            let dy = pos.y - anchor.y;
+            let dist_sq = dx * dx + dy * dy;
+            match best_target {
+                Some((best_dist, _)) if dist_sq >= best_dist => {}
+                _ => best_target = Some((dist_sq, obj.get_id())),
+            }
+        }
+
+        if let Some((_, target_id)) = best_target {
+            let group_arc = self.create_ai_group_from_team(&team_name)?;
+            if let Ok(mut group) = group_arc.write() {
+                let mut params =
+                    AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
+                params.obj = Some(target_id);
+                params.int_value = GuardMode::Normal.as_i32();
+                let _ = group.ai_do_command(&params);
+            };
+        } else {
+            log::debug!(
+                "No qualifying supply center found for '{}'; falling back to TeamGuard",
+                team_name
+            );
+            let _ = self.do_team_guard(action);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_guard_in_tunnel_network(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        log::debug!("Team '{}' guarding in tunnel network", team_name);
+
+        if let Ok(mut factory_guard) = get_team_factory().lock() {
+            if let Some(team_arc) = factory_guard.find_team(&team_name) {
+                let members = team_arc
+                    .read()
+                    .map(|team| team.get_members().to_vec())
+                    .unwrap_or_default();
+                for object_id in members {
+                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                        continue;
+                    };
+                    let ai_arc = obj_arc
+                        .read()
+                        .ok()
+                        .and_then(|obj| obj.get_ai_update_interface());
+                    let Some(ai_arc) = ai_arc else {
+                        continue;
+                    };
+                    if let Ok(mut ai_guard) = ai_arc.lock() {
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::GuardTunnelNetwork,
+                            CommandSourceType::FromScript,
+                        );
+                        params.int_value = GuardMode::Normal.as_i32();
+                        let _ = ai_guard.execute_command(&params);
+                    };
+                }
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn do_team_guard_for_framecount(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let frames = self.get_int_param(action, 1)?;
+        log::debug!("Team '{}' guarding for {} frames", team_name, frames);
+
+        // C++ parity: issue guard-at-current-position to each member.
+        if let Ok(mut factory) = get_team_factory().lock() {
+            if let Some(team_arc) = factory.find_team(&team_name) {
+                if let Ok(team) = team_arc.read() {
+                    for &member_id in team.get_members() {
+                        let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                            continue;
+                        };
+                        let Ok(obj) = obj_arc.read() else {
+                            continue;
+                        };
+                        let pos = *obj.get_position();
+                        let Some(ai_arc) = obj.get_ai_update_interface() else {
+                            continue;
+                        };
+                        let mut guard_params = AiCommandParams::new(
+                            AiCommandType::GuardPosition,
+                            CommandSourceType::FromScript,
+                        );
+                        guard_params.pos = pos;
+                        if let Ok(mut ai) = ai_arc.lock() {
+                            let _ = ai.execute_command(&guard_params);
+                        };
+                    }
+                }
+            }
+        }
+
+        if frames > 0 {
+            Ok(ScriptActionResult::Pending(frames as f32))
+        } else {
+            Ok(ScriptActionResult::Success)
+        }
+    }
+
+    pub(crate) fn do_team_idle_for_framecount(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let frames = self.get_int_param(action, 1)?;
+        log::debug!("Team '{}' idling for {} frames", team_name, frames);
+
+        // C++ parity: idle the team through an AI group.
+        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
+            if let Ok(mut group) = group_arc.write() {
+                let params =
+                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+                let _ = group.ai_do_command(&params);
+            }
+        }
+
+        if frames > 0 {
+            Ok(ScriptActionResult::Pending(frames as f32))
+        } else {
+            Ok(ScriptActionResult::Success)
+        }
+    }
+
+    pub(crate) fn do_team_spin_for_framecount(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let frames = self.get_int_param(action, 1)?;
+        log::debug!("Team '{}' spinning for {} frames", team_name, frames);
+
+        if frames > 0 {
+            Ok(ScriptActionResult::Pending(frames as f32))
+        } else {
+            Ok(ScriptActionResult::Success)
+        }
+    }
+
+    pub(crate) fn do_team_increase_priority(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        if let Ok(mut factory) = get_team_factory().lock() {
+            if let Some(priority) = factory.increase_team_prototype_priority_for_success(&team_name)
+            {
+                log::debug!(
+                    "Increased production priority for team '{}' to {}",
+                    team_name,
+                    priority
+                );
+            }
+        }
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_decrease_priority(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        if let Ok(mut factory) = get_team_factory().lock() {
+            if let Some(priority) = factory.decrease_team_prototype_priority_for_failure(&team_name)
+            {
+                log::debug!(
+                    "Decreased production priority for team '{}' to {}",
+                    team_name,
+                    priority
+                );
+            }
+        }
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamFollowWaypointsExact()
+    /// Team follows waypoints in exact formation (no pathfinding deviation)
+    pub(crate) fn do_team_follow_waypoints_exact(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let waypoint_path = self.get_string_param(action, 1)?;
+        log::info!(
+            "Team '{}' following waypoints exact '{}'",
+            team_name,
+            waypoint_path
+        );
+
+        let team_arc = self.get_team_by_name(&team_name)?;
+        let Some(team_center) = self
+            .compute_team_center_and_first(&team_arc)
+            .map(|(center, _)| center)
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let waypoint_id = self.resolve_follow_waypoint_id(&waypoint_path, team_center);
+
+        if let Some(wid) = waypoint_id {
+            let group_arc = self.create_ai_group_from_team(&team_name)?;
+            let write_result = group_arc.write();
+            if let Ok(mut group) = write_result {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::FollowWaypointPathExact,
+                    CommandSourceType::FromScript,
+                );
+                params.waypoint = Some(wid);
+                let _ = group.ai_do_command(&params);
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamAttackArea()
+    /// Team attacks at a trigger area
+    pub(crate) fn do_team_attack_area(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let area_name = self.get_string_param(action, 1)?;
+        log::info!("Team '{}' attacking area '{}'", team_name, area_name);
+
+        // Get trigger area center position
+        let (area_center, trigger_id) = if let Ok(terrain) = get_terrain_logic().read() {
+            if let Some(trigger) = terrain.get_trigger_area_by_name(&area_name) {
+                (trigger.get_center_point(), trigger.get_id())
+            } else {
+                log::warn!("Trigger area '{}' not found", area_name);
+                return Ok(ScriptActionResult::Success);
+            }
+        } else {
+            return Err(ScriptError::ExecutionFailed(
+                "Failed to lock terrain logic".to_string(),
+            ));
+        };
+
+        // Issue AttackArea command to team AI group
+        let group_arc = self.create_ai_group_from_team(&team_name)?;
+        let write_result = group_arc.write();
+        if let Ok(mut group) = write_result {
+            let mut params =
+                AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
+            params.pos = area_center;
+            params.polygon = Some(trigger_id);
+            let _ = group.ai_do_command(&params);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamAttackNamed()
+    /// Team attacks a specific named object
+    pub(crate) fn do_team_attack_named(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let target_name = self.get_string_param(action, 1)?;
+        log::info!("Team '{}' attacking '{}'", team_name, target_name);
+
+        // Get the object ID from name tracker
+        let tracker = get_named_object_tracker();
+        let target_id = tracker.get_object_id(&target_name).ok().flatten();
+
+        if let Some(tid) = target_id {
+            if TheGameLogic::find_object_by_id(tid).is_none() {
+                log::warn!("Target '{}' object {} no longer exists", target_name, tid);
+                return Ok(ScriptActionResult::Success);
+            }
+
+            let group_arc = self.create_ai_group_from_team(&team_name)?;
+            let write_result = group_arc.write();
+            if let Ok(mut group) = write_result {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::AttackObject,
+                    CommandSourceType::FromScript,
+                );
+                params.obj = Some(tid);
+                params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                let _ = group.ai_do_command(&params);
+            }
+        } else {
+            log::warn!("Target '{}' not found for team attack", target_name);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamApplyAttackPrioritySet()
+    pub(crate) fn do_team_apply_attack_priority_set(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let priority_set = self.get_string_param(action, 1)?;
+        log::info!(
+            "Team '{}' applying attack priority set '{}'",
+            team_name,
+            priority_set
+        );
+
+        let info_name = get_script_engine()
+            .read()
+            .ok()
+            .and_then(|engine_guard| {
+                engine_guard
+                    .as_ref()
+                    .and_then(|engine| engine.get_attack_info(&priority_set))
+                    .map(|info| info.get_name().to_string())
+            })
+            .unwrap_or_default();
+
+        let mut prototype_updated = false;
+        let mut team_members = Vec::new();
+        if let Ok(mut factory) = get_team_factory().lock() {
+            prototype_updated =
+                factory.set_team_prototype_attack_priority_name(&team_name, info_name.as_str());
+            if !prototype_updated {
+                if let Some(team_arc) = factory.find_team(&team_name) {
+                    if let Ok(team) = team_arc.read() {
+                        team_members = team.get_members().to_vec();
+                    }
+                }
+            }
+        }
+
+        if !prototype_updated {
+            if team_members.is_empty() {
+                log::debug!(
+                    "Team '{}' has no prototype and no live members for attack priority set '{}'",
+                    team_name,
+                    info_name
+                );
+            } else if let Ok(mut engine_guard) = get_script_engine().write() {
+                if let Some(engine) = engine_guard.as_mut() {
+                    for member_id in team_members {
+                        if info_name.is_empty() {
+                            engine.clear_object_attack_priority_set(member_id);
+                        } else {
+                            engine.set_object_attack_priority_set(member_id, info_name.as_str());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    /// C++ Reference: ScriptActions::doTeamSetAttitude()
+    /// Set team's combat attitude (Aggressive, Normal, Defensive, Passive)
+    pub(crate) fn do_team_set_attitude(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let attitude_str = self.get_string_param(action, 1)?;
+        log::info!(
+            "Team '{}' setting attitude to '{}'",
+            team_name,
+            attitude_str
+        );
+
+        // Parse attitude from string - using AIAttitudeType from modules
+        let attitude = match attitude_str.to_uppercase().as_str() {
+            "AGGRESSIVE" | "ATTACK" => crate::modules::AIAttitudeType::Aggressive,
+            "DEFENSIVE" | "GUARD" => crate::modules::AIAttitudeType::Defensive,
+            "PASSIVE" => crate::modules::AIAttitudeType::Passive,
+            "SLEEP" => crate::modules::AIAttitudeType::Sleep,
+            _ => crate::modules::AIAttitudeType::Normal,
+        };
+
+        // Get team and iterate members to set attitude via AI interface
+        if let Ok(mut factory) = get_team_factory().lock() {
+            if let Some(team_arc) = factory.find_team(&team_name) {
+                if let Ok(team) = team_arc.read() {
+                    let object_manager = get_object_manager();
+                    if let Ok(obj_manager) = object_manager.read() {
+                        for obj_id in team.get_members() {
+                            if let Some(obj) = obj_manager.get_object(*obj_id) {
+                                if let Ok(obj_read) = obj.read() {
+                                    if let Some(ai) = obj_read.get_ai_update_interface() {
+                                        if let Ok(mut ai_write) = ai.lock() {
+                                            if let Err(err) = ai_write.set_attitude(attitude) {
+                                                log::debug!(
+                                                    "ScriptActions::do_team_set_attitude failed for object {}: {}",
+                                                    obj_id,
+                                                    err
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
+            } else {
+                log::warn!("Team '{}' not found for set attitude", team_name);
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_execute_sequential_script(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let script_name = self.get_string_param(action, 1)?;
+        log::debug!(
+            "Team '{}' executing sequential script '{}'",
+            team_name,
+            script_name
+        );
+
+        let Ok(_team_arc) = self.get_team_by_name(&team_name) else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let script_engine_lock = get_script_engine();
+        let Ok(mut engine_guard) = script_engine_lock.write() else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(engine) = engine_guard.as_mut() else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(script) = engine.find_script_clone_by_name(&script_name) else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        // C++ parity: idle team before queueing sequential script.
+        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
+            if let Ok(mut group) = group_arc.write() {
+                let params =
+                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+                let _ = group.ai_do_command(&params);
+            }
+        }
+
+        let mut seq_script = crate::scripting::engine::SequentialScript::new();
+        seq_script.team_to_exec_on = Some(team_name.clone());
+        seq_script.object_id = INVALID_ID;
+        seq_script.script_to_execute_sequentially = Some(Box::new(script));
+        seq_script.times_to_loop = 0;
+        engine.append_sequential_script(seq_script);
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_execute_sequential_script_looping(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let script_name = self.get_string_param(action, 1)?;
+        let loop_val = self.get_int_param(action, 2)? - 1;
+        log::debug!(
+            "Team '{}' executing sequential script '{}' looping ({})",
+            team_name,
+            script_name,
+            loop_val
+        );
+
+        let Ok(_team_arc) = self.get_team_by_name(&team_name) else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let script_engine_lock = get_script_engine();
+        let Ok(mut engine_guard) = script_engine_lock.write() else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(engine) = engine_guard.as_mut() else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(script) = engine.find_script_clone_by_name(&script_name) else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        // C++ parity: idle team before queueing sequential script.
+        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
+            if let Ok(mut group) = group_arc.write() {
+                let params =
+                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+                let _ = group.ai_do_command(&params);
+            }
+        }
+
+        let mut seq_script = crate::scripting::engine::SequentialScript::new();
+        seq_script.team_to_exec_on = Some(team_name.clone());
+        seq_script.object_id = INVALID_ID;
+        seq_script.script_to_execute_sequentially = Some(Box::new(script));
+        seq_script.times_to_loop = loop_val;
+        engine.append_sequential_script(seq_script);
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_stop_sequential_script(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        log::debug!("Team '{}' stopping sequential script", team_name);
+
+        let Ok(_team_arc) = self.get_team_by_name(&team_name) else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let script_engine_lock = get_script_engine();
+        if let Ok(mut engine_guard) = script_engine_lock.write() {
+            if let Some(engine) = engine_guard.as_mut() {
+                engine.remove_all_sequential_scripts_for_team(&team_name);
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_set_emoticon(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let emoticon = self.get_string_param(action, 1)?;
+        let duration_seconds = self.get_real_param(action, 2)?;
+        let duration_frames = (duration_seconds * LOGICFRAMES_PER_SECOND as f32) as i32;
+        log::debug!(
+            "Team '{}' setting emoticon '{}' for {}s ({}f)",
+            team_name,
+            emoticon,
+            duration_seconds,
+            duration_frames
+        );
+
+        let Ok(mut factory) = get_team_factory().lock() else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(team_arc) = factory.find_team(&team_name) else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let members = team_arc
+            .read()
+            .ok()
+            .map(|team| team.get_members().to_vec())
+            .unwrap_or_default();
+        for object_id in members {
+            self.emoticon_object_by_id(object_id, &emoticon, duration_frames);
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_set_stealth_enabled(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let enabled = self.get_int_param(action, 1)? != 0;
+        log::debug!("Team '{}' stealth enabled: {}", team_name, enabled);
+
+        let team_name = self.resolve_team_name_token(&team_name);
+        if let Ok(mut factory_guard) = get_team_factory().lock() {
+            if let Some(team_arc) = factory_guard.find_team(&team_name) {
+                let members = team_arc
+                    .read()
+                    .map(|team| team.get_members().to_vec())
+                    .unwrap_or_default();
+                for object_id in members {
+                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                        continue;
+                    };
+                    if let Ok(mut obj_guard) = obj_arc.write() {
+                        obj_guard.set_script_status(
+                            crate::object::ObjectScriptStatusBit::ScriptUnstealthed,
+                            !enabled,
+                        );
+                    };
+                }
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_set_repulsor(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let enabled = self.get_int_param(action, 1)? != 0;
+        log::debug!("Team '{}' repulsor: {}", team_name, enabled);
+
+        let team_name = self.resolve_team_name_token(&team_name);
+        if let Ok(mut factory_guard) = get_team_factory().lock() {
+            if let Some(team_arc) = factory_guard.find_team(&team_name) {
+                let members = team_arc
+                    .read()
+                    .map(|team| team.get_members().to_vec())
+                    .unwrap_or_default();
+                for object_id in members {
+                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                        continue;
+                    };
+                    if let Ok(mut obj_guard) = obj_arc.write() {
+                        obj_guard
+                            .set_status(crate::common::ObjectStatusMaskType::REPULSOR, enabled);
+                    };
+                }
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_create_radar_event(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let event_type = self.get_int_param(action, 1)?;
+        log::debug!(
+            "Creating radar event for team '{}' (type {})",
+            team_name,
+            event_type
+        );
+        let team_arc = self.get_team_by_name(&team_name)?;
+        if let Ok(team) = team_arc.read() {
+            if !team.has_any_units() {
+                return Ok(ScriptActionResult::Success);
+            }
+            if let Some(pos) = team.get_estimate_team_position() {
+                let radar_event = Self::radar_event_type_from_int(event_type);
+                if let Ok(mut radar) = get_radar_system().write() {
+                    let radar_pos = to_radar_coord(&pos);
+                    radar.create_event(&radar_pos, radar_event, 4.0);
+                }
+                if let Ok(engine_guard) = get_script_engine().read() {
+                    if let Some(ref script_engine) = *engine_guard {
+                        if let Some(handler) = script_engine.action_handler() {
+                            if let Err(err) =
+                                handler.create_radar_event(pos.x, pos.y, pos.z, event_type)
+                            {
+                                log::warn!(
+                                    "Script action handler create_radar_event failed: {}",
+                                    err
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_delete_living(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        log::debug!("Deleting living members of team '{}'", team_name);
+
+        // C++ parity: TEAM_DELETE_LIVING -> doTeamDelete(team, TRUE).
+        let team_name = self.resolve_team_name_token(&team_name);
+        if let Ok(mut factory_guard) = get_team_factory().lock() {
+            if let Some(team_arc) = factory_guard.find_team(&team_name) {
+                if let Ok(mut team_guard) = team_arc.write() {
+                    team_guard.delete_team(true);
+                }
+            }
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    pub(crate) fn do_team_wait_for_not_contained_all(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        log::debug!("Team '{}' waiting for not contained (all)", team_name);
+        let all_contained = self.evaluate_team_is_contained(&team_name, true);
+        if all_contained {
+            Ok(ScriptActionResult::Pending(1.0))
+        } else {
+            Ok(ScriptActionResult::Success)
+        }
+    }
+
+    pub(crate) fn do_team_wait_for_not_contained_partial(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        log::debug!("Team '{}' waiting for not contained (partial)", team_name);
+        let any_contained = self.evaluate_team_is_contained(&team_name, false);
+        if any_contained {
+            Ok(ScriptActionResult::Pending(1.0))
+        } else {
+            Ok(ScriptActionResult::Success)
+        }
+    }
+
+    pub(crate) fn evaluate_team_is_contained(&self, team_name: &str, all_contained: bool) -> bool {
+        let members = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(team_name))
+            .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_members().to_vec()))
+            .unwrap_or_default();
+        if members.is_empty() {
+            return false;
+        }
+
+        let mut any_considered = false;
+        for member_id in members {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+
+            let mut is_contained = obj.get_contained_by().is_some();
+            if !is_contained {
+                if let Some(ai_arc) = obj.get_ai_update_interface() {
+                    if let Ok(ai) = ai_arc.lock() {
+                        is_contained = ai.get_current_state_id()
+                            == Some(crate::ai::states::AIStateType::Exit as u32);
+                    }
+                }
+            }
+
+            if is_contained {
+                if !all_contained {
+                    return true;
+                }
+            } else if all_contained {
+                return false;
+            }
+
+            any_considered = true;
+        }
+
+        if any_considered {
+            all_contained
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn do_team_move_towards_nearest_object_type(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let team_name = self.get_string_param(action, 0)?;
+        let object_type = self.get_string_param(action, 1)?;
+        let trigger_name = self.get_string_param(action, 2)?;
+        log::debug!(
+            "Team '{}' moving towards nearest '{}' in trigger '{}'",
+            team_name,
+            object_type,
+            trigger_name
+        );
+
+        let team_name = self.resolve_team_name_token(&team_name);
+        let (members, estimate_team_pos) = if let Ok(mut factory_guard) = get_team_factory().lock()
+        {
+            if let Some(team_arc) = factory_guard.find_team(&team_name) {
+                if let Ok(team_guard) = team_arc.read() {
+                    (
+                        team_guard.get_members().to_vec(),
+                        team_guard.get_estimate_team_position(),
+                    )
+                } else {
+                    (Vec::new(), None)
+                }
+            } else {
+                (Vec::new(), None)
+            }
+        } else {
+            (Vec::new(), None)
+        };
+        if members.is_empty() {
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let mut source_object_id = INVALID_ID;
+        let mut source_off_map = false;
+        let mut source_pos = estimate_team_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
+        for &member_id in &members {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if obj.get_ai_update_interface().is_some() {
+                source_object_id = member_id;
+                source_off_map = obj.is_off_map();
+                if estimate_team_pos.is_none() {
+                    source_pos = *obj.get_position();
+                }
+                break;
+            }
+        }
+        if source_object_id == INVALID_ID {
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let Some(target_id) = self.find_closest_object_of_type_in_trigger(
+            source_object_id,
+            &source_pos,
+            source_off_map,
+            &object_type,
+            &trigger_name,
+        ) else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        for &member_id in &members {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let ai_arc = {
+                let Ok(obj) = obj_arc.read() else {
+                    continue;
+                };
+                let Some(ai_arc) = obj.get_ai_update_interface() else {
+                    continue;
+                };
+                ai_arc
+            };
+            if let Ok(mut ai) = ai_arc.lock() {
+                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                let mut params = AiCommandParams::new(
+                    AiCommandType::MoveToObject,
+                    CommandSourceType::FromScript,
+                );
+                params.obj = Some(target_id);
+                let _ = ai.execute_command(&params);
+            };
+        }
+
+        Ok(ScriptActionResult::Success)
+    }
+}

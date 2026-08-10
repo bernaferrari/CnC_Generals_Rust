@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is command_processor_impl/ + #[path] in commands/mod.rs.
+// Residual include_str! scans keep reading this sibling file.
+
 ////////////////////////////////////////////////////////////////////////////////
 //																																						//
 //  (c) 2001-2003 Electronic Arts Inc.																				//

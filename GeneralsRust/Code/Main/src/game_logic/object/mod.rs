@@ -1,0 +1,2281 @@
+//! Wave 958: host_object dual-read seal (tests + residual).
+//!
+//! Host [`Object`] type, split across focused impl modules. Public paths stay
+//! `crate::game_logic::object::Object` (and the small enums/helpers that lived
+//! in the original `object.rs`).
+
+// Restricted re-exports so impl submodules can `use super::*;` without
+// dumping game_logic's public surface back through `pub use object::*;`.
+pub(in crate::game_logic::object) use super::*;
+pub(in crate::game_logic::object) use crate::command_system::SpecialPowerType;
+pub(in crate::game_logic::object) use glam::{Mat4, Vec3};
+pub(in crate::game_logic::object) use serde::{Deserialize, Serialize};
+pub(in crate::game_logic::object) use std::collections::{HashMap, HashSet};
+
+/// C++ TurretAI state residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TurretSubState {
+    #[default]
+    Idle,
+    IdleScan,
+    Aim,
+    Fire,
+    Hold,
+    Recenter,
+}
+
+impl TurretSubState {
+    #[inline]
+    pub fn ordinal(self) -> u8 {
+        match self {
+            TurretSubState::Idle => 0,
+            TurretSubState::IdleScan => 1,
+            TurretSubState::Aim => 2,
+            TurretSubState::Fire => 3,
+            TurretSubState::Hold => 4,
+            TurretSubState::Recenter => 5,
+        }
+    }
+
+    #[inline]
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => TurretSubState::IdleScan,
+            2 => TurretSubState::Aim,
+            3 => TurretSubState::Fire,
+            4 => TurretSubState::Hold,
+            5 => TurretSubState::Recenter,
+            _ => TurretSubState::Idle,
+        }
+    }
+}
+
+/// C++ AttackStateMachine substate residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AttackSubState {
+    /// C++ AIM_AT_TARGET (default on enter).
+    #[default]
+    AimAtTarget,
+    /// C++ FIRE_WEAPON.
+    FireWeapon,
+    /// C++ APPROACH_TARGET.
+    ApproachTarget,
+    /// C++ CHASE_TARGET (pursue residual collapses to approach when not fleeing).
+    ChaseTarget,
+}
+
+impl AttackSubState {
+    pub fn to_ordinal(self) -> u8 {
+        match self {
+            AttackSubState::AimAtTarget => 0,
+            AttackSubState::FireWeapon => 1,
+            AttackSubState::ApproachTarget => 2,
+            AttackSubState::ChaseTarget => 3,
+        }
+    }
+
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => AttackSubState::FireWeapon,
+            2 => AttackSubState::ApproachTarget,
+            3 => AttackSubState::ChaseTarget,
+            _ => AttackSubState::AimAtTarget,
+        }
+    }
+}
+
+fn default_one_f32() -> f32 {
+    1.0
+}
+
+/// C++ DEFAULT_TURN_RATE residual (radians/frame).
+pub(crate) fn default_turret_turn_rate() -> f32 {
+    0.01
+}
+
+/// C++ default recenter wait residual (2 * LOGICFRAMES_PER_SECOND).
+pub(crate) fn default_turret_recenter_frames() -> u32 {
+    60
+}
+
+pub(crate) fn default_mood_attack_check_rate() -> u32 {
+    // C++ typical mood check rate residual (~1s @ 30fps).
+    30
+}
+
+pub(crate) fn default_vision_range() -> f32 {
+    150.0
+}
+
+fn default_true_for_auto_acquire() -> bool {
+    true
+}
+
+fn default_max_shots() -> i32 {
+    -1
+}
+
+fn default_braking() -> f32 {
+    50.0
+}
+
+pub(crate) fn actual_speed_is_zero(o: &Object) -> bool {
+    o.movement.velocity.x.abs() < 1e-4 && o.movement.velocity.z.abs() < 1e-4
+}
+
+/// C++ calcSlowDownDist residual (host units).
+/// C++ AIStates isSamePosition residual (2D, dist/10 tolerance).
+pub fn is_same_position_residual(
+    our_pos: glam::Vec3,
+    prev_target: glam::Vec3,
+    cur_target: glam::Vec3,
+) -> bool {
+    let dx = cur_target.x - prev_target.x;
+    let dz = cur_target.z - prev_target.z;
+    let to_x = cur_target.x - our_pos.x;
+    let to_z = cur_target.z - our_pos.z;
+    const TOLERANCE_FACTOR: f32 = 1.0 / 100.0;
+    let tolerance_sqr = (to_x * to_x + to_z * to_z) * TOLERANCE_FACTOR;
+    dx * dx + dz * dz <= tolerance_sqr
+}
+
+pub fn calc_slow_down_dist(cur_speed: f32, desired_speed: f32, max_braking: f32) -> f32 {
+    let delta = cur_speed - desired_speed;
+    if delta <= 0.0 {
+        return 0.0;
+    }
+    let braking = max_braking.abs().max(1e-6);
+    let dist = (delta * delta / braking) * 0.5;
+    const FUDGE: f32 = 1.05;
+    dist * FUDGE
+}
+
+pub(crate) fn default_strategy_center_turret_angle() -> f32 {
+    crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
+}
+
+pub(crate) fn default_strategy_center_turret_pitch() -> f32 {
+    crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG
+}
+
+/// Object type classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ObjectType {
+    Infantry,
+    Vehicle,
+    Aircraft,
+    Building,
+    Supply,
+    Projectile,
+    Neutral,
+}
+
+/// C++ PhysicsTurningType residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(i8)]
+pub enum PhysicsTurningType {
+    TurnNegative = -1,
+    #[default]
+    TurnNone = 0,
+    TurnPositive = 1,
+}
+
+impl PhysicsTurningType {
+    pub fn to_ordinal(self) -> i8 {
+        match self {
+            PhysicsTurningType::TurnNegative => -1,
+            PhysicsTurningType::TurnNone => 0,
+            PhysicsTurningType::TurnPositive => 1,
+        }
+    }
+    pub fn from_ordinal(v: i8) -> Self {
+        match v {
+            -1 => PhysicsTurningType::TurnNegative,
+            1 => PhysicsTurningType::TurnPositive,
+            _ => PhysicsTurningType::TurnNone,
+        }
+    }
+}
+
+/// C++ LocomotorBehaviorZ residual (subset).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum LocomotorBehaviorZ {
+    #[default]
+    NoZMotiveForce = 0,
+    SeaLevel = 1,
+    SurfaceRelativeHeight = 2,
+    AbsoluteHeight = 3,
+    SmoothRelativeToHighestLayer = 4,
+}
+
+impl LocomotorBehaviorZ {
+    pub fn to_ordinal(self) -> u8 {
+        match self {
+            LocomotorBehaviorZ::NoZMotiveForce => 0,
+            LocomotorBehaviorZ::SeaLevel => 1,
+            LocomotorBehaviorZ::SurfaceRelativeHeight => 2,
+            LocomotorBehaviorZ::AbsoluteHeight => 3,
+            LocomotorBehaviorZ::SmoothRelativeToHighestLayer => 4,
+        }
+    }
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => LocomotorBehaviorZ::SeaLevel,
+            2 => LocomotorBehaviorZ::SurfaceRelativeHeight,
+            3 => LocomotorBehaviorZ::AbsoluteHeight,
+            4 => LocomotorBehaviorZ::SmoothRelativeToHighestLayer,
+            _ => LocomotorBehaviorZ::NoZMotiveForce,
+        }
+    }
+}
+
+/// C++ LocomotorAppearance residual (subset used by host update_movement).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum LocomotorAppearance {
+    #[default]
+    Other = 0,
+    LegsTwo = 1,
+    WheelsFour = 2,
+    Treads = 3,
+    Hover = 4,
+    Wings = 5,
+    Thrust = 6,
+    Motorcycle = 7,
+    Climber = 8,
+}
+
+impl LocomotorAppearance {
+    pub fn to_ordinal(self) -> u8 {
+        match self {
+            LocomotorAppearance::Other => 0,
+            LocomotorAppearance::LegsTwo => 1,
+            LocomotorAppearance::WheelsFour => 2,
+            LocomotorAppearance::Treads => 3,
+            LocomotorAppearance::Hover => 4,
+            LocomotorAppearance::Wings => 5,
+            LocomotorAppearance::Thrust => 6,
+            LocomotorAppearance::Motorcycle => 7,
+            LocomotorAppearance::Climber => 8,
+        }
+    }
+    pub fn from_ordinal(v: u8) -> Self {
+        match v {
+            1 => LocomotorAppearance::LegsTwo,
+            2 => LocomotorAppearance::WheelsFour,
+            3 => LocomotorAppearance::Treads,
+            4 => LocomotorAppearance::Hover,
+            5 => LocomotorAppearance::Wings,
+            6 => LocomotorAppearance::Thrust,
+            7 => LocomotorAppearance::Motorcycle,
+            8 => LocomotorAppearance::Climber,
+            _ => LocomotorAppearance::Other,
+        }
+    }
+}
+
+/// Game Object - the main entity class for all game units, buildings, etc.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Object {
+    /// Base Thing functionality
+    pub thing: Thing,
+
+    /// Unique identifier
+    pub id: ObjectId,
+
+    /// Team ownership
+    pub team: Team,
+
+    /// Object name
+    pub name: String,
+
+    /// Object status
+    pub status: ObjectStatus,
+    /// C++ ObjectStatusMaskType residual bits (StatusBitsUpgrade set/clear).
+    #[serde(default)]
+    pub object_status_bits: u64,
+    /// Wave 754: EjectPilotDie onDie already fired (death-start residual).
+    #[serde(default)]
+    pub eject_pilot_die_applied: bool,
+    /// C++ ModelConditionFlags residual bits (ALLOW_SURRENDER-off index layout).
+    #[serde(default)]
+    pub model_condition_bits: u128,
+    /// C++ RadarUpdate m_extendDoneFrame residual (0 = inactive).
+    pub radar_extend_done_frame: u32,
+    /// C++ RadarUpdate m_extendComplete residual.
+    pub radar_extend_complete: bool,
+    /// C++ RadarUpdate m_radarActive residual.
+    pub radar_active: bool,
+    /// C++ ProductionUpdate door residual phase: 0=idle 1=opening 2=wait 3=closing.
+    pub production_door_phase: u8,
+    /// Frame when current door residual phase ends.
+    pub production_door_phase_end_frame: u32,
+    /// C++ ProductionUpdate DoorInfo::m_holdOpen residual (ParkingPlace).
+    pub production_door_hold_open: bool,
+    /// C++ RebuildHoleBehavior residual: this object is a rebuild hole.
+    pub is_rebuild_hole: bool,
+    /// Template name to reconstruct (C++ m_rebuildTemplate).
+    pub rebuild_template_name: Option<String>,
+    /// Absolute frame when hole may spawn reconstruction (worker delay residual).
+    pub rebuild_ready_frame: u32,
+    /// Original structure that spawned this hole.
+    pub rebuild_spawner_id: Option<ObjectId>,
+    /// C++ RebuildHoleBehavior m_workerID residual.
+    pub rebuild_worker_id: Option<ObjectId>,
+    /// C++ RebuildHoleBehavior m_reconstructingID residual.
+    pub rebuild_reconstructing_id: Option<ObjectId>,
+    /// C++ Object::m_producerID residual (hole is producer of reconstructing building).
+    pub producer_id: Option<ObjectId>,
+    /// C++ HighlanderBody residual (cannot die from normal damage).
+    pub highlander_body: bool,
+    /// C++ UpgradeDie residual (free producer upgrade on death).
+    pub upgrade_die: Option<crate::game_logic::host_upgrade_die::HostUpgradeDieData>,
+    /// C++ ProductionUpdate m_constructionCompleteFrame residual.
+    /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
+    pub construction_complete_clear_frame: u32,
+    /// C++ Object::m_soleHealingBenefactorID residual.
+    pub sole_healing_benefactor: Option<ObjectId>,
+    /// C++ Object::m_soleHealingBenefactorExpirationFrame residual.
+    pub sole_healing_benefactor_expiration_frame: u32,
+    /// C++ DozerPrimaryIdleState m_idleTooLongTimestamp residual.
+    pub idle_since_frame: u32,
+    /// C++ PhysicsBehavior IS_STUNNED residual frames remaining (0 = clear).
+    #[serde(default)]
+    pub shock_stun_frames: u32,
+    /// C++ PhysicsBehavior m_yawRate residual from shock random rotation.
+    #[serde(default)]
+    pub shock_yaw_rate: f32,
+    /// C++ PhysicsBehavior m_pitchRate residual from shock random rotation.
+    #[serde(default)]
+    pub shock_pitch_rate: f32,
+    /// C++ PhysicsBehavior m_rollRate residual from shock random rotation.
+    #[serde(default)]
+    pub shock_roll_rate: f32,
+    /// C++ PhysicsBehavior ALLOW_BOUNCE residual (enabled by applyRandomRotation).
+    #[serde(default)]
+    pub shock_allow_bounce: bool,
+    /// C++ WAS_AIRBORNE_LAST_FRAME residual during shock freefall.
+    #[serde(default)]
+    pub shock_was_airborne: bool,
+    /// First ground contact while stunned: STUNNED_FLAILING → STUNNED residual.
+    #[serde(default)]
+    pub shock_grounded_once: bool,
+    /// C++ transform Z-up residual (1 upright, <0 inverted / splat candidate).
+    #[serde(default = "default_shock_up_z")]
+    pub shock_up_z: f32,
+    /// C++ LocomotorSurfaceTypeMask residual (default by KindOf).
+    #[serde(default)]
+    pub locomotor_surfaces: u32,
+    /// Host TerrainLogic::isCliffCell residual for stun destruction (set by world).
+    #[serde(default)]
+    pub cell_is_cliff: bool,
+    /// Host TerrainLogic::isUnderwater residual for stun destruction (set by world).
+    #[serde(default)]
+    pub cell_is_underwater: bool,
+    /// C++ PhysicsBehaviorModuleData::m_killWhenRestingOnGround residual.
+    #[serde(default)]
+    pub kill_when_resting_on_ground: bool,
+    /// C++ IMMUNE_TO_FALLING_DAMAGE residual (projectiles / special).
+    #[serde(default)]
+    pub immune_to_falling_damage: bool,
+    /// Host residual: bounce-land audio events (doBounceSound count).
+    #[serde(default)]
+    pub bounce_land_events: u32,
+    /// Last bounce vertical displacement residual for volume (prevY - y).
+    #[serde(default)]
+    pub last_bounce_fall_dy: f32,
+    /// C++ PhysicsBehavior bounce AudioEventRTS name residual.
+    #[serde(default = "default_bounce_sound_name")]
+    pub bounce_sound_name: String,
+    /// Last computed bounce volume residual [0.25, 1.0] (MuLaw path).
+    #[serde(default)]
+    pub last_bounce_volume: f32,
+    pub bounce_audio_pending: u32,
+    /// C++ ThingTemplate CrusherLevel residual.
+    #[serde(default)]
+    pub crusher_level: u8,
+    /// C++ ThingTemplate CrushableLevel residual (default 255 = uncrushable).
+    #[serde(default = "default_crushable_level")]
+    pub crushable_level: u8,
+    /// C++ BodyModule front crushed residual.
+    #[serde(default)]
+    pub front_crushed: bool,
+    /// C++ BodyModule back crushed residual.
+    #[serde(default)]
+    pub back_crushed: bool,
+    /// C++ PhysicsBehavior m_currentOverlap residual.
+    #[serde(default)]
+    pub physics_current_overlap: Option<ObjectId>,
+    /// C++ PhysicsBehavior m_previousOverlap residual.
+    #[serde(default)]
+    pub physics_previous_overlap: Option<ObjectId>,
+    /// C++ PhysicsBehavior m_ignoreCollisionsWith residual.
+    #[serde(default)]
+    pub ignore_collisions_with: Option<ObjectId>,
+    /// C++ PhysicsBehavior m_lastCollidee residual.
+    #[serde(default)]
+    pub last_collidee: Option<ObjectId>,
+    /// C++ PhysicsBehaviorModuleData m_allowCollideForce residual (default true).
+    #[serde(default = "default_true")]
+    pub allow_collide_force: bool,
+    /// C++ AIUpdate m_canPathThroughUnits residual.
+    #[serde(default)]
+    pub can_path_through_units: bool,
+    /// C++ AIUpdate m_ignoreCollisionsUntil frame residual (0 = inactive).
+    #[serde(default)]
+    pub ignore_collisions_until_frame: u32,
+    /// C++ AIUpdate m_isBlocked residual.
+    #[serde(default)]
+    pub is_blocked: bool,
+    /// C++ AIUpdate m_isBlockedAndStuck residual.
+    #[serde(default)]
+    pub is_blocked_and_stuck: bool,
+    /// C++ AIUpdate m_curMaxBlockedSpeed residual (world units / frame).
+    #[serde(default = "default_max_f32")]
+    pub cur_max_blocked_speed: f32,
+    /// C++ AIUpdate getNumFramesBlocked residual.
+    #[serde(default)]
+    pub num_frames_blocked: u32,
+    /// C++ AI panic state residual (AI_PANIC → bounce force allowed).
+    #[serde(default)]
+    pub is_panicking: bool,
+    /// C++ PhysicsBehavior m_mass residual.
+    #[serde(default = "default_physics_mass")]
+    pub physics_mass: f32,
+    /// C++ PhysicsBehavior m_accel residual (integrated each frame).
+    #[serde(default)]
+    pub physics_accel: glam::Vec3,
+    /// C++ isMotive residual frames remaining (0 = not motive / accept full force).
+    #[serde(default)]
+    pub motive_frames_remaining: u32,
+    /// C++ AIUpdate m_waitingForPath residual.
+    #[serde(default)]
+    pub waiting_for_path: bool,
+    /// C++ m_moveOutOfWay1 residual (object id we're yielding for).
+    #[serde(default)]
+    pub move_away_from: Option<ObjectId>,
+    /// C++ AI_MOVE_OUT_OF_THE_WAY temporary state frames remaining.
+    #[serde(default)]
+    pub move_away_frames: u32,
+    /// Desired yield position residual from aiMoveAwayFromUnit.
+    #[serde(default)]
+    pub move_away_destination: Option<glam::Vec3>,
+    /// When set by processCollision, GameLogic should call ai_move_away on this id.
+    #[serde(default)]
+    pub request_other_move_away: Option<ObjectId>,
+    /// C++ PhysicsBehaviorModuleData m_forwardFriction residual (per frame).
+    #[serde(default = "default_forward_friction")]
+    pub forward_friction: f32,
+    /// C++ m_lateralFriction residual (per frame).
+    #[serde(default = "default_lateral_friction")]
+    pub lateral_friction: f32,
+    /// C++ m_ZFriction residual (per frame).
+    #[serde(default = "default_z_friction")]
+    pub z_friction: f32,
+    /// C++ m_aerodynamicFriction residual (per frame).
+    #[serde(default)]
+    pub aerodynamic_friction: f32,
+    /// C++ m_extraFriction residual.
+    #[serde(default)]
+    pub extra_friction: f32,
+    /// C++ APPLY_FRICTION2D_WHEN_AIRBORNE flag residual.
+    #[serde(default)]
+    pub apply_friction_2d_when_airborne: bool,
+    /// Cached velocity magnitude residual (negative = invalid).
+    #[serde(default = "default_invalid_vel_mag")]
+    pub velocity_magnitude_cache: f32,
+    /// C++ m_originalAllowBounce residual.
+    #[serde(default)]
+    pub original_allow_bounce: bool,
+    /// C++ STICK_TO_GROUND flag residual.
+    #[serde(default)]
+    pub stick_to_ground: bool,
+    /// C++ ALLOW_TO_FALL flag residual.
+    #[serde(default)]
+    pub allow_to_fall: bool,
+    /// C++ WAS_AIRBORNE_LAST_FRAME residual (general physics, not only shock).
+    #[serde(default)]
+    pub was_airborne_last_frame: bool,
+    /// C++ PhysicsBehaviorModuleData m_centerOfMassOffset residual.
+    #[serde(default)]
+    pub center_of_mass_offset: f32,
+    /// C++ m_pitchRollYawFactor residual (default 1.0).
+    #[serde(default = "default_one_f32")]
+    pub pitch_roll_yaw_factor: f32,
+    /// C++ Locomotor IS_BRAKING flag residual.
+    #[serde(default)]
+    pub is_braking: bool,
+    /// C++ Locomotor m_brakingFactor residual.
+    #[serde(default = "default_one_f32")]
+    pub braking_factor: f32,
+    /// C++ Locomotor braking deceleration residual (units/sec², host Movement space).
+    #[serde(default = "default_braking")]
+    pub braking: f32,
+    /// C++ Locomotor APPLY_2D_FRICTION_WHEN_AIRBORNE residual.
+    #[serde(default)]
+    pub loco_apply_2d_friction_airborne: bool,
+    /// C++ Locomotor extra2DFriction residual (added to physics extra_friction).
+    #[serde(default)]
+    pub loco_extra_2d_friction: f32,
+    /// C++ PhysicsBehavior m_turning residual.
+    #[serde(default)]
+    pub physics_turning: PhysicsTurningType,
+    /// C++ Locomotor m_behaviorZ residual.
+    #[serde(default)]
+    pub loco_behavior_z: LocomotorBehaviorZ,
+    /// C++ Locomotor m_preferredHeight residual (world Y).
+    #[serde(default)]
+    pub loco_preferred_height: f32,
+    /// C++ preferredHeightDamping residual (0..1).
+    #[serde(default = "default_one_f32")]
+    pub loco_preferred_height_damping: f32,
+    /// C++ MAINTAIN_POS_IS_VALID + m_maintainPos residual.
+    #[serde(default)]
+    pub maintain_pos_valid: bool,
+    #[serde(default)]
+    pub maintain_pos: Option<glam::Vec3>,
+    /// C++ Locomotor appearance residual.
+    #[serde(default)]
+    pub loco_appearance: LocomotorAppearance,
+    /// C++ m_minTurnSpeed residual (host units/sec).
+    #[serde(default)]
+    pub min_turn_speed: f32,
+    /// C++ m_minSpeed residual (host units/sec).
+    #[serde(default)]
+    pub min_speed: f32,
+    /// C++ ULTRA_ACCURATE flag residual.
+    #[serde(default)]
+    pub ultra_accurate: bool,
+    /// C++ canMoveBackward residual (wheeled).
+    #[serde(default)]
+    pub can_move_backward: bool,
+    /// C++ MOVING_BACKWARDS residual.
+    #[serde(default)]
+    pub moving_backwards: bool,
+    /// C++ NO_SLOW_DOWN_AS_APPROACHING_DEST residual.
+    #[serde(default)]
+    pub no_slow_down_as_approaching_dest: bool,
+    /// C++ OVER_WATER model condition residual (hover).
+    #[serde(default)]
+    pub over_water: bool,
+    /// C++ LocomotorTemplate m_circlingRadius residual (0 = use min turn radius).
+    #[serde(default)]
+    pub circling_radius: f32,
+    /// C++ PRECISE_Z_POS flag residual.
+    #[serde(default)]
+    pub precise_z_pos: bool,
+    /// C++ KINDOF_DOZER residual (skip fixInvalidPosition).
+    #[serde(default)]
+    pub is_dozer: bool,
+    /// Host residual: position is on invalid pathfind cell (set by world).
+    #[serde(default)]
+    pub on_invalid_movement_terrain: bool,
+    /// C++ m_turnPivotOffset residual (-1 rear, 0 center, 1 front).
+    #[serde(default)]
+    pub turn_pivot_offset: f32,
+    /// C++ m_wanderWidthFactor residual (0 = off).
+    #[serde(default)]
+    pub wander_width_factor: f32,
+    /// C++ m_angleOffset residual for wander.
+    #[serde(default)]
+    pub wander_angle_offset: f32,
+    /// C++ m_offsetIncrement residual.
+    #[serde(default)]
+    pub wander_offset_increment: f32,
+    /// C++ OFFSET_INCREASING flag residual.
+    #[serde(default)]
+    pub wander_offset_increasing: bool,
+    /// C++ Locomotor downhill-only residual (ski / sled).
+    #[serde(default)]
+    pub downhill_only: bool,
+    /// C++ m_lift residual (world-Y up accel capacity).
+    #[serde(default)]
+    pub max_lift: f32,
+    /// C++ LocomotorTemplate::m_liftDamaged residual.
+    pub max_lift_damaged: f32,
+    /// C++ m_speedLimitZ residual (vertical speed limit).
+    #[serde(default)]
+    pub speed_limit_z: f32,
+    /// C++ group move speed factor residual (1.0 = full).
+    #[serde(default = "default_one_f32")]
+    pub group_speed_factor: f32,
+    /// C++ AIUpdate m_isAttackPath residual.
+    #[serde(default)]
+    pub is_attack_path: bool,
+    /// C++ exact waypoint path residual (no pathfind smoothing).
+    pub is_exact_path: bool,
+    /// C++ m_isApproachPath residual.
+    #[serde(default)]
+    pub is_approach_path: bool,
+    /// C++ m_isSafePath residual.
+    #[serde(default)]
+    pub is_safe_path: bool,
+    /// C++ m_requestedVictimID residual.
+    #[serde(default)]
+    pub requested_victim_id: Option<ObjectId>,
+    /// C++ m_requestedDestination residual.
+    #[serde(default)]
+    pub requested_destination: Option<glam::Vec3>,
+    /// C++ m_pathTimestamp residual (frame of last path request).
+    #[serde(default)]
+    pub path_timestamp: u32,
+    /// C++ queue-for-path delay frames remaining (0 = idle).
+    #[serde(default)]
+    pub queue_for_path_frames: u32,
+    /// C++ Weapon maxShotCount residual (-1 = unlimited).
+    #[serde(default = "default_max_shots")]
+    pub max_shots_to_fire: i32,
+    /// C++ AttackStateMachine current substate residual.
+    #[serde(default)]
+    pub attack_substate: crate::game_logic::AttackSubState,
+    /// C++ AIAttackApproachTargetState m_approachTimestamp residual.
+    #[serde(default)]
+    pub approach_timestamp: u32,
+    /// C++ m_prevVictimPos residual (attack approach).
+    #[serde(default)]
+    pub prev_victim_pos: Option<glam::Vec3>,
+    /// C++ temporary move-to frames remaining (AI_MOVE_TO temporary state).
+    #[serde(default)]
+    pub temporary_move_frames: u32,
+    /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
+    #[serde(default)]
+    pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+
+    /// Health system
+    pub health: Health,
+
+    /// Movement system
+    pub movement: Movement,
+
+    /// Experience system
+    pub experience: Experience,
+
+    /// Primary weapon
+    pub weapon: Option<Weapon>,
+
+    /// Secondary weapon slot (C++ WeaponSet SECONDARY). Optional residual bind.
+    pub secondary_weapon: Option<Weapon>,
+
+    /// Current target
+    pub target: Option<ObjectId>,
+
+    /// Construction progress (0.0 to 1.0)
+    pub construction_percent: f32,
+
+    /// Building-specific data (present for structures)
+    pub building_data: Option<BuildingData>,
+
+    /// Resource storage for buildings
+    pub stored_resources: Resources,
+
+    /// Power provided/consumed
+    pub power_provided: i32,
+    pub power_consumed: i32,
+
+    /// Selection state
+    pub selected: bool,
+    /// C++ Drawable selection flash envelope residual (frames remaining).
+    pub selection_flash_remaining: u32,
+
+    /// AI state for autonomous behavior
+    pub ai_state: AIState,
+
+    // Command system compatibility fields
+    /// Object type identifier
+    pub object_type: ObjectType,
+
+    /// Template name for identification
+    pub template_name: String,
+
+    /// Current position (shadow of thing.position for compatibility)
+    pub position: Vec3,
+
+    /// Maximum health
+    pub max_health: f32,
+
+    /// Target location for ground attacks
+    pub target_location: Option<Vec3>,
+
+    /// Guard position
+    pub guard_position: Option<Vec3>,
+    /// C++ AIGuardRetaliateMachine goal victim residual.
+    #[serde(default)]
+    pub guard_retaliate_victim: Option<ObjectId>,
+    /// C++ AIUpdateInterface::m_crateCreated residual (notifyCrate).
+    #[serde(default)]
+    pub crate_created: Option<ObjectId>,
+    /// C++ HijackerUpdate::m_targetID residual (vehicle being driven).
+    #[serde(default)]
+    pub hijack_vehicle_id: Option<ObjectId>,
+    /// C++ HijackerUpdate::m_isInVehicle residual.
+    #[serde(default)]
+    pub hijacker_in_vehicle: bool,
+    /// C++ HijackerUpdate::m_update residual.
+    #[serde(default)]
+    pub hijacker_update_active: bool,
+    /// C++ HijackerUpdate::m_wasTargetAirborne residual.
+    #[serde(default)]
+    pub hijacker_was_airborne: bool,
+    /// C++ HijackerUpdate::m_ejectPos residual.
+    #[serde(default)]
+    pub hijacker_eject_pos: Option<glam::Vec3>,
+    /// C++ WEAPONSET_CRATEUPGRADE_ONE/TWO residual (0/1/2).
+    #[serde(default)]
+    pub weapon_crate_upgrade: u8,
+    /// C++ ARMORSET_CRATE_UPGRADE_ONE/TWO residual (0/1/2).
+    #[serde(default)]
+    pub armor_crate_upgrade: u8,
+    /// C++ setGoalPositionClipped anchor for GuardRetaliate return residual.
+    #[serde(default)]
+    pub guard_retaliate_anchor: Option<Vec3>,
+
+    /// Guard target
+    pub guard_target: Option<ObjectId>,
+
+    /// Force attack mode
+    pub force_attack: bool,
+
+    /// Visual properties for rendering
+    pub show_health_bar: bool,
+    pub selection_radius: f32,
+    /// Terrain ground height residual at object XY (presentation / FOW residual).
+    #[serde(default)]
+    pub ground_height: f32,
+    /// True when ground_height came from terrain sample (not default 0).
+    #[serde(default)]
+    pub ground_height_from_terrain: bool,
+    pub team_color: [f32; 4],
+
+    /// Tracked occupants for transports/garrisons
+    pub occupants: Vec<ObjectId>,
+
+    /// Residual transport slot capacity (vehicles).
+    /// `0` = use footprint heuristic (existing host residual default).
+    /// Explicit value (e.g. Humvee/Chinook slots) hard-caps occupants.
+    /// Fail-closed: not multi-door / air-transport path parity.
+    pub max_transport: usize,
+
+    /// Host residual: China Overlord / BattleBunker infantry capacity.
+    ///
+    /// C++ OverlordContain holds one PORTABLE_STRUCTURE (BattleBunker), then
+    /// redirects infantry contain queries into the bunker's TransportContain
+    /// (INI `Slots = 5`). Host residual collapses that redirect into a single
+    /// capacity on the tank:
+    /// - `None` — not an overlord-style container (normal vehicle residual)
+    /// - `Some(0)` — overlord-style without BattleBunker residual (reject enter)
+    /// - `Some(n)` — BattleBunker residual active with `n` infantry slots
+    ///
+    /// Fail-closed: not full OverlordContain redirect / portable-structure spawn /
+    /// GattlingCannon / PropagandaTower payload matrix.
+    pub overlord_bunker_capacity: Option<usize>,
+
+    /// Host residual: C++ OpenContain `m_passengersAllowedToFire`.
+    /// When true, Docked infantry may residual-fire from the container origin
+    /// (GLA Battle Bus / Humvee-style fire-from-transport).
+    /// Fail-closed: not full garrison weapon-bone positions.
+    pub passengers_allowed_to_fire: bool,
+
+    /// Host residual: C++ TransportContain `m_armedRidersUpgradeWeaponSet`.
+    /// When true, bus sets `weapon_set_player_upgrade` while any armed infantry
+    /// rider is loaded (Battle Bus PLAYER_UPGRADE weapon set residual).
+    pub armed_riders_upgrade_weapon_set: bool,
+
+    /// Host residual: C++ WEAPONSET_PLAYER_UPGRADE flag on this object.
+    /// Battle Bus uses this when armed riders are present.
+    pub weapon_set_player_upgrade: bool,
+    /// C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE residual (WeaponBonusUpgrade).
+    #[serde(default)]
+    pub weapon_bonus_player_upgrade: bool,
+    /// C++ ARMORSET_PLAYER_UPGRADE residual (ArmorUpgrade).
+    #[serde(default)]
+    pub armor_set_player_upgrade: bool,
+    /// C++ AIUpdate::m_locomotorUpgrade residual (LocomotorSetUpgrade).
+    #[serde(default)]
+    pub locomotor_upgrade: bool,
+    /// C++ TERRAIN_DECAL_CHEMSUIT residual (ArmorUpgrade ChemicalSuits unique case).
+    #[serde(default)]
+    pub terrain_decal_chemsuit: bool,
+    /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing peels).
+    #[serde(default)]
+    pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
+    /// C++ SpecialPowerCompletionDie residual (notify script on death).
+    #[serde(default)]
+    pub special_power_completion: Option<
+        crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionDieData,
+    >,
+    /// C++ PowerPlantUpdate m_extended residual.
+    #[serde(default)]
+    pub power_plant_rods_extended: bool,
+    /// Absolute frame when POWER_PLANT_UPGRADING → UPGRADED (0 = idle).
+    #[serde(default)]
+    pub power_plant_rods_done_frame: u32,
+    /// C++ SpecialPowerModule m_pausedCount>0 residual (StartsPaused / pauseCountdown).
+    #[serde(default)]
+    pub special_power_paused: std::collections::HashSet<crate::command_system::SpecialPowerType>,
+    /// C++ WEAPONSET_MINE_CLEARING_DETAIL residual (DozerAI / AIGroup::setMineClearingDetail).
+    #[serde(default)]
+    pub weapon_set_mine_clearing_detail: bool,
+    /// C++ WEAPONSET_CARBOMB residual.
+    #[serde(default)]
+    pub weapon_set_carbomb: bool,
+    /// C++ WEAPONSET_VEHICLE_HIJACK residual.
+    #[serde(default)]
+    pub weapon_set_vehicle_hijack: bool,
+
+    /// Host residual: Battle Bus style transport (capacity 8 + fire + armed-riders).
+    /// Distinct from generic Humvee transport residual for honesty counters.
+    pub is_battle_bus_transport: bool,
+    /// C++ UndeadBody + BattleBusSlowDeathBehavior residual.
+    pub battle_bus_body: Option<crate::game_logic::host_battle_bus::HostBattleBusBodyData>,
+    /// C++ BodyModule ARMORSET_SECOND_LIFE residual.
+    pub armor_set_second_life: bool,
+
+    /// Host residual: GLA Technical transport (capacity 5, infantry only, no passenger fire).
+    /// Fail-closed: not chassis reskin / salvage W3D gunner swap matrix.
+    pub is_technical_transport: bool,
+
+    /// Host residual: GLA Combat Cycle / Combat Bike RiderChangeContain (capacity 1).
+    /// Rider weapon switch residual; passengers do not fire from bed (bike fires).
+    /// Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.
+    pub is_combat_cycle_transport: bool,
+
+    /// Host residual: active Combat Cycle rider class (0=none … 7=saboteur).
+    /// Mirrors RiderChangeContain WEAPON_RIDER* residual selection.
+    pub combat_cycle_rider: u8,
+
+    /// Host residual: GLA Tunnel Network structure (`TunnelContain`).
+    /// Shared per-team capacity via `HostTunnelNetworkRegistry` (MaxTunnelCapacity=10).
+    /// Fail-closed: not full GuardTunnelNetwork AI / CaveSystem cave-in matrix.
+    pub is_tunnel_network: bool,
+
+    /// Host residual: AirF Combat Chinook style transport (capacity 8 + fire +
+    /// armed-riders + ListeningOutpost dummy). Distinct from vanilla Chinook
+    /// (no PassengersAllowedToFire) and from Battle Bus for honesty counters.
+    pub is_combat_chinook_transport: bool,
+
+    /// C++ parity (Object::m_containedBy): when this unit is inside a
+    /// transport/garrison, stores the container's ID.  None when free.
+    pub contained_by: Option<ObjectId>,
+
+    /// Optional short-lived cheer/animation timer
+    pub cheer_timer: f32,
+    /// C++ AICMD_GO_PRONE residual duration (seconds).
+    #[serde(default)]
+    pub prone_timer: f32,
+    /// C++ Drawable::setEmoticon residual — icon name (empty = none).
+    #[serde(default)]
+    pub emoticon_name: String,
+    /// Remaining logic frames for emoticon (C++ duration frames).
+    #[serde(default)]
+    pub emoticon_frames_left: i32,
+    /// C++ AIUpdateInterface::setSurrendered residual.
+    #[serde(default)]
+    pub is_surrendered: bool,
+
+    /// C++ Object::m_formationID residual (0 = NO_FORMATION_ID).
+    pub formation_id: u32,
+    /// C++ Object::m_formationOffset residual (host XZ → Vec2 x/y).
+    pub formation_offset: glam::Vec2,
+
+    /// Toggleable weapon/overcharge state flags
+    pub overcharge_enabled: bool,
+    pub active_weapon_slot: u8,
+    /// C++ WeaponSet lock residual.
+    #[serde(default)]
+    pub weapon_lock_type: WeaponLockType,
+    /// Slot held by the lock (PRIMARY=0, SECONDARY=1, TERTIARY=2).
+    #[serde(default)]
+    pub weapon_lock_slot: u8,
+    /// C++ Weapon::m_status residual (active slot).
+    pub weapon_fire_status: WeaponFireStatus,
+    /// C++ FiringTracker::m_frameToStopLoopingSound residual.
+    #[serde(default)]
+    pub fire_sound_loop_until_frame: u32,
+    /// Active looping FireSound name while until_frame is live.
+    #[serde(default)]
+    pub fire_sound_loop_name: String,
+    /// C++ Weapon::m_curBarrel residual (which fire bone / FX barrel).
+    pub weapon_cur_barrel: u8,
+    /// C++ WeaponTemplate::m_shotsPerBarrel residual (0/1 = single-barrel).
+    pub weapon_shots_per_barrel: u32,
+    /// C++ Drawable barrel count residual (mod wraps cur barrel).
+    pub weapon_barrel_count: u8,
+    /// C++ Weapon::m_numShotsForCurBarrel residual.
+    pub weapon_shots_left_on_barrel: u32,
+
+    /// C++ Weapon PRE_ATTACK residual: target being wound up against.
+    #[serde(default)]
+    pub pre_attack_target: Option<ObjectId>,
+    /// Absolute sim time when pre-attack delay elapses (ready to discharge).
+    #[serde(default)]
+    pub pre_attack_ready_at: f32,
+    /// C++ Object consecutive-shot residual for PreAttackType PER_ATTACK.
+    #[serde(default)]
+    pub consecutive_shot_target: Option<ObjectId>,
+    #[serde(default)]
+    pub consecutive_shots_at_target: u32,
+    /// C++ Weapon::m_leechWeaponRangeActive residual (primary).
+    #[serde(default)]
+    pub leech_range_active_primary: bool,
+    /// C++ Weapon::m_leechWeaponRangeActive residual (secondary).
+    #[serde(default)]
+    pub leech_range_active_secondary: bool,
+    /// Host residual: last successful fire_at victim (host object id, 0 = none).
+    #[serde(default)]
+    pub last_fire_victim_host: u32,
+    /// Host residual: weapon slot used on last successful fire_at.
+    #[serde(default)]
+    pub last_fire_slot: u8,
+    /// Host residual: damage snapshot on last successful fire_at.
+    #[serde(default)]
+    pub last_fire_damage: f32,
+    /// Host residual: range snapshot on last successful fire_at.
+    #[serde(default)]
+    pub last_fire_range: f32,
+    /// Host residual: sim time of last successful fire_at.
+    #[serde(default)]
+    pub last_fire_sim_time: f32,
+    /// Host residual: logic frame of last successful fire_at.
+    #[serde(default)]
+    pub last_fire_frame: u32,
+    /// Host residual: cumulative successful fire_at discharges this match.
+    #[serde(default)]
+    pub fire_intent_count: u32,
+
+    /// Stored guard radius for pathing/AI persistence
+    pub guard_radius: f32,
+
+    /// C++ GuardMode residual (Normal / WithoutPursuit / FlyingUnitsOnly).
+    pub guard_mode: GuardMode,
+
+    /// C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE residual — unload on path complete.
+    #[serde(default)]
+    pub pending_evacuate_on_stop: bool,
+    /// C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE_AND_EXIT residual — destroy transport after unload.
+    #[serde(default)]
+    pub pending_exit_after_evacuate: bool,
+
+    /// Applied upgrades keyed by upgrade template/tag name.
+    pub applied_upgrades: HashSet<String>,
+
+    /// Special power availability/cooldown state.
+    ///
+    /// Legacy aggregate residual (HUD/presentation): ready when **all** tracked
+    /// per-power cooldowns are clear, remaining = max remaining among them.
+    pub special_power_ready: bool,
+    pub special_power_cooldown: f32,
+    pub special_power_cooldown_remaining: f32,
+    /// Per-power residual cooldown remaining (seconds). Independent timers so
+    /// A10 vs SpySatellite do not share one charge (C++ SpecialPowerModule style).
+    #[serde(default)]
+    pub special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
+    /// C++ SpecialPowerUpdateInterface overridable destination residual.
+    #[serde(default)]
+    pub special_power_override_destination: Option<Vec3>,
+    /// Which power currently accepts destination override (None = any/active).
+    #[serde(default)]
+    pub special_power_override_type: Option<crate::command_system::SpecialPowerType>,
+
+    /// Host residual mine / demo-trap / timed demo-charge state.
+    /// `None` for ordinary units/structures. Fail-closed: not full C++
+    /// MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate modules.
+    /// C++ ToppleUpdate residual (trees / crushable props).
+    #[serde(default)]
+    pub topple_data: Option<crate::game_logic::host_topple::HostToppleData>,
+    /// C++ StructureToppleUpdate residual (buildings fall after HP death).
+    #[serde(default)]
+    pub structure_topple_data:
+        Option<crate::game_logic::host_structure_topple::HostStructureToppleData>,
+    /// C++ StructureCollapseUpdate residual (civilian buildings sink on death).
+    #[serde(default)]
+    pub structure_collapse_data:
+        Option<crate::game_logic::host_structure_collapse::HostStructureCollapseData>,
+    /// C++ KeepObjectDie residual (leave rubble).
+    #[serde(default)]
+    pub keep_object_die: Option<crate::game_logic::host_keep_object_die::HostKeepObjectDieData>,
+    /// C++ WaveGuideUpdate residual.
+    #[serde(default)]
+    pub wave_guide_data: Option<crate::game_logic::host_wave_guide::HostWaveGuideData>,
+    /// C++ FireWeaponWhenDead residual once-fired flag.
+    #[serde(default)]
+    pub fire_weapon_when_dead_fired: bool,
+    /// C++ BoneFXDamage residual.
+    #[serde(default)]
+    pub bone_fx_damage: Option<crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData>,
+    /// C++ PoisonedBehavior residual.
+    #[serde(default)]
+    pub poisoned_behavior:
+        Option<crate::game_logic::host_poisoned_behavior::HostPoisonedBehaviorData>,
+    /// C++ ObjectDefectionHelper residual.
+    #[serde(default)]
+    pub defection_helper: Option<crate::game_logic::host_defection_helper::HostDefectionHelperData>,
+    /// C++ FireWeaponPower residual pending attack.
+    #[serde(default)]
+    pub fire_weapon_power:
+        Option<crate::game_logic::host_fire_weapon_power::HostFireWeaponPowerRequest>,
+    /// C++ FireWeaponWhenDamagedBehavior residual.
+    #[serde(default)]
+    pub fire_weapon_when_damaged:
+        Option<crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData>,
+    /// Pending reaction weapon name from last onDamage residual (drained by GameLogic).
+    #[serde(default)]
+    pub pending_fire_when_damaged_weapon: Option<String>,
+    /// C++ TransitionDamageFX residual.
+    #[serde(default)]
+    pub transition_damage_fx:
+        Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData>,
+    /// Pending transition FX events (drained by GameLogic / presentation).
+    #[serde(default)]
+    pub pending_transition_damage_fx:
+        Vec<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent>,
+    /// C++ FXListDie residual.
+    #[serde(default)]
+    pub fx_list_die: Option<crate::game_logic::host_fx_list_die::HostFxListDieData>,
+    /// Pending death FX name residual.
+    #[serde(default)]
+    pub pending_death_fx: Option<String>,
+    /// Pending death audio residual.
+    #[serde(default)]
+    pub pending_death_audio: Option<String>,
+    /// C++ CreateObjectDie residual.
+    #[serde(default)]
+    pub create_object_die:
+        Option<crate::game_logic::host_create_object_die::HostCreateObjectDieData>,
+    /// Pending spawn templates from CreateObjectDie (drained by GameLogic).
+    #[serde(default)]
+    pub pending_create_object_die_spawns: Vec<String>,
+    /// C++ TransferPreviousHealth residual snapshot (max - previous health).
+    #[serde(default)]
+    pub create_object_die_transfer_damage: f32,
+    /// C++ LifetimeUpdate residual.
+    #[serde(default)]
+    pub lifetime_update: Option<crate::game_logic::host_lifetime_update::HostLifetimeUpdateData>,
+    /// C++ SlowDeathBehavior residual.
+    #[serde(default)]
+    pub slow_death: Option<crate::game_logic::host_slow_death::HostSlowDeathData>,
+    /// C++ HeightDieUpdate residual.
+    #[serde(default)]
+    pub height_die: Option<crate::game_logic::host_height_die::HostHeightDieData>,
+    /// C++ SlowDeathBehavior residual on FuelAir gas clouds.
+    #[serde(default)]
+    pub fuel_air_gas_slow_death:
+        Option<crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasSlowDeathData>,
+    /// C++ NeutronMissileUpdate residual flight.
+    #[serde(default)]
+    pub neutron_missile_update:
+        Option<crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateData>,
+    /// C++ ScudStormMissile MissileAIUpdate ballistic residual.
+    #[serde(default)]
+    pub scud_storm_missile_flight:
+        Option<crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData>,
+    /// C++ CarpetBomb payload HeightDie residual.
+    #[serde(default)]
+    pub carpet_bomb_payload: bool,
+    /// C++ AmericaJetB52 carpet transport residual.
+    #[serde(default)]
+    pub carpet_bomb_transport:
+        Option<crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightData>,
+    /// C++ ChinaArtilleryBarrageShell HeightDie residual.
+    #[serde(default)]
+    pub artillery_barrage_shell: bool,
+    /// C++ ChinaArtilleryCannon transport residual.
+    #[serde(default)]
+    pub artillery_barrage_transport:
+        Option<crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightData>,
+    /// C++ A10ThunderboltMissile HeightDie residual.
+    #[serde(default)]
+    pub a10_strike_missile: bool,
+    /// C++ AmericaJetA10Thunderbolt transport residual.
+    #[serde(default)]
+    pub a10_strike_transport:
+        Option<crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData>,
+    /// C++ Leaflet AmericaJetB52 transport residual target.
+    #[serde(default)]
+    pub leaflet_transport_target: Option<glam::Vec3>,
+    /// C++ LeafletContainer payload residual (fall then disable).
+    #[serde(default)]
+    pub leaflet_container: bool,
+    /// C++ AmericaJetCargoPlane paradrop transport residual target.
+    #[serde(default)]
+    pub paradrop_transport_target: Option<glam::Vec3>,
+    /// C++ AmericaParachute container residual (fall then infantry land).
+    #[serde(default)]
+    pub paradrop_parachute: bool,
+    /// C++ DaisyCutter AmericaJetB52 transport residual.
+    #[serde(default)]
+    pub daisy_cutter_transport:
+        Option<crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightData>,
+    /// C++ DaisyCutterBomb HeightDie residual.
+    #[serde(default)]
+    pub daisy_cutter_bomb: bool,
+    /// C++ AnthraxBomb GLAJetCargoPlane transport residual.
+    #[serde(default)]
+    pub anthrax_bomb_transport:
+        Option<crate::game_logic::host_anthrax_bomb_flight::HostAnthraxBombFlightData>,
+    /// C++ AnthraxBomb payload HeightDie residual.
+    #[serde(default)]
+    pub anthrax_bomb_payload: bool,
+    /// C++ GLASneakAttackTunnelNetworkStart residual marker.
+    #[serde(default)]
+    pub sneak_tunnel_start: bool,
+    /// C++ ClusterMines ChinaJetCargoPlane transport residual.
+    #[serde(default)]
+    pub cluster_mines_transport:
+        Option<crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightData>,
+    /// C++ ClusterMinesBomb HeightDie residual.
+    #[serde(default)]
+    pub cluster_mines_bomb: bool,
+    /// C++ EMPPulse ChinaJetCargoPlane transport residual.
+    #[serde(default)]
+    pub emp_pulse_transport:
+        Option<crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightData>,
+    /// C++ EMPPulseBomb HeightDie residual.
+    #[serde(default)]
+    pub emp_pulse_bomb: bool,
+    /// C++ EMPPulseEffectSpheroid residual object.
+    #[serde(default)]
+    pub emp_pulse_spheroid: bool,
+    /// Absolute frame when EMPPulseEffectSpheroid Lifetime residual expires.
+    #[serde(default)]
+    pub emp_pulse_spheroid_expires_frame: Option<u32>,
+    /// C++ ParticleUplinkCannonTrailRemnant residual object.
+    #[serde(default)]
+    pub particle_trail_remnant: bool,
+    /// Absolute frame when TrailRemnant DeletionUpdate residual expires.
+    #[serde(default)]
+    pub particle_trail_remnant_expires_frame: Option<u32>,
+    /// C++ NukeRadiationFieldWeapon residual object.
+    #[serde(default)]
+    pub nuke_radiation_field: bool,
+    /// Absolute frame when NukeRadiationFieldWeapon Lifetime residual expires.
+    #[serde(default)]
+    pub nuke_radiation_field_expires_frame: Option<u32>,
+    /// C++ PoisonFieldAnthraxBomb residual object.
+    #[serde(default)]
+    pub anthrax_toxin_field: bool,
+    /// Absolute frame when PoisonFieldAnthraxBomb Lifetime residual expires.
+    #[serde(default)]
+    pub anthrax_toxin_field_expires_frame: Option<u32>,
+    /// C++ SpectreHowitzerShell residual projectile object.
+    #[serde(default)]
+    pub spectre_howitzer_shell: bool,
+    /// Absolute frame when SpectreHowitzerShell HeightDie residual expires.
+    #[serde(default)]
+    pub spectre_howitzer_shell_expires_frame: Option<u32>,
+    /// C++ ParticleUplinkCannon_OrbitalLaser residual object.
+    #[serde(default)]
+    pub particle_orbital_laser: bool,
+    /// Absolute frame when OrbitalLaser residual expires.
+    #[serde(default)]
+    pub particle_orbital_laser_expires_frame: Option<u32>,
+    /// C++ Medium/Intense ConnectorLaser residual object.
+    #[serde(default)]
+    pub particle_connector_laser: bool,
+    /// Absolute frame when connector laser residual expires.
+    #[serde(default)]
+    pub particle_connector_laser_expires_frame: Option<u32>,
+    /// C++ PointDefenseLaserBeam residual object.
+    #[serde(default)]
+    pub point_defense_laser_beam: bool,
+    /// Absolute frame when PointDefenseLaserBeam Lifetime residual expires.
+    #[serde(default)]
+    pub point_defense_laser_beam_expires_frame: Option<u32>,
+    /// C++ MissileDefender SpecialAbilityUpdate SpecialObject = LaserBeam residual.
+    #[serde(default)]
+    pub missile_defender_laser_beam: bool,
+    /// Absolute frame when MD LaserBeam residual expires (prep window).
+    #[serde(default)]
+    pub missile_defender_laser_beam_expires_frame: Option<u32>,
+    /// C++ BoobyTrap SpecialObject residual (GLA Rebel plant).
+    #[serde(default)]
+    pub booby_trap_special: bool,
+    /// Structure this BoobyTrap SpecialObject is stuck to.
+    #[serde(default)]
+    pub booby_trap_attached_to: Option<ObjectId>,
+    /// C++ CountermeasureFlare SpecialObject residual.
+    #[serde(default)]
+    pub countermeasure_flare: bool,
+    /// Absolute frame when CountermeasureFlare Lifetime residual expires.
+    #[serde(default)]
+    pub countermeasure_flare_expires_frame: Option<u32>,
+    /// C++ AngryMob SpawnBehavior member residual.
+    #[serde(default)]
+    pub angry_mob_member: bool,
+    /// Nexus owner for AngryMob member residual.
+    #[serde(default)]
+    pub angry_mob_nexus_id: Option<ObjectId>,
+    /// C++ Weapon.ini LaserName laser beam SpecialObject residual.
+    #[serde(default)]
+    pub weapon_laser_beam: bool,
+    /// Absolute frame when weapon laser beam Lifetime residual expires.
+    #[serde(default)]
+    pub weapon_laser_beam_expires_frame: Option<u32>,
+    /// C++ ComancheRocketPodRocket projectile residual.
+    #[serde(default)]
+    pub comanche_rocket_pod_projectile: bool,
+    /// Absolute frame when rocket pod projectile residual expires/impacts.
+    #[serde(default)]
+    pub comanche_rocket_pod_projectile_expires_frame: Option<u32>,
+    /// C++ StealthJetMissile projectile residual.
+    #[serde(default)]
+    pub stealth_jet_missile_projectile: bool,
+    #[serde(default)]
+    pub stealth_jet_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub stealth_jet_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub stealth_jet_missile_travelled: f32,
+    #[serde(default)]
+    pub stealth_jet_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub stealth_jet_missile_ignition_frame: Option<u32>,
+    /// C++ NapalmBomb SpecialObject residual (Helix drop).
+    #[serde(default)]
+    pub helix_napalm_bomb_projectile: bool,
+    /// C++ SCUDMissile projectile residual (SCUD Launcher gun).
+    #[serde(default)]
+    pub scud_launcher_missile_projectile: bool,
+    /// C++ TomahawkMissile projectile residual.
+    #[serde(default)]
+    pub tomahawk_missile_projectile: bool,
+    /// C++ AuroraBomb SpecialObject residual (dive bomb).
+    #[serde(default)]
+    pub aurora_bomb_projectile: bool,
+    /// C++ RocketBuggyMissile projectile residual.
+    #[serde(default)]
+    pub rocket_buggy_missile_projectile: bool,
+    /// C++ NeutronCannonShell DumbProjectile residual.
+    #[serde(default)]
+    pub neutron_cannon_shell_projectile: bool,
+    /// C++ NukeCannonShell DumbProjectile residual.
+    #[serde(default)]
+    pub nuke_cannon_shell_projectile: bool,
+    /// C++ GenericTankShell DumbProjectile residual (Crusader/Paladin).
+    #[serde(default)]
+    pub usa_tank_shell_projectile: bool,
+    /// USA tank shell launch origin residual.
+    #[serde(default)]
+    pub usa_tank_shell_from: Option<[f32; 3]>,
+    /// USA tank shell aim residual.
+    #[serde(default)]
+    pub usa_tank_shell_aim: Option<[f32; 3]>,
+    /// USA tank shell launch frame residual.
+    #[serde(default)]
+    pub usa_tank_shell_launch_frame: Option<u32>,
+    /// USA tank shell flight frames residual.
+    #[serde(default)]
+    pub usa_tank_shell_flight_frames: u32,
+    /// Weapon speed residual used for this shell flight.
+    #[serde(default)]
+    pub usa_tank_shell_weapon_speed: f32,
+    /// Intended target id residual for USA tank shell.
+    #[serde(default)]
+    pub usa_tank_shell_intended: Option<u32>,
+    /// C++ BattleMasterTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub battlemaster_shell_projectile: bool,
+    /// Battlemaster shell launch origin residual.
+    #[serde(default)]
+    pub battlemaster_shell_from: Option<[f32; 3]>,
+    /// Battlemaster shell aim residual.
+    #[serde(default)]
+    pub battlemaster_shell_aim: Option<[f32; 3]>,
+    /// Battlemaster shell launch frame residual.
+    #[serde(default)]
+    pub battlemaster_shell_launch_frame: Option<u32>,
+    /// Battlemaster shell flight frames residual.
+    #[serde(default)]
+    pub battlemaster_shell_flight_frames: u32,
+    /// Intended target id residual for Battlemaster shell.
+    #[serde(default)]
+    pub battlemaster_shell_intended: Option<u32>,
+    /// C++ OverlordTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub overlord_shell_projectile: bool,
+    #[serde(default)]
+    pub overlord_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub overlord_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub overlord_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub overlord_shell_flight_frames: u32,
+    #[serde(default)]
+    pub overlord_shell_intended: Option<u32>,
+    /// C++ InfernoTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub inferno_shell_projectile: bool,
+    #[serde(default)]
+    pub inferno_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub inferno_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub inferno_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub inferno_shell_flight_frames: u32,
+    #[serde(default)]
+    pub inferno_shell_intended: Option<u32>,
+    /// BlackNapalm upgraded shell residual.
+    #[serde(default)]
+    pub inferno_shell_upgraded: bool,
+    /// C++ MarauderTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub marauder_shell_projectile: bool,
+    #[serde(default)]
+    pub marauder_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub marauder_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub marauder_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub marauder_shell_flight_frames: u32,
+    #[serde(default)]
+    pub marauder_shell_intended: Option<u32>,
+    #[serde(default)]
+    pub marauder_shell_weapon_speed: f32,
+    /// C++ Fire Base GenericTankShell lob residual.
+    #[serde(default)]
+    pub fire_base_shell_projectile: bool,
+    #[serde(default)]
+    pub fire_base_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub fire_base_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub fire_base_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub fire_base_shell_flight_frames: u32,
+    #[serde(default)]
+    pub fire_base_shell_intended: Option<u32>,
+    /// C++ RaptorJetMissile projectile residual.
+    #[serde(default)]
+    pub raptor_missile_projectile: bool,
+    #[serde(default)]
+    pub raptor_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub raptor_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub raptor_missile_travelled: f32,
+    #[serde(default)]
+    pub raptor_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub raptor_missile_ignition_frame: Option<u32>,
+    /// C++ NapalmMissile / MiG projectile residual.
+    #[serde(default)]
+    pub mig_missile_projectile: bool,
+    #[serde(default)]
+    pub mig_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub mig_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub mig_missile_travelled: f32,
+    #[serde(default)]
+    pub mig_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub mig_missile_ignition_frame: Option<u32>,
+    /// C++ RangerFlashBangGrenade DumbProjectile residual.
+    #[serde(default)]
+    pub flashbang_grenade_projectile: bool,
+    #[serde(default)]
+    pub flashbang_grenade_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub flashbang_grenade_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub flashbang_grenade_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub flashbang_grenade_flight_frames: u32,
+    #[serde(default)]
+    pub flashbang_grenade_intended: Option<u32>,
+    /// Host residual: HumveeMissile / PatriotMissile TOW projectile in flight.
+    #[serde(default)]
+    pub humvee_tow_projectile: bool,
+    /// Air TOW (PatriotMissile seek) vs ground TOW (HumveeMissile non-seek).
+    #[serde(default)]
+    pub humvee_tow_air: bool,
+    #[serde(default)]
+    pub humvee_tow_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub humvee_tow_intended: Option<u32>,
+    #[serde(default)]
+    pub humvee_tow_travelled: f32,
+    #[serde(default)]
+    pub humvee_tow_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub humvee_tow_ignition_frame: Option<u32>,
+    /// Host residual: DragonTankFlameProjectile in flight.
+    #[serde(default)]
+    pub dragon_flame_projectile: bool,
+    #[serde(default)]
+    pub dragon_flame_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub dragon_flame_intended: Option<u32>,
+    #[serde(default)]
+    pub dragon_flame_travelled: f32,
+    #[serde(default)]
+    pub dragon_flame_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub dragon_flame_ignition_frame: Option<u32>,
+    /// Shooter id for projectile stream residual (u32 ObjectId).
+    #[serde(default)]
+    pub dragon_flame_shooter: Option<u32>,
+    /// Host residual: ToxinTruckStreamProjectile in flight.
+    #[serde(default)]
+    pub toxin_stream_projectile: bool,
+    #[serde(default)]
+    pub toxin_stream_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub toxin_stream_intended: Option<u32>,
+    #[serde(default)]
+    pub toxin_stream_travelled: f32,
+    #[serde(default)]
+    pub toxin_stream_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub toxin_stream_ignition_frame: Option<u32>,
+    #[serde(default)]
+    pub toxin_stream_shooter: Option<u32>,
+    /// Host residual: TechnicalRPGMissile in flight.
+    #[serde(default)]
+    pub technical_rpg_missile_projectile: bool,
+    #[serde(default)]
+    pub technical_rpg_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub technical_rpg_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub technical_rpg_missile_travelled: f32,
+    #[serde(default)]
+    pub technical_rpg_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub technical_rpg_missile_ignition_frame: Option<u32>,
+    /// Host residual: Technical cannon GenericTankShell in flight.
+    #[serde(default)]
+    pub technical_cannon_shell_projectile: bool,
+    #[serde(default)]
+    pub technical_cannon_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub technical_cannon_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub technical_cannon_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub technical_cannon_shell_flight_frames: u32,
+    #[serde(default)]
+    pub technical_cannon_shell_intended: Option<u32>,
+    /// Host residual: projectile has been ECM-jammed (lost lock / scatter).
+    #[serde(default)]
+    pub ecm_missile_jammed: bool,
+    /// Host residual: CleanupStreamProjectile in flight.
+    #[serde(default)]
+    pub cleanup_stream_projectile: bool,
+    #[serde(default)]
+    pub cleanup_stream_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub cleanup_stream_intended: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_travelled: f32,
+    #[serde(default)]
+    pub cleanup_stream_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_ignition_frame: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_shooter: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_player_id: u32,
+    /// Host residual: Angry Mob rock/molotov projectile in flight.
+    #[serde(default)]
+    pub angry_mob_projectile: bool,
+    /// 0 = rock, 1 = molotov.
+    #[serde(default)]
+    pub angry_mob_projectile_kind: u8,
+    #[serde(default)]
+    pub angry_mob_projectile_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub angry_mob_projectile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub angry_mob_projectile_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub angry_mob_projectile_flight_frames: u32,
+    #[serde(default)]
+    pub angry_mob_projectile_intended: Option<u32>,
+    /// Host residual: FireFieldSmall OCL object from Inferno shell impact.
+    #[serde(default)]
+    pub inferno_fire_field: bool,
+    #[serde(default)]
+    pub inferno_fire_field_upgraded: bool,
+    #[serde(default)]
+    pub inferno_fire_field_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub inferno_fire_field_zone_id: Option<u32>,
+    /// Nuke shell launch origin residual.
+    #[serde(default)]
+    pub nuke_shell_from: Option<[f32; 3]>,
+    /// Nuke shell aim residual.
+    #[serde(default)]
+    pub nuke_shell_aim: Option<[f32; 3]>,
+    /// Nuke shell launch frame residual.
+    #[serde(default)]
+    pub nuke_shell_launch_frame: Option<u32>,
+    /// Nuke shell flight frames residual.
+    #[serde(default)]
+    pub nuke_shell_flight_frames: u32,
+    /// C++ TunnelDefenderMissile / RPG projectile residual.
+    #[serde(default)]
+    pub rpg_trooper_missile_projectile: bool,
+    /// C++ TankHunterMissile projectile residual.
+    #[serde(default)]
+    pub tank_hunter_missile_projectile: bool,
+    /// C++ MissileDefenderMissile projectile residual.
+    #[serde(default)]
+    pub missile_defender_missile_projectile: bool,
+    /// Aim point for MissileDefender missile residual.
+    #[serde(default)]
+    pub missile_defender_missile_aim: Option<[f32; 3]>,
+    /// Intended target id residual.
+    #[serde(default)]
+    pub missile_defender_missile_intended: Option<u32>,
+    /// Distance travelled this MissileDefender missile flight residual.
+    #[serde(default)]
+    pub missile_defender_missile_travelled: f32,
+    /// Absolute frame when MissileDefender missile FuelLifetime residual expires.
+    #[serde(default)]
+    pub missile_defender_missile_fuel_expires_frame: Option<u32>,
+    /// Whether this MD missile was fired from laser-guided secondary residual.
+    #[serde(default)]
+    pub missile_defender_missile_laser_slot: bool,
+    /// C++ ScorpionTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub scorpion_shell_projectile: bool,
+    /// Shell launch origin residual.
+    #[serde(default)]
+    pub scorpion_shell_from: Option<[f32; 3]>,
+    /// Shell aim residual.
+    #[serde(default)]
+    pub scorpion_shell_aim: Option<[f32; 3]>,
+    /// Shell launch frame residual.
+    #[serde(default)]
+    pub scorpion_shell_launch_frame: Option<u32>,
+    /// Shell flight frames residual.
+    #[serde(default)]
+    pub scorpion_shell_flight_frames: u32,
+    /// Weapon slot residual for scorpion shell (0=gun).
+    #[serde(default)]
+    pub scorpion_shell_slot: u8,
+    /// C++ ScorpionMissile projectile residual.
+    #[serde(default)]
+    pub scorpion_missile_projectile: bool,
+    /// Aim for ScorpionMissile residual.
+    #[serde(default)]
+    pub scorpion_missile_aim: Option<[f32; 3]>,
+    /// Intended target id residual.
+    #[serde(default)]
+    pub scorpion_missile_intended: Option<u32>,
+    /// Distance travelled residual.
+    #[serde(default)]
+    pub scorpion_missile_travelled: f32,
+    /// Fuel expires frame residual.
+    #[serde(default)]
+    pub scorpion_missile_fuel_expires_frame: Option<u32>,
+    /// Weapon slot residual for scorpion missile.
+    #[serde(default)]
+    pub scorpion_missile_slot: u8,
+    /// Aim point for TankHunter missile residual.
+    #[serde(default)]
+    pub tank_hunter_missile_aim: Option<[f32; 3]>,
+    /// Intended target id residual.
+    #[serde(default)]
+    pub tank_hunter_missile_intended: Option<u32>,
+    /// Distance travelled this TankHunter missile flight residual.
+    #[serde(default)]
+    pub tank_hunter_missile_travelled: f32,
+    /// Absolute frame when TankHunter missile FuelLifetime residual expires.
+    #[serde(default)]
+    pub tank_hunter_missile_fuel_expires_frame: Option<u32>,
+    /// Aim point for RPG missile residual.
+    #[serde(default)]
+    pub rpg_trooper_missile_aim: Option<[f32; 3]>,
+    /// Intended target id residual.
+    #[serde(default)]
+    pub rpg_trooper_missile_intended: Option<u32>,
+    /// Distance travelled this RPG missile flight residual.
+    #[serde(default)]
+    pub rpg_trooper_missile_travelled: f32,
+    /// Absolute frame when RPG missile FuelLifetime residual expires.
+    #[serde(default)]
+    pub rpg_trooper_missile_fuel_expires_frame: Option<u32>,
+    /// Bezier flight start residual.
+    #[serde(default)]
+    pub neutron_shell_from: Option<[f32; 3]>,
+    /// Bezier flight aim residual.
+    #[serde(default)]
+    pub neutron_shell_aim: Option<[f32; 3]>,
+    /// Absolute frame when neutron shell was launched.
+    #[serde(default)]
+    pub neutron_shell_launch_frame: Option<u32>,
+    /// Total flight frames residual for Bezier t.
+    #[serde(default)]
+    pub neutron_shell_flight_frames: u32,
+    /// Aim point for RocketBuggyMissile residual.
+    #[serde(default)]
+    pub rocket_buggy_missile_aim: Option<[f32; 3]>,
+    /// Intended target id for RocketBuggyMissile residual (primary hit).
+    #[serde(default)]
+    pub rocket_buggy_missile_intended: Option<u32>,
+    /// Distance travelled this RocketBuggyMissile flight residual.
+    #[serde(default)]
+    pub rocket_buggy_missile_travelled: f32,
+    /// Absolute frame when RocketBuggyMissile FuelLifetime residual expires.
+    #[serde(default)]
+    pub rocket_buggy_missile_fuel_expires_frame: Option<u32>,
+    /// Aim point for AuroraBomb guided drop residual.
+    #[serde(default)]
+    pub aurora_bomb_aim: Option<[f32; 3]>,
+    /// Host aurora mission id linked to this projectile residual.
+    #[serde(default)]
+    pub aurora_bomb_mission_id: Option<u32>,
+    /// Aim point for TomahawkMissile lob residual.
+    #[serde(default)]
+    pub tomahawk_missile_aim: Option<[f32; 3]>,
+    /// Distance travelled this Tomahawk flight residual.
+    #[serde(default)]
+    pub tomahawk_missile_travelled: f32,
+    /// Absolute frame when Tomahawk FuelLifetime residual expires.
+    #[serde(default)]
+    pub tomahawk_missile_fuel_expires_frame: Option<u32>,
+    /// SCUDMissile toxin warhead residual (secondary / anthrax slot).
+    #[serde(default)]
+    pub scud_launcher_missile_toxin: bool,
+    /// Aim point for SCUDMissile lob residual.
+    #[serde(default)]
+    pub scud_launcher_missile_aim: Option<[f32; 3]>,
+    /// Distance travelled this flight (DistanceToTravelBeforeTurning residual).
+    #[serde(default)]
+    pub scud_launcher_missile_travelled: f32,
+    /// Absolute frame when FuelLifetime residual expires.
+    #[serde(default)]
+    pub scud_launcher_missile_fuel_expires_frame: Option<u32>,
+    /// Absolute frame when StealthJetMissile KillSelfDelay residual expires.
+    #[serde(default)]
+    pub stealth_jet_missile_expires_frame: Option<u32>,
+    /// C++ JetAIUpdate ClipReload airfield rearm ready frame residual.
+    #[serde(default)]
+    pub airfield_rearm_ready_frame: Option<u32>,
+    /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
+    #[serde(default)]
+    pub frenzy_invisible_marker: bool,
+    /// C++ Ambush CreateObject FadeIn residual (STEALTHED until FadeTime).
+    #[serde(default)]
+    pub ambush_fade_in: bool,
+    /// C++ GPSScrambler_InvisibleMarker residual.
+    #[serde(default)]
+    pub gps_scrambler_marker: bool,
+    /// C++ RepairVehiclesInArea_InvisibleMarker residual.
+    #[serde(default)]
+    pub emergency_repair_marker: bool,
+    /// C++ SpySatellitePing residual object.
+    #[serde(default)]
+    pub spy_satellite_ping: bool,
+    /// Absolute frame when SpySatellitePing DeletionUpdate residual expires.
+    #[serde(default)]
+    pub spy_satellite_ping_expires_frame: Option<u32>,
+    /// C++ RadarVanPing residual object.
+    #[serde(default)]
+    pub radar_van_ping: bool,
+    /// C++ FireWallSegment residual object.
+    #[serde(default)]
+    pub firewall_segment: bool,
+    /// Absolute frame when FireWallSegment DeletionUpdate residual expires.
+    #[serde(default)]
+    pub firewall_segment_expires_frame: Option<u32>,
+    /// Host residual: wall id for InchForward crawl direction lookup.
+    #[serde(default)]
+    pub firewall_segment_wall_id: Option<u32>,
+    /// Host residual: InchForward crawl direction XZ.
+    #[serde(default)]
+    pub firewall_segment_dir: Option<[f32; 2]>,
+    /// Absolute frame when RadarVanPing DeletionUpdate residual expires.
+    #[serde(default)]
+    pub radar_van_ping_expires_frame: Option<u32>,
+    /// C++ TensileFormationUpdate residual (avalanche chunks).
+    #[serde(default)]
+    pub tensile_formation:
+        Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
+    /// C++ FireSpreadUpdate + FlammableUpdate residual.
+    #[serde(default)]
+    pub fire_spread: Option<crate::game_logic::host_fire_spread::HostFireSpreadData>,
+    /// C++ BaseRegenerateUpdate residual (structure auto-heal).
+    #[serde(default)]
+    pub base_regenerate: Option<crate::game_logic::host_base_regenerate::HostBaseRegenerateData>,
+    /// C++ EnemyNearUpdate residual (MODELCONDITION_ENEMYNEAR).
+    #[serde(default)]
+    pub enemy_near: Option<crate::game_logic::host_enemy_near::HostEnemyNearData>,
+    /// C++ AnimationSteeringUpdate residual (Battle Bus turn anims).
+    #[serde(default)]
+    pub animation_steering:
+        Option<crate::game_logic::host_animation_steering::HostAnimationSteeringData>,
+    /// C++ FloatUpdate residual (boat sway / water snap).
+    #[serde(default)]
+    pub float_update: Option<crate::game_logic::host_float_update::HostFloatUpdateData>,
+    /// C++ ProneUpdate residual (infantry cower).
+    #[serde(default)]
+    pub prone_update: Option<crate::game_logic::host_prone_update::HostProneUpdateData>,
+    /// C++ RadiusDecalUpdate residual (SW delivery decal).
+    #[serde(default)]
+    pub radius_decal_update:
+        Option<crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData>,
+    /// C++ CheckpointUpdate residual (ally gate).
+    #[serde(default)]
+    pub checkpoint_update:
+        Option<crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData>,
+    /// C++ SpectreGunshipDeploymentUpdate residual (CC spawns gunship).
+    #[serde(default)]
+    pub spectre_gunship_deployment: Option<
+        crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentData,
+    >,
+    /// C++ SmartBombTargetHomingUpdate residual (MOAB course fudge).
+    #[serde(default)]
+    pub smart_bomb_target_homing:
+        Option<crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingData>,
+    /// C++ HelicopterSlowDeathBehavior residual.
+    #[serde(default)]
+    pub helicopter_slow_death:
+        Option<crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData>,
+    /// C++ JetSlowDeathBehavior residual.
+    #[serde(default)]
+    pub jet_slow_death: Option<crate::game_logic::host_jet_slow_death::HostJetSlowDeathData>,
+    pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
+
+    /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
+    /// Fail-closed: not full IR FX / kindof filters / garrisoned-detect rules.
+    pub is_detector: bool,
+    /// Detection range in world units. `0` => use template `sight_range`
+    /// (matches C++ when DetectionRange is unset/0).
+    pub detection_range: f32,
+    /// StealthDetectorUpdate DetectionRate residual in logic frames.
+    /// `0` = continuous every-frame scan (legacy host residual detectors).
+    /// Strategy Center S&D residual sets **15** (500ms @ 30 FPS).
+    pub detection_rate_frames: u32,
+    /// Absolute frame when the next DetectionRate residual scan may fire.
+    /// `0` means scan is due immediately (setSDEnabled → UPDATE_SLEEP_NONE).
+    pub next_detection_scan_frame: u32,
+    /// Logic frame when OBJECT_STATUS_DETECTED expires (0 = no timer).
+    /// C++ StealthUpdate::m_detectionExpiresFrame residual.
+    pub detection_expires_frame: u32,
+    /// C++ STEALTH_NOT_WHILE_ATTACKING residual: firing breaks stealth.
+    /// Default true for host residual honesty.
+    pub stealth_breaks_on_attack: bool,
+    /// C++ StealthForbiddenConditions MOVING residual (Pathfinder): uncloak while moving.
+    /// Fail-closed: not full StealthUpdate condition matrix.
+    pub stealth_breaks_on_move: bool,
+    /// C++ InnateStealth residual: re-cloak when forbidden conditions clear.
+    pub innate_stealth: bool,
+
+    /// C++ StealthUpdate disguise residual (Bomb Truck DisguisesAsTeam).
+    /// Template the unit is currently disguised as (None when not disguised).
+    #[serde(default)]
+    pub disguise_as_template: Option<String>,
+    /// Pending disguise template while transition residual runs (pre-halfpoint).
+    #[serde(default)]
+    pub disguise_pending_template: Option<String>,
+    /// Pending disguise team while transition residual runs.
+    #[serde(default)]
+    pub disguise_pending_team: Option<Team>,
+    /// Team residual the unit appears as to non-allied viewers while disguised.
+    #[serde(default)]
+    pub disguise_as_team: Option<Team>,
+
+    /// Host residual: bitmask of player indices currently vision-spying this unit
+    /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
+    /// Fail-closed: not full looking_mask partition maintenance.
+    pub vision_spied_mask: u32,
+
+    /// Host residual weapon-bonus flags from PropagandaTowerBehavior.
+    /// C++ WEAPONBONUSCONDITION_ENTHUSIASTIC / SUBLIMINAL (rate-of-fire buff near speaker tower).
+    /// Fail-closed: not full WeaponBonusConditionFlags matrix / ROF multiplier application.
+    pub weapon_bonus_enthusiastic: bool,
+    pub weapon_bonus_subliminal: bool,
+
+    /// Host residual HORDE weapon bonus (C++ WEAPONBONUSCONDITION_HORDE via HordeUpdate).
+    /// Fail-closed: not full RubOffRadius honorary / terrain-decal flag matrix.
+    #[serde(default)]
+    pub weapon_bonus_horde: bool,
+    /// Host residual NATIONALISM weapon bonus (only while in horde + upgrade).
+    /// Fail-closed: not full Fanaticism infantry-general branch.
+    #[serde(default)]
+    pub weapon_bonus_nationalism: bool,
+
+    /// Host residual Frenzy / Rage temporary attack buff
+    /// (C++ WEAPONBONUSCONDITION_FRENZY_ONE/TWO/THREE via doTempWeaponBonus).
+    /// Fail-closed: not full WeaponBonusConditionFlags matrix / TempWeaponBonusHelper Xfer.
+    pub weapon_bonus_frenzy: bool,
+    /// Absolute host logic frame when Frenzy residual expires (0 = none).
+    pub weapon_bonus_frenzy_until_frame: u32,
+    /// Residual Frenzy tier 1..=3 (maps to FRENZY_ONE/TWO/THREE damage mult).
+    pub weapon_bonus_frenzy_level: u8,
+
+    /// Host residual USA Strategy Center battle-plan weapon bonuses
+    /// (C++ WEAPONBONUSCONDITION_BATTLEPLAN_* via Player::applyBattlePlanBonuses).
+    /// Fail-closed: not full KindOf multi-mask / projectile inheritance matrix.
+    #[serde(default)]
+    pub weapon_bonus_battle_plan_bombardment: bool,
+    #[serde(default)]
+    pub weapon_bonus_battle_plan_hold_the_line: bool,
+    #[serde(default)]
+    pub weapon_bonus_battle_plan_search_and_destroy: bool,
+    /// Residual sight-range scale currently applied for SearchAndDestroy (1.0 = none).
+    #[serde(default = "default_one_f32")]
+    pub battle_plan_sight_scalar_applied: f32,
+    /// Host residual continuous-fire ramp (Gattling Tank FiringTracker residual).
+    /// Consecutive shots at current victim for ContinuousFireOne/Two thresholds.
+    /// Fail-closed: not full model-condition CONTINUOUS_FIRE_* animation matrix.
+    #[serde(default)]
+    pub continuous_fire_consecutive: u32,
+    /// 0=base/slow, 1=mean (200% RoF), 2=fast (300% RoF).
+    #[serde(default)]
+    pub continuous_fire_level: u8,
+    /// C++ WeaponTemplate::m_continuousFireOneShotsNeeded residual (u32::MAX = off).
+    pub continuous_fire_one_shots: u32,
+    /// C++ WeaponTemplate::m_continuousFireTwoShotsNeeded residual.
+    pub continuous_fire_two_shots: u32,
+    /// C++ ContinuousFireCoast residual (logic frames; 0 = no auto cool-down timer).
+    pub continuous_fire_coast_frames: u32,
+    /// C++ AutoReloadWhenIdle residual (logic frames; 0 = disabled).
+    pub auto_reload_when_idle_frames: u32,
+    /// C++ FiringTracker::m_frameToForceReload residual (0 = none).
+    pub frame_to_force_reload: u32,
+    /// Absolute host frame until which coast keeps spin-up (0 = none).
+    #[serde(default)]
+    pub continuous_fire_coast_until_frame: u32,
+    /// C++ FireOCLAfterWeaponCooldownUpdate residual (toxin spray secondary).
+    pub fire_ocl_after_cooldown:
+        Option<crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData>,
+    /// Last continuous-fire victim object id bits (0 = none/ground).
+    #[serde(default)]
+    pub continuous_fire_victim: u32,
+
+    /// Absolute host logic frame when FAERIE_FIRE residual expires (0 = none).
+    /// C++ StatusDamageHelper m_frameToHeal residual (Avenger paint).
+    #[serde(default)]
+    pub faerie_fire_until_frame: u32,
+    /// C++ ActiveBody m_currentSubdualDamage residual.
+    #[serde(default)]
+    pub subdual_damage: f32,
+    /// C++ SubdualDamageHealRate residual (frames between heal steps; 0 = no auto-heal).
+    #[serde(default)]
+    pub subdual_heal_rate_frames: u32,
+    /// C++ SubdualDamageHealAmount residual.
+    #[serde(default)]
+    pub subdual_heal_amount: f32,
+    /// Countdown to next subdual heal step.
+    #[serde(default)]
+    pub subdual_heal_countdown: u32,
+
+    /// Host residual: America Humvee TransportContain (Slots=5 + passengers fire).
+    #[serde(default)]
+    pub is_humvee_transport: bool,
+
+    /// Host residual: China Listening Outpost TransportContain (Slots=2 + fire +
+    /// armed-riders dummy + stealth detector 300 + InnateStealth).
+    /// Fail-closed: not multi-door exit / IR FX / RIDERS_ATTACKING uncloak matrix.
+    #[serde(default)]
+    pub is_listening_outpost_transport: bool,
+
+    /// Host residual: America Pathfinder unit class (StealthDetector + InnateStealth).
+    /// Cached at spawn so stealth ticks avoid template-name scans on dense maps.
+    #[serde(default)]
+    pub is_pathfinder_unit: bool,
+
+    /// Host residual: China Troop Crawler TransportContain (Slots=8 + assault deploy).
+    /// Passengers exit to fight (do not fire from inside). Fail-closed vs full
+    /// AssaultTransportAIUpdate wounded-retrieve / multi-exit path matrix.
+    #[serde(default)]
+    pub is_troop_crawler_transport: bool,
+    /// C++ AssaultTransportAIUpdate residual state (designated target + members).
+    pub assault_transport: Option<crate::game_logic::host_troop_crawler::HostAssaultTransportState>,
+    /// C++ DeployStyleAIUpdate pack/unpack residual.
+    pub deploy_style: Option<crate::game_logic::host_deploy_style::HostDeployStyleData>,
+    /// C++ CommandButtonHuntUpdate residual (special-button hunt).
+    pub command_button_hunt:
+        Option<crate::game_logic::host_command_button_hunt::HostCommandButtonHuntData>,
+
+    /// Host residual: Overlord / Helix portable GattlingCannon addon installed
+    /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA
+    /// secondary + passenger ground gattling residual on primary fire.
+    /// Fail-closed: not full portable-structure passenger object spawn.
+    #[serde(default)]
+    pub has_overlord_gattling_addon: bool,
+
+    /// Host residual: Overlord / Helix portable PropagandaTower addon installed
+    /// (`Upgrade_ChinaOverlordPropagandaTower` / Helix equivalent). Emperor tanks
+    /// spawn with this true (innate PropagandaTowerBehavior AffectsSelf).
+    /// Fail-closed: not full portable tower object / PulseFX.
+    #[serde(default)]
+    pub has_overlord_propaganda_addon: bool,
+
+    /// Host residual: HelixContain transport (Slots=5, infantry/vehicle/portable).
+    /// Fail-closed: not multi-exit / napalm bomb special ability matrix.
+    #[serde(default)]
+    pub is_helix_transport: bool,
+
+    /// Host residual: C++ Object::m_commandSetStringOverride (CommandSetUpgrade).
+    /// Demo SuicideBomb residual swaps to `*CommandSetUpgrade` including
+    /// `Demo_Command_TertiarySuicide`. Fail-closed: not full control-bar matrix.
+    #[serde(default)]
+    pub command_set_override: Option<String>,
+
+    /// Host residual: intentional SUICIDED death already applied PlusFire blast.
+    /// Suppresses Demo_DestroyedWeapon double-fire on process_destroy_list.
+    #[serde(default)]
+    pub demo_suicided_detonating: bool,
+
+    /// Host residual: HiveStructureBody / SpawnBehavior slave count (Stinger Site).
+    /// 0 for non-hive units. Mirror of alive residual roster slots.
+    #[serde(default)]
+    pub hive_slave_count: u8,
+    /// Host residual: active residual slave HP (first alive mirror).
+    #[serde(default)]
+    pub hive_slave_hp: f32,
+    /// Absolute host frame when next residual slave respawns (0 = none).
+    #[serde(default)]
+    pub hive_slave_respawn_frame: u32,
+    /// Host residual: physical SpawnBehavior slave roster (getClosestSlave).
+    /// Fail-closed: not full soldier Object / AI / W3D bone attach.
+    #[serde(default)]
+    pub hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave; 3],
+
+    /// Host residual: Strategy Center / TurretAI yaw (deg).
+    /// Natural for Strategy Center = **-90** (NaturalTurretAngle).
+    #[serde(default = "default_strategy_center_turret_angle")]
+    pub turret_angle_deg: f32,
+    /// Host residual: Strategy Center / TurretAI pitch (deg).
+    /// Natural for Strategy Center = **45** (NaturalTurretPitch).
+    #[serde(default = "default_strategy_center_turret_pitch")]
+    pub turret_pitch_deg: f32,
+    /// TurretAI idle-scan residual: absolute frame when next idle scan may start.
+    /// 0 = not scheduled (or just completed without reschedule).
+    #[serde(default)]
+    pub turret_idle_scan_next_frame: u32,
+    /// TurretAI idle-scan residual: true while rotating toward desired angle.
+    #[serde(default)]
+    pub turret_idle_scanning: bool,
+    /// TurretAI idle-scan residual: desired absolute yaw while scanning.
+    #[serde(default)]
+    pub turret_idle_scan_desired_angle_deg: f32,
+    /// TurretAI idle-scan residual: deterministic scan index (interval/offset seed).
+    #[serde(default)]
+    pub turret_idle_scan_index: u32,
+    /// TurretAI HoldTurret residual: true while holding after idle-scan complete.
+    #[serde(default)]
+    pub turret_holding: bool,
+    /// TurretAI HoldTurret residual: absolute frame when hold ends (0 = none).
+    #[serde(default)]
+    pub turret_hold_until_frame: u32,
+    /// TurretAI idle-recenter residual: true while recentering after Hold (not pack).
+    #[serde(default)]
+    pub turret_idle_recentering: bool,
+    /// TurretAI idle mood-target residual: target was set by friend_checkForIdleMoodTarget.
+    /// Cleared when mood target leaves range / dies (C++ m_targetWasSetByIdleMood).
+    #[serde(default)]
+    pub turret_mood_target: bool,
+    /// C++ TurretAI goal object residual.
+    #[serde(default)]
+    pub turret_target_id: Option<ObjectId>,
+    /// C++ TurretAI m_target forceAttacking residual.
+    #[serde(default)]
+    pub turret_force_attacking: bool,
+    /// C++ TurretAI enabled residual (false until unit has a turret slot).
+    #[serde(default)]
+    pub turret_enabled: bool,
+    /// C++ TurretAIData::m_turnRate residual (radians per logic frame).
+    #[serde(default = "default_turret_turn_rate")]
+    pub turret_turn_rate_rad: f32,
+    /// C++ TurretAI state machine residual.
+    #[serde(default)]
+    pub turret_substate: TurretSubState,
+    /// C++ MODELCONDITION_TURRET_ROTATE residual.
+    #[serde(default)]
+    pub turret_rotating: bool,
+    /// C++ TurretAIData NaturalTurretAngle residual (deg).
+    #[serde(default)]
+    pub turret_natural_angle_deg: f32,
+    /// C++ TurretAIData NaturalTurretPitch residual (deg).
+    #[serde(default)]
+    pub turret_natural_pitch_deg: f32,
+    /// C++ TurretAIData::m_recenterTime residual (logic frames).
+    #[serde(default = "default_turret_recenter_frames")]
+    pub turret_recenter_frames: u32,
+
+    /// C++ AIUpdateInterface AttitudeType residual (AI_SLEEP..AI_AGGRESSIVE).
+    /// Host residual for TurretAI mood matrix Sleep/Passive gates.
+    /// Ordinals: -2=Sleep, -1=Passive, 0=Normal, 1=Alert, 2=Aggressive.
+    #[serde(default)]
+    pub ai_attitude: i8,
+    /// C++ ObjectRepulsorHelper residual: frames remaining until REPULSOR clears.
+    /// 0 while inactive or for permanent script-set repulsor (no auto-clear).
+    #[serde(default)]
+    pub repulsor_until_frame: u32,
+    /// C++ BodyModule last damage source residual (Passive WaitForAttack).
+    /// Set when damage is applied with a known attacker id.
+    #[serde(default)]
+    pub last_damage_source: Option<ObjectId>,
+    /// C++ AIUpdateInterface::m_nextMoodCheckTime residual.
+    #[serde(default)]
+    pub next_mood_check_time: u32,
+    /// C++ m_moodAttackCheckRate residual (logic frames between mood checks).
+    #[serde(default = "default_mood_attack_check_rate")]
+    pub mood_attack_check_rate: u32,
+    /// C++ vision range residual for mood acquire (world units).
+    #[serde(default = "default_vision_range")]
+    pub vision_range: f32,
+    /// C++ Object::m_shroudClearingRange residual (CarBomb endow path).
+    #[serde(default = "default_vision_range")]
+    pub shroud_clearing_range: f32,
+    /// C++ Object::m_shroudRange residual (active enemy fogging radius).
+    #[serde(default)]
+    pub shroud_range: f32,
+    /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
+    #[serde(default = "default_true_for_auto_acquire")]
+    pub auto_acquire_when_idle: bool,
+    /// C++ AIUpdateInterface attack priority set name residual.
+    #[serde(default)]
+    pub attack_priority_set: Option<String>,
+
+    /// CamoNetting StealthUpdate FriendlyOpacity residual (0.5 cloaked / 1.0 revealed).
+    /// Fail-closed: not full drawable sub-object camo net mesh visual.
+    #[serde(default = "default_one_f32")]
+    pub camo_friendly_opacity: f32,
+    /// StealthUpdate pulse phase residual (radians) while cloaked.
+    #[serde(default)]
+    pub camo_opacity_pulse_phase: f32,
+    /// CamoNetting StealthLook residual (host of Drawable::setStealthLook).
+    /// C++ `StealthLookType` / `HostCamoStealthLook` ordinals:
+    /// 0=None, 1=VisibleFriendly, 2=DisguisedEnemy, 3=VisibleDetected,
+    /// 4=VisibleFriendlyDetected, 5=Invisible.
+    /// Fail-closed: not full W3D heat-vision second material pass GPU.
+    #[serde(default)]
+    pub camo_stealth_look: u8,
+    /// Heat-vision second material pass opacity residual (0 or 1 host residual).
+    #[serde(default)]
+    pub camo_heat_vision_opacity: f32,
+    /// CamoNetting sub-object net mesh residual shown (Upgrade_GLACamoNetting applied).
+    /// Fail-closed: not full W3D SubObjectsUpgrade / mesh GPU draw.
+    #[serde(default)]
+    pub camo_net_sub_object_shown: bool,
+    /// CamoNetting sub-object residual observer-visible (StealthLook ≠ Invisible).
+    #[serde(default)]
+    pub camo_net_sub_object_observer_visible: bool,
+
+    /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
+    /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
+    #[serde(default)]
+    pub stealth_allowed_frame: u32,
+    /// Pending StealthDelay scheduling after a reveal (resolved in stealth update).
+    #[serde(default)]
+    pub stealth_delay_pending: bool,
+    /// Frames of StealthDelay after reveal (CamoNetting structures = 75).
+    /// 0 = instant re-cloak residual.
+    #[serde(default)]
+    pub stealth_delay_frames: u32,
+    /// C++ StealthForbiddenConditions TAKING_DAMAGE residual.
+    #[serde(default)]
+    pub stealth_breaks_on_damage: bool,
+}
+
+/// C++ `WeaponStatus` (WeaponStatus.h) residual for the active weapon slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum WeaponFireStatus {
+    ReadyToFire = 0,
+    OutOfAmmo = 1,
+    BetweenFiringShots = 2,
+    ReloadingClip = 3,
+    PreAttack = 4,
+}
+
+impl Default for WeaponFireStatus {
+    fn default() -> Self {
+        Self::ReadyToFire
+    }
+}
+
+/// C++ WeaponLockType (WeaponSet.h) residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum WeaponLockType {
+    #[default]
+    NotLocked = 0,
+    /// Locked until clip empty / attack state exits.
+    LockedTemporarily = 1,
+    /// Locked until explicitly unlocked or lock changes.
+    LockedPermanently = 2,
+}
+
+/// C++ `GuardMode` (GameCommon.h) residual for AIGroup::groupGuard*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum GuardMode {
+    /// GUARDMODE_NORMAL — may pursue outside the guard area.
+    #[default]
+    Normal = 0,
+    /// GUARDMODE_GUARD_WITHOUT_PURSUIT — no pursuit out of guard area.
+    WithoutPursuit = 1,
+    /// GUARDMODE_GUARD_FLYING_UNITS_ONLY — ignore non-flyers.
+    FlyingUnitsOnly = 2,
+}
+
+/// AI behavior states
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AIState {
+    Idle,
+    Moving,
+    Attacking,
+    AttackMoving,
+    AttackingGround,
+    Gathering,
+    ReturningResources,
+    Constructing,
+    Repairing,
+    GuardingArea,
+    GuardingObject,
+    /// C++ AI_GUARD_RETALIATE residual — attack aggressor with guard restrictions.
+    GuardRetaliating,
+    Patrolling,
+    Docked,
+    Garrisoned,
+    SpecialAbility,
+    SeekingRepair,
+    SeekingHealing,
+    Entering,
+    Docking,
+    Capturing,
+}
+
+fn default_shock_up_z() -> f32 {
+    1.0
+}
+
+/// C++ LOCOMOTORSURFACE_* residual bits (LocomotorSet.h).
+pub const LOCO_SURFACE_GROUND: u32 = 1 << 0;
+pub const LOCO_SURFACE_WATER: u32 = 1 << 1;
+pub const LOCO_SURFACE_CLIFF: u32 = 1 << 2;
+pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
+pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
+/// C++ PhysicsBehavior default friction residuals (per-frame).
+/// C++ MOTIVE_FRAMES = LOGICFRAMES_PER_SECOND/3 residual.
+pub const MOTIVE_FRAMES_RESIDUAL: u32 = 10;
+/// C++ AIAttackApproachTargetState::MIN_RECOMPUTE_TIME residual.
+pub const MIN_RECOMPUTE_TIME_RESIDUAL: u32 = 10;
+pub const DEFAULT_FORWARD_FRICTION_RESIDUAL: f32 = 0.15;
+pub const DEFAULT_LATERAL_FRICTION_RESIDUAL: f32 = 0.15;
+pub const DEFAULT_Z_FRICTION_RESIDUAL: f32 = 0.8;
+pub const DEFAULT_AERO_FRICTION_RESIDUAL: f32 = 0.0;
+pub const MIN_AERO_FRICTION_RESIDUAL: f32 = 0.0;
+pub const MAX_FRICTION_RESIDUAL: f32 = 0.99;
+/// C++ PATHFIND_CELL_SIZE_F residual (world units).
+pub const PATHFIND_CELL_SIZE_F_RESIDUAL: f32 = 10.0;
+/// C++ PhysicsBehavior isVerySmall3D residual threshold.
+pub const VERY_SMALL_VEL: f32 = 0.01;
+/// Host residual bounce-land AudioEventRTS name (fail-closed default).
+pub const BOUNCE_SOUND_DEFAULT: &str = "BodyFallGeneric";
+/// C++ doBounceSound NORMAL_VEL_Z residual.
+pub const BOUNCE_NORMAL_VEL_Z: f32 = 0.25;
+/// C++ doBounceSound NORMAL_MASS residual.
+pub const BOUNCE_NORMAL_MASS: f32 = 50.0;
+
+fn default_bounce_sound_name() -> String {
+    BOUNCE_SOUND_DEFAULT.to_string()
+}
+
+fn default_crushable_level() -> u8 {
+    255
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_f32() -> f32 {
+    f32::MAX
+}
+
+fn default_physics_mass() -> f32 {
+    1.0
+}
+
+fn default_forward_friction() -> f32 {
+    DEFAULT_FORWARD_FRICTION_RESIDUAL
+}
+fn default_lateral_friction() -> f32 {
+    DEFAULT_LATERAL_FRICTION_RESIDUAL
+}
+fn default_z_friction() -> f32 {
+    DEFAULT_Z_FRICTION_RESIDUAL
+}
+fn default_invalid_vel_mag() -> f32 {
+    -1.0
+}
+
+/// C++ MuLaw residual used by doBounceSound volume adjust.
+pub fn bounce_mulaw(x: f32, max_x: f32, mu: f32) -> f32 {
+    let max_x = max_x.max(1e-6);
+    let ax = (x.abs() / max_x).min(1.0);
+    let s = if x >= 0.0 { 1.0 } else { -1.0 };
+    s * (1.0 + mu * ax).ln() / (1.0 + mu).ln()
+}
+
+/// C++ NormalizeToRange residual.
+pub fn bounce_normalize_to_range(v: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
+    if (b - a).abs() < 1e-9 {
+        return c;
+    }
+    let t = ((v - a) / (b - a)).clamp(0.0, 1.0);
+    c + t * (d - c)
+}
+
+/// C++ doBounceSound volume residual from fall dy and mass.
+pub fn bounce_sound_volume_residual(fall_dy: f32, mass: f32) -> f32 {
+    let mut vel = fall_dy.abs();
+    if vel > BOUNCE_NORMAL_VEL_Z {
+        vel = BOUNCE_NORMAL_VEL_Z;
+    }
+    let mut m = mass.abs();
+    if m > BOUNCE_NORMAL_MASS {
+        m = BOUNCE_NORMAL_MASS;
+    }
+    let mut vol = bounce_normalize_to_range(
+        bounce_mulaw(vel, BOUNCE_NORMAL_VEL_Z, 500.0),
+        -1.0,
+        1.0,
+        0.25,
+        1.0,
+    );
+    vol *= bounce_normalize_to_range(
+        bounce_mulaw(m, BOUNCE_NORMAL_MASS, 500.0),
+        -1.0,
+        1.0,
+        0.25,
+        1.0,
+    );
+    vol.clamp(0.25, 1.0)
+}
+
+mod attack;
+mod bonuses;
+mod construct;
+mod damage;
+mod death;
+mod install;
+mod jets;
+mod orders;
+mod physics;
+mod physics_motion;
+mod pose;
+mod record;
+mod rtb;
+mod status_bits;
+mod stealth;
+mod update;
+mod weapons;
+pub mod visual;
+
+pub use visual::ObjectVisualInfo;
+
+#[cfg(test)]
+mod tests;

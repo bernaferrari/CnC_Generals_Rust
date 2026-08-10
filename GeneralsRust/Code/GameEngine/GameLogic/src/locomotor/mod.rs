@@ -4,6 +4,7 @@
 //! - Core locomotor types and physics (core.rs)
 //! - Path following and pathfinding integration (path_following.rs)
 
+#[path = "core_impl/mod.rs"]
 pub mod core;
 pub mod path_following;
 

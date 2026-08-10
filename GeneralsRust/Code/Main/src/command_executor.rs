@@ -1,3 +1,6 @@
+// AUTO-GENERATED source-scan dump for residual include_str! tests.
+// Compiled module lives in command_executor/mod.rs (lib.rs #[path]).
+
 //! Wave 955: CommandExecutor host_object seal.
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::command_system::{

@@ -4633,13 +4633,13 @@ impl GameLogic {
 // Sibling private methods use pub(super) / pub(in super::super).
 #[path = "world_save.rs"]
 mod world_save;
-#[path = "world_tick.rs"]
+#[path = "world_tick/mod.rs"]
 mod world_tick;
-#[path = "world_objects.rs"]
+#[path = "world_objects/mod.rs"]
 mod world_objects;
 #[path = "world_combat/mod.rs"]
 mod world_combat;
-#[path = "world_scripts.rs"]
+#[path = "world_scripts/mod.rs"]
 mod world_scripts;
 
 

@@ -1,0 +1,1435 @@
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    pub(super) fn commit_pending_map_command(
+        &mut self,
+        location: glam::Vec3,
+        target_object: Option<crate::game_logic::ObjectId>,
+    ) {
+        let Some(kind) = self.pending_map_command.take() else {
+            return;
+        };
+        self.clear_radius_cursor_overlays();
+        let player_id = self.current_player_id;
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
+        let allows_empty = matches!(kind, PendingMapCommand::PlaceBeacon);
+        if selected.is_empty() && !allows_empty {
+            return;
+        }
+        let command_type = match kind {
+            PendingMapCommand::AttackMove => crate::command_system::CommandType::AttackMoveTo {
+                destination: location,
+                max_shots: -1,
+            },
+            PendingMapCommand::Guard(mode) => {
+                if let Some(tid) = target_object {
+                    crate::command_system::CommandType::Guard {
+                        target: crate::command_system::GuardTarget::Object(tid),
+                        mode,
+                    }
+                } else {
+                    crate::command_system::CommandType::Guard {
+                        target: crate::command_system::GuardTarget::Position(location),
+                        mode,
+                    }
+                }
+            }
+            PendingMapCommand::SetRallyPoint => {
+                crate::command_system::CommandType::SetRallyPoint { location }
+            }
+            PendingMapCommand::CombatDrop => crate::command_system::CommandType::CombatDrop {
+                target: crate::command_system::DropTarget::Location(location),
+            },
+            PendingMapCommand::SpecialPower(power_type) => {
+                let target = if let Some(tid) = target_object {
+                    crate::command_system::PowerTarget::Object(tid)
+                } else {
+                    crate::command_system::PowerTarget::Location(location)
+                };
+                crate::command_system::CommandType::DoSpecialPower { power_type, target }
+            }
+            PendingMapCommand::PlaceBeacon => crate::command_system::CommandType::PlaceBeacon {
+                location,
+                text: String::new(),
+            },
+            PendingMapCommand::UnitAbility(ability) => {
+                let Some(tid) = target_object else {
+                    // Keep armed if click missed an object (except abilities that allow ground).
+                    self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
+                    let msg = "Select a valid target";
+                    self.game_hud.push_info_message(msg);
+                    self.ui_manager.game_hud_mut().push_info_message(msg);
+                    return;
+                };
+                match ability {
+                    PendingUnitAbility::Hijack => {
+                        crate::command_system::CommandType::Hijack { target_id: tid }
+                    }
+                    PendingUnitAbility::Sabotage => {
+                        crate::command_system::CommandType::Sabotage { target_id: tid }
+                    }
+                    PendingUnitAbility::CaptureBuilding => {
+                        crate::command_system::CommandType::CaptureBuilding { target_id: tid }
+                    }
+                    PendingUnitAbility::SnipeVehicle => {
+                        crate::command_system::CommandType::SnipeVehicle { target_id: tid }
+                    }
+                    PendingUnitAbility::PlantTimedDemoCharge => {
+                        crate::command_system::CommandType::PlantTimedDemoCharge { target_id: tid }
+                    }
+                    PendingUnitAbility::PlantRemoteDemoCharge => {
+                        crate::command_system::CommandType::PlantRemoteDemoCharge { target_id: tid }
+                    }
+                    PendingUnitAbility::StealCashHack => {
+                        crate::command_system::CommandType::StealCashHack { target_id: tid }
+                    }
+                    PendingUnitAbility::DisableVehicleHack => {
+                        crate::command_system::CommandType::DisableVehicleHack { target_id: tid }
+                    }
+                    PendingUnitAbility::HackerDisableBuilding => {
+                        crate::command_system::CommandType::HackerDisableBuilding { target_id: tid }
+                    }
+                    PendingUnitAbility::DisguiseAsVehicle => {
+                        crate::command_system::CommandType::DisguiseAsVehicle { target_id: tid }
+                    }
+                    PendingUnitAbility::PlantBoobyTrap => {
+                        crate::command_system::CommandType::PlantBoobyTrap { target_id: tid }
+                    }
+                    PendingUnitAbility::ConvertToCarbomb => {
+                        crate::command_system::CommandType::ConvertToCarbomb { target_id: tid }
+                    }
+                    PendingUnitAbility::Repair => {
+                        crate::command_system::CommandType::Repair { target_id: tid }
+                    }
+                }
+            }
+        };
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type,
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        self.host_process_commands_with_command_sound();
+    }
+
+    pub(super) fn cancel_structure_placement_from_ui(&mut self) {
+        self.pending_structure_placement = None;
+        self.game_hud.construction_panel.clear_structure_placement();
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .clear_structure_placement();
+    }
+
+    /// Update structure placement ghost legality under cursor residual.
+
+    pub(super) fn radius_cursor_type_for_special_power(
+        power: &crate::command_system::SpecialPowerType,
+    ) -> &'static str {
+        use crate::command_system::SpecialPowerType as P;
+        match power {
+            P::ParticleCannon => "PARTICLECANNON",
+            P::NuclearMissile | P::BlackMarketNuke | P::DetonateDirtyNuke => "NUCLEARMISSILE",
+            P::ScudStorm => "SCUDSTORM",
+            P::Airstrike => "A10STRIKE",
+            P::CarpetBomb | P::EarlyChinaCarpetBomb | P::AirForceCarpetBomb => "CARPETBOMB",
+            P::DaisyCutter | P::FuelAirBomb => "DAISYCUTTER",
+            P::Paradrop | P::InfantryParadrop | P::TankParadrop => "PARADROP",
+            P::NapalmStrike => "NAPALMSTRIKE",
+            P::Artillery => "ARTILLERYBARRAGE",
+            P::EmpPulse => "EMPPULSE",
+            P::SpectreGunship => "SPECTREGUNSHIP",
+            P::SpySatellite | P::CiaIntelligence => "SPYSATELLITE",
+            P::ClusterMines => "CLUSTERMINES",
+            P::Ambush | P::TerrorCell => "AMBUSH",
+            P::Frenzy | P::EarlyFrenzy => "FRENZY",
+            P::AnthraxBomb => "ANTHRAXBOMB",
+            P::EmergencyRepair | P::EarlyEmergencyRepair => "EMERGENCY_REPAIR",
+            P::SpyDrone => "SPYDRONE",
+            P::RadarScan => "RADAR",
+            _ => "OFFENSIVE_SPECIALPOWER",
+        }
+    }
+
+    pub(super) fn arm_radius_cursor_for_pending(&mut self, cursor_type: &str) {
+        use crate::ui::construction_panel::RadiusCursorOverlay;
+        let r = RadiusCursorOverlay::radius_for_type(cursor_type);
+        let mut ov = RadiusCursorOverlay::new(cursor_type, r);
+        let loc = self.mouse_world_position;
+        ov.centre = (loc.x, loc.z);
+        self.game_hud
+            .construction_panel
+            .set_radius_overlay(Some(ov.clone()));
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .set_radius_overlay(Some(ov));
+    }
+
+    pub(super) fn clear_radius_cursor_overlays(&mut self) {
+        self.game_hud.construction_panel.clear_radius_overlay();
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .clear_radius_overlay();
+    }
+
+    pub(super) fn sync_pending_map_command_radius_cursor(&mut self) {
+        let Some(kind) = self.pending_map_command.clone() else {
+            // Keep structure placement path separate; clear only if no pending map cmd.
+            return;
+        };
+        let cursor = match kind {
+            PendingMapCommand::AttackMove => "ATTACK_CONTINUE_AREA",
+            PendingMapCommand::Guard(_) => "GUARD_AREA",
+            PendingMapCommand::SetRallyPoint => "FRIENDLY_SPECIALPOWER",
+            PendingMapCommand::CombatDrop => "COMBATDROP",
+            PendingMapCommand::PlaceBeacon => "RADAR",
+            PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
+            PendingMapCommand::UnitAbility(_) => "OFFENSIVE_SPECIALPOWER",
+        };
+        // Ensure overlay exists (re-arm if missing).
+        if self.game_hud.construction_panel.radius_overlay().is_none() {
+            self.arm_radius_cursor_for_pending(cursor);
+        }
+        let loc = self.mouse_world_position;
+        self.game_hud
+            .construction_panel
+            .sync_radius_overlay_cursor(loc.x, loc.z);
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .sync_radius_overlay_cursor(loc.x, loc.z);
+    }
+
+    pub(super) fn sync_pending_structure_placement_cursor(&mut self) {
+        let Some(template) = self.pending_structure_placement.clone() else {
+            return;
+        };
+        let loc = self.mouse_world_position;
+        // Wave 220: team via presentation-first local_team_for_ui.
+        let team = self.local_team_for_ui();
+        // Wave 219: builder identity via presentation-first ui_selected_ids.
+        let builder_id = self
+            .ui_selected_ids(self.current_player_id)
+            .first()
+            .copied();
+        // Wave 924: placement cursor uses host legal-build residual cache (no live dual-read).
+        let code = self.host_legal_build_code_at_for_builder(team, loc, &template, builder_id);
+        let legal = code == crate::game_logic::host_production_buildable_command_residual::LBC_OK;
+        // Dual HUD residual
+        self.game_hud
+            .construction_panel
+            .sync_structure_placement_cursor(loc.x, loc.z, legal);
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .sync_structure_placement_cursor(loc.x, loc.z, legal);
+    }
+
+    pub(super) fn begin_structure_placement_from_ui(&mut self, template_name: &str) {
+        if template_name.trim().is_empty() {
+            return;
+        }
+        self.pending_structure_placement = Some(template_name.to_string());
+        // Dual HUD residual: engine HUD + interactive UIManager HUD ghosts.
+        self.game_hud
+            .construction_panel
+            .arm_structure_placement(template_name.to_string());
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .arm_structure_placement(template_name.to_string());
+        log::debug!("BeginStructurePlacement residual: {template_name}");
+    }
+
+    /// Pick nearest alive friendly dozer/worker for structure placement residual.
+    pub(super) fn find_nearest_friendly_dozer(
+        &self,
+        player_id: u32,
+        location: glam::Vec3,
+    ) -> Option<crate::game_logic::ObjectId> {
+        // Wave 219: team prefers presentation freeze, then host player boot residual.
+        let team = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|f| f.local_team())
+            .or_else(|| self.ui_player_team(player_id))
+            .unwrap_or(crate::game_logic::Team::USA);
+        let frame = self.last_presentation_frame.as_ref()?;
+        let cands: Vec<_> = frame
+            .objects
+            .iter()
+            .filter_map(|o| {
+                if o.destroyed || o.team != team {
+                    return None;
+                }
+                let n = o.template_name.to_ascii_lowercase();
+                if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
+                    return None;
+                }
+                if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: o.id,
+                        team: o.team,
+                        position: o.position,
+                        is_alive: true,
+                        is_neutral: false,
+                        under_construction: o.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+            None,
+            (location.x, location.z),
+            cands,
+            f32::MAX,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
+    }
+
+    pub(super) fn is_wall_structure_template(template_name: &str) -> bool {
+        let n = template_name.to_ascii_lowercase();
+        n.contains("wall")
+            || n.contains("fence")
+            || n.contains("bunker") && n.contains("wall")
+            || n.contains("fortresswall")
+            || n.contains("chainlink")
+    }
+
+    /// Presentation-owned object identity for UI/command residual (InGame).
+    /// Live GameLogic is boot residual only when no frame is installed.
+    #[inline]
+    pub(super) fn presentation_ro(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> Option<&crate::presentation_frame::RenderableObject> {
+        self.last_presentation_frame
+            .as_ref()?
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+    }
+
+    /// Wave 580: host cancel-production residual — GameLogic cancel + construction
+    /// panel queue head sync (presentation HUD residual).
+    #[inline]
+    pub(super) fn host_cancel_production_and_sync_hud(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        template_name: String,
+    ) -> bool {
+        // Wave 580/869/920/931: cancel + HUD residual via object-lifecycle authority.
+        // Under presentation freeze, next finalize owns producer scan residual.
+        let ok = matches!(
+            self.host_game_logic_mut().apply_object_lifecycle_op(
+                crate::game_logic::ObjectLifecycleOp::CancelProduction {
+                    id,
+                    template_name: template_name.clone(),
+                },
+            ),
+            crate::game_logic::ObjectLifecycleResult::Bool(true)
+        );
+        if !ok {
+            return false;
+        }
+        let panel = &mut self.game_hud.construction_panel;
+        if let Some(idx) = panel
+            .building_queue
+            .iter()
+            .rposition(|q| q.item_name == template_name)
+        {
+            panel.building_queue.remove(idx);
+        }
+        if self.last_presentation_frame.is_none() {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        true
+    }
+
+    /// Wave 579: host selection residual — keep GameLogic selection and engine
+    /// `selected_objects` in lockstep.
+    #[inline]
+    pub(super) fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
+        // Wave 579/866/913/933: selection residual via session-control authority.
+        // Skip authority select_objects when residual already matches.
+        let already =
+            self.selected_objects == ids && self.host_match_selected_ids.as_ref() == Some(&ids);
+        if !already {
+            self.host_game_logic_mut().apply_session_control_op(
+                crate::game_logic::SessionControlOp::SelectObjects {
+                    player_id,
+                    ids: ids.clone(),
+                },
+            );
+        }
+        self.selected_objects = ids.clone();
+        self.host_match_selected_ids = Some(ids);
+        let _ = player_id;
+    }
+
+    /// Wave 579: host map-load residual with default fallback.
+    #[inline]
+    pub(super) fn host_load_map_or_default(&mut self, map_name: &str) {
+        // Wave 579/871/918/922: load_map_or_fallback residual (single authority boundary).
+        // Skip reload dual-write when host residual already matches this map identity.
+        if self.host_match_map_name.as_deref() == Some(map_name) {
+            return;
+        }
+        // Clear stale match residuals before map identity changes.
+        self.host_clear_match_residuals();
+        let loaded = self
+            .game_logic
+            .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP);
+        if loaded != map_name {
+            warn!("Failed to load map '{}', falling back to default", map_name);
+        }
+        self.host_match_map_name = Some(loaded);
+        self.host_stamp_sim_timing_residuals();
+    }
+
+    pub(super) fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
+        // Wave 577/868/903: host camera target residual only (no request_camera_focus dual-read).
+        // Presentation freeze / Main camera_target own observe path.
+        let clamped = self.clamp_to_world_bounds(world_pos);
+        self.camera_target.x = clamped.x;
+        self.camera_target.z = clamped.z;
+        clamped
+    }
+
+    /// Wave 577: host start-new-game residual with faction team (optional skirmish AI).
+    #[inline]
+    pub(super) fn host_start_new_game_with_faction(
+        &mut self,
+        mode: crate::game_logic::GameMode,
+        faction_team: crate::game_logic::Team,
+        setup_skirmish_ai: bool,
+    ) {
+        // Wave 577/871/921/933: start_new_game via session-control authority.
+        // Clear prior match residuals; stamp mode/team immediately for peels.
+        self.host_clear_match_residuals();
+        let player_id = self.current_player_id;
+        self.host_game_logic_mut().apply_session_control_op(
+            crate::game_logic::SessionControlOp::StartNewGameWithFaction {
+                mode,
+                player_id,
+                faction_team,
+                setup_skirmish_ai,
+            },
+        );
+        self.host_match_game_mode = Some(mode);
+        self.host_match_local_team = Some(faction_team);
+        self.host_match_local_player_id = Some(self.current_player_id);
+        self.host_stamp_sim_timing_residuals();
+    }
+
+    pub(super) fn host_process_commands_with_command_sound(&mut self) {
+        // Wave 576/870/914/915/918/932: process + Command SFX via command-pipeline authority.
+        // Empty queue skips process dual-write and Command SFX (no has_pending dual-read).
+        if !self
+            .game_logic
+            .apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::ProcessIfNeeded)
+        {
+            return;
+        }
+        self.play_sound_effect(SoundType::Command);
+        // Skip mid-command stamp when presentation freeze owns clocks.
+        if self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
+    }
+
+    /// Wave 584: host queue-command residual (no immediate process flush).
+    #[inline]
+    pub(super) fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
+        // Wave 584/872/874/916/932: host queue residual via command-pipeline authority.
+        // Queue-only path does not stamp sim timing — process/tick residuals own clocks.
+        let _ = self
+            .game_logic
+            .apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::Queue { command });
+    }
+
+    /// Wave 576: queue a GameCommand then flush with Command SFX.
+    #[inline]
+    pub(super) fn host_queue_and_process_command(&mut self, command: crate::command_system::GameCommand) {
+        // Wave 576/874: queue + process + Command SFX residual via host helpers.
+        self.host_queue_command(command);
+        self.host_process_commands_with_command_sound();
+    }
+
+    /// Wave 576/578: queue + process without Command SFX (upgrade/honesty/UI residual paths).
+    /// Wave 578: force_attack/construct/science residual peels use this helper.
+    #[inline]
+    pub(super) fn host_queue_and_process_command_silent(
+        &mut self,
+        command: crate::command_system::GameCommand,
+    ) {
+        // Wave 576/578/871/914/918/922/932: silent queue+process via command-pipeline authority.
+        // Skip mid-command stamp when presentation freeze owns clocks.
+        let processed = self.host_game_logic_mut().apply_command_pipeline_op(
+            crate::game_logic::CommandPipelineOp::QueueAndProcess { command },
+        );
+        if processed && self.last_presentation_frame.is_none() {
+            self.host_stamp_sim_timing_residuals();
+        }
+    }
+
+    pub(super) fn host_set_paused(&mut self, paused: bool) {
+        // Wave 575/601/867/892/913/933: pause residual via session-control authority.
+        // Skip authority set_paused when host residual already matches.
+        if self.game_paused != paused {
+            self.game_paused = paused;
+            self.host_game_logic_mut().apply_session_control_op(
+                crate::game_logic::SessionControlOp::SetPaused { paused },
+            );
+        }
+        // Compose freeze residual without dual-read when presentation freeze owns
+        // script time (InGame). Boot path still probes live is_time_frozen once.
+        let script_frozen = if let Some(pres) = self.last_presentation_frame.as_ref() {
+            pres.time_frozen_for_simulation
+        } else {
+            // Wave 902: fail-closed boot residual (no is_time_frozen dual-read).
+            false
+        };
+        self.host_match_time_frozen = Some(script_frozen || paused);
+    }
+
+    pub(super) fn boot_local_player_id_from_host(&self) -> u32 {
+        // Wave 574/892/897: prefer stamped host_match_local_player_id before host residual.
+        if let Some(id) = self.host_match_local_player_id {
+            return id;
+        }
+        // Wave 897: host current_player_id residual (no player_exists/min_player dual-read).
+        self.current_player_id
+    }
+
+    /// Local/human player id for UI command issue. Prefers presentation freeze.
+    /// Wave 574: boot path via `boot_local_player_id_from_host`.
+    /// Wave 607: via `host_local_player_id_for_ui`.
+    pub(super) fn local_player_id_for_ui(&self) -> u32 {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_local_player_id_for_ui()
+    }
+
+    /// Local/human player id for UI command issue. Prefers presentation freeze.
+    /// Wave 574: boot path via `boot_local_player_id_from_host`.
+    pub(super) fn host_local_player_id_for_ui(&self) -> u32 {
+        // Wave 607: host UI residual helper.
+        // Wave 240/555: presentation freeze owns local player residual when installed.
+        if self.last_presentation_frame.is_some() {
+            return self
+                .presentation_or_boot_local_player_id()
+                .unwrap_or(self.current_player_id);
+        }
+        // Wave 574: boot residual via shared host probe helper.
+        self.boot_local_player_id_from_host()
+    }
+
+    /// Local team for UI. Prefers presentation freeze.
+    /// Wave 607: via `host_local_team_for_ui`.
+    pub(super) fn local_team_for_ui(&self) -> crate::game_logic::Team {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_local_team_for_ui()
+    }
+
+    /// Local team for UI. Prefers presentation freeze.
+    pub(super) fn host_local_team_for_ui(&self) -> crate::game_logic::Team {
+        // Wave 607: host UI residual helper.
+        // Wave 240/555: via presentation_or_boot_local_team helper.
+        self.presentation_or_boot_local_team()
+    }
+
+    /// Wave 573: boot residual player roster probe (no presentation freeze).
+    /// Shared by `ui_player_info` and `presentation_or_boot_diplomacy_players`.
+    pub(super) fn boot_player_info_from_host(
+        &self,
+        player_id: u32,
+    ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
+        // Wave 573/897: prefer stamped diplomacy residual / presentation freeze.
+        if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+            return players.iter().find(|p| p.id == player_id).cloned();
+        }
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.players.iter().find(|p| p.id == player_id).cloned();
+        }
+        // Wave 897: fail-closed boot default (no dual-read).
+        let _ = player_id;
+        None
+    }
+
+    pub(super) fn ui_player_info(
+        &self,
+        player_id: u32,
+    ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_player_info(player_id)
+    }
+
+    /// Wave 234/549: player roster probe prefers presentation freeze.
+    /// When freeze is installed, missing player_info fails closed (no host
+    /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
+    /// Wave 573: boot path via `boot_player_info_from_host`.
+    pub(super) fn host_ui_player_info(
+        &self,
+        player_id: u32,
+    ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
+        // Wave 607/846: host UI residual helper.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            // Wave 549: presentation freeze owns player roster residual — even if miss.
+            return frame.player_info(player_id).cloned();
+        }
+        if let Some(players) = self.host_match_diplomacy_players.as_ref() {
+            return players.iter().find(|p| p.id == player_id).cloned();
+        }
+        // Wave 573: boot residual via shared host probe helper.
+        self.boot_player_info_from_host(player_id)
+    }
+
+    #[inline]
+    /// Wave 607: via `host_ui_player_team`.
+    pub(super) fn ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_player_team(player_id)
+    }
+
+    #[inline]
+    pub(super) fn host_ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
+        // Wave 607: host UI residual helper.
+        self.ui_player_info(player_id).map(|p| p.team)
+    }
+
+    #[inline]
+    /// Wave 607: via `host_ui_player_name`.
+    pub(super) fn ui_player_name(&self, player_id: u32) -> Option<String> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_player_name(player_id)
+    }
+
+    #[inline]
+    pub(super) fn host_ui_player_name(&self, player_id: u32) -> Option<String> {
+        // Wave 607: host UI residual helper.
+        self.ui_player_info(player_id).map(|p| p.name)
+    }
+
+    #[inline]
+    /// Wave 575: local team name via presentation_or_boot_local_team (freeze prefer).
+    /// Wave 607: via `host_ui_local_player_team_name`.
+    pub(super) fn ui_local_player_team_name(&self) -> Option<String> {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_local_player_team_name()
+    }
+
+    #[inline]
+    /// Wave 575: local team name via presentation_or_boot_local_team (freeze prefer).
+    pub(super) fn host_ui_local_player_team_name(&self) -> Option<String> {
+        // Wave 607: host UI residual helper.
+        // Wave 575: prefer presentation-or-boot local team residual.
+        Some(
+            self.presentation_or_boot_local_team()
+                .get_name()
+                .to_string(),
+        )
+    }
+
+    /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
+    /// Wave 252: script default camera residuals via presentation freeze.
+    /// Wave 607: via `host_ui_script_default_camera_max_height`.
+    pub(super) fn ui_script_default_camera_max_height(&self) -> f32 {
+        // Wave 607: thin wrapper — UI residual via host helper.
+        self.host_ui_script_default_camera_max_height()
+    }
+
+    /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
+    /// Wave 252: script default camera residuals via presentation freeze.
+    pub(super) fn host_ui_script_default_camera_max_height(&self) -> f32 {
+        // Wave 607/858: host UI residual helper.
+        // Wave 252: presentation freeze first.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.script_default_camera_max_height;
+        }
+        if let Some(v) = self.host_match_script_camera_max_height {
+            return v;
+        }
+        // Wave 898: fail-closed boot default (C++ residual 1.0).
+        1.0
+    }
+
+    /// Wave 609: via `host_ui_script_default_camera_pitch`.
+    pub(super) fn ui_script_default_camera_pitch(&self) -> f32 {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_ui_script_default_camera_pitch()
+    }
+
+    pub(super) fn host_ui_script_default_camera_pitch(&self) -> f32 {
+        // Wave 609/858: host UI/presentation residual helper.
+        // Wave 252: presentation freeze first.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.script_default_camera_pitch;
+        }
+        if let Some(v) = self.host_match_script_camera_pitch {
+            return v;
+        }
+        // Wave 898: fail-closed boot default (C++ residual 1.0).
+        1.0
+    }
+
+    /// Wave 609: via `host_ui_selection_seed_id`.
+    pub(super) fn ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_ui_selection_seed_id()
+    }
+
+    pub(super) fn host_ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+        // Wave 609/850: host UI/presentation residual helper.
+        // Wave 215/544: prefer engine selection residual, then presentation freeze.
+        // When a presentation freeze is installed, empty selection seed fails closed
+        // (no host player_selected_objects dual-read mid-frame).
+        if let Some(id) = self.selected_objects.first().copied() {
+            return Some(id);
+        }
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            if let Some(id) = frame.selected.first().copied() {
+                return Some(id);
+            }
+            if let Some(id) = frame.selection_ids_for_consumers().first().copied() {
+                return Some(id);
+            }
+            // Wave 544: presentation freeze owns selection seed residual — even if empty.
+            return None;
+        }
+        // Wave 850/905: host-stamped selection residual before fail-closed boot.
+        if let Some(ids) = self.host_match_selected_ids.as_ref() {
+            return ids.first().copied();
+        }
+        // Wave 905: fail-closed boot default (no player_selected_objects dual-read).
+        None
+    }
+
+    /// Wave 234: local science purchase points prefer presentation freeze.
+    /// Wave 610: via `host_ui_local_science_purchase_points`.
+    pub(super) fn ui_local_science_purchase_points(&self) -> i32 {
+        // Wave 610: thin wrapper — residual via host helper.
+        self.host_ui_local_science_purchase_points()
+    }
+
+    /// Wave 234: local science purchase points prefer presentation freeze.
+    pub(super) fn host_ui_local_science_purchase_points(&self) -> i32 {
+        // Wave 610/868: host residual helper.
+        // Presentation freeze first, then host-stamped residual, then boot probe.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return frame.local_science_purchase_points();
+        }
+        if let Some(v) = self.host_match_local_science_purchase_points {
+            return v;
+        }
+        // Wave 905: fail-closed boot default (no player_science dual-read).
+        0
+    }
+
+    /// Wave 238: local economy prefers presentation freeze.
+    /// Wave 609: via `host_ui_local_economy`.
+    pub(super) fn ui_local_economy(
+        &self,
+    ) -> (
+        i32, /*money*/
+        i32, /*power*/
+        i32, /*max_power*/
+    ) {
+        // Wave 609: thin wrapper — UI/presentation residual via host helper.
+        self.host_ui_local_economy()
+    }
+
+    /// Wave 238: local economy prefers presentation freeze.
+    pub(super) fn host_ui_local_economy(
+        &self,
+    ) -> (
+        i32, /*money*/
+        i32, /*power*/
+        i32, /*max_power*/
+    ) {
+        // Wave 609: host UI/presentation residual helper.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            let money = frame.local_supplies as i32;
+            let power = frame.local_power;
+            let max_power = frame.local_power_produced.max(0);
+            return (money, power, max_power);
+        }
+        // Wave 905: fail-closed boot default (no player_economy dual-read).
+        (0, 0, 0)
+    }
+
+    #[inline]
+    pub(super) fn ui_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+        // Presentation-only identity for InGame UI residual.
+        self.presentation_ro(id)
+            .is_some_and(|o| !o.destroyed && o.health_current > 0.0)
+    }
+
+    #[inline]
+    pub(super) fn ui_object_is_dozer(&self, id: crate::game_logic::ObjectId) -> bool {
+        // Presentation-only identity for InGame UI residual.
+        let Some(o) = self.presentation_ro(id) else {
+            return false;
+        };
+        if o.destroyed || o.health_current <= 0.0 {
+            return false;
+        }
+        let n = o.template_name.to_ascii_lowercase();
+        n.contains("dozer")
+            || n.contains("worker")
+            || n.contains("crane")
+            || crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Worker,
+            )
+    }
+
+    #[inline]
+    pub(super) fn ui_object_can_produce(&self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 215: presentation-only (no live GameLogic dual-read residual).
+        self.presentation_ro(id).is_some_and(|o| {
+            o.can_produce && !o.destroyed && !o.under_construction && o.health_current > 0.0
+        })
+    }
+
+    #[inline]
+    pub(super) fn ui_object_under_construction(&self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 215: presentation-only (no live GameLogic dual-read residual).
+        self.presentation_ro(id)
+            .is_some_and(|o| o.under_construction && !o.destroyed && o.health_current > 0.0)
+    }
+
+    #[inline]
+    pub(super) fn ui_production_queue_head(&self, id: crate::game_logic::ObjectId) -> Option<String> {
+        // Presentation-only identity for InGame UI residual.
+        self.presentation_ro(id)
+            .and_then(|o| o.production_queue.first().map(|p| p.template_name.clone()))
+    }
+
+    #[inline]
+    pub(super) fn ui_special_power_ready(&self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 215: presentation-only (no live GameLogic dual-read residual).
+        self.presentation_ro(id).is_some_and(|o| {
+            o.special_power_ready && !o.destroyed && o.health_current > 0.0 && !o.under_construction
+        })
+    }
+
+    /// Presentation special-power type residual when ready.
+    #[inline]
+    pub(super) fn ui_special_power_type_if_ready(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> Option<crate::command_system::SpecialPowerType> {
+        // Presentation-only identity for InGame UI residual.
+        let o = self.presentation_ro(id)?;
+        if !o.special_power_ready || o.destroyed || o.health_current <= 0.0 {
+            return None;
+        }
+        crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
+            &o.template_name,
+        )
+    }
+
+    /// Wave 610: via `host_ui_selected_ids`.
+    pub(super) fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
+        // Wave 610: thin wrapper — residual via host helper.
+        self.host_ui_selected_ids(player_id)
+    }
+
+    pub(super) fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
+        // Wave 215: presentation freeze owns InGame selection residual (fail-closed
+        // even if empty). No GameLogic get_player / player_selected_objects dual-read.
+        let _ = player_id;
+        crate::game_logic::host_ui_selected_ids_from_residuals(
+            self.last_presentation_frame.as_ref(),
+            &self.selected_objects,
+            self.host_match_selected_ids.as_deref(),
+        )
+    }
+
+    pub(super) fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            lbc_help_message_residual, LBC_OK,
+        };
+
+        let template = resolve_ui_structure_template_name(template_name);
+        if template.is_empty() || !location.x.is_finite() || !location.z.is_finite() {
+            return;
+        }
+
+        // Prefer presentation local player/team freeze; selected from engine selection residual.
+        let player_id = self.local_player_id_for_ui();
+        let team = self.local_team_for_ui();
+
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let mut selected = self.ui_selected_ids(player_id);
+        let is_dozer = |id: crate::game_logic::ObjectId| self.ui_object_is_dozer(id);
+        let dozers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| is_dozer(id))
+            .collect();
+        if !dozers.is_empty() {
+            selected = dozers;
+        }
+        // C++ residual: if no builder in selection, auto-pick nearest friendly dozer/worker.
+        if selected.is_empty() || !selected.iter().any(|&id| is_dozer(id)) {
+            if let Some(auto) = self.find_nearest_friendly_dozer(player_id, location) {
+                selected = vec![auto];
+                self.host_set_selection(player_id, selected.clone());
+            }
+        }
+        if selected.is_empty() {
+            log::debug!("PlaceStructureAt ignored — no dozer/worker selection");
+            // Keep placement armed so player can select a dozer and retry.
+            self.pending_structure_placement = Some(template_name.to_string());
+            self.game_hud
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
+            self.ui_manager
+                .game_hud_mut()
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
+            let msg = "Select a dozer or worker to build";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+
+        let builder_id = selected.first().copied();
+        // Wave 924: structure place uses host legal-build residual cache.
+        let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
+        if lbc != LBC_OK {
+            // C++ keeps placement mode active on illegal click residual.
+            self.pending_structure_placement = Some(template_name.to_string());
+            self.game_hud
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
+            self.ui_manager
+                .game_hud_mut()
+                .construction_panel
+                .arm_structure_placement(template_name.to_string());
+            let msg = lbc_help_message_residual(lbc);
+            if !msg.is_empty() {
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+            }
+            log::debug!(
+                "PlaceStructureAt blocked LBC={} for {} at {:?}",
+                lbc,
+                template,
+                location
+            );
+            return;
+        }
+
+        // Legal — clear arm and issue DozerConstruct.
+        self.pending_structure_placement = None;
+        self.game_hud.construction_panel.clear_structure_placement();
+        self.ui_manager
+            .game_hud_mut()
+            .construction_panel
+            .clear_structure_placement();
+        self.play_sound_effect(SoundType::Command);
+
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DozerConstruct {
+                template_name: template,
+                location,
+                orientation: self
+                    .game_hud
+                    .construction_panel
+                    .placement_preview()
+                    .facing_radians,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+    }
+
+    pub(super) fn place_wall_line_from_ui(&mut self, template_name: &str, start: glam::Vec3, end: glam::Vec3) {
+        let template = template_name.to_string();
+        let player_id = self.current_player_id;
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
+        // Prefer dozers/workers in selection residual.
+        let builders: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| self.ui_object_is_dozer(id))
+            .collect();
+        let units = if builders.is_empty() {
+            selected
+        } else {
+            builders
+        };
+        if units.is_empty() {
+            let msg = "Select a dozer or worker to build wall";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+
+        // Keep placement armed for chained wall segments residual.
+        self.play_sound_effect(SoundType::Command);
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DozerConstructLine {
+                template_name: template,
+                start,
+                end,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: units,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        let msg = "Wall line ordered";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Cancel production queue head on selected producers residual (Delete key).
+    pub(super) fn cancel_selected_production_queue_head(&mut self) -> bool {
+        let player_id = self.current_player_id;
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
+        if selected.is_empty() {
+            return false;
+        }
+        let mut any = false;
+        for id in selected {
+            let head_name = self.ui_production_queue_head(id);
+            let Some(template_name) = head_name else {
+                continue;
+            };
+            // Wave 580: host cancel + HUD residual via helper.
+            if self.host_cancel_production_and_sync_hud(id, template_name) {
+                any = true;
+            }
+        }
+        if any {
+            self.play_sound_effect(SoundType::Command);
+            let msg = "Canceled production";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+        }
+        any
+    }
+
+    /// Cancel entire production queue on selected producers residual (Ctrl+Delete).
+    pub(super) fn cancel_all_selected_production(&mut self) -> bool {
+        let player_id = self.current_player_id;
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
+        if selected.is_empty() {
+            return false;
+        }
+        let mut any = false;
+        for id in selected {
+            // Drain queue head repeatedly residual.
+            loop {
+                let head_name = self.ui_production_queue_head(id);
+                let Some(template_name) = head_name else {
+                    break;
+                };
+                // Wave 580: host cancel + HUD residual via helper.
+                if !self.host_cancel_production_and_sync_hud(id, template_name) {
+                    break;
+                }
+                any = true;
+            }
+        }
+        if any {
+            self.play_sound_effect(SoundType::Command);
+            let msg = "Canceled all production";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+        }
+        any
+    }
+
+    pub(super) fn cancel_unit_production_from_ui(&mut self, template_name: &str) {
+        if template_name.trim().is_empty() {
+            return;
+        }
+        let player_id = self.current_player_id;
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
+        if selected.is_empty() {
+            return;
+        }
+        let producers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| self.ui_object_can_produce(id))
+            .collect();
+        let targets = if producers.is_empty() {
+            selected
+        } else {
+            producers
+        };
+        let mut any = false;
+        for id in targets {
+            if self
+                .game_logic
+                .cancel_production(id, template_name.to_string())
+            {
+                any = true;
+            }
+        }
+        if any {
+            self.play_sound_effect(SoundType::Command);
+            // Keep dual HUD presentation queue residual in sync.
+            let panel = &mut self.game_hud.construction_panel;
+            if let Some(idx) = panel
+                .building_queue
+                .iter()
+                .rposition(|q| q.item_name == template_name)
+            {
+                panel.building_queue.remove(idx);
+            }
+        }
+    }
+
+    pub(super) fn queue_unit_production_from_ui(&mut self, template_name: &str, quantity: u32) {
+        if template_name.trim().is_empty() || quantity == 0 {
+            return;
+        }
+        let player_id = self.local_player_id_for_ui();
+        let selected = self.ui_selected_ids(player_id);
+        if selected.is_empty() {
+            log::debug!(
+                "QueueUnitProduction ignored — no selection for '{}'",
+                template_name
+            );
+            return;
+        }
+        // Prefer constructed producers in selection residual (presentation-first).
+        let producers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| self.ui_object_can_produce(id))
+            .collect();
+        let units = if producers.is_empty() {
+            selected
+        } else {
+            producers
+        };
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::QueueUnitCreate {
+                template_name: template_name.to_string(),
+                quantity,
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: units,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+    }
+
+    /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
+
+    pub(super) fn arm_pending_unit_ability(&mut self, ability: PendingUnitAbility, msg: &str) {
+        self.pending_map_command = Some(PendingMapCommand::UnitAbility(ability));
+        self.pending_structure_placement = None;
+        self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    pub(super) fn issue_named_command_from_ui(&mut self, command_name: &str) {
+        let Some(command_type) = crate::command_system::command_type_from_button_name(command_name)
+        else {
+            log::debug!("IssueCommand unmapped: {command_name}");
+            return;
+        };
+
+        // C++ ControlBar: AttackMove/Guard/SetRally wait for map click residual.
+        match command_type {
+            crate::command_system::CommandType::AttackMoveTo { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::AttackMove);
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
+                let msg = "Attack-move: click target location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::Guard { mode, .. } => {
+                self.pending_map_command = Some(PendingMapCommand::Guard(mode));
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("GUARD_AREA");
+                let msg = "Guard: click location or unit";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::SetRallyPoint { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("FRIENDLY_SPECIALPOWER");
+                let msg = "Set rally point: click location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::CombatDrop { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::CombatDrop);
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("COMBATDROP");
+                let msg = "Combat drop: click landing zone";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::DoSpecialPower {
+                power_type:
+                    crate::command_system::SpecialPowerType::BattlePlanBombardment
+                    | crate::command_system::SpecialPowerType::BattlePlanHoldTheLine
+                    | crate::command_system::SpecialPowerType::BattlePlanSearchAndDestroy,
+                ..
+            } => {
+                // Strategy Center battle plans are immediate (no map click).
+                // Fall through to queue with resolved selection below.
+            }
+            crate::command_system::CommandType::DoSpecialPower { power_type, .. } => {
+                // Resolve SW type from selected ready structure residual.
+                // Named buttons (SpySatellite, ParticleCannon, …) prefer their type.
+                let player_id = self.current_player_id;
+                // Wave 219: selection via presentation-first ui_selected_ids.
+                let selected = self.ui_selected_ids(player_id);
+                let requested = power_type.clone();
+                let mut resolved = None;
+                // Pass 1: honor named button power when ready on selection.
+                // Prefer presentation special_power_ready residual; live host is fallback.
+                for id in &selected {
+                    if self.ui_special_power_ready(*id) {
+                        if let Some(p) = self.ui_special_power_type_if_ready(*id) {
+                            if std::mem::discriminant(&p) == std::mem::discriminant(&requested) {
+                                resolved = Some(requested.clone());
+                                break;
+                            }
+                        }
+                    }
+                    // Live host special-power ready is boot residual only (no presentation UI residual).
+                    // Wave 584: boot special-power ready residual via helper.
+                    if self.last_presentation_frame.is_none()
+                        && self.host_is_special_power_ready_for(*id, &requested)
+                    {
+                        resolved = Some(requested.clone());
+                        break;
+                    }
+                }
+                // Pass 2: any ready superweapon structure (generic Command_SpecialPower / V).
+                if resolved.is_none() {
+                    for id in &selected {
+                        if let Some(p) = self.ui_special_power_type_if_ready(*id) {
+                            resolved = Some(p);
+                            break;
+                        }
+                        // Presentation special_power residual is authoritative for InGame UI.
+                    }
+                }
+                let Some(power) = resolved else {
+                    let msg = "No ready special power on selection";
+                    self.game_hud.push_info_message(msg);
+                    self.ui_manager.game_hud_mut().push_info_message(msg);
+                    return;
+                };
+                let cursor = {
+                    // Map before move into pending.
+                    let c = match &power {
+                        crate::command_system::SpecialPowerType::ParticleCannon => "PARTICLECANNON",
+                        crate::command_system::SpecialPowerType::NuclearMissile
+                        | crate::command_system::SpecialPowerType::BlackMarketNuke
+                        | crate::command_system::SpecialPowerType::DetonateDirtyNuke => {
+                            "NUCLEARMISSILE"
+                        }
+                        crate::command_system::SpecialPowerType::ScudStorm => "SCUDSTORM",
+                        _ => "OFFENSIVE_SPECIALPOWER",
+                    };
+                    c
+                };
+                self.pending_map_command = Some(PendingMapCommand::SpecialPower(power));
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending(cursor);
+                let msg = "Special power: click target location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            crate::command_system::CommandType::PlaceBeacon { .. } => {
+                self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
+                self.pending_structure_placement = None;
+                self.arm_radius_cursor_for_pending("RADAR");
+                let msg = "Place beacon: click location";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+                return;
+            }
+            // Unit special-ability buttons: arm target click residual.
+            crate::command_system::CommandType::Hijack { .. } => {
+                self.arm_pending_unit_ability(PendingUnitAbility::Hijack, "Hijack: click vehicle");
+                return;
+            }
+            crate::command_system::CommandType::Sabotage { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::Sabotage,
+                    "Sabotage: click building",
+                );
+                return;
+            }
+            crate::command_system::CommandType::CaptureBuilding { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::CaptureBuilding,
+                    "Capture: click structure",
+                );
+                return;
+            }
+            crate::command_system::CommandType::SnipeVehicle { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::SnipeVehicle,
+                    "Snipe: click vehicle",
+                );
+                return;
+            }
+            crate::command_system::CommandType::PlantTimedDemoCharge { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::PlantTimedDemoCharge,
+                    "Plant timed charge: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::PlantRemoteDemoCharge { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::PlantRemoteDemoCharge,
+                    "Plant remote charge: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::StealCashHack { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::StealCashHack,
+                    "Steal cash: click supply",
+                );
+                return;
+            }
+            crate::command_system::CommandType::DisableVehicleHack { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::DisableVehicleHack,
+                    "Hack vehicle: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::HackerDisableBuilding { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::HackerDisableBuilding,
+                    "Hack building: click target",
+                );
+                return;
+            }
+            crate::command_system::CommandType::DisguiseAsVehicle { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::DisguiseAsVehicle,
+                    "Disguise: click vehicle",
+                );
+                return;
+            }
+            crate::command_system::CommandType::PlantBoobyTrap { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::PlantBoobyTrap,
+                    "Booby trap: click structure",
+                );
+                return;
+            }
+            crate::command_system::CommandType::ConvertToCarbomb { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::ConvertToCarbomb,
+                    "Car bomb: click vehicle",
+                );
+                return;
+            }
+            crate::command_system::CommandType::Repair { .. } => {
+                self.arm_pending_unit_ability(
+                    PendingUnitAbility::Repair,
+                    "Repair: click damaged structure",
+                );
+                return;
+            }
+            crate::command_system::CommandType::PurchaseScience { .. } => {
+                self.try_purchase_next_generals_science();
+                return;
+            }
+            crate::command_system::CommandType::ResumeConstruction { .. } => {
+                self.resume_selected_construction();
+                return;
+            }
+            _ => {}
+        }
+
+        let mut command_type = command_type;
+        // Prefer engine current player; fall back to lowest id residual.
+        let player_id = self.local_player_id_for_ui();
+
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
+        if selected.is_empty()
+            && !matches!(
+                command_type,
+                crate::command_system::CommandType::Stop
+                    | crate::command_system::CommandType::Scatter
+                    | crate::command_system::CommandType::ViewCommandCenter
+                    | crate::command_system::CommandType::ViewLastRadarEvent
+                    | crate::command_system::CommandType::PlaceBeacon { .. }
+                    | crate::command_system::CommandType::RemoveBeacon
+            )
+        {
+            return;
+        }
+        match &mut command_type {
+            crate::command_system::CommandType::DozerCancelConstruct { object_id }
+            | crate::command_system::CommandType::Sell { object_id } => {
+                if let Some(id) = selected.first() {
+                    *object_id = *id;
+                }
+            }
+            crate::command_system::CommandType::ResumeConstruction { target_id } => {
+                // Prefer unfinished structure in selection residual.
+                let unfinished = selected
+                    .iter()
+                    .copied()
+                    .find(|&id| self.ui_object_under_construction(id));
+                if let Some(id) = unfinished.or_else(|| selected.first().copied()) {
+                    *target_id = id;
+                }
+            }
+            _ => {}
+        }
+        self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+            command_type,
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+    }
+}

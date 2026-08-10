@@ -1,0 +1,252 @@
+// Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
+
+/// Main terrain visual implementation matching C++ TerrainVisual
+pub struct TerrainVisualImpl {
+    /// Configuration settings
+    config: TerrainConfig,
+
+    /// Performance statistics
+    stats: TerrainStats,
+
+    /// Terrain enabled/disabled
+    enabled: bool,
+
+    /// Current LOD setting
+    lod_setting: TerrainVisualLOD,
+
+    /// Terrain filename
+    filename: String,
+
+    /// Terrain definition sources currently loaded
+    loaded_terrain_sources: Vec<PathBuf>,
+
+    /// Height map data
+    height_map: Option<HeightMap>,
+
+    /// Chunk management system
+    chunk_manager: ChunkManager,
+
+    /// Texture management
+    texture_system: TerrainTextures,
+
+    /// C++ WorldHeightMap source tile data used for terrain color/radar sampling.
+    source_tiles: Vec<Option<TileData>>,
+
+    /// Water rendering system
+    water_system: WaterSystem,
+
+    /// Road rendering system
+    road_system: RoadSystem,
+
+    /// Terrain track rendering system.
+    terrain_tracks: TerrainTracksRenderObjClassSystem,
+
+    /// Sun direction for lighting
+    sun_direction: Vec3,
+    /// Sun color
+    sun_color: [f32; 3],
+    /// Ambient lighting color
+    ambient_color: [f32; 3],
+    /// Fog color
+    fog_color: [f32; 3],
+    /// Fog start distance
+    fog_start: f32,
+    /// Fog end distance
+    fog_end: f32,
+    /// Accumulated time for simple day/night effects
+    time: f32,
+
+    /// WGPU rendering resources
+    device: Option<Arc<wgpu::Device>>,
+    queue: Option<Arc<wgpu::Queue>>,
+
+    /// Terrain uniform buffer
+    uniform_buffer: Option<Buffer>,
+
+    /// Terrain shaders
+    terrain_pipeline: Option<wgpu::RenderPipeline>,
+    terrain_depth_pipeline: Option<wgpu::RenderPipeline>,
+    water_pipeline: Option<wgpu::RenderPipeline>,
+    road_pipeline: Option<wgpu::RenderPipeline>,
+    tree_pipeline: Option<wgpu::RenderPipeline>,
+
+    /// Terrain textures
+    heightmap_texture: Option<Texture>,
+    blend_texture: Option<Texture>,
+    detail_textures: Vec<Texture>,
+    skybox_textures: [Option<Texture>; 5],
+    initial_skybox_texture_names: [Option<String>; 5],
+    current_skybox_texture_names: [Option<String>; 5],
+    skybox_background_view: Option<TextureView>,
+    skybox_background_bind_group: Option<BindGroup>,
+    skybox_background_pipeline: Option<wgpu::RenderPipeline>,
+    skybox_background_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
+    skybox_sampler: Option<Sampler>,
+
+    /// Seismic simulation
+    seismic_simulations: Vec<SeismicSimulationNode>,
+
+    /// Water grid enabled
+    water_grid_enabled: bool,
+
+    /// Static water handle
+    grid_water_handle: WaterHandle,
+
+    /// CPU water-grid state.
+    water_grid: WaterGridCpuState,
+
+    /// CPU terrain bib records passed through W3DTerrainVisual.
+    terrain_bibs: Vec<TerrainBibRecord>,
+
+    /// CPU terrain prop records passed through W3DTerrainVisual.
+    terrain_props: Vec<TerrainPropRecord>,
+
+    /// CPU construction-clearing requests passed through W3DTerrainVisual.
+    construction_removals: Vec<TerrainConstructionRemoval>,
+
+    /// Cached GPU meshes for terrain chunks
+    chunk_meshes: HashMap<ChunkId, GpuChunkMesh>,
+
+    /// Rule set for procedural texture selection
+    texture_rules: Vec<TextureRule>,
+
+    /// Global C++-style water plane rendered for the active map.
+    water_plane: Option<GpuWaterPlane>,
+
+    /// Cached GPU meshes for visible road surfaces.
+    road_meshes: Vec<GpuRoadMesh>,
+    /// Cached GPU meshes for W3D sectional/fixed bridges.
+    bridge_meshes: Vec<GpuRoadMesh>,
+    /// Cached GPU mesh for C++ terrain scorch marks.
+    scorch_meshes: Vec<GpuRoadMesh>,
+    /// C++ `W3DTreeBuffer` owned by the shipped wgpu terrain visual.
+    tree_buffer: W3DTreeBuffer,
+    /// Last CPU→GPU tree VB filled with `doLighting` (every draw/update).
+    last_tree_gpu_vertices: Vec<TreeGpuVertex>,
+    /// CPU mips actually uploaded (after SetLOD skip), BGRA A8R8G8B8.
+    last_tree_atlas_mips: Vec<Vec<u8>>,
+    /// Cached GPU meshes for W3D trees.
+    tree_meshes: Vec<GpuTreeMesh>,
+    tree_atlas_texture: Option<wgpu::Texture>,
+
+    /// Camera bind group layout used by the terrain pipeline
+    terrain_camera_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
+
+    /// Texture bind group layout used by the terrain pipeline
+    terrain_texture_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
+
+    /// Camera bind group providing view/projection matrices
+    terrain_camera_bind_group: Option<wgpu::BindGroup>,
+
+    /// Terrain texture sampler used by the shader
+    terrain_sampler: Option<wgpu::Sampler>,
+
+    /// Current terrain sampler mode mirrored from GlobalData settings.
+    terrain_sampler_mode: Option<TerrainSamplerMode>,
+
+    /// Per-chunk texture bind groups and slot maps
+    chunk_texture_bindings: HashMap<ChunkId, ChunkTextureBinding>,
+
+    /// Shared visible-terrain texture set used to keep adjacent chunks on the same slot map.
+    active_chunk_texture_ids: Option<[TextureId; MAX_TEXTURES_PER_CHUNK]>,
+
+    /// Current oversize amount (in tiles).
+    oversize_amount: i32,
+
+    /// Current terrain draw dimensions in map samples.
+    draw_width: i32,
+    draw_height: i32,
+
+    /// Current terrain draw origin in map samples.
+    draw_origin_x: i32,
+    draw_origin_y: i32,
+}
+
+struct GpuChunkMesh {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
+    revision: u64,
+}
+
+struct ChunkTextureBinding {
+    bind_group: BindGroup,
+    slot_map: HashMap<TextureId, usize>,
+    texture_ids: [TextureId; MAX_TEXTURES_PER_CHUNK],
+    diffuse_views: Vec<Arc<wgpu::TextureView>>,
+}
+
+struct GpuWaterPlane {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
+}
+
+struct GpuRoadMesh {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
+}
+
+struct GpuTreeMesh {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TerrainSamplerMode {
+    texture_lod_bias: u32,
+}
+
+impl TerrainSamplerMode {
+    fn current() -> Self {
+        let texture_lod_bias = get_global_data()
+            .map(|global_data| {
+                let data = global_data.read();
+                data.texture_reduction_factor.clamp(0, 4) as u32
+            })
+            .unwrap_or(0);
+
+        Self { texture_lod_bias }
+    }
+
+    fn to_descriptor(self) -> SamplerDescriptor<'static> {
+        SamplerDescriptor {
+            label: Some("Terrain Texture Sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            lod_min_clamp: self.texture_lod_bias as f32,
+            lod_max_clamp: 32.0,
+            ..Default::default()
+        }
+    }
+}
+
+const DEFAULT_TERRAIN_COLORS: [[u8; 4]; 4] = [
+    [60, 120, 60, 255],   // Grass
+    [120, 120, 120, 255], // Cliff
+    [240, 240, 240, 255], // Snow
+    [194, 162, 96, 255],  // Sand
+];
+
+const NORMAL_DRAW_WIDTH: i32 = 129;
+const NORMAL_DRAW_HEIGHT: i32 = 129;
+const OVERSIZE_TILES_STEP: i32 = 32;
+const MAX_OVERSIZE_TILES: i32 = 4;
+
+// The current live terrain path uses four diffuse terrain layers with four
+// blend weights active per vertex.
+const MAX_TEXTURES_PER_CHUNK: usize = 4;
+
+fn matrix4_to_array(matrix: &Mat4) -> [[f32; 4]; 4] {
+    matrix.to_cols_array_2d()
+}
+
+fn positive_usize(value: i32) -> Option<usize> {
+    (value > 0).then_some(value as usize)
+}

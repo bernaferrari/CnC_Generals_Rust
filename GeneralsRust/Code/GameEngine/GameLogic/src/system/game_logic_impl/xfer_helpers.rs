@@ -1,0 +1,804 @@
+fn xfer_sorted_string_int_map(
+    xfer: &mut dyn Xfer,
+    map: &mut HashMap<String, Int>,
+) -> Result<(), XferStatus> {
+    let mut count = if xfer.get_xfer_mode() == XferMode::Load {
+        0u32
+    } else {
+        map.len() as u32
+    };
+    xfer.xfer_unsigned_int(&mut count)?;
+
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            let mut entries: Vec<_> = map
+                .iter()
+                .map(|(key, value)| (key.clone(), *value))
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            for (mut key, mut value) in entries {
+                xfer.xfer_string(&mut key)?;
+                xfer.xfer_int(&mut value)?;
+            }
+        }
+        XferMode::Load => {
+            map.clear();
+            for _ in 0..count {
+                let mut key = String::new();
+                let mut value: Int = 0;
+                xfer.xfer_string(&mut key)?;
+                xfer.xfer_int(&mut value)?;
+                map.insert(key, value);
+            }
+        }
+        XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+    }
+
+    Ok(())
+}
+
+fn xfer_control_bar_overrides(
+    xfer: &mut dyn Xfer,
+    map: &mut HashMap<String, Option<String>>,
+) -> Result<(), XferStatus> {
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            let mut entries: Vec<_> = map
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone().unwrap_or_default()))
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+            for (mut key, mut value) in entries {
+                xfer.xfer_string(&mut key)?;
+                xfer.xfer_string(&mut value)?;
+            }
+
+            let mut empty = String::new();
+            xfer.xfer_string(&mut empty)?;
+        }
+        XferMode::Load => {
+            map.clear();
+            loop {
+                let mut key = String::new();
+                xfer.xfer_string(&mut key)?;
+                if key.is_empty() {
+                    break;
+                }
+
+                let mut value = String::new();
+                xfer.xfer_string(&mut value)?;
+                let value = if value.is_empty() { None } else { Some(value) };
+                map.insert(key, value);
+            }
+        }
+        XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+    }
+
+    Ok(())
+}
+
+fn control_bar_override_key(command_set_name: &str, slot: i32) -> Option<String> {
+    if !(0..crate::command_button::MAX_COMMANDS_PER_SET as i32).contains(&slot) {
+        return None;
+    }
+
+    let slot_prefix = char::from_u32('0' as u32 + slot as u32)?;
+    Some(format!("{}{}", slot_prefix, command_set_name))
+}
+
+/// Bridges GameLogic's `game_engine::Xfer` (System::Xfer) onto Common's
+/// `game_engine::system::Xfer` so Object/PolygonTrigger Snapshot impls can run.
+struct CommonXferBridge<'a> {
+    inner: &'a mut dyn Xfer,
+}
+
+fn map_common_xfer_mode(mode: XferMode) -> game_engine::common::system::xfer::XferMode {
+    use game_engine::common::system::xfer::XferMode as CommonMode;
+    match mode {
+        XferMode::Invalid => CommonMode::Invalid,
+        XferMode::Save => CommonMode::Save,
+        XferMode::Load => CommonMode::Load,
+        XferMode::Crc => CommonMode::Crc,
+    }
+}
+
+fn common_xfer_status(err: XferStatus) -> game_engine::common::system::xfer::XferStatus {
+    use game_engine::common::system::xfer::XferStatus as C;
+    match err {
+        XferStatus::Invalid => C::Invalid,
+        XferStatus::Ok => C::Ok,
+        XferStatus::Eof => C::Eof,
+        XferStatus::FileNotFound => C::FileNotFound,
+        XferStatus::FileNotOpen => C::FileNotOpen,
+        XferStatus::FileAlreadyOpen => C::FileAlreadyOpen,
+        XferStatus::ReadError => C::ReadError,
+        XferStatus::WriteError => C::WriteError,
+        XferStatus::ModeUnknown => C::ModeUnknown,
+        XferStatus::SkipError => C::SkipError,
+        XferStatus::BeginEndMismatch => C::BeginEndMismatch,
+        XferStatus::OutOfMemory => C::OutOfMemory,
+        XferStatus::StringError => C::StringError,
+        XferStatus::InvalidVersion => C::InvalidVersion,
+        XferStatus::InvalidParameters => C::InvalidParameters,
+        XferStatus::ListNotEmpty => C::ListNotEmpty,
+        XferStatus::UnknownString => C::UnknownString,
+        XferStatus::InvalidData => C::InvalidData,
+        _ => C::ErrorUnknown,
+    }
+}
+
+impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
+    fn get_xfer_mode(&self) -> game_engine::common::system::xfer::XferMode {
+        map_common_xfer_mode(self.inner.get_xfer_mode())
+    }
+
+    fn get_identifier(&self) -> &str {
+        self.inner.get_identifier()
+    }
+
+    fn set_options(&mut self, options: u32) {
+        self.inner.set_options(options);
+    }
+
+    fn clear_options(&mut self, options: u32) {
+        self.inner.clear_options(options);
+    }
+
+    fn get_options(&self) -> u32 {
+        self.inner.get_options()
+    }
+
+    fn open(
+        &mut self,
+        identifier: &str,
+    ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner
+            .open(identifier.to_string())
+            .map_err(common_xfer_status)
+    }
+
+    fn close(&mut self) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner.close().map_err(common_xfer_status)
+    }
+
+    fn begin_block(
+        &mut self,
+    ) -> Result<game_engine::common::system::xfer::XferBlockSize, game_engine::common::system::xfer::XferStatus>
+    {
+        self.inner.begin_block().map_err(common_xfer_status)
+    }
+
+    fn end_block(&mut self) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner.end_block().map_err(common_xfer_status)
+    }
+
+    fn skip(&mut self, data_size: i32) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        self.inner.skip(data_size).map_err(common_xfer_status)
+    }
+
+    fn xfer_snapshot(
+        &mut self,
+        _snapshot: &mut game_engine::common::system::snapshot::Snapshot,
+    ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+        Ok(())
+    }
+
+    fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
+        self.inner
+            .xfer_ascii_string(ascii_string_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+    }
+
+    fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> std::io::Result<()> {
+        self.inner
+            .xfer_unicode_string(unicode_string_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+    }
+
+    unsafe fn xfer_implementation(
+        &mut self,
+        data: *mut u8,
+        data_size: usize,
+    ) -> std::io::Result<()> {
+        self.inner
+            .xfer_implementation(data, data_size)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+    }
+}
+
+fn xfer_object_snapshot(obj: &mut Object, xfer: &mut dyn Xfer) {
+    let mut bridge = CommonXferBridge { inner: xfer };
+    crate::common::types::Snapshot::xfer(obj, &mut bridge);
+}
+
+fn xfer_polygon_snapshot(
+    poly: &mut crate::polygon_trigger::PolygonTrigger,
+    xfer: &mut dyn Xfer,
+) {
+    let mut bridge = CommonXferBridge { inner: xfer };
+    crate::common::types::Snapshot::xfer(poly, &mut bridge);
+}
+
+fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ GameLogic::xfer currentVersion = 10 (GameLogic.cpp).
+    let current_version: XferVersion = 10;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    xfer.xfer_unsigned_int(&mut logic.frame)?;
+
+    // C++ explicitly does NOT xfer m_nextObjectID here (game-state block owns it).
+    logic.xfer_object_toc(xfer)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        logic.prepare_logic_for_object_load();
+    }
+
+    let mut object_count = logic.all_objects.len() as UnsignedInt;
+    xfer.xfer_unsigned_int(&mut object_count)?;
+    if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        let object_ids: Vec<ObjectID> = logic.all_objects.clone();
+        for obj_id in object_ids {
+            let Some(arc) = logic.objects.get(&obj_id).cloned() else {
+                continue;
+            };
+            let tname = {
+                let Ok(obj) = arc.read() else {
+                    continue;
+                };
+                obj.get_template().get_name().to_string()
+            };
+            let Some(toc) = logic.find_toc_entry_by_name(&tname) else {
+                return Err(XferStatus::InvalidData);
+            };
+            let mut toc_id = toc.id;
+            xfer.xfer_unsigned_short(&mut toc_id)?;
+            let _ = xfer.begin_block();
+            if let Ok(mut obj) = arc.write() {
+                xfer_object_snapshot(&mut obj, xfer);
+            }
+            xfer.end_block()?;
+        }
+    } else {
+        for _ in 0..object_count {
+            let mut toc_id: UnsignedShort = 0;
+            xfer.xfer_unsigned_short(&mut toc_id)?;
+            let block_size = xfer.begin_block()?;
+            let toc_name = logic
+                .find_toc_entry_by_id(toc_id)
+                .map(|e| e.name.clone());
+            let Some(toc_name) = toc_name else {
+                let _ = xfer.skip(block_size);
+                let _ = xfer.end_block();
+                continue;
+            };
+
+            let existing = logic
+                .objects
+                .iter()
+                .find_map(|(id, arc)| {
+                    arc.read().ok().and_then(|obj| {
+                        if obj.get_template().get_name().as_str() == toc_name {
+                            Some(*id)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .and_then(|id| logic.objects.get(&id).cloned());
+
+            if let Some(arc) = existing {
+                if let Ok(mut obj) = arc.write() {
+                    xfer_object_snapshot(&mut obj, xfer);
+                }
+                let _ = xfer.end_block();
+                continue;
+            }
+
+            #[cfg(any(test, feature = "internal"))]
+            {
+                let created = Object::new_test(1, 100.0);
+                let arc = std::sync::Arc::new(std::sync::RwLock::new(created));
+                if let Ok(mut obj) = arc.write() {
+                    xfer_object_snapshot(&mut obj, xfer);
+                }
+                let _ = logic.register_object(arc);
+            }
+            #[cfg(not(any(test, feature = "internal")))]
+            {
+                let _ = (&toc_name, xfer.skip(block_size));
+            }
+            let _ = xfer.end_block();
+        }
+    }
+
+    xfer_campaign_manager_snapshot(xfer)?;
+    xfer_cave_system_snapshot(xfer)?;
+
+    if version >= 2 {
+        xfer.xfer_bool(&mut logic.is_scoring_enabled)?;
+    }
+
+    if version >= 3 {
+        xfer_polygon_triggers(xfer)?;
+    }
+
+    if version >= 5 {
+        xfer.xfer_int(&mut logic.rank_level_limit)?;
+    }
+
+    if version >= 6 {
+        xfer_the_sell_list(xfer)?;
+    }
+
+    if version >= 7 {
+        xfer_buildable_overrides_sentinel(xfer, &mut logic.buildable_status_overrides)?;
+    }
+
+    if version >= 8 {
+        xfer.xfer_bool(&mut logic.show_behind_building_markers)?;
+        xfer.xfer_bool(&mut logic.draw_icon_ui)?;
+        xfer.xfer_bool(&mut logic.show_dynamic_lod)?;
+        let mut hulk_max_lifetime = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+        xfer.xfer_int(&mut hulk_max_lifetime)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(hulk_max_lifetime);
+        }
+        xfer_control_bar_overrides(xfer, &mut logic.control_bar_overrides)?;
+    }
+
+    if version >= 9 {
+        let mut rank_points = crate::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
+        xfer.xfer_int(&mut rank_points)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            crate::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(rank_points);
+        }
+    }
+
+    if version >= 10 {
+        xfer.xfer_unsigned_short(&mut logic.superweapon_restriction)?;
+    } else if xfer.get_xfer_mode() == XferMode::Load {
+        logic.superweapon_restriction = 0;
+    }
+
+    Ok(())
+}
+
+fn xfer_campaign_manager_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ xferSnapshot(TheCampaignManager) — CampaignManager::xfer v5.
+    // GameLogic cannot depend on GameClient; layout matches C++ field order.
+    let current_version: XferVersion = 5;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+    let mut campaign = String::new();
+    let mut mission = String::new();
+    xfer.xfer_ascii_string(&mut campaign)?;
+    xfer.xfer_ascii_string(&mut mission)?;
+    if version >= 2 {
+        let mut rank_points = 0i32;
+        xfer.xfer_int(&mut rank_points)?;
+    }
+    if version >= 3 {
+        let mut difficulty = 0i32;
+        xfer.xfer_int(&mut difficulty)?;
+    }
+    if version >= 4 {
+        let mut is_challenge = false;
+        xfer.xfer_bool(&mut is_challenge)?;
+        if is_challenge {
+            let mut map = String::new();
+            let mut template_num = 0i32;
+            xfer.xfer_ascii_string(&mut map)?;
+            xfer.xfer_int(&mut template_num)?;
+        }
+    }
+    if version >= 5 {
+        let mut generals_template = 0i32;
+        xfer.xfer_int(&mut generals_template)?;
+    }
+    let _ = (campaign, mission);
+    Ok(())
+}
+
+fn xfer_cave_system_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ xferSnapshot(TheCaveSystem) — CaveSystem::xfer v1.
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+    let cave = crate::system::cave_system::TheCaveSystem();
+    let mut guard = cave.lock().map_err(|_| XferStatus::InvalidData)?;
+    guard.xfer_game_logic(xfer)
+}
+
+fn xfer_polygon_triggers(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let terrain = get_terrain_logic();
+    let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
+    let list = terrain_guard.get_trigger_areas_mut();
+    let sanity = list.len() as UnsignedInt;
+    let mut trigger_count = sanity;
+    xfer.xfer_unsigned_int(&mut trigger_count)?;
+    if xfer.get_xfer_mode() == XferMode::Load && sanity != trigger_count {
+        return Err(XferStatus::InvalidData);
+    }
+    let ids: Vec<i32> = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        list.get_triggers().iter().map(|t| t.get_id()).collect()
+    } else {
+        Vec::new()
+    };
+    if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        for id in ids {
+            let mut trigger_id = id;
+            xfer.xfer_int(&mut trigger_id)?;
+            if let Some(poly) = list.get_by_id_mut(id) {
+                xfer_polygon_snapshot(poly, xfer);
+            }
+        }
+    } else {
+        for _ in 0..trigger_count {
+            let mut trigger_id = 0i32;
+            xfer.xfer_int(&mut trigger_id)?;
+            if let Some(poly) = list.get_by_id_mut(trigger_id) {
+                xfer_polygon_snapshot(poly, xfer);
+            } else {
+                return Err(XferStatus::InvalidData);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn xfer_the_sell_list(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ TheBuildAssistant->xferTheSellList
+    if game_engine::common::system::build_assistant::get_build_assistant().is_none() {
+        game_engine::common::system::build_assistant::init_build_assistant();
+    }
+    let mut assistant = game_engine::common::system::build_assistant::get_build_assistant()
+        .ok_or(XferStatus::InvalidData)?;
+    let mut count = assistant.get_sell_list().len() as i32;
+    xfer.xfer_int(&mut count)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        assistant.reset();
+        for _ in 0..count {
+            let mut id: u32 = 0;
+            let mut sell_frame: u32 = 0;
+            xfer.xfer_object_id(&mut id)?;
+            xfer.xfer_unsigned_int(&mut sell_frame)?;
+            assistant.sell_object(
+                &game_engine::common::system::build_assistant::Object {
+                    id,
+                    position: Default::default(),
+                    orientation: 0.0,
+                },
+                sell_frame,
+            );
+        }
+    } else {
+        let items: Vec<_> = assistant.get_sell_list().iter().cloned().collect();
+        for mut info in items {
+            xfer.xfer_object_id(&mut info.id)?;
+            xfer.xfer_unsigned_int(&mut info.sell_frame)?;
+        }
+    }
+    Ok(())
+}
+
+fn xfer_buildable_overrides_sentinel(
+    xfer: &mut dyn Xfer,
+    map: &mut HashMap<String, Int>,
+) -> Result<(), XferStatus> {
+    // C++ v>=7: name + BuildableStatus until empty name (no count prefix).
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            let mut entries: Vec<_> = map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            for (mut name, mut status) in entries {
+                xfer.xfer_ascii_string(&mut name)?;
+                xfer.xfer_int(&mut status)?;
+            }
+            let mut empty = String::new();
+            xfer.xfer_ascii_string(&mut empty)?;
+        }
+        XferMode::Load => {
+            map.clear();
+            loop {
+                let mut name = String::new();
+                xfer.xfer_ascii_string(&mut name)?;
+                if name.is_empty() {
+                    break;
+                }
+                let mut status: Int = 0;
+                xfer.xfer_int(&mut status)?;
+                map.insert(name, status);
+            }
+        }
+        XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+    }
+    Ok(())
+}
+
+fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    xfer.xfer_real(&mut logic.partition_manager.cell_size)?;
+
+    let mut entries: Vec<(ObjectID, Coord3D)> =
+        if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+            let mut snapshot = logic
+                .partition_manager
+                .object_positions
+                .iter()
+                .map(|(&object_id, position)| (object_id, *position))
+                .collect::<Vec<_>>();
+            snapshot.sort_by_key(|(object_id, _)| *object_id);
+            snapshot
+        } else {
+            Vec::new()
+        };
+
+    let mut count = entries.len() as u32;
+    xfer.xfer_unsigned_int(&mut count)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        logic.partition_manager.grid.clear();
+        logic.partition_manager.object_cells.clear();
+        logic.partition_manager.object_positions.clear();
+
+        entries.reserve(count as usize);
+        for _ in 0..count {
+            let mut object_id: ObjectID = INVALID_ID;
+            let mut position = Coord3D::ZERO;
+            xfer.xfer_object_id(&mut object_id)?;
+            xfer.xfer_real(&mut position.x)?;
+            xfer.xfer_real(&mut position.y)?;
+            xfer.xfer_real(&mut position.z)?;
+            if object_id != INVALID_ID {
+                entries.push((object_id, position));
+            }
+        }
+
+        for (object_id, position) in entries {
+            logic
+                .partition_manager
+                .add_object(object_id, (position.x, position.y, position.z));
+        }
+    } else {
+        for (object_id, position) in &mut entries {
+            xfer.xfer_object_id(object_id)?;
+            xfer.xfer_real(&mut position.x)?;
+            xfer.xfer_real(&mut position.y)?;
+            xfer.xfer_real(&mut position.z)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let player_list = player_list();
+    let list_guard = player_list.write().map_err(|_| XferStatus::InvalidData)?;
+    let mut player_count = list_guard.get_player_count() as i32;
+    xfer.xfer_int(&mut player_count)?;
+
+    if player_count != list_guard.get_player_count() as i32 {
+        return Err(XferStatus::InvalidData);
+    }
+
+    for idx in 0..player_count.max(0) {
+        let player_arc = list_guard
+            .get_player(idx)
+            .cloned()
+            .ok_or(XferStatus::InvalidData)?;
+        let mut player = player_arc.write().map_err(|_| XferStatus::InvalidData)?;
+
+        let mut money = player.get_money().get_money();
+        xfer.xfer_int(&mut money)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            player.get_money_mut().set_money(money);
+        }
+
+        let mut power_production = player.get_energy().production();
+        xfer.xfer_int(&mut power_production)?;
+        let mut power_consumption = player.get_energy().consumption();
+        xfer.xfer_int(&mut power_consumption)?;
+        let mut power_sabotaged_till_frame = player.get_energy().get_power_sabotaged_till_frame();
+        xfer.xfer_unsigned_int(&mut power_sabotaged_till_frame)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            let energy = player.get_energy_mut();
+            energy.reset();
+            if power_production > 0 {
+                energy.add_power_production(power_production);
+            }
+            if power_consumption > 0 {
+                energy.add_power_consumption(power_consumption);
+            }
+            energy.set_power_sabotaged_till_frame(power_sabotaged_till_frame);
+        }
+
+        let mut defeated = player.is_defeated();
+        xfer.xfer_bool(&mut defeated)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            player.set_defeated(defeated);
+        }
+
+        let mut observer = player.is_player_observer();
+        xfer.xfer_bool(&mut observer)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            player.set_observer(observer);
+        }
+
+        let mut rank_level = player.get_rank_level();
+        xfer.xfer_int(&mut rank_level)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            let _ = player.set_rank_level(rank_level);
+        }
+
+        let mut science_points = player.get_science_purchase_points();
+        xfer.xfer_int(&mut science_points)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            let delta = science_points - player.get_science_purchase_points();
+            if delta != 0 {
+                player.add_science_purchase_points(delta);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_team_factory_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let mut factory = get_team_factory()
+        .lock()
+        .map_err(|_| XferStatus::InvalidData)?;
+
+    let mut next_team_id = factory.get_next_team_id();
+    xfer.xfer_unsigned_int(&mut next_team_id)?;
+    let mut next_team_prototype_id = factory.get_next_team_prototype_id();
+    xfer.xfer_unsigned_int(&mut next_team_prototype_id)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        factory.set_next_team_ids(next_team_id, next_team_prototype_id);
+    }
+
+    let mut prototype_ids = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        let mut ids = factory
+            .list_team_prototypes()
+            .into_iter()
+            .map(|prototype| prototype.get_id())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids
+    } else {
+        Vec::new()
+    };
+    let mut prototype_count = prototype_ids.len() as u16;
+    xfer.xfer_unsigned_short(&mut prototype_count)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        if prototype_count as usize != factory.list_team_prototypes().len() {
+            return Err(XferStatus::InvalidData);
+        }
+        prototype_ids.reserve(prototype_count as usize);
+        for _ in 0..prototype_count {
+            let mut prototype_id = 0u32;
+            xfer.xfer_unsigned_int(&mut prototype_id)?;
+            if factory.find_team_prototype_by_id(prototype_id).is_none() {
+                return Err(XferStatus::InvalidData);
+            }
+            prototype_ids.push(prototype_id);
+        }
+    } else {
+        for prototype_id in &mut prototype_ids {
+            xfer.xfer_unsigned_int(prototype_id)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_sides_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let sides = get_sides_list();
+    let mut sides_guard = sides.write().map_err(|_| XferStatus::InvalidData)?;
+    let mut side_count = sides_guard.get_num_sides() as i32;
+    xfer.xfer_int(&mut side_count)?;
+    if side_count != sides_guard.get_num_sides() as i32 {
+        return Err(XferStatus::InvalidData);
+    }
+
+    for idx in 0..side_count.max(0) as usize {
+        let side = sides_guard
+            .get_side_info_mut(idx)
+            .ok_or(XferStatus::InvalidData)?;
+        let mut script_list_present = side.get_script_list().is_some();
+        xfer.xfer_bool(&mut script_list_present)?;
+        let has_runtime_script_list = side.get_script_list().is_some();
+        if script_list_present != has_runtime_script_list {
+            return Err(XferStatus::InvalidData);
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_terrain_logic_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 2;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let terrain = get_terrain_logic();
+    let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
+
+    let mut active_boundary = terrain_guard.get_active_boundary();
+    xfer.xfer_int(&mut active_boundary)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        terrain_guard.set_active_boundary(active_boundary);
+    }
+
+    if version >= 2 {
+        let mut entries = if xfer.get_xfer_mode() == XferMode::Load {
+            Vec::new()
+        } else {
+            terrain_guard.snapshot_dynamic_water_entries()
+        };
+
+        let mut entry_count = if xfer.get_xfer_mode() == XferMode::Load {
+            0i32
+        } else {
+            entries.len() as i32
+        };
+        xfer.xfer_int(&mut entry_count)?;
+        if entry_count < 0 {
+            return Err(XferStatus::InvalidData);
+        }
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            entries.reserve(entry_count as usize);
+            for _ in 0..entry_count {
+                let mut trigger_id: Int = -1;
+                xfer.xfer_int(&mut trigger_id)?;
+                let mut change_per_frame = 0.0f32;
+                let mut target_height = 0.0f32;
+                let mut damage_amount = 0.0f32;
+                let mut current_height = 0.0f32;
+                xfer.xfer_real(&mut change_per_frame)?;
+                xfer.xfer_real(&mut target_height)?;
+                xfer.xfer_real(&mut damage_amount)?;
+                xfer.xfer_real(&mut current_height)?;
+                entries.push(TerrainDynamicWaterSnapshotEntry {
+                    trigger_id,
+                    water_name: AsciiString::new(),
+                    change_per_frame,
+                    target_height,
+                    damage_amount,
+                    current_height,
+                });
+            }
+            terrain_guard
+                .restore_dynamic_water_entries(entries)
+                .map_err(|_| XferStatus::InvalidData)?;
+        } else {
+            for entry in &mut entries {
+                let mut trigger_id = entry.trigger_id;
+                xfer.xfer_int(&mut trigger_id)?;
+                xfer.xfer_real(&mut entry.change_per_frame)?;
+                xfer.xfer_real(&mut entry.target_height)?;
+                xfer.xfer_real(&mut entry.damage_amount)?;
+                xfer.xfer_real(&mut entry.current_height)?;
+            }
+        }
+    }
+
+    Ok(())
+}

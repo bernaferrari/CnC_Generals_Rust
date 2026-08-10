@@ -56,7 +56,14 @@ fn golden_source() -> &'static str {
 }
 
 fn shell_source() -> &'static str {
-    include_str!("../../shell_smoke.rs")
+    // Directory split: former single-file `shell_smoke.rs` lives under `shell_smoke/`.
+    concat!(
+        include_str!("../../shell_smoke/mod.rs"),
+        include_str!("../../shell_smoke/host.rs"),
+        include_str!("../../shell_smoke/claim.rs"),
+        include_str!("../../shell_smoke/helpers.rs"),
+        include_str!("../../shell_smoke/result.rs"),
+    )
 }
 
 fn non_comment(src: &str) -> String {

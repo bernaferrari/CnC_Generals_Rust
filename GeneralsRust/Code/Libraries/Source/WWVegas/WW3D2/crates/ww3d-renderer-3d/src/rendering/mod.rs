@@ -6,6 +6,7 @@ pub mod frame_uniform_arena;
 pub mod frustum;
 pub mod light_system;
 pub mod lighting_system;
+#[path = "mesh_system_impl/mod.rs"]
 pub mod mesh_system;
 pub mod shader_core;
 pub mod shader_system;

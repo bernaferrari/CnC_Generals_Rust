@@ -12,6 +12,7 @@ pub mod w3d_debris_draw;
 pub mod w3d_default_draw;
 pub mod w3d_dependency_model_draw;
 pub mod w3d_laser_draw;
+#[path = "w3d_model_draw_impl/mod.rs"]
 pub mod w3d_model_draw;
 pub mod w3d_overlord_aircraft_draw;
 pub mod w3d_overlord_tank_draw;

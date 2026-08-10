@@ -36,6 +36,7 @@
 extern crate ww3d_renderer_3d as ww3d_renderer_3d;
 
 pub mod assets;
+#[path = "cnc_game_engine/mod.rs"]
 pub mod cnc_game_engine;
 pub mod fow_rendering;
 pub mod game_engine;
@@ -53,8 +54,10 @@ pub mod win_main;
 pub mod ai;
 pub mod ai_decisions;
 pub mod ai_skirmish;
+#[path = "command_executor/mod.rs"]
 pub mod command_executor;
 pub mod command_integration;
+#[path = "command_system/mod.rs"]
 pub mod command_system;
 pub mod config;
 pub mod effects;
@@ -137,15 +140,19 @@ pub mod authority_bridge;
 pub mod breadth_scenarios;
 pub mod executable_smoke;
 pub mod gameplay_layout;
+#[path = "gameworld_shadow/mod.rs"]
 pub mod gameworld_shadow;
 pub mod golden_campaign;
 pub mod golden_skirmish;
 pub mod map_frame_scenario;
 pub mod playability_integration;
+#[path = "presentation_frame/mod.rs"]
 pub mod presentation_frame;
 pub mod release_candidate;
 // shell_smoke pulls ~800 residual/wave audit modules; keep out of the shipped bin.
+// `shell_smoke.rs` is a scan dump for include_str; compile the directory module.
 #[cfg(any(test, feature = "host-residuals"))]
+#[path = "shell_smoke/mod.rs"]
 pub mod shell_smoke;
 pub mod skirmish_config;
 

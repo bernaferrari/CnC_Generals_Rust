@@ -1,0 +1,59 @@
+//! Control Bar Implementation
+//!
+//! Rust conversion of ControlBar.cpp + ControlBarCommand.cpp - the main control bar system
+//! that provides context-sensitive command interface for the game.
+//!
+//! Original C++ files:
+//!   GameClient/GUI/ControlBar/ControlBar.cpp
+//!   GameClient/GUI/ControlBar/ControlBarCommand.cpp
+//! Original Author: Colin Day, March 2002
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::error::Error;
+use std::rc::Rc;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
+
+use super::{
+    BuildQueueEntry, CommandAvailability, CommandButton, CommandOption, CommandSourceType,
+    ControlBarContext, ControlBarState, ProductionItem, ProductionType, QueueProductionType,
+    MAX_BUILD_QUEUE_BUTTONS,
+};
+use crate::gui::{GameWindow, WindowManager};
+use crate::helpers::TheInGameUI;
+use crate::message_stream::game_message::GameMessageType;
+use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
+use crate::system::SubsystemInterface;
+use game_engine::common::ini::ini_command_button::{
+    get_control_bar as get_ini_control_bar, CommandButton as IniCommandButton,
+};
+use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
+use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
+use gamelogic::command_button::map_gui_command_to_command_type;
+use gamelogic::commands::command::CommandType;
+use gamelogic::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use gamelogic::common::types::{KindOf, OBJECT_STATUS_SOLD, OBJECT_STATUS_UNDER_CONSTRUCTION};
+use gamelogic::common::GameError;
+use gamelogic::control_bar::get_control_bar_bridge;
+use gamelogic::helpers::{TheGameLogic, TheThingFactory};
+use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::player::{player_list as logic_player_list, PlayerIndex};
+use gamelogic::system::beacon_manager::snapshot_beacons;
+use gamelogic::upgrade::center::with_upgrade_center;
+
+// Dump+path split: `gui/control_bar/control_bar.rs` is the unused original dump.
+// This directory is the live `control_bar` module. `include!` keeps one logical
+// module so field privacy and the public API stay identical to the dump.
+
+include!("types.rs");
+include!("impl_lifecycle.rs");
+include!("impl_context.rs");
+include!("impl_command_context.rs");
+include!("impl_execute.rs");
+include!("impl_buttons.rs");
+include!("impl_contexts.rs");
+include!("impl_portrait.rs");
+include!("impl_science.rs");
+include!("traits.rs");
+include!("tests.rs");

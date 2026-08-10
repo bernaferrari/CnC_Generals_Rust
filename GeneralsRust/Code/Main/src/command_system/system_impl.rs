@@ -1,0 +1,1416 @@
+use super::*;
+
+impl CommandSystem {
+    /// Create a new command system
+    pub fn new() -> Self {
+        Self {
+            current_mode: CommandMode::Normal,
+            command_queue: VecDeque::new(),
+            next_command_id: 1,
+            mouse_drag_start: None,
+            mouse_down_time: None,
+            command_history: Vec::new(),
+            player_settings: HashMap::new(),
+        }
+    }
+
+    /// Get (or lazily create) mutable command settings for a player
+    pub(super) fn player_settings_mut(&mut self, player_id: u32) -> &mut PlayerCommandSettings {
+        self.player_settings.entry(player_id).or_default()
+    }
+
+    /// Read-only view of a player's settings (creating default when missing).
+    pub fn player_settings(&mut self, player_id: u32) -> PlayerCommandSettings {
+        self.player_settings_mut(player_id).clone()
+    }
+
+    /// Enable or disable waypoint mode for a player.
+    pub fn set_waypoint_mode_for_player(&mut self, player_id: u32, enabled: bool) {
+        self.player_settings_mut(player_id).waypoint_mode = enabled;
+    }
+
+    /// Toggle auto-attack preference and return the new value.
+    pub fn toggle_auto_attack(&mut self, player_id: u32) -> bool {
+        let settings = self.player_settings_mut(player_id);
+        settings.auto_attack = !settings.auto_attack;
+        settings.auto_attack
+    }
+
+    /// Toggle whether moves should preserve formation and return the new value.
+    pub fn toggle_formation_move(&mut self, player_id: u32) -> bool {
+        let settings = self.player_settings_mut(player_id);
+        settings.formation_move = !settings.formation_move;
+        settings.formation_move
+    }
+
+    /// Toggle whether selection should attempt smart grouping and return the new value.
+    pub fn toggle_smart_select(&mut self, player_id: u32) -> bool {
+        let settings = self.player_settings_mut(player_id);
+        settings.smart_select = !settings.smart_select;
+        settings.smart_select
+    }
+
+    /// Select units matching predicate for the player and queue the selection command.
+    pub fn select_units_by_predicate<F>(
+        &mut self,
+        player_id: u32,
+        modifier_keys: ModifierKeys,
+        game_logic: &GameLogic,
+        mut predicate: F,
+    ) -> bool
+    where
+        F: FnMut(ObjectId) -> bool,
+    {
+        // Wave 242/245: team + selectable ids via probes (no get_objects dual-read).
+        let Some(player_team) = game_logic.player_team(player_id) else {
+            return false;
+        };
+
+        let units = game_logic.selectable_unit_ids_for_team_where(player_team, |id| predicate(id));
+
+        if units.is_empty() {
+            return false;
+        }
+
+        let command = self.create_command(
+            CommandType::CreateSelectedGroup {
+                create_new: !modifier_keys.shift,
+                units: units.clone(),
+            },
+            &units,
+            player_id,
+            modifier_keys,
+        );
+        self.queue_command(command);
+        true
+    }
+
+    /// Build a command that selects all objects matching the double-clicked target
+    pub(super) fn create_select_similar_command(
+        &mut self,
+        target_id: ObjectId,
+        player_id: u32,
+        modifier_keys: ModifierKeys,
+        game_logic: Option<&GameLogic>,
+        presentation_similar: &[ObjectId],
+    ) -> Option<GameCommand> {
+        // Wave 236: prefer presentation-frozen similar unit ids.
+        if !presentation_similar.is_empty() {
+            let mut units = presentation_similar.to_vec();
+            if !units.contains(&target_id) {
+                units.push(target_id);
+            }
+            let command_units = units.clone();
+            return Some(self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: true,
+                    units: command_units,
+                },
+                units.as_slice(),
+                player_id,
+                modifier_keys,
+            ));
+        }
+
+        // Wave 245: boot residual via unit/selection probes (no get_object dual-read).
+        let game_logic = game_logic?;
+        let player_team = game_logic.player_team(player_id)?;
+        let target_team = game_logic.unit_team(target_id)?;
+        if target_team != player_team {
+            return None;
+        }
+        let template_name = game_logic.unit_template_name(target_id)?;
+        let object_type = game_logic.unit_object_type(target_id)?;
+        let mut units = game_logic.selectable_similar_unit_ids(
+            target_team,
+            &template_name,
+            object_type,
+            modifier_keys.alt,
+        );
+
+        if units.is_empty() {
+            return None;
+        }
+
+        if !units.contains(&target_id) {
+            units.push(target_id);
+        }
+
+        let command_units = units.clone();
+        Some(self.create_command(
+            CommandType::CreateSelectedGroup {
+                create_new: true,
+                units: command_units,
+            },
+            units.as_slice(),
+            player_id,
+            modifier_keys,
+        ))
+    }
+
+    /// Set the current command mode
+    pub fn set_mode(&mut self, mode: CommandMode) {
+        self.current_mode = mode.clone();
+        log::debug!("Command mode changed to: {:?}", mode);
+    }
+
+    /// Process mouse input and create appropriate commands
+    pub fn process_mouse_input(
+        &mut self,
+        context: &MouseCommandContext,
+        selected_units: &[ObjectId],
+        player_id: u32,
+        game_logic: Option<&GameLogic>,
+    ) -> Option<GameCommand> {
+        if context.is_drag {
+            self.mouse_drag_start = context.drag_start.or(Some(context.screen_position));
+        } else {
+            self.mouse_drag_start = None;
+        }
+
+        match context.mouse_button {
+            MouseButton::Left => {
+                self.process_left_click(context, selected_units, player_id, game_logic)
+            }
+            MouseButton::Right => {
+                self.process_right_click(context, selected_units, player_id, game_logic)
+            }
+            MouseButton::Middle => {
+                self.process_middle_click(context, selected_units, player_id, game_logic)
+            }
+        }
+    }
+
+    /// Process left mouse click
+    pub(super) fn process_left_click(
+        &mut self,
+        context: &MouseCommandContext,
+        selected_units: &[ObjectId],
+        player_id: u32,
+        game_logic: Option<&GameLogic>,
+    ) -> Option<GameCommand> {
+        match &self.current_mode {
+            CommandMode::Normal => {
+                let now = Instant::now();
+                let is_double_click = self
+                    .mouse_down_time
+                    .map(|last| now.duration_since(last) <= DOUBLE_CLICK_THRESHOLD)
+                    .unwrap_or(false)
+                    && self.player_settings_mut(player_id).smart_select
+                    && !context.is_drag;
+                self.mouse_down_time = Some(now);
+
+                if is_double_click {
+                    if let Some(target_id) = context.target_object {
+                        if let Some(command) = self.create_select_similar_command(
+                            target_id,
+                            player_id,
+                            context.modifier_keys,
+                            game_logic,
+                            &context.presentation_select_similar_units,
+                        ) {
+                            return Some(command);
+                        }
+                    }
+                }
+
+                if context.is_drag {
+                    // Area selection
+                    Some(self.create_selection_command(context, player_id, game_logic))
+                } else if let Some(target_id) = context.target_object {
+                    // Select single unit
+                    let create_new = !context.modifier_keys.shift;
+                    Some(self.create_command(
+                        CommandType::CreateSelectedGroup {
+                            create_new,
+                            units: vec![target_id],
+                        },
+                        selected_units,
+                        player_id,
+                        context.modifier_keys,
+                    ))
+                } else {
+                    None
+                }
+            }
+            CommandMode::BuildMode { template_name } => {
+                // Place building
+                Some(self.create_command(
+                    CommandType::DozerConstruct {
+                        template_name: template_name.clone(),
+                        location: context.world_position,
+                        orientation: 0.0,
+                    },
+                    selected_units,
+                    player_id,
+                    context.modifier_keys,
+                ))
+            }
+            CommandMode::SpecialPower { power_type } => {
+                // Use special power
+                let target = if let Some(target_id) = context.target_object {
+                    PowerTarget::Object(target_id)
+                } else {
+                    PowerTarget::Location(context.world_position)
+                };
+
+                Some(self.create_command(
+                    CommandType::DoSpecialPower {
+                        power_type: power_type.clone(),
+                        target,
+                    },
+                    selected_units,
+                    player_id,
+                    context.modifier_keys,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Process right mouse click - creates movement and attack commands
+    pub(super) fn process_right_click(
+        &mut self,
+        context: &MouseCommandContext,
+        selected_units: &[ObjectId],
+        player_id: u32,
+        game_logic: Option<&GameLogic>,
+    ) -> Option<GameCommand> {
+        if selected_units.is_empty() {
+            return None;
+        }
+
+        let (mut waypoint_mode, auto_attack) = {
+            let settings = self.player_settings_mut(player_id);
+            (settings.waypoint_mode, settings.auto_attack)
+        };
+
+        if context.modifier_keys.alt {
+            waypoint_mode = true;
+        }
+
+        // C++ TheInGameUI force modes residual:
+        // Ctrl = ForceAttack, Alt = Waypoints (prefer over sticky current_mode).
+        let mode = if context.modifier_keys.ctrl {
+            CommandMode::ForceAttack
+        } else if waypoint_mode {
+            CommandMode::Waypoint
+        } else {
+            self.current_mode.clone()
+        };
+
+        let mut command_type = match &mode {
+            CommandMode::ForceAttack => {
+                if let Some(target_id) = context.target_object {
+                    // Wave 1103: force-attack object residual fail-closed on sold
+                    // (presentation pick already peels; belt-and-suspenders via hint).
+                    let sold = context
+                        .target_presentation
+                        .as_ref()
+                        .filter(|h| h.id == target_id)
+                        .map(|h| h.sold || !h.is_alive)
+                        .unwrap_or(false);
+                    if sold {
+                        CommandType::ForceAttackGround {
+                            location: context.world_position,
+                        }
+                    } else {
+                        CommandType::ForceAttackObject { target_id }
+                    }
+                } else {
+                    CommandType::ForceAttackGround {
+                        location: context.world_position,
+                    }
+                }
+            }
+            CommandMode::ForceMove => CommandType::ForceMoveTo {
+                destination: context.world_position,
+            },
+            CommandMode::Waypoint => CommandType::AddWaypoint {
+                destination: context.world_position,
+            },
+            _ => {
+                // Context-sensitive command
+                self.determine_context_command(context, selected_units, game_logic)
+            }
+        };
+
+        if auto_attack {
+            if let CommandType::MoveTo { destination, .. } = command_type {
+                command_type = CommandType::AttackMoveTo {
+                    destination,
+                    max_shots: -1,
+                };
+            }
+        }
+
+        Some(self.create_command(
+            command_type,
+            selected_units,
+            player_id,
+            context.modifier_keys,
+        ))
+    }
+
+    /// Process middle mouse click
+    pub(super) fn process_middle_click(
+        &mut self,
+        _context: &MouseCommandContext,
+        _selected_units: &[ObjectId],
+        _player_id: u32,
+        _game_logic: Option<&GameLogic>,
+    ) -> Option<GameCommand> {
+        // Middle click typically used for camera controls
+        None
+    }
+
+    /// Determine context-sensitive command based on target and selected units
+    pub(super) fn determine_context_command(
+        &self,
+        context: &MouseCommandContext,
+        selected_units: &[ObjectId],
+        game_logic: Option<&GameLogic>,
+    ) -> CommandType {
+        if let Some(target_id) = context.target_object {
+            // Wave 228: prefer presentation-frozen target identity when installed.
+            if let Some(hint) = context
+                .target_presentation
+                .as_ref()
+                .filter(|h| h.id == target_id)
+            {
+                if let Some(cmd) = self.classify_right_click_target_from_presentation(
+                    selected_units,
+                    &context.selected_presentation,
+                    target_id,
+                    hint,
+                    // Wave 541: target presentation freeze is authoritative.
+                    // Empty selected_presentation fails closed for capability probes
+                    // (no live GameLogic dual-read). Boot residual uses the
+                    // non-presentation branch below when target_presentation is absent.
+                    None,
+                ) {
+                    return cmd;
+                }
+            } else if let Some(gl) = game_logic {
+                // Wave 245: boot residual via ObjectId probes (no get_object dual-read).
+                if self.can_gather_from_target(selected_units, target_id, gl) {
+                    return CommandType::Gather { target_id };
+                }
+                if self.can_capture_building(selected_units, target_id, gl) {
+                    let prefer_capture = gl.unit_team(target_id) == Some(Team::Neutral)
+                        || !self.can_attack_target(selected_units, target_id, gl);
+                    if prefer_capture {
+                        return CommandType::CaptureBuilding { target_id };
+                    }
+                }
+                if self.can_attack_target(selected_units, target_id, gl) {
+                    return CommandType::AttackObject { target_id };
+                }
+                if self.can_resume_construction(selected_units, target_id, gl) {
+                    return CommandType::ResumeConstruction { target_id };
+                }
+                if self.can_repair_target(selected_units, target_id, gl) {
+                    return CommandType::Repair { target_id };
+                }
+                if self.can_enter_target(selected_units, target_id, gl) {
+                    return CommandType::Enter { target_id };
+                }
+                if self.can_get_serviced_at_target(selected_units, target_id, gl) {
+                    let target_building_type = gl
+                        .unit_building_type(target_id)
+                        .unwrap_or(BuildingType::CommandCenter);
+                    if target_building_type == BuildingType::HealPad
+                        || gl.unit_is_medical_facility(target_id)
+                    {
+                        return CommandType::GetHealed { target_id };
+                    } else {
+                        return CommandType::GetRepaired { target_id };
+                    }
+                }
+            }
+        }
+
+        // Default to move command (Ctrl ForceAttack handled before context path).
+        CommandType::MoveTo {
+            destination: context.world_position,
+            waypoints: Vec::new(),
+        }
+    }
+
+    /// Create area selection command from drag
+    pub(super) fn create_selection_command(
+        &mut self,
+        context: &MouseCommandContext,
+        player_id: u32,
+        game_logic: Option<&GameLogic>,
+    ) -> GameCommand {
+        // Wave 236: prefer presentation-frozen box-select ids when provided.
+        if !context.presentation_box_select_units.is_empty() {
+            return self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: !context.modifier_keys.shift,
+                    units: context.presentation_box_select_units.clone(),
+                },
+                &context.presentation_box_select_units,
+                player_id,
+                context.modifier_keys,
+            );
+        }
+
+        let Some(game_logic) = game_logic else {
+            return self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: !context.modifier_keys.shift,
+                    units: Vec::new(),
+                },
+                &[],
+                player_id,
+                context.modifier_keys,
+            );
+        };
+
+        // Wave 242: team via player_team probe (no &Player dual-read).
+        let Some(player_team) = game_logic.player_team(player_id) else {
+            return self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: !context.modifier_keys.shift,
+                    units: Vec::new(),
+                },
+                &[],
+                player_id,
+                context.modifier_keys,
+            );
+        };
+
+        let drag_start = context.drag_start.unwrap_or(context.screen_position);
+        let drag_end = context.drag_end.unwrap_or(context.screen_position);
+        let viewport_size = context.viewport_size.unwrap_or(Vec2::new(800.0, 600.0));
+        let world_min = context.world_min.unwrap_or(Vec3::new(-400.0, 0.0, -300.0));
+        let world_max = context.world_max.unwrap_or(Vec3::new(400.0, 0.0, 300.0));
+        let drag_start_world = context
+            .drag_start_world
+            .unwrap_or_else(|| screen_to_world(drag_start, viewport_size, world_min, world_max));
+        let drag_end_world = context
+            .drag_end_world
+            .unwrap_or_else(|| screen_to_world(drag_end, viewport_size, world_min, world_max));
+
+        let min_x = drag_start_world.x.min(drag_end_world.x);
+        let max_x = drag_start_world.x.max(drag_end_world.x);
+        let min_z = drag_start_world.z.min(drag_end_world.z);
+        let max_z = drag_start_world.z.max(drag_end_world.z);
+
+        // Wave 245: box-select via selectable_unit_ids_in_bounds (no get_objects dual-read).
+        let units =
+            game_logic.selectable_unit_ids_in_bounds(player_team, min_x, max_x, min_z, max_z);
+
+        self.create_command(
+            CommandType::CreateSelectedGroup {
+                create_new: !context.modifier_keys.shift,
+                units: units.clone(),
+            },
+            &units,
+            player_id,
+            context.modifier_keys,
+        )
+    }
+
+    /// Create a game command with metadata
+    pub(super) fn create_command(
+        &mut self,
+        command_type: CommandType,
+        selected_units: &[ObjectId],
+        player_id: u32,
+        modifier_keys: ModifierKeys,
+    ) -> GameCommand {
+        let command = GameCommand {
+            command_type,
+            player_id,
+            command_id: self.next_command_id,
+            timestamp: SystemTime::now(),
+            selected_units: selected_units.to_vec(),
+            modifier_keys,
+        };
+
+        self.next_command_id += 1;
+        command
+    }
+
+    /// Queue command for execution
+    pub fn queue_command(&mut self, command: GameCommand) {
+        log::debug!("Queuing command: {:?}", command.command_type);
+        self.command_queue.push_back(command);
+    }
+
+    /// Create and queue a command immediately (used by keyboard shortcuts).
+    pub fn queue_immediate_command(
+        &mut self,
+        command_type: CommandType,
+        selected_units: &[ObjectId],
+        player_id: u32,
+        modifier_keys: ModifierKeys,
+    ) {
+        let command = self.create_command(command_type, selected_units, player_id, modifier_keys);
+        self.queue_command(command);
+    }
+
+    /// Process all queued commands
+    pub fn process_commands(&mut self, game_logic: &mut GameLogic) -> Vec<CommandResult> {
+        let mut results = Vec::new();
+
+        while let Some(command) = self.command_queue.pop_front() {
+            let result = self.execute_command(&command, game_logic);
+            results.push(result);
+
+            // Add to history for replay/undo
+            self.command_history.push(command);
+        }
+
+        results
+    }
+
+    /// Execute a single command
+    pub fn execute_command(
+        &self,
+        command: &GameCommand,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        let mut executor =
+            crate::command_executor::CommandExecutor::new(game_logic, command.player_id);
+        match executor.execute_command(command.clone()) {
+            Ok(result) => result,
+            Err(err) => {
+                log::warn!(
+                    "Failed to execute command {:?} for player {}: {}",
+                    command.command_type,
+                    command.player_id,
+                    err
+                );
+                CommandResult::InvalidCommand
+            }
+        }
+    }
+
+    /// Execute move command - core RTS functionality
+    pub(super) fn execute_move_command(
+        &self,
+        units: &[ObjectId],
+        destination: Vec3,
+        _waypoints: &[Vec3],
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 230: authority mutations via GameLogic unit_command_* APIs.
+        let mut all_success = true;
+        for &unit_id in units {
+            if game_logic.unit_command_move_to(unit_id, destination) {
+                log::debug!("Unit {} moving to {:?}", unit_id.0, destination);
+            } else {
+                all_success = false;
+            }
+        }
+        if all_success {
+            CommandResult::Success
+        } else {
+            CommandResult::CannotMoveToLocation
+        }
+    }
+
+    /// Execute attack command - core RTS functionality
+    pub(super) fn execute_attack_command(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 230/244: target probe via unit_exists / unit_is_dead_or_missing (no get_object).
+        if !game_logic.unit_exists(target_id) {
+            return CommandResult::InvalidTarget;
+        }
+        if game_logic.unit_is_dead_or_missing(target_id) {
+            return CommandResult::TargetDestroyed;
+        }
+        let mut all_success = true;
+        for &unit_id in units {
+            if game_logic.unit_command_attack(unit_id, target_id) {
+                log::debug!("Unit {} attacking target {}", unit_id.0, target_id.0);
+            } else {
+                all_success = false;
+            }
+        }
+        if all_success {
+            CommandResult::Success
+        } else {
+            CommandResult::CannotAttackTarget
+        }
+    }
+
+    /// Execute attack-move command
+    pub(super) fn execute_attack_move_command(
+        &self,
+        units: &[ObjectId],
+        destination: Vec3,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 231: attack-move via GameLogic unit_command_attack_move_to.
+        let mut all_success = true;
+        for &unit_id in units {
+            if game_logic.unit_command_attack_move_to(unit_id, destination) {
+                log::debug!("Unit {} attack-moving to {:?}", unit_id.0, destination);
+            } else {
+                all_success = false;
+            }
+        }
+        if all_success {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidTarget
+        }
+    }
+
+    /// Execute force attack command
+    pub(super) fn execute_force_attack_command(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 230: force-attack via GameLogic unit_command_force_attack.
+        let mut all_success = true;
+        for &unit_id in units {
+            if game_logic.unit_command_force_attack(unit_id, target_id) {
+                log::debug!("Unit {} force-attacking target {}", unit_id.0, target_id.0);
+            } else {
+                all_success = false;
+            }
+        }
+        if all_success {
+            CommandResult::Success
+        } else {
+            CommandResult::CannotAttackTarget
+        }
+    }
+
+    /// Execute force attack ground command
+    pub(super) fn execute_force_attack_ground_command(
+        &self,
+        units: &[ObjectId],
+        location: Vec3,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 231: force-attack ground via GameLogic unit_command_attack_ground.
+        let mut all_success = true;
+        for &unit_id in units {
+            if game_logic.unit_command_attack_ground(unit_id, location) {
+                log::debug!(
+                    "Unit {} force-attacking ground at {:?}",
+                    unit_id.0,
+                    location
+                );
+            } else {
+                all_success = false;
+            }
+        }
+        if all_success {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidTarget
+        }
+    }
+
+    /// Execute stop command
+    pub(super) fn execute_stop_command(
+        &self,
+        units: &[ObjectId],
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 230: stop via GameLogic unit_command_stop.
+        for &unit_id in units {
+            if game_logic.unit_command_stop(unit_id) {
+                log::debug!("Unit {} stopped", unit_id.0);
+            }
+        }
+        CommandResult::Success
+    }
+
+    /// Execute scatter command by pushing units away from their current positions.
+    pub(super) fn execute_scatter_command(
+        &self,
+        units: &[ObjectId],
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 231: scatter goals via unit_position_if_movable + unit_command_move_to_moving.
+        if units.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+
+        pub(super) const BASE_DISTANCE: f32 = 25.0;
+        pub(super) const DISTANCE_VARIATION: f32 = 10.0;
+
+        let mut goals: Vec<(ObjectId, Vec3)> = Vec::new();
+        for (index, &unit_id) in units.iter().enumerate() {
+            let Some(origin) = game_logic.unit_position_if_movable(unit_id) else {
+                continue;
+            };
+            let angle = ((unit_id.0 as usize + index) as f32 * 0.318_309_87) % TAU;
+            let distance = BASE_DISTANCE + (index as f32 % DISTANCE_VARIATION).abs();
+            let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * distance;
+            goals.push((unit_id, origin + offset));
+        }
+        for (unit_id, destination) in goals {
+            if game_logic.unit_command_move_to_moving(unit_id, destination) {
+                log::debug!("Unit {} scattering toward {:?}", unit_id.0, destination);
+            }
+        }
+
+        CommandResult::Success
+    }
+
+    /// Arrange selected units into a grid formation centered around their centroid.
+    pub(super) fn execute_create_formation_command(
+        &self,
+        units: &[ObjectId],
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 231: formation via unit_position_if_movable + unit_command_move_to_moving.
+        if units.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+
+        let mut movable_units = Vec::new();
+        for &unit_id in units {
+            if let Some(pos) = game_logic.unit_position_if_movable(unit_id) {
+                movable_units.push((unit_id, pos));
+            }
+        }
+
+        if movable_units.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+
+        let mut centroid = Vec3::ZERO;
+        for (_, position) in &movable_units {
+            centroid += *position;
+        }
+        centroid /= movable_units.len() as f32;
+
+        let columns = (movable_units.len() as f32).sqrt().ceil() as usize;
+        let rows = movable_units.len().div_ceil(columns);
+        let spacing = 20.0;
+
+        for (index, (unit_id, _)) in movable_units.iter().enumerate() {
+            let row = (index / columns) as f32;
+            let column = (index % columns) as f32;
+            let offset_x = (column - (columns as f32 - 1.0) * 0.5) * spacing;
+            let offset_z = (row - (rows as f32 - 1.0) * 0.5) * spacing;
+            let destination = centroid + Vec3::new(offset_x, 0.0, offset_z);
+
+            if game_logic.unit_command_move_to_moving(*unit_id, destination) {
+                log::debug!("Unit {} forming up at {:?}", unit_id.0, destination);
+            }
+        }
+
+        CommandResult::Success
+    }
+
+    pub(super) fn execute_view_command_center(
+        &self,
+        player_id: u32,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 242: team via player_team probe (no &Player dual-read).
+        let Some(team) = game_logic.player_team(player_id) else {
+            return CommandResult::InvalidCommand;
+        };
+
+        if let Some(position) = game_logic.command_center_position(team) {
+            game_logic.request_camera_focus(position);
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Execute guard command
+    pub(super) fn execute_guard_command(
+        &self,
+        units: &[ObjectId],
+        target: &GuardTarget,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 230: guard via GameLogic unit_command_guard_*.
+        for &unit_id in units {
+            match target {
+                GuardTarget::Position(pos) => {
+                    if game_logic.unit_command_guard_position(unit_id, *pos) {
+                        log::debug!("Unit {} guarding position {:?}", unit_id.0, pos);
+                    }
+                }
+                GuardTarget::Object(target_id) => {
+                    if game_logic.unit_command_guard_object(unit_id, *target_id) {
+                        log::debug!("Unit {} guarding object {}", unit_id.0, target_id.0);
+                    }
+                }
+            }
+        }
+        CommandResult::Success
+    }
+
+    /// Execute construction command
+    pub(super) fn execute_construct_command(
+        &self,
+        units: &[ObjectId],
+        template_name: &str,
+        location: Vec3,
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        let (build_cost, is_structure) = match game_logic.get_templates().get(template_name) {
+            Some(t) => (
+                t.build_cost,
+                t.is_kind_of(crate::game_logic::KindOf::Structure),
+            ),
+            None => return CommandResult::InvalidCommand,
+        };
+
+        if !is_structure {
+            return CommandResult::InvalidCommand;
+        }
+
+        // Find a constructor unit
+        for &unit_id in units {
+            // Wave 243: constructor team + economy via probes (no &Object/&mut Player dual-read).
+            let Some(team) = game_logic.unit_team_if_can_construct(unit_id) else {
+                continue;
+            };
+            let Some(player_id) = game_logic.player_id_for_team(team) else {
+                continue;
+            };
+
+            if !game_logic.try_spend_player_resources(player_id, &build_cost) {
+                return CommandResult::InvalidCommand;
+            }
+
+            let created =
+                game_logic.create_object_under_construction(template_name, team, location);
+            if created.is_none() {
+                game_logic.player_refund_supplies(player_id, build_cost.supplies);
+                return CommandResult::InvalidCommand;
+            }
+
+            // Wave 232: dozer construct last-writes via GameLogic authority API.
+            if !game_logic.unit_command_begin_construct(unit_id, location) {
+                game_logic.player_refund_supplies(player_id, build_cost.supplies);
+                return CommandResult::InvalidCommand;
+            }
+
+            log::debug!(
+                "Unit {} constructing {} at {:?}",
+                unit_id.0,
+                template_name,
+                location
+            );
+            return CommandResult::Success;
+        }
+        CommandResult::InvalidCommand
+    }
+
+    /// Execute selection command
+    pub(super) fn execute_selection_command(
+        &self,
+        player_id: u32,
+        create_new: bool,
+        units: &[ObjectId],
+        game_logic: &mut GameLogic,
+    ) -> CommandResult {
+        // Wave 242: selection last-writes via select_objects / unit_select_if_team
+        // and player_* probes (no &Player / &mut Player dual-read). Wave 231 residual.
+        if !game_logic.player_exists(player_id) {
+            return CommandResult::InvalidCommand;
+        }
+        if create_new {
+            game_logic.select_objects(player_id, units.to_vec());
+            log::debug!(
+                "Player {} selected {} units",
+                player_id,
+                game_logic.player_selected_count(player_id)
+            );
+            return CommandResult::Success;
+        }
+        let Some(player_team) = game_logic.player_team(player_id) else {
+            return CommandResult::InvalidCommand;
+        };
+        let mut added = Vec::new();
+        for &unit_id in units {
+            if game_logic.unit_select_if_team(unit_id, player_team) {
+                added.push(unit_id);
+            }
+        }
+        game_logic.player_extend_selection(player_id, &added);
+        log::debug!(
+            "Player {} selected {} units",
+            player_id,
+            game_logic.player_selected_count(player_id)
+        );
+        CommandResult::Success
+    }
+
+    /// Validate if selected units can capture target structure residual.
+    pub(super) fn can_capture_building(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        use crate::game_logic::host_hero_abilities::{
+            can_capture_without_upgrade, is_black_lotus_template,
+        };
+        // Wave 245: target probes (no &Object dual-read).
+        if !game_logic.unit_is_kind_of(target_id, crate::game_logic::KindOf::Structure)
+            || !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+            || game_logic.unit_is_sold(target_id)
+        {
+            return false;
+        }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+        for &unit_id in units {
+            if !game_logic.unit_is_alive(unit_id) || !game_logic.unit_can_move(unit_id) {
+                continue;
+            }
+            let Some(unit_team) = game_logic.unit_team(unit_id) else {
+                continue;
+            };
+            if unit_team == target_team {
+                continue;
+            }
+            let template = game_logic.unit_template_name(unit_id).unwrap_or_default();
+            let is_lotus = is_black_lotus_template(&template);
+            let capture_ability =
+                can_capture_without_upgrade(game_logic.unit_is_hero(unit_id), is_lotus)
+                    || (game_logic.unit_is_kind_of(unit_id, crate::game_logic::KindOf::Infantry)
+                        && game_logic.team_has_completed_capture_upgrade(unit_team));
+            if capture_ability {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Validate if selected units can attack target
+    pub(super) fn can_attack_target(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        // Wave 244/245: unit + target probes (no &Object dual-read).
+        if game_logic.unit_is_dead(target_id) || !game_logic.unit_exists(target_id) {
+            return false;
+        }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+        for &unit_id in units {
+            if game_logic.unit_can_attack(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t != target_team)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Validate if selected units can gather from a resource target
+
+    /// Wave 228/229: RMB target classification from presentation freeze.
+    /// Selected-unit capability probes prefer `selected_presentation` (Wave 229);
+    /// live GameLogic unit dual-read is boot residual only.
+    pub(super) fn classify_right_click_target_from_presentation(
+        &self,
+        units: &[ObjectId],
+        selected_presentation: &[PresentationSelectedUnitHint],
+        target_id: ObjectId,
+        hint: &PresentationTargetHint,
+        game_logic: Option<&GameLogic>,
+    ) -> Option<CommandType> {
+        // Wave 235/541: InGame RMB classification from presentation freeze.
+        // selected_presentation drives capability probes; empty ⇒ fail-closed
+        // (no live GameLogic dual-read). game_logic arg retained for boot callers.
+        if !hint.is_alive {
+            return None;
+        }
+        let any_worker = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.is_worker);
+            }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
+            game_logic.is_some_and(|gl| {
+                units
+                    .iter()
+                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_is_worker(unit_id))
+            })
+        };
+        let any_attacker = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_attack);
+            }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
+            game_logic.is_some_and(|gl| {
+                units
+                    .iter()
+                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_can_attack(unit_id))
+            })
+        };
+        let any_capturer = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_capture && u.can_move);
+            }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
+            game_logic.is_some_and(|gl| {
+                units.iter().any(|&unit_id| {
+                    use crate::game_logic::host_hero_abilities::{
+                        can_capture_without_upgrade, is_black_lotus_template,
+                    };
+                    if !gl.unit_is_alive(unit_id) || !gl.unit_can_move(unit_id) {
+                        return false;
+                    }
+                    let template = gl.unit_template_name(unit_id).unwrap_or_default();
+                    let is_lotus = is_black_lotus_template(&template);
+                    let is_hero =
+                        gl.unit_is_hero(unit_id) || gl.unit_is_kind_of(unit_id, KindOf::Hero);
+                    gl.unit_is_kind_of(unit_id, KindOf::Infantry)
+                        || can_capture_without_upgrade(is_hero, is_lotus)
+                })
+            })
+        };
+        let any_repairer = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_repair);
+            }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
+            game_logic.is_some_and(|gl| {
+                units
+                    .iter()
+                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_can_repair(unit_id))
+            })
+        };
+
+        // Gather
+        // Wave 1099: sold residual fail-closed on gather target.
+        if hint.is_resource && !hint.sold && any_worker() {
+            return Some(CommandType::Gather { target_id });
+        }
+        // Capture neutral structure
+        if hint.is_structure
+            && !hint.under_construction
+            && !hint.sold
+            && (hint.is_neutral || hint.team == Team::Neutral)
+            && any_capturer()
+        {
+            return Some(CommandType::CaptureBuilding { target_id });
+        }
+        // Attack enemy
+        // Wave 1098: sold residual fail-closed (presentation_target_hint also peels).
+        if hint.is_enemy_of_local && !hint.is_neutral && !hint.sold && any_attacker() {
+            return Some(CommandType::AttackObject { target_id });
+        }
+        // Resume construction on unfinished ally structure
+        if hint.is_structure
+            && hint.under_construction
+            && !hint.is_enemy_of_local
+            && !hint.sold
+            && any_worker()
+        {
+            return Some(CommandType::ResumeConstruction { target_id });
+        }
+        // Repair damaged ally structure
+        if hint.is_structure
+            && hint.is_damaged
+            && !hint.under_construction
+            && !hint.sold
+            && (hint.is_friendly_of_local || hint.is_neutral)
+            && any_repairer()
+        {
+            return Some(CommandType::Repair { target_id });
+        }
+        // Enter friendly enterable
+        // Wave 1099: sold residual fail-closed on enter target.
+        if hint.can_be_entered && !hint.sold && !hint.is_enemy_of_local && !hint.under_construction
+        {
+            let any_mobile = if !selected_presentation.is_empty() {
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_move)
+            } else {
+                // Wave 244: boot residual via unit probes (no get_object dual-read).
+                game_logic.is_some_and(|gl| {
+                    units
+                        .iter()
+                        .any(|&id| gl.unit_is_alive(id) && gl.unit_can_move(id))
+                })
+            };
+            if any_mobile {
+                return Some(CommandType::Enter { target_id });
+            }
+        }
+        // Get healed at heal pad
+        // Wave 1099: sold residual fail-closed on heal pad.
+        if hint.provides_heal && !hint.sold && hint.is_friendly_of_local {
+            let any_injured_infantry = if !selected_presentation.is_empty() {
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.is_damaged && u.is_infantry && u.can_move)
+            } else {
+                false
+            };
+            if any_injured_infantry {
+                return Some(CommandType::GetHealed { target_id });
+            }
+        }
+        // Get repaired at repair pad / war factory / airfield
+        // Wave 1099: sold residual fail-closed on repair pad.
+        if hint.is_friendly_of_local
+            && !hint.sold
+            && (hint.provides_vehicle_repair || hint.provides_aircraft_repair)
+        {
+            let any_damaged_serviceable = if !selected_presentation.is_empty() {
+                selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.is_damaged
+                        && u.can_move
+                        && ((u.is_vehicle && hint.provides_vehicle_repair)
+                            || (u.is_aircraft && hint.provides_aircraft_repair))
+                })
+            } else {
+                false
+            };
+            if any_damaged_serviceable {
+                return Some(CommandType::GetRepaired { target_id });
+            }
+        }
+        None
+    }
+
+    pub(super) fn can_gather_from_target(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_alive(target_id) || !game_logic.unit_is_resource_target(target_id) {
+            return false;
+        }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+        for &unit_id in units {
+            if game_logic.unit_is_worker(unit_id)
+                && game_logic.unit_is_alive(unit_id)
+                && game_logic.unit_can_move(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t == target_team)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Validate if selected dozers can resume construction on unfinished structure.
+    pub(super) fn can_resume_construction(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_kind_of(target_id, crate::game_logic::KindOf::Structure)
+            || !game_logic.unit_is_alive(target_id)
+            || !game_logic.unit_under_construction(target_id)
+        {
+            return false;
+        }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+        for &unit_id in units {
+            if game_logic.unit_can_repair(unit_id)
+                && game_logic.unit_is_alive(unit_id)
+                && game_logic.unit_can_move(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t == target_team || target_team == Team::Neutral)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Validate if selected units can repair target
+    pub(super) fn can_repair_target(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_kind_of(target_id, crate::game_logic::KindOf::Structure)
+            || !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+            || !game_logic.unit_needs_service(target_id)
+        {
+            return false;
+        }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+        for &unit_id in units {
+            if game_logic.unit_can_repair(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t == target_team || target_team == Team::Neutral)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Validate if selected units can enter target
+    pub(super) fn can_enter_target(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_can_contain(target_id)
+            || !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+        {
+            return false;
+        }
+
+        let target_has_occupants = game_logic.unit_has_occupants(target_id);
+        let infantry_only = game_logic.unit_enter_infantry_only(target_id);
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+
+        for &unit_id in units {
+            let Some(unit_team) = game_logic.unit_team(unit_id) else {
+                continue;
+            };
+
+            if unit_id == target_id
+                || !game_logic.unit_is_alive(unit_id)
+                || game_logic.unit_under_construction(unit_id)
+                || !game_logic.unit_can_move(unit_id)
+                || game_logic.unit_is_kind_of(unit_id, KindOf::Structure)
+            {
+                continue;
+            }
+
+            if infantry_only
+                && !game_logic.unit_is_kind_of(unit_id, KindOf::Infantry)
+                && !game_logic.unit_is_hero(unit_id)
+            {
+                continue;
+            }
+
+            let target_contains_unit = game_logic.unit_contains(target_id, unit_id);
+            let target_has_space = game_logic.unit_has_capacity_for(target_id, 1);
+            if !target_contains_unit && !target_has_space {
+                continue;
+            }
+
+            if target_team != unit_team
+                && target_team != Team::Neutral
+                && (game_logic.unit_is_faction_structure(target_id) || target_has_occupants)
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        false
+    }
+
+    /// Validate if selected units can get services at target
+    pub(super) fn can_get_serviced_at_target(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_alive(target_id) || game_logic.unit_under_construction(target_id) {
+            return false;
+        }
+
+        let target_building_type = game_logic
+            .unit_building_type(target_id)
+            .unwrap_or(BuildingType::CommandCenter);
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
+
+        for &unit_id in units {
+            if !game_logic
+                .unit_team(unit_id)
+                .is_some_and(|t| t == target_team)
+                || !game_logic.unit_is_alive(unit_id)
+                || !game_logic.unit_can_move(unit_id)
+                || !game_logic.unit_needs_service(unit_id)
+            {
+                continue;
+            }
+
+            let can_use_service = match target_building_type {
+                BuildingType::HealPad => game_logic.unit_is_kind_of(unit_id, KindOf::Infantry),
+                BuildingType::RepairPad | BuildingType::WarFactory => {
+                    game_logic.unit_is_kind_of(unit_id, KindOf::Vehicle)
+                        && !game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft)
+                }
+                BuildingType::Airfield => game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft),
+                _ => false,
+            };
+
+            if can_use_service {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get current selected units for a player
+    pub fn get_selected_units(&self, player_id: u32, game_logic: &GameLogic) -> Vec<ObjectId> {
+        // Wave 242: selection via player_selected_objects probe.
+        game_logic.player_selected_objects(player_id)
+    }
+
+    /// Clear command queue
+    pub fn clear_queue(&mut self) {
+        self.command_queue.clear();
+    }
+
+    /// Get command history
+    pub fn get_command_history(&self) -> &[GameCommand] {
+        &self.command_history
+    }
+}
+

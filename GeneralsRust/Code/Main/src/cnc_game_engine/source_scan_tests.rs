@@ -1,0 +1,1985 @@
+// Mechanical extract of file-level source-scan tests from cnc_game_engine.rs.
+// Child module via `#[path]`. crate::cnc_game_engine::ENGINE_SRC stays sibling-relative.
+
+use super::*;
+
+#[test]
+fn stop_and_guard_hotkeys_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"s\") && !ctrl_down")
+            && src.contains("issue_named_command_from_ui(\"Command_Stop\")"),
+        "S must issue Command_Stop residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"g\") && !ctrl_down")
+            && src.contains("issue_named_command_from_ui(\"Command_Guard\")"),
+        "G must issue Command_Guard residual"
+    );
+    // Ctrl+S quick-save must remain distinct from Stop.
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"s\") && ctrl_down")
+            && src.contains("quick_save_from_hotkey"),
+        "Ctrl+S quick-save residual must remain"
+    );
+}
+
+#[test]
+fn retail_selection_and_scatter_hotkeys_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        (src.contains("eq_ignore_ascii_case(\"x\") && !ctrl_down")
+            || (src.contains("eq_ignore_ascii_case(\"x\")")
+                && src.contains("Retail CommandMap SCATTER KEY_X residual")))
+            && src.contains("issue_named_command_from_ui(\"Command_Scatter\")"),
+        "X must issue Command_Scatter residual"
+    );
+    assert!(
+        src.contains("Retail CommandMap SELECT_ALL KEY_Q residual")
+            && src.contains("select_all_friendly_units"),
+        "Q must SELECT_ALL residual"
+    );
+    assert!(
+        src.contains("Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual")
+            && src.contains("select_matching_units_hotkey"),
+        "E must SELECT_MATCHING_UNITS residual"
+    );
+    assert!(
+        src.contains("Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual")
+            && src.contains("select_all_friendly_aircraft"),
+        "W must SELECT_ALL_AIRCRAFT residual"
+    );
+
+    assert!(
+        src.contains("Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual")
+            && src.contains("issue_named_command_from_ui(\"Command_ViewCommandCenter\")"),
+        "H must VIEW_COMMAND_CENTER residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"f\")")
+            && src.contains("issue_named_command_from_ui(\"Command_CreateFormation\")"),
+        "Ctrl+F must CREATE_FORMATION residual"
+    );
+
+    assert!(
+        src.contains("NamedKey::Space") && src.contains("Command_ViewLastRadarEvent"),
+        "Space must VIEW_LAST_RADAR_EVENT residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"h\") && ctrl_down")
+            && src.contains("select_hero_units_hotkey"),
+        "Ctrl+H must SELECT_HERO residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"p\")") && src.contains("toggle_pause"),
+        "P must remain pause residual"
+    );
+}
+
+#[test]
+fn escape_in_handle_key_press_cancels_then_pauses_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    // Build needle so this test source does not self-match.
+    let marker = format!("Escape cancelled structure {} residual", "placement");
+    let hk = src
+        .find("fn handle_key_press(&mut self, key: &Key)")
+        .expect("handle_key_press");
+    let mut chosen = None;
+    let mut search = hk;
+    while let Some(rel) = src[search..].find(&marker) {
+        let i = search + rel;
+        let window = &src[i.saturating_sub(800)..src.len().min(i + 900)];
+        if window.contains("pending_map_command.take()")
+            && window.contains("request_state_change(GameState::Paused)")
+            && window.contains("NamedKey::Escape")
+        {
+            chosen = Some(i);
+            break;
+        }
+        search = i + marker.len();
+    }
+    let i = chosen.expect("handle_key_press Escape arm must cancel then pause");
+    let window = &src[i.saturating_sub(800)..src.len().min(i + 1200)];
+    assert!(
+        window.contains("request_state_change(GameState::InGame)"),
+        "Escape must resume from Paused"
+    );
+    assert!(
+        i > hk,
+        "live Escape residual must sit under handle_key_press"
+    );
+}
+
+#[test]
+fn beacon_and_control_bar_hotkeys_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"b\")") && src.contains("Command_PlaceBeacon"),
+        "Ctrl+B must PLACE_BEACON residual"
+    );
+    assert!(
+        src.contains("PendingMapCommand::PlaceBeacon")
+            && src.contains("Place beacon: click location"),
+        "PlaceBeacon must arm pending map click"
+    );
+    assert!(
+        src.contains("NamedKey::F9") && src.contains("toggle_visibility()"),
+        "F9 must TOGGLE_CONTROL_BAR residual"
+    );
+}
+
+#[test]
+fn camera_bookmarks_and_delete_beacon_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("camera_view_bookmarks") && src.contains("fn handle_camera_view_hotkey"),
+        "F1-F8 camera bookmark residual required"
+    );
+    assert!(
+        src.contains("NamedKey::F1") && src.contains("handle_camera_view_hotkey(0)"),
+        "F1 must recall/save view slot 0"
+    );
+    assert!(
+        src.contains("NamedKey::F8") && src.contains("handle_camera_view_hotkey(7)"),
+        "F8 must recall/save view slot 7"
+    );
+    assert!(
+        src.contains("NamedKey::Delete") && src.contains("Command_RemoveBeacon"),
+        "Delete must DELETE_BEACON residual"
+    );
+    // Debug destroy kept behind Shift+Delete.
+    assert!(
+        src.contains("destroy_object") && src.contains("Shift+Delete"),
+        "Shift+Delete debug destroy residual must remain"
+    );
+}
+
+#[test]
+fn cheer_camera_reset_unit_cycle_hotkeys_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_Cheer") && src.contains("eq_ignore_ascii_case(\"c\")"),
+        "Ctrl+C must ALL_CHEER residual"
+    );
+    assert!(
+        src.contains("Numpad5") && src.contains("reset_camera_view_hotkey"),
+        "KP5 must CAMERA_RESET residual"
+    );
+    assert!(
+        src.contains("ArrowRight") && src.contains("cycle_friendly_selection(1)"),
+        "Ctrl+Right must SELECT_NEXT_UNIT residual"
+    );
+    assert!(
+        src.contains("ArrowLeft") && src.contains("cycle_friendly_selection(-1)"),
+        "Ctrl+Left must SELECT_PREV_UNIT residual"
+    );
+    assert!(
+        src.contains("cycle_friendly_worker_selection"),
+        "Ctrl+Up/Down must worker cycle residual"
+    );
+}
+
+#[test]
+fn diplomacy_and_control_group_modifiers_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("toggle_diplomacy_panel_hotkey") && src.contains("NamedKey::Tab"),
+        "Tab must DIPLOMACY residual"
+    );
+    assert!(
+        src.contains("ADD_TEAM residual") || src.contains("shift_down"),
+        "Shift+digit must ADD_TEAM residual"
+    );
+    assert!(
+        src.contains("VIEW_TEAM residual") || src.contains("alt_down"),
+        "Alt+digit must VIEW_TEAM residual"
+    );
+    assert!(
+        src.contains("Escape closed diplomacy panel residual"),
+        "Escape must close diplomacy before pause"
+    );
+}
+
+#[test]
+fn chat_and_screenshot_hotkeys_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("NamedKey::Enter") && src.contains("ChatTarget::All"),
+        "Enter must CHAT_EVERYONE residual"
+    );
+    assert!(
+        src.contains("NamedKey::Backspace") && src.contains("ChatTarget::Allies"),
+        "Backspace must CHAT_ALLIES residual"
+    );
+    assert!(
+        src.contains("NamedKey::F12") && src.contains("take_screenshot_hotkey"),
+        "F12 must TAKE_SCREENSHOT residual"
+    );
+    assert!(
+        src.contains("Escape closed chat residual"),
+        "Escape must close chat first"
+    );
+}
+
+#[test]
+fn deploy_and_numpad_camera_hold_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down") && src.contains("Command_Deploy"),
+        "D must Deploy residual"
+    );
+    assert!(
+        src.contains("Numpad4") && src.contains("camera_rotate_left_held"),
+        "KP4 must rotate-left hold residual"
+    );
+    assert!(
+        src.contains("Numpad6") && src.contains("camera_rotate_right_held"),
+        "KP6 must rotate-right hold residual"
+    );
+    assert!(
+        src.contains("Numpad8") && src.contains("camera_zoom_in_held"),
+        "KP8 must zoom-in hold residual"
+    );
+    assert!(
+        src.contains("Numpad2") && src.contains("camera_zoom_out_held"),
+        "KP2 must zoom-out hold residual"
+    );
+}
+
+#[test]
+fn show_options_event_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("UIEvent::ShowOptions") && src.contains("Screen::Options"),
+        "engine must handle ShowOptions residual"
+    );
+    let ui = include_str!("../ui/ui_manager.rs");
+    assert!(
+        ui.contains("options_menu") && ui.contains("Screen::Options"),
+        "UIManager must own OptionsMenu residual"
+    );
+}
+
+#[test]
+fn remaining_commandmap_hotkeys_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("toggle_camera_tracking_drawable_hotkey")
+            && src.contains("camera_tracking_selection"),
+        "TOGGLE_CAMERA_TRACKING_DRAWABLE residual required"
+    );
+    assert!(
+        src.contains("toggle_replay_fast_forward_hotkey")
+            && src.contains("replay_fast_forward")
+            && src.contains("m_TiVOFastMode"),
+        "TOGGLE_FAST_FORWARD_REPLAY residual required"
+    );
+    assert!(
+        src.contains("DEMO_INSTANT_QUIT") && src.contains("GameState::Exiting"),
+        "DEMO_INSTANT_QUIT residual required"
+    );
+}
+
+#[test]
+fn victory_defeat_shows_victory_screen_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("show_match_result(true, self.current_player_id)"),
+        "Victory state must open Victory screen"
+    );
+    assert!(
+        src.contains("show_match_result(false, self.current_player_id)"),
+        "Defeat state must open Defeat presentation residual"
+    );
+    assert!(
+        src.contains("fn show_match_result")
+            || include_str!("../ui/ui_manager.rs").contains("fn show_match_result"),
+        "UIManager must expose show_match_result residual"
+    );
+}
+
+#[test]
+fn wasd_not_camera_scroll_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let i = src
+        .find("fn update_camera(&mut self, dt: f32)")
+        .expect("update_camera");
+    let body = &src[i..src.len().min(i + 3500)];
+    assert!(
+        !body.contains("is_character_key_pressed(\"w\")")
+            && !body.contains("is_character_key_pressed(\"s\")")
+            && !body.contains("is_character_key_pressed(\"a\")")
+            && !body.contains("is_character_key_pressed(\"d\")"),
+        "WASD must not drive camera scroll (unit hotkey conflict)"
+    );
+    assert!(
+        body.contains("NamedKey::ArrowUp") && body.contains("NamedKey::ArrowDown"),
+        "arrow keys remain camera scroll residual"
+    );
+}
+
+#[test]
+fn windowed_edge_scroll_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let i = src
+        .find("fn update_camera(&mut self, dt: f32)")
+        .expect("update_camera");
+    let body = &src[i..src.len().min(i + 4500)];
+    assert!(
+        body.contains("EDGE_SCROLL_SIZE"),
+        "edge scroll residual must remain"
+    );
+    assert!(
+        !body.contains("if !self.is_windowed\n                && matches!(self.current_state, GameState::InGame | GameState::Paused)"),
+        "edge scroll must not be fullscreen-only"
+    );
+    assert!(
+        body.contains("!self.chat_panel.is_open()")
+            && body.contains("!self.diplomacy_panel.is_active()"),
+        "edge/arrow scroll suppressed during chat/diplomacy modal"
+    );
+}
+
+#[test]
+fn settings_changed_health_bars_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("UIEvent::SettingsChanged") && src.contains("game.show_health_bars"),
+        "SettingsChanged must apply show_health_bars residual"
+    );
+}
+
+#[test]
+fn hud_h_does_not_steal_view_command_center_residual() {
+    let hud = include_str!("../ui/hud.rs");
+    // After residual fix, bare KeyCode::H toggle must not remain in GameHUD key handler.
+    let marker = "Global HUD hotkeys";
+    let i = hud.find(marker).expect("global HUD hotkeys section");
+    let section = &hud[i..hud.len().min(i + 400)];
+    assert!(
+        !section.contains("KeyCode::H =>"),
+        "GameHUD must not bind bare H (VIEW_COMMAND_CENTER conflict)"
+    );
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        eng.contains("Command_ViewCommandCenter")
+            && eng.contains("eq_ignore_ascii_case(\"h\") && !ctrl_down"),
+        "engine H must still VIEW_COMMAND_CENTER"
+    );
+}
+
+#[test]
+fn drag_select_rect_overlay_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("selection_start_screen")
+            && src.contains("DragSelectRect")
+            && src.contains("drag_rect.filter(|r| r.is_valid())"),
+        "InGame render must feed DragSelectRect while dragging"
+    );
+    assert!(
+        src.contains("Defer empty-ground clear until left-release")
+            || src.contains("Instant clear on mousedown fights drag-select"),
+        "mousedown must not clear selection before drag completes"
+    );
+}
+
+#[test]
+fn structure_placement_ghost_cursor_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("sync_pending_structure_placement_cursor")
+            && src.contains("sync_structure_placement_cursor")
+            && src.contains("legal_build_code_at_for_builder"),
+        "placement ghost must track cursor legality each frame"
+    );
+    let hud = include_str!("../ui/hud.rs");
+    assert!(
+        hud.contains("placement: crate::ui::construction_panel::PlacementPreview")
+            || hud.contains("PlacementPreview"),
+        "HUD ConstructionPanel must own PlacementPreview ghost"
+    );
+}
+
+#[test]
+fn pending_map_radius_cursor_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("arm_radius_cursor_for_pending")
+            && src.contains("sync_pending_map_command_radius_cursor")
+            && src.contains("clear_radius_cursor_overlays"),
+        "pending map commands must drive radius cursor residual"
+    );
+    assert!(
+        src.contains("ATTACK_CONTINUE_AREA") && src.contains("GUARD_AREA"),
+        "AttackMove/Guard must arm retail radius cursor names"
+    );
+    assert!(
+        src.contains("PARTICLECANNON") || src.contains("OFFENSIVE_SPECIALPOWER"),
+        "special power must map to radius cursor type"
+    );
+}
+
+#[test]
+fn minimap_right_click_context_command_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn issue_minimap_move")
+            && src.contains("process_mouse_input")
+            && src.contains("MouseButton::Right"),
+        "minimap RMB must use context-sensitive CommandSystem path"
+    );
+    // Ensure issue_minimap_move body is not pure command_move-only.
+    let start = src
+        .find("fn issue_minimap_move")
+        .expect("issue_minimap_move");
+    let end = src[start + 1..]
+        .find(
+            "
+    fn ",
+        )
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 4000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("process_mouse_input") && body.contains("find_object_at_position"),
+        "minimap RMB must resolve target + command context like world RMB"
+    );
+}
+
+#[test]
+fn ground_marker_circles_overlay_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("collect_ground_marker_circles") && src.contains("ground_markers"),
+        "engine must feed placement/radius ground markers into selection overlay"
+    );
+    let sel = include_str!("../graphics/selection_renderer.rs");
+    assert!(
+        sel.contains("ground_markers: Vec<SelectedUnit>"),
+        "selection overlay must accept ground_markers residual"
+    );
+}
+
+#[test]
+fn dual_hud_construction_hotkey_route_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)")
+            && src.contains("drain_pending_ui_events"),
+        "engine GameHUD must receive construction/command hotkeys in InGame"
+    );
+    let um = include_str!("../ui/ui_manager.rs");
+    assert!(
+        um.contains("pending_structure_placement") && um.contains("Fall through to GameHUD"),
+        "UIManager Escape must not open pause over active structure placement"
+    );
+}
+
+#[test]
+fn order_line_overlay_draw_residual() {
+    let sel = include_str!("../graphics/selection_renderer.rs");
+    assert!(
+        sel.contains("draw_order_line_segments")
+            && sel.contains("MoveLineUpload::pack_from_presentation")
+            && sel.contains("AttackLineUpload::pack_from_presentation"),
+        "selection overlay must GPU-draw move/attack order lines from presentation"
+    );
+}
+
+#[test]
+fn shift_select_and_ctrl_force_attack_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn toggle_select_object")
+            && src.contains("fn issue_force_attack_from_left_click"),
+        "left-click must support Shift multi-select and Ctrl force-attack"
+    );
+    let start = src.find("fn handle_left_click").expect("handle_left_click");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 2500);
+    let body = &src[start..end];
+    assert!(
+        body.contains("shift_down")
+            && body.contains("toggle_select_object")
+            && body.contains("issue_force_attack_from_left_click"),
+        "handle_left_click must branch on Shift/Ctrl residuals"
+    );
+}
+
+#[test]
+fn cancel_unit_production_rmb_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn cancel_unit_production_from_ui") && src.contains("CancelUnitProduction"),
+        "engine must handle CancelUnitProduction residual"
+    );
+    let hud = include_str!("../ui/hud.rs");
+    assert!(
+        hud.contains("CancelUnitProduction") && hud.contains("build_queue_cancel"),
+        "HUD RMB must raise CancelUnitProduction"
+    );
+}
+
+#[test]
+fn context_mouse_cursor_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn sync_context_mouse_cursor")
+            && src.contains("fn resolve_context_cursor_icon")
+            && src.contains("set_cursor"),
+        "InGame mouse move must apply context cursor residual"
+    );
+    assert!(
+        src.contains("\"AttackObj\"")
+            && src.contains("\"Build\"")
+            && src.contains("\"InvalidBuild\"")
+            && src.contains("\"Waypoint\""),
+        "cursor residual must cover attack/build/waypoint names"
+    );
+}
+
+#[test]
+fn auto_dozer_structure_place_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn find_nearest_friendly_dozer")
+            && src.contains("Select a dozer or worker to build"),
+        "structure place must auto-pick nearest dozer residual"
+    );
+    let start = src.find("fn place_structure_from_ui").expect("place");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 4000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("clear_structure_placement")
+            && body.contains("game_hud.construction_panel")
+            && body.contains("ui_manager"),
+        "legal place must dual-clear both HUD placement ghosts"
+    );
+}
+
+#[test]
+fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let start = src.find("fn handle_key_press").expect("handle_key_press");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 8000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("Command_Deploy")
+            && body.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down"),
+        "D must issue Command_Deploy residual"
+    );
+    // Bare D must not be bound to debug_show_victory(None) ahead of Deploy.
+    assert!(
+        !body.contains(
+            "eq_ignore_ascii_case(\"d\") => {\n                self.debug_show_victory(None)"
+        ),
+        "debug defeat must not steal D from Deploy"
+    );
+}
+
+#[test]
+fn deployed_blocks_can_move_and_guard_ring_residual() {
+    let obj = include_str!("../game_logic/object.rs");
+    let start = obj.find("pub fn can_move").expect("can_move");
+    let body = &obj[start..start + 700];
+    assert!(
+        body.contains("!self.status.deployed"),
+        "deployed units must not can_move residual"
+    );
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("GUARD_AREA_RADIUS") && src.contains("guard_position"),
+        "selected guard units must draw guard-area ring residual"
+    );
+}
+
+#[test]
+fn eva_low_power_chat_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn sync_eva_messages_from_logic")
+            && src.contains("add_eva_message")
+            && src.contains("eva_low_power_count")
+            && src.contains("Insufficient funds")
+            && src.contains("Our base is under attack"),
+        "engine must surface EVA LOWPOWER/funds/under-attack to chat residual"
+    );
+}
+
+#[test]
+fn pending_unit_ability_arm_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("PendingUnitAbility")
+            && src.contains("fn arm_pending_unit_ability")
+            && src.contains("UnitAbility(ability)"),
+        "ControlBar unit abilities must arm pending target click residual"
+    );
+    assert!(
+        src.contains("PendingUnitAbility::Hijack")
+            && src.contains("PendingUnitAbility::SnipeVehicle")
+            && src.contains("PendingUnitAbility::PlantTimedDemoCharge"),
+        "hero/ability set must include hijack/snipe/charges residual"
+    );
+}
+
+#[test]
+fn presentation_event_sfx_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn play_presentation_event_sfx")
+            && src.contains("SoundType::ConstructionComplete")
+            && src.contains("SoundType::UnitReady"),
+        "presentation complete events must play SFX residual"
+    );
+}
+
+#[test]
+fn sticky_waypoint_mode_toggle_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("sticky_waypoint_mode")
+            && src.contains("eq_ignore_ascii_case(\"z\")")
+            && src.contains("Waypoint mode: ON"),
+        "Z must toggle sticky waypoint mode residual"
+    );
+}
+
+#[test]
+fn idle_worker_period_key_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("c == \".\"")
+            && src.contains("cycle_friendly_worker_selection(1)")
+            && src.contains("SELECT_IDLE_WORKER"),
+        "period key must cycle idle workers residual"
+    );
+    let start = src
+        .find("fn cycle_friendly_worker_selection")
+        .expect("cycle_friendly_worker_selection");
+    let body = &src[start..start + 2200];
+    assert!(
+        body.contains("idle_workers") && body.contains("AIState::Idle"),
+        "worker cycle must prefer idle workers residual"
+    );
+}
+
+#[test]
+fn structure_placement_rotate_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("rotate_structure_placement")
+            && src.contains("facing_radians")
+            && src.contains("pending_structure_placement.is_some()"),
+        "mouse wheel must rotate structure placement ghost residual"
+    );
+}
+
+#[test]
+fn structure_cycle_and_auto_attack_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn cycle_friendly_structure_selection")
+            && src.contains("SELECT_NEXT_STRUCTURE")
+            && src.contains("sticky_auto_attack"),
+        "structure cycle + sticky auto-attack residual required"
+    );
+    assert!(
+        src.contains("Auto-attack: ON") && src.contains("AttackMoveTo"),
+        "sticky auto-attack must convert moves to attack-move"
+    );
+}
+
+#[test]
+fn force_attack_ground_t_key_and_home_structure_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("ForceAttackGround")
+            && src.contains("eq_ignore_ascii_case(\"t\")")
+            && src.contains("Force-attack ground"),
+        "T must issue ForceAttackGround at cursor residual"
+    );
+    assert!(
+        src.contains("NamedKey::Home") && src.contains("cycle_friendly_structure_selection(1)"),
+        "Home/End must cycle structures residual"
+    );
+}
+
+#[test]
+fn patrol_and_sell_hotkey_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_Sell")
+            && src.contains("eq_ignore_ascii_case(\"s\")")
+            && src.contains("NamedKey::Shift"),
+        "Ctrl+Shift+S must sell selection residual"
+    );
+    let cmd = include_str!("../command_system.rs");
+    assert!(
+        cmd.contains("Patrol") && cmd.contains("\"patrol\""),
+        "Patrol command residual must exist"
+    );
+    let ex = include_str!("../command_executor.rs");
+    assert!(
+        ex.contains("fn execute_patrol") && ex.contains("AIState::Patrolling"),
+        "execute_patrol must set Patrolling residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_Patrol"),
+        "command strip must expose Patrol residual"
+    );
+}
+
+#[test]
+fn evacuate_and_repair_hotkey_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"u\")") && src.contains("Command_Evacuate"),
+        "U must issue Evacuate residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"r\")")
+            && src.contains("Command_Repair")
+            && src.contains("PendingUnitAbility::Repair"),
+        "R must arm Repair residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("\"repair\"") && cs.contains("CommandType::Repair"),
+        "repair button name must map residual"
+    );
+}
+
+#[test]
+fn rally_overcharge_capture_hotkey_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"y\")") && src.contains("Command_SetRallyPoint"),
+        "Y must arm SetRallyPoint residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"o\")") && src.contains("Command_ToggleOvercharge"),
+        "O must toggle overcharge residual"
+    );
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"c\")")
+            && src.contains("Command_CaptureBuilding")
+            && src.contains("!ctrl_down"),
+        "C must arm CaptureBuilding residual"
+    );
+}
+
+#[test]
+fn construction_cameo_hotkey_priority_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("construction_consumed")
+            && src.contains("_ if construction_consumed")
+            && src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)"),
+        "construction panel must consume build keys before global hotkeys residual"
+    );
+    assert!(
+        src.contains("cycle_construction_tab")
+            && src.contains("cycle_construction_tab(1)")
+            && src.contains("force_tab"),
+        "[ ] must cycle construction tabs residual"
+    );
+    let hud = include_str!("../ui/hud.rs");
+    assert!(
+        hud.contains("fn force_tab") && hud.contains("ConstructionTab::Aircraft"),
+        "construction panel force_tab residual"
+    );
+}
+
+#[test]
+fn shift_ctrl_production_queue_multiplier_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("UIEvent::QueueUnitProduction")
+            && src.contains("saturating_mul(5)")
+            && src.contains("qty = 9"),
+        "Shift×5 and Ctrl fill-queue residual for production"
+    );
+}
+
+#[test]
+fn special_power_v_key_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let start = src.find("fn handle_key_press").expect("handle_key_press");
+    let end = src[start + 1..]
+        .find("\n    fn ")
+        .map(|i| start + 1 + i)
+        .unwrap_or(start + 12000);
+    let body = &src[start..end];
+    assert!(
+        body.contains("Command_DoSpecialPower") && body.contains("eq_ignore_ascii_case(\"v\")"),
+        "V must arm Command_DoSpecialPower residual"
+    );
+    // Bare V must not instantly debug-win.
+    assert!(
+        !body.contains(
+            "eq_ignore_ascii_case(\"v\") => {\n                self.debug_show_victory(Some(self.current_player_id))"
+        ),
+        "debug victory must not steal bare V from special power"
+    );
+    assert!(
+        body.contains("NamedKey::Shift") && body.contains("debug_show_victory"),
+        "debug victory remains behind Ctrl+Shift residual"
+    );
+}
+
+#[test]
+fn strategy_center_battle_plan_residual() {
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("BattlePlanBombardment")
+            && cs.contains("initiatebattleplanbombardment")
+            && cs.contains("BattlePlanHoldTheLine")
+            && cs.contains("BattlePlanSearchAndDestroy"),
+        "battle plan button names must map residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_InitiateBattlePlanBombardment") && pf.contains("strategycenter"),
+        "Strategy Center strip must expose battle plans residual"
+    );
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        eng.contains("BattlePlanBombardment") && eng.contains("BattlePlanHoldTheLine"),
+        "engine must execute battle plans without map-click residual"
+    );
+}
+
+#[test]
+fn named_superweapon_button_residual() {
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("spysatellitescan")
+            && cs.contains("ciaintelligence")
+            && cs.contains("particlecannon")
+            && cs.contains("nuclearmissile")
+            && cs.contains("scudstorm")
+            && cs.contains("carpetbomb")
+            && cs.contains("artillerybarrage")
+            && cs.contains("emergencyrepair")
+            && cs.contains("airstrike")
+            && cs.contains("ambush")
+            && cs.contains("sneakattack")
+            && cs.contains("leafletdrop")
+            && cs.contains("gpsscrambler")
+            && cs.contains("spectregunship")
+            && cs.contains("anthraxbomb"),
+        "named SW button names must map residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_ParticleCannon")
+            && pf.contains("Command_SpySatelliteScan")
+            && pf.contains("Command_CIAIntelligence")
+            && pf.contains("Command_CarpetBomb")
+            && pf.contains("Command_EmergencyRepair")
+            && pf.contains("Command_ArtilleryBarrage")
+            && pf.contains("Command_SpyDrone")
+            && pf.contains("Command_Airstrike")
+            && pf.contains("Command_Ambush")
+            && pf.contains("Command_SneakAttack")
+            && pf.contains("Command_LeafletDrop")
+            && pf.contains("Command_SpectreGunship"),
+        "SW structures must expose named buttons residual"
+    );
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        eng.contains("Pass 1: honor named"),
+        "engine must prefer named SW type when arming residual"
+    );
+}
+
+#[test]
+fn damaged_structure_cycle_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn cycle_damaged_structure_selection")
+            && src.contains("No damaged structures")
+            && src.contains("NamedKey::Alt")
+            && src.contains("cycle_damaged_structure_selection(1)"),
+        "Ctrl+Alt+arrows must cycle damaged structures residual"
+    );
+}
+
+#[test]
+fn idle_military_select_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn select_all_idle_military")
+            && src.contains("eq_ignore_ascii_case(\"i\")")
+            && src.contains("select_all_idle_military()")
+            && src.contains("No idle military units"),
+        "Ctrl+I must select idle military residual"
+    );
+}
+
+#[test]
+fn unit_attitude_hotkey_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_AttitudeAggressive")
+            && src.contains("Command_AttitudeSleep")
+            && src.contains("Command_AttitudePassive")
+            && src.contains("NamedKey::Alt"),
+        "Alt+A/S/D must set unit attitude residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("AttitudeAggressive")
+            && cs.contains("AttitudeSleep")
+            && cs.contains("\"aggressive\""),
+        "attitude commands must map residual"
+    );
+    let ex = include_str!("../command_executor.rs");
+    assert!(
+        ex.contains("fn execute_set_attitude") && ex.contains("set_ai_attitude"),
+        "execute_set_attitude residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_AttitudeAggressive") && pf.contains("Command_AttitudeSleep"),
+        "strip must expose attitude residual"
+    );
+}
+
+#[test]
+fn generals_science_purchase_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn try_purchase_next_generals_science")
+            && src.contains("PurchaseScience")
+            && src.contains("eq_ignore_ascii_case(\"g\")")
+            && src.contains("NamedKey::Alt")
+            && src.contains("No science purchase points"),
+        "Alt+G must purchase next generals science residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_PurchaseScience") && pf.contains("local_science_purchase_points"),
+        "strip must expose PurchaseScience when SPP residual"
+    );
+}
+
+#[test]
+fn wall_line_drag_placement_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn is_wall_structure_template")
+            && src.contains("fn place_wall_line_from_ui")
+            && src.contains("DozerConstructLine")
+            && src.contains("Wall line ordered"),
+        "wall/fence drag must issue DozerConstructLine residual"
+    );
+}
+
+#[test]
+fn detonate_and_harvester_select_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("eq_ignore_ascii_case(\"n\")")
+            && src.contains("Command_DetonateRemoteDemoCharges"),
+        "N must detonate remote charges residual"
+    );
+    assert!(
+        src.contains("fn select_all_harvesters")
+            && src.contains("select_all_harvesters()")
+            && src.contains("No harvesters found"),
+        "Ctrl+Shift+I must select harvesters residual"
+    );
+}
+
+#[test]
+fn switch_weapons_and_demo_suicide_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_SwitchWeapons")
+            && src.contains("eq_ignore_ascii_case(\"w\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+W must SwitchWeapons residual"
+    );
+    assert!(
+        src.contains("Command_DemoTertiarySuicide") && src.contains("eq_ignore_ascii_case(\"b\")"),
+        "Alt+B must DemoTertiarySuicide residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("\"switchweapons\"") || cs.contains("SwitchWeapons"),
+        "switchweapons button map residual"
+    );
+}
+
+#[test]
+fn delete_cancel_production_and_combat_drop_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn cancel_selected_production_queue_head")
+            && src.contains("Canceled production")
+            && src.contains("NamedKey::Delete"),
+        "Delete must cancel production queue head residual"
+    );
+    assert!(
+        src.contains("PendingMapCommand::CombatDrop")
+            && src.contains("Command_CombatDrop")
+            && src.contains("Combat drop: click landing zone"),
+        "Alt+C / CombatDrop must arm map click residual"
+    );
+}
+
+#[test]
+fn hack_internet_and_cleanup_area_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_HackInternet")
+            && src.contains("eq_ignore_ascii_case(\"i\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+I must HackInternet residual"
+    );
+    assert!(
+        src.contains("Command_CleanupArea") && src.contains("eq_ignore_ascii_case(\"m\")"),
+        "Alt+M must CleanupArea residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("HackInternet") && cs.contains("\"hackinternet\""),
+        "HackInternet command map residual"
+    );
+    let ex = include_str!("../command_executor.rs");
+    assert!(
+        ex.contains("fn execute_hack_internet") && ex.contains("start_hacker_internet_hack"),
+        "execute_hack_internet residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_HackInternet") && pf.contains("Command_CleanupArea"),
+        "strip must expose hack/cleanup residual"
+    );
+}
+
+#[test]
+fn return_to_base_aircraft_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_ReturnToBase")
+            && src.contains("eq_ignore_ascii_case(\"r\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+R must ReturnToBase residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("ReturnToBase") && cs.contains("\"returntobase\""),
+        "ReturnToBase command map residual"
+    );
+    let ex = include_str!("../command_executor.rs");
+    assert!(
+        ex.contains("fn execute_return_to_base")
+            && ex.contains("is_friendly_airfield")
+            && ex.contains("execute_dock"),
+        "execute_return_to_base docks nearest airfield residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_ReturnToBase"),
+        "aircraft strip must expose RTB residual"
+    );
+}
+
+#[test]
+fn on_screen_select_and_camera_follow_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn select_all_friendly_on_screen")
+            && src.contains("select_all_friendly_on_screen()")
+            && src.contains("No units on screen"),
+        "Ctrl+Alt+A must select on-screen friendlies residual"
+    );
+    assert!(
+        src.contains("fn toggle_camera_follow_selection")
+            && src.contains("Camera follow on")
+            && src.contains("eq_ignore_ascii_case(\"f\")"),
+        "Alt+F must toggle camera follow residual"
+    );
+    let gl = include_str!("../game_logic/game_logic.rs");
+    assert!(
+        gl.contains("fn set_camera_follow_object") && gl.contains("fn camera_follow_object_id"),
+        "GameLogic camera follow API residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("fn alive_selectable_friendly_near"),
+        "presentation near-select residual"
+    );
+}
+
+#[test]
+fn return_supplies_and_select_structures_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_ReturnSupplies")
+            && src.contains("eq_ignore_ascii_case(\"u\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+U must ReturnSupplies residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_structures")
+            && src.contains("select_all_friendly_structures()")
+            && src.contains("No structures found"),
+        "Ctrl+Alt+S must select all structures residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("ReturnSupplies") && cs.contains("\"returnsupplies\""),
+        "ReturnSupplies command map residual"
+    );
+    let ex = include_str!("../command_executor.rs");
+    assert!(
+        ex.contains("fn execute_return_supplies") && ex.contains("ReturningResources"),
+        "execute_return_supplies residual"
+    );
+}
+
+#[test]
+fn clear_mines_and_unfinished_construction_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("Command_ClearMines")
+            && src.contains("eq_ignore_ascii_case(\"x\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+X must ClearMines residual"
+    );
+    assert!(
+        src.contains("fn cycle_unfinished_construction")
+            && src.contains("No unfinished construction")
+            && src.contains("cycle_unfinished_construction(1)"),
+        "Ctrl+Alt+Home/End must cycle unfinished construction residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("ClearMines") && cs.contains("\"clearmines\""),
+        "ClearMines command map residual"
+    );
+    let ex = include_str!("../command_executor.rs");
+    assert!(
+        ex.contains("fn execute_clear_mines") && ex.contains("is_mine_clearer"),
+        "execute_clear_mines residual"
+    );
+}
+
+#[test]
+fn resume_construction_hotkey_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn resume_selected_construction")
+            && src.contains("Resuming construction")
+            && src.contains("eq_ignore_ascii_case(\"e\")")
+            && src.contains("NamedKey::Alt"),
+        "Alt+E must resume construction residual"
+    );
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(
+        pf.contains("Command_ResumeConstruction"),
+        "unfinished structure strip must expose ResumeConstruction residual"
+    );
+    let cs = include_str!("../command_system.rs");
+    assert!(
+        cs.contains("\"resumeconstruction\"") || cs.contains("ResumeConstruction"),
+        "resumeconstruction button map residual"
+    );
+}
+
+#[test]
+fn idle_harvesters_and_cancel_all_production_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn select_idle_harvesters")
+            && src.contains("select_idle_harvesters()")
+            && src.contains("No idle harvesters"),
+        "Ctrl+Alt+I must select idle harvesters residual"
+    );
+    assert!(
+        src.contains("fn cancel_all_selected_production")
+            && src.contains("Canceled all production")
+            && src.contains("ctrl_down && !shift"),
+        "Ctrl+Delete must cancel all production residual"
+    );
+}
+
+#[test]
+fn guard_radius_and_combat_select_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn adjust_selected_guard_radius")
+            && src.contains("Guard radius:")
+            && src.contains("adjust_selected_guard_radius(15.0)"),
+        "Alt+[ ] must adjust guard radius residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_combat")
+            && src.contains("select_all_friendly_combat()")
+            && src.contains("No combat units"),
+        "Ctrl+Alt+Q must select combat units residual"
+    );
+}
+
+#[test]
+fn clear_path_and_damaged_unit_cycle_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn clear_selected_path_waypoints")
+            && src.contains("Path cleared")
+            && src.contains("clear_selected_path_waypoints()"),
+        "Alt+Z must clear path waypoints residual"
+    );
+    assert!(
+        src.contains("fn cycle_damaged_unit_selection")
+            && src.contains("No damaged units")
+            && src.contains("cycle_damaged_unit_selection(1)"),
+        "Ctrl+Alt+Up/Down must cycle damaged units residual"
+    );
+}
+
+#[test]
+fn moving_select_and_health_bars_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn select_all_friendly_moving")
+            && src.contains("select_all_friendly_moving()")
+            && src.contains("No moving units"),
+        "Ctrl+Alt+M must select moving units residual"
+    );
+    assert!(
+        src.contains("fn toggle_health_bars_hotkey")
+            && src.contains("Health bars: ON")
+            && src.contains("show_health_bars"),
+        "Alt+H must toggle health bars residual"
+    );
+}
+
+#[test]
+fn attacking_select_and_stop_all_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn select_all_friendly_attacking")
+            && src.contains("select_all_friendly_attacking()")
+            && src.contains("No attacking units"),
+        "Ctrl+Alt+T must select attacking units residual"
+    );
+    assert!(
+        src.contains("fn stop_all_friendly_units")
+            && src.contains("stop_all_friendly_units()")
+            && src.contains("Stopped"),
+        "Ctrl+Shift+. must stop all friendlies residual"
+    );
+}
+
+#[test]
+fn debug_producer_and_guarding_select_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn toggle_debug_info_hotkey")
+            && src.contains("Debug overlay: ON")
+            && src.contains("NamedKey::F1) if ctrl_down"),
+        "Ctrl+F1 must toggle debug overlay residual"
+    );
+    assert!(
+        src.contains("fn cycle_busy_producer_selection")
+            && src.contains("No busy producers")
+            && src.contains("cycle_busy_producer_selection(1)"),
+        "Ctrl+Alt+P must cycle busy producers residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_guarding")
+            && src.contains("select_all_friendly_guarding()")
+            && src.contains("No guarding units"),
+        "Ctrl+Alt+G must select guarding units residual"
+    );
+}
+
+#[test]
+fn center_selection_and_constructing_workers_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn center_camera_on_selection")
+            && src.contains("Centered on selection")
+            && src.contains("NamedKey::Space")
+            && src.contains("NamedKey::Alt"),
+        "Alt+Space must center on selection residual"
+    );
+    assert!(
+        src.contains("fn select_all_constructing_workers")
+            && src.contains("select_all_constructing_workers()")
+            && src.contains("No constructing workers"),
+        "Ctrl+Alt+B must select constructing workers residual"
+    );
+}
+
+#[test]
+fn idle_military_cycle_and_repairing_select_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn cycle_idle_military_selection")
+            && src.contains("cycle_idle_military_selection(1)")
+            && src.contains("No idle military"),
+        "Ctrl+Alt+,/. must cycle idle military residual"
+    );
+    assert!(
+        src.contains("fn select_all_repairing_units")
+            && src.contains("select_all_repairing_units()")
+            && src.contains("No repairing units"),
+        "Ctrl+Alt+R must select repairing units residual"
+    );
+}
+
+#[test]
+fn patrol_gather_and_ready_sw_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn select_all_friendly_patrolling")
+            && src.contains("select_all_friendly_patrolling()")
+            && src.contains("No patrolling units"),
+        "Ctrl+Alt+Y must select patrolling residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_gathering")
+            && src.contains("select_all_friendly_gathering()")
+            && src.contains("No gathering units"),
+        "Ctrl+Alt+H must select gathering residual"
+    );
+    assert!(
+        src.contains("fn cycle_ready_special_power_structure")
+            && src.contains("No ready special powers")
+            && src.contains("cycle_ready_special_power_structure(1)"),
+        "Ctrl+Alt+V must cycle ready SW residual"
+    );
+}
+
+#[test]
+fn fps_veterans_and_docked_aircraft_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn toggle_fps_counter_hotkey")
+            && src.contains("FPS counter: ON")
+            && src.contains("NamedKey::F2) if ctrl_down"),
+        "Ctrl+F2 must toggle FPS residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_veterans")
+            && src.contains("No veteran units")
+            && src.contains("select_all_friendly_veterans()"),
+        "Ctrl+Alt+E must select veterans residual"
+    );
+    assert!(
+        src.contains("fn select_all_docked_aircraft")
+            && src.contains("No docked aircraft")
+            && src.contains("select_all_docked_aircraft()"),
+        "Ctrl+Alt+W must select docked aircraft residual"
+    );
+}
+
+#[test]
+fn control_group_cycle_and_stealth_select_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn cycle_control_group_selection")
+            && src.contains("cycle_control_group_selection")
+            && src.contains("No control groups"),
+        "Ctrl+Shift+Tab must cycle control groups residual"
+    );
+    assert!(
+        src.contains("fn select_all_friendly_stealthed")
+            && src.contains("select_all_friendly_stealthed()")
+            && src.contains("No stealthed units"),
+        "Ctrl+Alt+K must select stealthed residual"
+    );
+}
+
+#[test]
+fn move_lines_and_garrisoned_select_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn toggle_move_lines_hotkey")
+            && src.contains("Move lines: ON")
+            && src.contains("show_move_lines")
+            && src.contains("NamedKey::F3) if ctrl_down")
+            && src.contains("self.show_move_lines,"),
+        "Ctrl+F3 must toggle move lines residual"
+    );
+    assert!(
+        src.contains("fn select_all_garrisoned_structures")
+            && src.contains("No garrisoned structures")
+            && src.contains("select_all_garrisoned_structures()"),
+        "Ctrl+Alt+U must select garrisoned structures residual"
+    );
+}
+
+#[test]
+fn runtime_host_construct_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("dozer_construct") && src.contains("construct_ok:"),
+        "runtime host must expose construct/dozer_construct residual"
+    );
+    assert!(
+        src.contains("construct_fail_no_dozer")
+            && src.contains("construct_fail_lbc:")
+            && src.contains("place_structure_from_ui"),
+        "construct residual must legal-build scan + place_structure_from_ui"
+    );
+}
+
+#[test]
+fn runtime_host_train_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("train_unit") && src.contains("train_ok:"),
+        "runtime host must expose train_unit residual"
+    );
+    assert!(
+        src.contains("train_fail_no_producer")
+            && src.contains("under_construction")
+            && src.contains("enqueue_production"),
+        "train residual must complete unfinished barracks and enqueue production"
+    );
+}
+
+#[test]
+fn runtime_host_save_load_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("\"save_game\" | \"quicksave\"")
+            || (src.contains("save_ok:") && src.contains("quicksave")),
+        "runtime host must expose save_game/quicksave residual"
+    );
+    assert!(
+        src.contains("quickload")
+            && src.contains("load_ok:quicksave")
+            && src.contains("save_game_from_ui"),
+        "runtime host must expose quickload residual"
+    );
+}
+
+#[test]
+fn runtime_host_stop_sell_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("stop_all") && src.contains("stop_ok:"),
+        "runtime host must expose stop_all residual"
+    );
+    assert!(
+        src.contains("sell_selected") && src.contains("sell_ok:") && src.contains("Command_Sell"),
+        "runtime host must expose sell residual"
+    );
+}
+
+#[test]
+fn runtime_host_upgrade_guard_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("queue_upgrade") && src.contains("upgrade_ok:"),
+        "runtime host must expose upgrade residual"
+    );
+    assert!(
+        src.contains("guard_position") && src.contains("guard_ok:"),
+        "runtime host must expose guard residual"
+    );
+}
+
+#[test]
+fn runtime_host_attack_move_scatter_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("attack_move") && src.contains("attack_move_ok:"),
+        "runtime host must expose attack_move residual"
+    );
+    assert!(
+        src.contains("\"scatter\"")
+            && src.contains("scatter_ok:")
+            && src.contains("Command_Scatter"),
+        "runtime host must expose scatter residual"
+    );
+}
+
+#[test]
+fn runtime_host_patrol_deploy_formation_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("\"patrol\"") && src.contains("patrol_ok:"),
+        "runtime host must expose patrol residual"
+    );
+    assert!(
+        src.contains("\"deploy\"") && src.contains("deploy_ok:"),
+        "runtime host must expose deploy residual"
+    );
+    assert!(
+        src.contains("\"cheer\"") && src.contains("cheer_ok"),
+        "runtime host must expose cheer residual"
+    );
+    assert!(
+        src.contains("create_formation") && src.contains("formation_ok:"),
+        "runtime host must expose formation residual"
+    );
+}
+
+#[test]
+fn runtime_host_capture_economy_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("capture_building") && src.contains("capture_ok:"),
+        "runtime host must expose capture residual"
+    );
+    assert!(
+        src.contains("return_supplies") && src.contains("return_supplies_ok:"),
+        "runtime host must expose return_supplies residual"
+    );
+    assert!(
+        src.contains("\"evacuate\"") && src.contains("evacuate_ok:"),
+        "runtime host must expose evacuate residual"
+    );
+    assert!(
+        src.contains("\"repair\"") && src.contains("repair_ok:"),
+        "runtime host must expose repair residual"
+    );
+    assert!(
+        src.contains("return_to_base") && src.contains("return_to_base_ok:"),
+        "runtime host must expose return_to_base residual"
+    );
+}
+
+#[test]
+fn runtime_host_misc_command_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("attitude_aggressive") && src.contains("attitude_ok:aggressive"),
+        "runtime host must expose attitude residuals"
+    );
+    assert!(
+        src.contains("set_rally") && src.contains("rally_ok:"),
+        "runtime host must expose set_rally residual"
+    );
+    assert!(
+        src.contains("switch_weapons") && src.contains("switch_weapons_ok:"),
+        "runtime host must expose switch_weapons residual"
+    );
+    assert!(
+        src.contains("view_command_center") && src.contains("view_cc_ok"),
+        "runtime host must expose view_command_center residual"
+    );
+    assert!(
+        src.contains("clear_mines") && src.contains("clear_mines_ok:"),
+        "runtime host must expose clear_mines residual"
+    );
+    assert!(
+        src.contains("place_beacon") && src.contains("beacon_ok:"),
+        "runtime host must expose place_beacon residual"
+    );
+}
+
+#[test]
+fn runtime_host_special_named_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "hack_internet",
+        "hack_ok:",
+        "cleanup_area",
+        "cleanup_ok:",
+        "combat_drop",
+        "combat_drop_ok:",
+        "toggle_overcharge",
+        "overcharge_ok",
+        "do_special_power",
+        "special_power_ok",
+        "remove_beacon",
+        "remove_beacon_ok",
+        "demo_suicide",
+        "demo_suicide_ok",
+        "detonate_remote",
+        "detonate_remote_ok",
+        "view_last_radar",
+        "view_radar_ok",
+    ] {
+        assert!(src.contains(needle), "missing host residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_force_select_group_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "force_attack",
+        "force_attack_ok:",
+        "ForceAttackGround",
+        "force_attack_object",
+        "force_attack_object_ok:",
+        "ForceAttackObject",
+        "select_all",
+        "select_all_ok:",
+        "select_all_combat",
+        "select_all_combat_ok:",
+        "assign_control_group",
+        "control_group_assign_ok:",
+        "recall_control_group",
+        "control_group_recall_ok:",
+    ] {
+        assert!(src.contains(needle), "missing host residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_waypoint_box_presentation_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "waypoint_mode",
+        "waypoint_mode_ok:",
+        "add_waypoint",
+        "waypoint_ok:",
+        "AddWaypoint",
+        "box_select",
+        "box_select_ok:",
+        "presentation_frame_ok",
+        "presentation_live_fallback_reads",
+        "last_presentation_live_fallback_reads",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_selection_filter_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "select_similar",
+        "select_similar_ok:",
+        "select_on_screen",
+        "select_on_screen_ok:",
+        "select_aircraft",
+        "select_aircraft_ok:",
+        "select_idle_harvesters",
+        "select_idle_ok:",
+        "select_structures",
+        "select_structures_ok:",
+        "select_moving",
+        "select_moving_ok:",
+    ] {
+        assert!(src.contains(needle), "missing selection residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_camera_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "camera_reset",
+        "camera_reset_ok:",
+        "reset_camera_view_hotkey",
+        "camera_look_at",
+        "camera_look_ok:",
+        "camera_zoom",
+        "camera_zoom_ok:",
+        "camera_track",
+        "camera_track_ok:",
+    ] {
+        assert!(src.contains(needle), "missing camera residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_pause_cancel_diplomacy_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "pause_ok:paused",
+        "pause_ok:resumed",
+        "cancel_production",
+        "cancel_production_ok:",
+        "cancel_selected_production_queue_head",
+        "open_diplomacy",
+        "diplomacy_ok",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_live_frame_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let runtime = include_str!("runtime.rs");
+    let src = format!("{src}\n{runtime}");
+    assert!(
+        src.contains("live_frame_ok")
+            && src.contains("has_published_live_frame")
+            && src.contains("png_file_looks_usable")
+            && src.contains("window_visible")
+            && src.contains("wnd_widget_tree_nav")
+            && src.contains("wnd_menu_to_match_complete"),
+        "runtime host must publish live_frame_ok / window_visible / physical WND menu-to-match honesty"
+    );
+    let status_fn = src.find("fn publish_status").expect("publish_status");
+    let status_end = src[status_fn..]
+        .find("fn publish_frame")
+        .map(|i| status_fn + i)
+        .unwrap_or(status_fn + 3_200);
+    let status_body = &src[status_fn..status_end];
+    assert!(
+        status_body.contains("snapshot.live_frame_ok || self.has_published_live_frame"),
+        "live_frame_ok must stay capture-promoted, not fallback PNG"
+    );
+    assert!(
+        status_body.contains("retail_sit_through_missing"),
+        "publish_status must list which of the five sit-through flags are still false"
+    );
+    assert!(
+        status_body.contains("ingame=") && status_body.contains("gameplay="),
+        "publish_status must print ingame/gameplay sit-through flags explicitly"
+    );
+    assert!(
+        !status_body.contains("png_file_looks_usable"),
+        "publish_status must not claim live_frame_ok from fallback frame.png"
+    );
+    let i = src.find("fn publish_runtime").expect("publish_runtime");
+    let w = &src[i..src.len().min(i + 350)];
+    let frame_i = w.find("publish_frame").expect("publish_frame");
+    let status_i = w.find("publish_status").expect("publish_status");
+    assert!(
+        frame_i < status_i,
+        "publish_frame must run before publish_status for live_frame_ok"
+    );
+}
+
+#[test]
+fn runtime_host_auto_attack_menu_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "auto_attack",
+        "auto_attack_ok:on",
+        "auto_attack_ok:off",
+        "sticky_auto_attack",
+        "quit_to_menu",
+        "menu_ok",
+        "options_ok",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
+    }
+}
+
+#[test]
+fn runtime_host_options_probe_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("options_probe") && src.contains("options_probe_ok"),
+        "runtime host must expose options_probe residual that stays InGame"
+    );
+}
+
+#[test]
+fn runtime_host_request_capture_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for needle in [
+        "request_capture",
+        "request_capture_ok",
+        "runtime_host_pending_capture",
+        "take_runtime_host_pending_capture",
+        "force_capture_request",
+        "pending_capture",
+    ] {
+        assert!(src.contains(needle), "missing residual {needle}");
+    }
+}
+
+#[test]
+fn attack_lines_and_occupied_transports_residual() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn toggle_attack_lines_hotkey")
+            && src.contains("Attack lines: ON")
+            && src.contains("show_attack_lines")
+            && src.contains("NamedKey::F4) if ctrl_down")
+            && src.contains("self.show_attack_lines,"),
+        "Ctrl+F4 must toggle attack lines residual"
+    );
+    assert!(
+        src.contains("fn select_all_occupied_transports")
+            && src.contains("No occupied transports")
+            && src.contains("select_all_occupied_transports()"),
+        "Ctrl+Alt+J must select occupied transports residual"
+    );
+}
+
+#[cfg(test)]
+mod world_scene_skip_residual_tests {
+    #[test]
+    fn ingame_does_not_skip_world_for_menu_warmup_counter() {
+        let src = crate::cnc_game_engine::ENGINE_SRC;
+        let start = src
+            .find("fn should_skip_world_scene_for_shell_menu")
+            .expect("skip fn");
+        let body = &src[start..src.len().min(start + 900)];
+        assert!(body.contains("GameState::Menu =>"), "Menu branch required");
+        assert!(
+            body.contains("_ => false"),
+            "InGame and other states must not skip via menu warmup counter"
+        );
+    }
+}
+
+#[cfg(test)]
+mod runtime_host_windowed_bridge_tests {
+    use super::*;
+    use crate::command_line::CommandLineArgs;
+
+    #[test]
+    fn windowed_runtime_host_is_requested_but_not_headless() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let control = dir.path().join("control.txt");
+        let status = dir.path().join("status.txt");
+        let frame = dir.path().join("frame.png");
+        let args = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            "-runtime_host".into(),
+            "windowed".into(),
+            "-gpui_control".into(),
+            control.to_string_lossy().into_owned(),
+            "-gpui_status".into(),
+            status.to_string_lossy().into_owned(),
+            "-gpui_frame".into(),
+            frame.to_string_lossy().into_owned(),
+        ])
+        .expect("parse");
+        assert!(!RuntimeHostBridge::is_headless_mode(&args));
+        assert!(RuntimeHostBridge::is_runtime_host_requested(&args));
+        assert!(RuntimeHostBridge::from_command_line(&args).is_some());
+        let headless = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            "-runtime_host".into(),
+            "headless".into(),
+            "-gpui_control".into(),
+            control.to_string_lossy().into_owned(),
+            "-gpui_status".into(),
+            status.to_string_lossy().into_owned(),
+            "-gpui_frame".into(),
+            frame.to_string_lossy().into_owned(),
+        ])
+        .expect("parse headless");
+        assert!(RuntimeHostBridge::is_headless_mode(&headless));
+        assert!(RuntimeHostBridge::from_command_line(&headless).is_some());
+    }
+
+    #[test]
+    fn runtime_host_enabled_uses_active_not_only_headless() {
+        let src = crate::cnc_game_engine::ENGINE_SRC;
+        let start = src.find("fn runtime_host_enabled").expect("enabled");
+        let end = src[start..]
+            .find("fn runtime_host_window_visible")
+            .map(|i| start + i)
+            .unwrap_or(start + 120);
+        let body = &src[start..end];
+        assert!(
+            body.contains("self.runtime_host_active"),
+            "windowed runtime host must enable host cmds/status"
+        );
+        assert!(
+            !body.contains("self.runtime_host_headless"),
+            "enabled must not be headless-only"
+        );
+        assert!(src.contains("note_os_wnd_widget_tree_hit"));
+    }
+
+    #[test]
+    fn windowed_runtime_host_publishes_visible_from_winit_is_visible() {
+        let src = crate::cnc_game_engine::ENGINE_SRC;
+        let start = src
+            .find("fn runtime_host_window_visible")
+            .expect("window_visible helper");
+        let body = &src[start..src.len().min(start + 420)];
+        assert!(
+            body.contains("!self.runtime_host_headless"),
+            "window_visible must stay false in headless"
+        );
+        assert!(
+            body.contains("is_visible()") && body.contains("unwrap_or(!self.runtime_host_headless)"),
+            "window_visible must use winit is_visible Some(true) or unwrap_or(!headless)"
+        );
+        assert!(
+            src.contains("window_visible: self.runtime_host_window_visible()"),
+            "status snapshot must publish the honest winit visibility residual"
+        );
+        assert!(
+            src.contains("live_frame_ok: false"),
+            "snapshot live_frame_ok stays false; publish ORs a real capture"
+        );
+        assert!(
+            src.contains("interactive_playability.wnd_menu_to_match_complete()"),
+            "snapshot must publish physical WND menu-to-match evidence, not a singleton latch"
+        );
+        assert!(
+            src.contains("retail_sit_through_missing"),
+            "windowed status must list which sit-through flags are still false"
+        );
+    }
+
+    #[test]
+    fn windowed_runtime_host_does_not_init_headless_ww3d() {
+        let src = crate::cnc_game_engine::ENGINE_SRC;
+        let headless_init = src
+            .find("ww3d_engine::init_headless")
+            .expect("init_headless");
+        let window_init = src
+            .find("ww3d_engine::init_with_window")
+            .expect("init_with_window");
+        assert!(window_init > headless_init);
+        let gate = &src[headless_init.saturating_sub(200)..headless_init];
+        assert!(
+            gate.contains("if runtime_host_headless"),
+            "init_headless must stay behind runtime_host_headless"
+        );
+        assert!(
+            src[headless_init..window_init].contains("} else if"),
+            "windowed runtime_host must not call init_headless"
+        );
+    }
+
+    #[test]
+    fn windowed_runtime_host_redraw_presents_gpu() {
+        let src = crate::cnc_game_engine::ENGINE_SRC;
+        assert!(
+            src.contains("drive_frame(engine, current_window, &mut runtime_host_bridge, true)"),
+            "windowed RedrawRequested must present (render_frame=true)"
+        );
+        assert!(
+            src.contains("next_redraw_at = now + FRAME_INTERVAL"),
+            "windowed AboutToWait must pace GPU presents"
+        );
+        assert!(
+            src.contains("HEADLESS_PRESENT_INTERVAL"),
+            "headless present interval must remain a separate path"
+        );
+    }
+}
+
+#[cfg(test)]
+mod headless_edge_scroll_residual_tests {
+    #[test]
+    fn edge_scroll_disabled_when_headless() {
+        let src = crate::cnc_game_engine::ENGINE_SRC;
+        let i = src
+            .find("Edge scrolling (C++ LookAt.cpp")
+            .expect("edge scroll");
+        let body = &src[i..src.len().min(i + 500)];
+        assert!(
+            body.contains("!self.runtime_host_headless"),
+            "headless runtime host must not edge-scroll from stuck (0,0) mouse"
+        );
+    }
+}

@@ -12611,7 +12611,7 @@
 
     #[test]
     fn presentation_audio_direct_dispatch_source() {
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn collect_audio_events")
                 && pf.contains("fn dispatch_audio_events_direct")
@@ -12679,7 +12679,7 @@
 
     #[test]
     fn presentation_eva_counters_source() {
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("pub eva_low_power_count: u32")
                 && pf.contains("pub eva_insufficient_funds_count: u32")
@@ -12860,7 +12860,7 @@
                 "{name} must log attack decision under AI decision authority"
             );
         }
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("host_attack_log::take_last_drain")
                 && pf.contains("PresentationEvent::AttackTargeted"),
@@ -12870,7 +12870,7 @@
 
     #[test]
     fn select_hero_presentation_source() {
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn alive_selectable_friendly_hero_ids") && pf.contains("KindOf::Hero"),
             "PresentationFrame must expose hero select helper from snapshot kind_of"
@@ -12893,7 +12893,7 @@
 
     #[test]
     fn filter_select_presentation_source() {
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         for name in [
             "alive_selectable_friendly_combat_ids",
             "alive_selectable_friendly_moving_ids",
@@ -12947,7 +12947,7 @@
 
     #[test]
     fn specialty_select_presentation_source() {
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         for name in [
             "alive_selectable_friendly_harvester_ids",
             "alive_selectable_friendly_idle_harvester_ids",
@@ -13001,7 +13001,7 @@
 
     #[test]
     fn cycle_stop_presentation_source() {
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         for name in [
             "alive_selectable_friendly_damaged_unit_ids",
             "alive_selectable_friendly_damaged_structure_ids",
@@ -13103,7 +13103,7 @@
                 || body.contains("Boot residual only"),
             "sell empty fill must stay presentation-only (no live dual-scan)"
         );
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn alive_sellable_friendly_structure_ids"),
             "presentation helper required"
@@ -13129,7 +13129,7 @@
             body.contains("alive_construct_builder_ids"),
             "construct empty builders must prefer presentation workers/dozers"
         );
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn alive_upgrade_producer_structure_ids")
                 && pf.contains("fn alive_construct_builder_ids"),
@@ -13185,7 +13185,7 @@
             body.contains("first_enemy_force_attack_id"),
             "attack_nearest_enemy must pick enemy from presentation without live or_else"
         );
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn first_enemy_force_attack_id"),
             "presentation helper required"
@@ -13214,7 +13214,7 @@
                 && body.contains("Prefer force-completed + presentation"),
             "train producer must prefer force-completed + presentation barracks"
         );
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn first_friendly_command_center_position"),
             "presentation CC helper required"
@@ -13248,7 +13248,7 @@
                 && body.contains("alive_selectable_friendly_idle_worker_ids"),
             "resume construction must prefer presentation unfinished/idle workers"
         );
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn alive_selectable_friendly_idle_worker_ids")
                 && pf.contains("fn alive_selectable_friendly_unfinished_ids"),
@@ -13274,7 +13274,7 @@
             body.contains("Boot residual only"),
             "status snapshot must keep boot residual live dual-scans"
         );
-        let pf = include_str!("presentation_frame.rs");
+        let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
         assert!(
             pf.contains("fn count_under_construction_friendlies")
                 && pf.contains("fn first_friendly_sample_label"),
@@ -13420,7 +13420,7 @@
         }
         // Spectre orbit gattling residual nearest enemy.
         {
-            let sp = include_str!("game_logic/special_power_strikes.rs");
+            let sp = include_str!("game_logic/special_power_strikes/registry_fields.rs");
             assert!(
                 sp.contains("if gattling_due") && sp.contains("pick_nearest_residual_target_xz"),
                 "spectre gattling residual must use pure XZ acquire"

@@ -3485,7 +3485,9 @@ pub mod guard;
 pub mod guard_retaliate;
 
 // AI player systems
+#[path = "ai_player/mod.rs"]
 pub mod ai_player; // Base AIPlayer implementation
+
 pub mod skirmish_player; // Skirmish-specific AI
 
 pub use self::group::AIGroup;
@@ -3501,6 +3503,7 @@ pub mod pathfinding_system; // Production pathfinding system
 pub mod group_pathfinding;
 pub mod path_optimization; // Path smoothing (AIPathfind.cpp:450-696)
 pub mod pathfind_astar; // A* algorithm (AIPathfind.cpp:6438-6694)
+#[path = "pathfind_complete/mod.rs"]
 pub mod pathfind_complete; // Complete system (all features integrated) // Group/formation pathfinding
 
 #[cfg(test)]
@@ -3508,6 +3511,9 @@ mod pathfinding_tests;
 
 // Legacy AIPlayer implementation superseded by ai_player.
 pub mod squad;
+#[path = "ai_states/mod.rs"]
+pub mod ai_states;
+#[path = "states/mod.rs"]
 pub mod states;
 pub mod tn_guard;
 pub mod turret;
@@ -3611,10 +3617,10 @@ mod tests {
                 && !w.contains("client_safe_quick_does_path_exist"),
             "findBrokenBridge must check pathfinder destroyed layers only (no terrain residual)"
         );
-        let complete = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/ai/pathfind_complete.rs"
-        ));
+        let complete = concat!(
+            include_str!("pathfind_complete/types.rs"),
+            include_str!("pathfind_complete/block_zones.rs"),
+        );
         assert!(
             complete.contains("fn connects_zones")
                 && complete.contains("ground_connect_cells")

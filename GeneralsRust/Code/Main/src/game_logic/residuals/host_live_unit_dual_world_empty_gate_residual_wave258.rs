@@ -101,7 +101,11 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: Unit empty dual-world short-circuits.
 pub fn honesty_unit_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/unit.rs");
+    let g = concat!(
+        include_str!("../../../../GameEngine/GameLogic/src/object/unit/registry.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/object/unit/combat.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/object/unit/ai_loco.rs"),
+    );
     if !(g.contains("Wave 258")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

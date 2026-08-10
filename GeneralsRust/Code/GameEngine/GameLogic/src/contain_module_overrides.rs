@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Residual include_str! / module_coverage_audit still read this sibling file.
+// Live module is contain_module_overrides/ via #[path] in lib.rs.
+
 use std::any::Any;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 

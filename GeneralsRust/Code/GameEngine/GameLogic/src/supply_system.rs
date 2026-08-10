@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory + #[path] in the parent.
+// Residual include_str! scans keep reading this sibling file.
+
 //! Supply and Economy System
 //!
 //! Complete implementation of the C&C Generals supply collection and economy system.

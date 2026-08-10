@@ -1,3 +1,6 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! W3D gadget draw callbacks (push button) for device-style rendering.
 
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};

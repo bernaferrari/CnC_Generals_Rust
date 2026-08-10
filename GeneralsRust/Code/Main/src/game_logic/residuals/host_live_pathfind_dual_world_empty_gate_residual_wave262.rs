@@ -101,7 +101,20 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: PathfindingSystem empty dual-world short-circuits.
 pub fn honesty_pathfind_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/ai/pathfind_complete.rs");
+    let g = concat!(
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/ai/pathfind_complete/types.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/ai/pathfind_complete/construct.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/ai/pathfind_complete/line_passable.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/ai/pathfind_complete/occupancy.rs"
+        ),
+    );
     if !(g.contains("Wave 262")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Residual include_str! scans keep reading this sibling file.
+// Live module is ai_states/ + #[path = "ai_states/mod.rs"] in the parent.
+
 //! AIStates - Complete AI state machine implementation
 //!
 //! This module implements the complete AI state machine system from the C++ original.

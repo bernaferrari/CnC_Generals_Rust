@@ -1,50 +1,100 @@
+// SCAN DUMP ONLY — not compiled.
+// Concatenation of GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window for residual include_str! scans.
+// Live module is the sibling directory + #[path] in the parent.
+
+// ===== SCAN DUMP FROM game_window/mod.rs =====
 //! GameWindow Implementation
 //!
 //! This module provides the `GameWindow` struct, which represents individual UI windows
 //! and controls in the game's windowing system. It handles window properties, hierarchy,
 //! event callbacks, and drawing.
+//!
+//! Split into focused submodules. Public API is identical to the former
+//! `gui/game_window.rs` god-file.
 
-use bitflags::bitflags;
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
-use std::fmt;
-use std::rc::{Rc, Weak};
-use std::sync::OnceLock;
+mod payload;
+mod messages;
+mod font;
+mod listbox;
+mod combo;
+mod other_gadgets;
+mod window_struct;
+mod window_impl_core;
+mod window_impl_widgets;
+mod window_impl_input;
+mod window_impl_draw;
+mod callbacks;
 
-use glam::Vec2;
-use std::sync::Arc;
+#[cfg(test)]
+mod tests;
 
-use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
-use crate::game_text::GameText;
-use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
+/// Shared imports for split impl / gadget helper files.
+mod prelude {
+    #![allow(unused_imports)]
 
-use super::gadgets::{
-    CheckBox, Color as GadgetColor, ComboBox, ComboBoxItem, Gadget, GadgetMessage, GadgetState,
-    GadgetValue, HorizontalSlider, InputEvent, KeyCode, KeyModifiers, ListBox, ListBoxAddEntry,
-    ListBoxItemData, ListBoxSelection, ListBoxTextAndColor, MouseButton, ProgressBar, PushButton,
-    RadioButton, SelectionMode, StaticText, TabControl, TabControlData, TextEntry, ValidationMode,
-    VerticalSlider,
-};
-use super::{
-    display_string::DisplayStringHandle,
-    font::{get_font_library, FontDesc},
-    get_display_string_manager, with_ui_renderer_mut, with_window_manager_ref, UIRect,
-    MAX_DRAW_DATA, TOOLTIP_MAX_LEN,
-};
-use crate::gui::window_manager::{with_window_manager, TabDirection};
+    pub(super) use super::callbacks::*;
+    pub(super) use super::combo::*;
+    pub(super) use super::font::*;
+    pub(super) use super::listbox::*;
+    pub(super) use super::messages::*;
+    pub(super) use super::other_gadgets::*;
+    pub(super) use super::payload::*;
+    pub(super) use super::window_struct::*;
+
+    pub(super) use std::cell::{Cell, RefCell};
+    pub(super) use std::fmt;
+    pub(super) use std::rc::{Rc, Weak};
+    pub(super) use std::sync::Arc;
+    pub(super) use std::sync::OnceLock;
+
+    pub(super) use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
+    pub(super) use crate::game_text::GameText;
+    pub(super) use crate::gui::window_manager::{with_window_manager, TabDirection};
+    pub(super) use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
+
+    pub(super) use super::super::gadgets::{
+        CheckBox, Color as GadgetColor, ComboBox, ComboBoxItem, Gadget, GadgetMessage, GadgetState,
+        GadgetValue, HorizontalSlider, InputEvent, KeyCode, KeyModifiers, ListBox, ListBoxAddEntry,
+        ListBoxItemData, ListBoxSelection, ListBoxTextAndColor, MouseButton, ProgressBar, PushButton,
+        RadioButton, SelectionMode, StaticText, TabControl, TabControlData, TextEntry, ValidationMode,
+        VerticalSlider,
+    };
+    pub(super) use super::super::{
+        display_string::DisplayStringHandle,
+        font::{get_font_library, FontDesc},
+        get_display_string_manager, with_ui_renderer_mut, with_window_manager_ref, UIRect,
+        MAX_DRAW_DATA, TOOLTIP_DELAY, TOOLTIP_MAX_LEN, WindowLayout,
+    };
+}
+
+pub use callbacks::*;
+pub use combo::*;
+pub use font::*;
+pub use listbox::*;
+pub use messages::*;
+pub use payload::*;
+pub use window_struct::*;
+
+// ===== SCAN DUMP FROM game_window/payload.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use std::cell::RefCell;
+
+use crate::gui::gadgets::{ListBoxAddEntry, ListBoxItemData, ListBoxTextAndColor};
 
 /// Window ID type for uniquely identifying windows
 pub type WindowId = i32;
 
-const KEY_STATE_UP: WindowMsgData = 0x0001;
-const KEY_STATE_DOWN: WindowMsgData = 0x0002;
-const KEY_STATE_LCONTROL: WindowMsgData = 0x0004;
-const KEY_STATE_RCONTROL: WindowMsgData = 0x0008;
-const KEY_STATE_LSHIFT: WindowMsgData = 0x0010;
-const KEY_STATE_RSHIFT: WindowMsgData = 0x0020;
-const KEY_STATE_LALT: WindowMsgData = 0x0040;
-const KEY_STATE_RALT: WindowMsgData = 0x0080;
-const GADGET_SIZE: i32 = 16;
+pub(crate) const KEY_STATE_UP: WindowMsgData = 0x0001;
+pub(crate) const KEY_STATE_DOWN: WindowMsgData = 0x0002;
+pub(crate) const KEY_STATE_LCONTROL: WindowMsgData = 0x0004;
+pub(crate) const KEY_STATE_RCONTROL: WindowMsgData = 0x0008;
+pub(crate) const KEY_STATE_LSHIFT: WindowMsgData = 0x0010;
+pub(crate) const KEY_STATE_RSHIFT: WindowMsgData = 0x0020;
+pub(crate) const KEY_STATE_LALT: WindowMsgData = 0x0040;
+pub(crate) const KEY_STATE_RALT: WindowMsgData = 0x0080;
+pub(crate) const GADGET_SIZE: i32 = 16;
 
 /// Window message data type
 ///
@@ -72,18 +122,18 @@ pub enum WindowMsgPayload {
     ItemDataOpt(Option<ListBoxItemData>),
 }
 
-const WINDOW_MSG_TOKEN_TAG: usize = 1usize << (usize::BITS - 1);
-const WINDOW_MSG_INDEX_BITS: u32 = 24;
-const WINDOW_MSG_INDEX_MASK: usize = (1usize << WINDOW_MSG_INDEX_BITS) - 1;
-const WINDOW_MSG_GEN_SHIFT: u32 = WINDOW_MSG_INDEX_BITS;
-const WINDOW_MSG_GEN_MASK: usize = (1usize << (usize::BITS - 1 - WINDOW_MSG_INDEX_BITS)) - 1;
+pub(crate) const WINDOW_MSG_TOKEN_TAG: usize = 1usize << (usize::BITS - 1);
+pub(crate) const WINDOW_MSG_INDEX_BITS: u32 = 24;
+pub(crate) const WINDOW_MSG_INDEX_MASK: usize = (1usize << WINDOW_MSG_INDEX_BITS) - 1;
+pub(crate) const WINDOW_MSG_GEN_SHIFT: u32 = WINDOW_MSG_INDEX_BITS;
+pub(crate) const WINDOW_MSG_GEN_MASK: usize = (1usize << (usize::BITS - 1 - WINDOW_MSG_INDEX_BITS)) - 1;
 
-struct WindowMsgPayloadSlot {
+pub(crate) struct WindowMsgPayloadSlot {
     generation: u32,
     value: Option<WindowMsgPayload>,
 }
 
-struct WindowMsgPayloadArena {
+pub(crate) struct WindowMsgPayloadArena {
     slots: Vec<WindowMsgPayloadSlot>,
     free: Vec<usize>,
 }
@@ -243,16 +293,34 @@ pub(crate) unsafe fn window_msg_from_raw_ptr<T>(ptr: *const T) -> WindowMsgData 
     ptr as usize
 }
 
-fn write_bool_payload(data: WindowMsgData, value: bool) -> bool {
+pub(crate) fn write_bool_payload(data: WindowMsgData, value: bool) -> bool {
     replace_payload(data, WindowMsgPayload::Bool(value))
 }
 
-fn payload_text(data: WindowMsgData) -> Option<String> {
+pub(crate) fn payload_text(data: WindowMsgData) -> Option<String> {
     match payload(data) {
         Some(WindowMsgPayload::Text(text)) => Some(text),
         _ => None,
     }
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ListBoxCellPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+
+// ===== SCAN DUMP FROM game_window/messages.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use bitflags::bitflags;
+
+use crate::gui::gadgets::Color as GadgetColor;
+
+use super::payload::{write_bool_payload, WindowId, WindowMsgData};
 
 /// Result type for window operations
 pub type WindowResult<T> = Result<T, WindowError>;
@@ -264,33 +332,33 @@ pub const WINDOW_ID_INVALID: WindowId = 0;
 pub const WIN_COLOR_UNDEFINED: u32 = 0x00FF_FFFF;
 
 /// Gadget system message IDs
-const GGM_LEFT_DRAG: u32 = 16384;
-const GGM_SET_LABEL: u32 = GGM_LEFT_DRAG + 1;
-const GGM_GET_LABEL: u32 = GGM_LEFT_DRAG + 2;
-const GGM_FOCUS_CHANGE: u32 = GGM_LEFT_DRAG + 3;
-const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
-const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
-const GSM_SLIDER_TRACK: u32 = GGM_LEFT_DRAG + 11;
-const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
-const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
-const GLM_ADD_ENTRY: u32 = GGM_LEFT_DRAG + 15;
-const GLM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 16;
-const GLM_DEL_ALL: u32 = GGM_LEFT_DRAG + 17;
+pub(crate) const GGM_LEFT_DRAG: u32 = 16384;
+pub(crate) const GGM_SET_LABEL: u32 = GGM_LEFT_DRAG + 1;
+pub(crate) const GGM_GET_LABEL: u32 = GGM_LEFT_DRAG + 2;
+pub(crate) const GGM_FOCUS_CHANGE: u32 = GGM_LEFT_DRAG + 3;
+pub(crate) const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
+pub(crate) const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
+pub(crate) const GSM_SLIDER_TRACK: u32 = GGM_LEFT_DRAG + 11;
+pub(crate) const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
+pub(crate) const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
+pub(crate) const GLM_ADD_ENTRY: u32 = GGM_LEFT_DRAG + 15;
+pub(crate) const GLM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 16;
+pub(crate) const GLM_DEL_ALL: u32 = GGM_LEFT_DRAG + 17;
 pub const GLM_SELECTED: u32 = GGM_LEFT_DRAG + 18;
 pub const GLM_DOUBLE_CLICKED: u32 = GGM_LEFT_DRAG + 19;
 pub const GLM_RIGHT_CLICKED: u32 = GGM_LEFT_DRAG + 20;
-const GLM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 21;
-const GLM_GET_SELECTION: u32 = GGM_LEFT_DRAG + 22;
-const GLM_TOGGLE_MULTI_SELECTION: u32 = GGM_LEFT_DRAG + 23;
-const GLM_GET_TEXT: u32 = GGM_LEFT_DRAG + 24;
-const GLM_SET_UP_BUTTON: u32 = GGM_LEFT_DRAG + 25;
-const GLM_SET_DOWN_BUTTON: u32 = GGM_LEFT_DRAG + 26;
-const GLM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 27;
-const GLM_SCROLL_BUFFER: u32 = GGM_LEFT_DRAG + 28;
-const GLM_UPDATE_DISPLAY: u32 = GGM_LEFT_DRAG + 29;
-const GLM_GET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 30;
-const GLM_SET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 31;
-const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
+pub(crate) const GLM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 21;
+pub(crate) const GLM_GET_SELECTION: u32 = GGM_LEFT_DRAG + 22;
+pub(crate) const GLM_TOGGLE_MULTI_SELECTION: u32 = GGM_LEFT_DRAG + 23;
+pub(crate) const GLM_GET_TEXT: u32 = GGM_LEFT_DRAG + 24;
+pub(crate) const GLM_SET_UP_BUTTON: u32 = GGM_LEFT_DRAG + 25;
+pub(crate) const GLM_SET_DOWN_BUTTON: u32 = GGM_LEFT_DRAG + 26;
+pub(crate) const GLM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 27;
+pub(crate) const GLM_SCROLL_BUFFER: u32 = GGM_LEFT_DRAG + 28;
+pub(crate) const GLM_UPDATE_DISPLAY: u32 = GGM_LEFT_DRAG + 29;
+pub(crate) const GLM_GET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 30;
+pub(crate) const GLM_SET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 31;
+pub(crate) const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
 pub const GCM_ADD_ENTRY: u32 = GGM_LEFT_DRAG + 32;
 pub const GCM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 33;
 pub const GCM_DEL_ALL: u32 = GGM_LEFT_DRAG + 34;
@@ -305,9 +373,9 @@ pub const GCM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 42;
 pub const GCM_UPDATE_TEXT: u32 = GGM_LEFT_DRAG + 43;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
-fn shell_color_from_packed_arg(value: WindowMsgData) -> super::shell::Color {
+pub(crate) fn shell_color_from_packed_arg(value: WindowMsgData) -> crate::gui::shell::Color {
     let value = value as u32;
-    super::shell::Color::new(
+    crate::gui::shell::Color::new(
         ((value >> 16) & 0xFF) as u8,
         ((value >> 8) & 0xFF) as u8,
         (value & 0xFF) as u8,
@@ -315,7 +383,7 @@ fn shell_color_from_packed_arg(value: WindowMsgData) -> super::shell::Color {
     )
 }
 
-fn gadget_color_from_shell_color(color: super::shell::Color) -> GadgetColor {
+pub(crate) fn gadget_color_from_shell_color(color: crate::gui::shell::Color) -> GadgetColor {
     GadgetColor::rgba(color.r, color.g, color.b, color.a)
 }
 
@@ -338,7 +406,7 @@ pub const GWS_TAB_PANE: u32 = 0x0000_4000;
 pub const GWS_COMBO_BOX: u32 = 0x0000_8000;
 pub const GWS_ALL_SLIDER: u32 = GWS_VERT_SLIDER | GWS_HORZ_SLIDER;
 
-const HORIZONTAL_SLIDER_THUMB_POSITION: i32 = 10;
+pub(crate) const HORIZONTAL_SLIDER_THUMB_POSITION: i32 = 10;
 pub const GWS_GADGET_WINDOW: u32 = GWS_PUSH_BUTTON
     | GWS_RADIO_BUTTON
     | GWS_TAB_CONTROL
@@ -350,395 +418,6 @@ pub const GWS_GADGET_WINDOW: u32 = GWS_PUSH_BUTTON
     | GWS_STATIC_TEXT
     | GWS_COMBO_BOX
     | GWS_PROGRESS_BAR;
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ListBoxCellPosition {
-    pub x: i32,
-    pub y: i32,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ListBoxSelectionResult {
-    pub single: i32,
-    pub multiple: Vec<i32>,
-}
-
-pub fn gadget_list_box_get_selected(listbox: &mut GameWindow, select_list: &mut WindowMsgData) {
-    let token = push_payload(WindowMsgPayload::None);
-    let _ = listbox.send_system_message(WindowMessage::User(GLM_GET_SELECTION), 0, token);
-    match pop_payload(token) {
-        Some(WindowMsgPayload::Int(index)) => {
-            *select_list = index as isize as WindowMsgData;
-        }
-        Some(payload @ WindowMsgPayload::IntList(_)) => {
-            *select_list = push_payload(payload);
-        }
-        _ => *select_list = 0,
-    }
-}
-
-pub fn gadget_list_box_get_bottom_visible_entry(listbox: &GameWindow) -> i32 {
-    match listbox.widget.as_ref() {
-        Some(WindowWidget::ListBox(listbox)) => listbox.get_bottom_visible_entry(),
-        _ => 0,
-    }
-}
-
-pub fn gadget_list_box_is_full(listbox: &GameWindow) -> bool {
-    match listbox.widget.as_ref() {
-        Some(WindowWidget::ListBox(listbox)) => listbox.is_full(),
-        _ => false,
-    }
-}
-
-pub fn gadget_list_box_set_bottom_visible_entry(listbox: &mut GameWindow, index: i32) {
-    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
-        listbox.set_bottom_visible_entry(index);
-    }
-}
-
-pub fn gadget_list_box_get_top_visible_entry(listbox: &GameWindow) -> i32 {
-    match listbox.widget.as_ref() {
-        Some(WindowWidget::ListBox(listbox)) => listbox.get_top_visible_entry(),
-        _ => 0,
-    }
-}
-
-pub fn gadget_list_box_set_top_visible_entry(listbox: &mut GameWindow, index: i32) {
-    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
-        listbox.set_top_visible_entry(index);
-    }
-}
-
-pub fn gadget_list_box_set_audio_feedback(listbox: &mut GameWindow, enable: bool) {
-    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
-        listbox.set_audio_feedback(enable);
-    }
-}
-
-pub fn gadget_list_box_get_num_columns(listbox: &GameWindow) -> i32 {
-    match listbox.widget.as_ref() {
-        Some(WindowWidget::ListBox(listbox)) => listbox.columns() as i32,
-        _ => 0,
-    }
-}
-
-pub fn gadget_list_box_get_column_width(listbox: &GameWindow, column: i32) -> i32 {
-    match listbox.widget.as_ref() {
-        Some(WindowWidget::ListBox(listbox)) => listbox.column_width(column) as i32,
-        _ => 0,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn gadget_list_box_set_colors(
-    listbox: &mut GameWindow,
-    enabled_color: Color,
-    enabled_border_color: Color,
-    enabled_selected_item_color: Color,
-    enabled_selected_item_border_color: Color,
-    disabled_color: Color,
-    disabled_border_color: Color,
-    disabled_selected_item_color: Color,
-    disabled_selected_item_border_color: Color,
-    hilite_color: Color,
-    hilite_border_color: Color,
-    hilite_selected_item_color: Color,
-    hilite_selected_item_border_color: Color,
-) {
-    let _ = listbox.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
-    let _ = listbox.set_enabled_draw_colors(
-        1,
-        enabled_selected_item_color,
-        enabled_selected_item_border_color,
-    );
-    let _ = listbox.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
-    let _ = listbox.set_disabled_draw_colors(
-        1,
-        disabled_selected_item_color,
-        disabled_selected_item_border_color,
-    );
-    let _ = listbox.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
-    let _ = listbox.set_hilite_draw_colors(
-        1,
-        hilite_selected_item_color,
-        hilite_selected_item_border_color,
-    );
-
-    let Some(links) = listbox.listbox_links else {
-        return;
-    };
-    let Some(slider) = listbox.find_child_by_id(links.slider) else {
-        return;
-    };
-    {
-        let mut slider = slider.borrow_mut();
-        let _ = slider.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
-        let _ = slider.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
-        let _ = slider.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
-    }
-
-    let thumb_selected = links
-        .thumb
-        .and_then(|thumb_id| listbox.find_child_by_id(thumb_id));
-    let enabled_selected = thumb_selected
-        .as_ref()
-        .and_then(|thumb| thumb.borrow().get_enabled_draw_data(1))
-        .unwrap_or_default();
-    let disabled_selected = thumb_selected
-        .as_ref()
-        .and_then(|thumb| thumb.borrow().get_disabled_draw_data(1))
-        .unwrap_or_default();
-    let hilite_selected = thumb_selected
-        .as_ref()
-        .and_then(|thumb| thumb.borrow().get_hilite_draw_data(1))
-        .unwrap_or_default();
-
-    for button_id in [links.up_button, links.down_button] {
-        if let Some(button) = listbox.find_child_by_id(button_id) {
-            let mut button = button.borrow_mut();
-            let _ = button.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
-            let _ = button.set_enabled_draw_colors(
-                1,
-                enabled_selected.color,
-                enabled_selected.border_color,
-            );
-            let _ = button.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
-            let _ = button.set_disabled_draw_colors(
-                1,
-                disabled_selected.color,
-                disabled_selected.border_color,
-            );
-            let _ = button.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
-            let _ = button.set_hilite_draw_colors(
-                1,
-                hilite_selected.color,
-                hilite_selected.border_color,
-            );
-        }
-    }
-}
-
-pub fn gadget_combo_box_get_text(combo_box: &GameWindow) -> String {
-    let Some(links) = combo_box.combobox_links else {
-        return String::new();
-    };
-    combo_box
-        .find_child_by_id(links.edit_box)
-        .and_then(|edit_box| {
-            edit_box.borrow().widget().and_then(|widget| match widget {
-                WindowWidget::TextEntry(entry) => Some(entry.text().to_string()),
-                _ => None,
-            })
-        })
-        .unwrap_or_default()
-}
-
-pub fn gadget_combo_box_set_text(combo_box: &mut GameWindow, text: &str) {
-    let _ = with_payload(WindowMsgPayload::Text(text.to_string()), |token| {
-        combo_box.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0)
-    });
-}
-
-pub fn gadget_combo_box_add_entry(
-    combo_box: &mut GameWindow,
-    text: &str,
-    color: super::shell::Color,
-) -> i32 {
-    let index = {
-        let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() else {
-            return -1;
-        };
-        let index = combo.items().len() as i32;
-        combo.add_item(ComboBoxItem::new(index as u32, text));
-        index
-    };
-    if let Some(links) = combo_box.combobox_links {
-        if let Some(list_box) = combo_box.find_child_by_id(links.list_box) {
-            combo_box.sync_combobox_listbox(&list_box);
-            if let Some(WindowWidget::ListBox(listbox)) = list_box.borrow_mut().widget_mut() {
-                let _ = listbox.set_item_color(index as usize, color);
-            }
-            combo_box.resize_combobox_listbox(&list_box);
-        }
-    }
-    index
-}
-
-pub fn gadget_combo_box_reset(combo_box: &mut GameWindow) {
-    let _ = combo_box.send_system_message(WindowMessage::User(GCM_DEL_ALL), 0, 0);
-}
-
-pub fn gadget_combo_box_get_selected_pos(combo_box: &mut GameWindow, selected_index: &mut i32) {
-    let token = push_payload(WindowMsgPayload::Int(-1));
-    let _ = combo_box.send_system_message(WindowMessage::User(GCM_GET_SELECTION), 0, token);
-    if let Some(WindowMsgPayload::Int(value)) = pop_payload(token) {
-        *selected_index = value;
-    }
-}
-
-pub fn gadget_combo_box_set_selected_pos(
-    combo_box: &mut GameWindow,
-    selected_index: i32,
-    dont_hide: bool,
-) {
-    let _ = combo_box.send_system_message(
-        WindowMessage::User(GCM_SET_SELECTION),
-        selected_index as WindowMsgData,
-        dont_hide as WindowMsgData,
-    );
-}
-
-pub fn gadget_combo_box_set_item_data(combo_box: &mut GameWindow, index: i32, data: WindowMsgData) {
-    let _ = combo_box.send_system_message(
-        WindowMessage::User(GCM_SET_ITEM_DATA),
-        index as WindowMsgData,
-        data,
-    );
-}
-
-pub fn gadget_combo_box_get_item_data(combo_box: &mut GameWindow, index: i32) -> WindowMsgData {
-    let token = push_payload(WindowMsgPayload::UInt(0));
-    let _ = combo_box.send_system_message(
-        WindowMessage::User(GCM_GET_ITEM_DATA),
-        index as WindowMsgData,
-        token,
-    );
-    match pop_payload(token) {
-        Some(WindowMsgPayload::UInt(value)) => value,
-        Some(WindowMsgPayload::Int(value)) => value as WindowMsgData,
-        _ => 0,
-    }
-}
-
-pub fn gadget_combo_box_get_length(combo_box: &GameWindow) -> i32 {
-    match combo_box.widget.as_ref() {
-        Some(WindowWidget::ComboBox(combo)) => combo.items().len() as i32,
-        _ => 0,
-    }
-}
-
-pub fn gadget_combo_box_hide_list(combo_box: &mut GameWindow) {
-    combo_box.hide_combobox_list();
-}
-
-pub fn gadget_combo_box_set_max_display(combo_box: &mut GameWindow, max_display: i32) {
-    if let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() {
-        combo.set_max_display(max_display.max(0) as usize);
-    }
-}
-
-pub fn gadget_combo_box_set_is_editable(combo_box: &mut GameWindow, editable: bool) {
-    combo_box.set_combobox_editable(editable);
-}
-
-pub fn gadget_combo_box_set_ascii_only(combo_box: &mut GameWindow, ascii_only: bool) {
-    combo_box.set_combobox_validation_flags(Some(ascii_only), None);
-}
-
-pub fn gadget_combo_box_set_letters_and_numbers_only(
-    combo_box: &mut GameWindow,
-    letters_and_numbers_only: bool,
-) {
-    combo_box.set_combobox_validation_flags(None, Some(letters_and_numbers_only));
-}
-
-pub fn gadget_combo_box_set_max_chars(combo_box: &mut GameWindow, max_chars: i32) {
-    let max_chars = max_chars.max(0) as usize;
-    if let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() {
-        combo.set_max_chars(max_chars);
-    }
-    if let Some(links) = combo_box.combobox_links {
-        if let Some(edit_box) = combo_box.find_child_by_id(links.edit_box) {
-            if let Some(WindowWidget::TextEntry(entry)) = edit_box.borrow_mut().widget_mut() {
-                entry.set_max_length(max_chars);
-            }
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn gadget_combo_box_set_colors(
-    combo_box: &mut GameWindow,
-    enabled_color: Color,
-    enabled_border_color: Color,
-    enabled_selected_item_color: Color,
-    enabled_selected_item_border_color: Color,
-    disabled_color: Color,
-    disabled_border_color: Color,
-    disabled_selected_item_color: Color,
-    disabled_selected_item_border_color: Color,
-    hilite_color: Color,
-    hilite_border_color: Color,
-    hilite_selected_item_color: Color,
-    hilite_selected_item_border_color: Color,
-) {
-    let _ = combo_box.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
-    let _ = combo_box.set_enabled_draw_colors(
-        1,
-        enabled_selected_item_color,
-        enabled_selected_item_border_color,
-    );
-    let _ = combo_box.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
-    let _ = combo_box.set_disabled_draw_colors(
-        1,
-        disabled_selected_item_color,
-        disabled_selected_item_border_color,
-    );
-    let _ = combo_box.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
-    let _ = combo_box.set_hilite_draw_colors(
-        1,
-        hilite_selected_item_color,
-        hilite_selected_item_border_color,
-    );
-
-    let Some(links) = combo_box.combobox_links else {
-        return;
-    };
-
-    for child_id in [links.edit_box, links.drop_down] {
-        if let Some(child) = combo_box.find_child_by_id(child_id) {
-            let mut child = child.borrow_mut();
-            let _ = child.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
-            let _ = child.set_enabled_draw_colors(
-                1,
-                enabled_selected_item_color,
-                enabled_selected_item_border_color,
-            );
-            let _ = child.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
-            let _ = child.set_disabled_draw_colors(
-                1,
-                disabled_selected_item_color,
-                disabled_selected_item_border_color,
-            );
-            let _ = child.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
-            let _ = child.set_hilite_draw_colors(
-                1,
-                hilite_selected_item_color,
-                hilite_selected_item_border_color,
-            );
-        }
-    }
-
-    if let Some(list_box) = combo_box.find_child_by_id(links.list_box) {
-        gadget_list_box_set_colors(
-            &mut list_box.borrow_mut(),
-            enabled_color,
-            enabled_border_color,
-            enabled_selected_item_color,
-            enabled_selected_item_border_color,
-            disabled_color,
-            disabled_border_color,
-            disabled_selected_item_color,
-            disabled_selected_item_border_color,
-            hilite_color,
-            hilite_border_color,
-            hilite_selected_item_color,
-            hilite_selected_item_border_color,
-        );
-    }
-}
 
 bitflags! {
     /// Window status flags
@@ -934,6 +613,22 @@ impl std::fmt::Display for WindowError {
 
 impl std::error::Error for WindowError {}
 
+// ===== SCAN DUMP FROM game_window/font.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use bitflags::bitflags;
+use std::cell::RefCell;
+use std::rc::Weak;
+
+use crate::gui::display_string::DisplayStringHandle;
+use crate::gui::font::FontDesc;
+use crate::gui::MAX_DRAW_DATA;
+use crate::video_buffer::VideoBufferHandle;
+
+use super::messages::{WindowStatus, WINDOW_ID_INVALID};
+use super::payload::WindowId;
+
 /// 2D coordinate point
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Point2D {
@@ -1049,7 +744,7 @@ pub struct WindowInstanceData {
     pub ime_composite_text: WindowTextColors,
     pub image_offset: Point2D,
     pub tooltip_delay: i32,
-    pub owner: Option<Weak<RefCell<GameWindow>>>,
+    pub owner: Option<Weak<RefCell<super::window_struct::GameWindow>>>,
     pub video_buffer: Option<VideoBufferHandle>,
 }
 
@@ -1076,12 +771,534 @@ impl Default for WindowInstanceData {
             hilite_text: Default::default(),
             ime_composite_text: Default::default(),
             image_offset: Point2D { x: 0, y: 0 },
-            tooltip_delay: super::TOOLTIP_DELAY,
+            tooltip_delay: crate::gui::TOOLTIP_DELAY,
             owner: None,
             video_buffer: None,
         }
     }
 }
+
+// ===== SCAN DUMP FROM game_window/listbox.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use super::font::Color;
+use super::messages::{WindowMessage, GLM_GET_SELECTION};
+use super::payload::{pop_payload, push_payload, WindowMsgData, WindowMsgPayload};
+use super::window_struct::{GameWindow, WindowWidget};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListBoxSelectionResult {
+    pub single: i32,
+    pub multiple: Vec<i32>,
+}
+
+pub fn gadget_list_box_get_selected(listbox: &mut GameWindow, select_list: &mut WindowMsgData) {
+    let token = push_payload(WindowMsgPayload::None);
+    let _ = listbox.send_system_message(WindowMessage::User(GLM_GET_SELECTION), 0, token);
+    match pop_payload(token) {
+        Some(WindowMsgPayload::Int(index)) => {
+            *select_list = index as isize as WindowMsgData;
+        }
+        Some(payload @ WindowMsgPayload::IntList(_)) => {
+            *select_list = push_payload(payload);
+        }
+        _ => *select_list = 0,
+    }
+}
+
+pub fn gadget_list_box_get_bottom_visible_entry(listbox: &GameWindow) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.get_bottom_visible_entry(),
+        _ => 0,
+    }
+}
+
+pub fn gadget_list_box_is_full(listbox: &GameWindow) -> bool {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.is_full(),
+        _ => false,
+    }
+}
+
+pub fn gadget_list_box_set_bottom_visible_entry(listbox: &mut GameWindow, index: i32) {
+    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
+        listbox.set_bottom_visible_entry(index);
+    }
+}
+
+pub fn gadget_list_box_get_top_visible_entry(listbox: &GameWindow) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.get_top_visible_entry(),
+        _ => 0,
+    }
+}
+
+pub fn gadget_list_box_set_top_visible_entry(listbox: &mut GameWindow, index: i32) {
+    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
+        listbox.set_top_visible_entry(index);
+    }
+}
+
+pub fn gadget_list_box_set_audio_feedback(listbox: &mut GameWindow, enable: bool) {
+    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
+        listbox.set_audio_feedback(enable);
+    }
+}
+
+pub fn gadget_list_box_get_num_columns(listbox: &GameWindow) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.columns() as i32,
+        _ => 0,
+    }
+}
+
+pub fn gadget_list_box_get_column_width(listbox: &GameWindow, column: i32) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.column_width(column) as i32,
+        _ => 0,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn gadget_list_box_set_colors(
+    listbox: &mut GameWindow,
+    enabled_color: Color,
+    enabled_border_color: Color,
+    enabled_selected_item_color: Color,
+    enabled_selected_item_border_color: Color,
+    disabled_color: Color,
+    disabled_border_color: Color,
+    disabled_selected_item_color: Color,
+    disabled_selected_item_border_color: Color,
+    hilite_color: Color,
+    hilite_border_color: Color,
+    hilite_selected_item_color: Color,
+    hilite_selected_item_border_color: Color,
+) {
+    let _ = listbox.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+    let _ = listbox.set_enabled_draw_colors(
+        1,
+        enabled_selected_item_color,
+        enabled_selected_item_border_color,
+    );
+    let _ = listbox.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+    let _ = listbox.set_disabled_draw_colors(
+        1,
+        disabled_selected_item_color,
+        disabled_selected_item_border_color,
+    );
+    let _ = listbox.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+    let _ = listbox.set_hilite_draw_colors(
+        1,
+        hilite_selected_item_color,
+        hilite_selected_item_border_color,
+    );
+
+    let Some(links) = listbox.listbox_links else {
+        return;
+    };
+    let Some(slider) = listbox.find_child_by_id(links.slider) else {
+        return;
+    };
+    {
+        let mut slider = slider.borrow_mut();
+        let _ = slider.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+        let _ = slider.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+        let _ = slider.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+    }
+
+    let thumb_selected = links
+        .thumb
+        .and_then(|thumb_id| listbox.find_child_by_id(thumb_id));
+    let enabled_selected = thumb_selected
+        .as_ref()
+        .and_then(|thumb| thumb.borrow().get_enabled_draw_data(1))
+        .unwrap_or_default();
+    let disabled_selected = thumb_selected
+        .as_ref()
+        .and_then(|thumb| thumb.borrow().get_disabled_draw_data(1))
+        .unwrap_or_default();
+    let hilite_selected = thumb_selected
+        .as_ref()
+        .and_then(|thumb| thumb.borrow().get_hilite_draw_data(1))
+        .unwrap_or_default();
+
+    for button_id in [links.up_button, links.down_button] {
+        if let Some(button) = listbox.find_child_by_id(button_id) {
+            let mut button = button.borrow_mut();
+            let _ = button.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+            let _ = button.set_enabled_draw_colors(
+                1,
+                enabled_selected.color,
+                enabled_selected.border_color,
+            );
+            let _ = button.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+            let _ = button.set_disabled_draw_colors(
+                1,
+                disabled_selected.color,
+                disabled_selected.border_color,
+            );
+            let _ = button.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+            let _ = button.set_hilite_draw_colors(
+                1,
+                hilite_selected.color,
+                hilite_selected.border_color,
+            );
+        }
+    }
+}
+
+// ===== SCAN DUMP FROM game_window/combo.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use super::font::Color;
+use super::listbox::gadget_list_box_set_colors;
+use super::messages::{
+    WindowMessage, GCM_DEL_ALL, GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_SET_ITEM_DATA,
+    GCM_SET_SELECTION, GCM_SET_TEXT,
+};
+use super::payload::{
+    pop_payload, push_payload, with_payload, WindowMsgData, WindowMsgPayload,
+};
+use super::window_struct::{GameWindow, WindowWidget};
+use crate::gui::gadgets::ComboBoxItem;
+
+pub fn gadget_combo_box_get_text(combo_box: &GameWindow) -> String {
+    let Some(links) = combo_box.combobox_links else {
+        return String::new();
+    };
+    combo_box
+        .find_child_by_id(links.edit_box)
+        .and_then(|edit_box| {
+            edit_box.borrow().widget().and_then(|widget| match widget {
+                WindowWidget::TextEntry(entry) => Some(entry.text().to_string()),
+                _ => None,
+            })
+        })
+        .unwrap_or_default()
+}
+
+pub fn gadget_combo_box_set_text(combo_box: &mut GameWindow, text: &str) {
+    let _ = with_payload(WindowMsgPayload::Text(text.to_string()), |token| {
+        combo_box.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0)
+    });
+}
+
+pub fn gadget_combo_box_add_entry(
+    combo_box: &mut GameWindow,
+    text: &str,
+    color: crate::gui::shell::Color,
+) -> i32 {
+    let index = {
+        let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() else {
+            return -1;
+        };
+        let index = combo.items().len() as i32;
+        combo.add_item(ComboBoxItem::new(index as u32, text));
+        index
+    };
+    if let Some(links) = combo_box.combobox_links {
+        if let Some(list_box) = combo_box.find_child_by_id(links.list_box) {
+            combo_box.sync_combobox_listbox(&list_box);
+            if let Some(WindowWidget::ListBox(listbox)) = list_box.borrow_mut().widget_mut() {
+                let _ = listbox.set_item_color(index as usize, color);
+            }
+            combo_box.resize_combobox_listbox(&list_box);
+        }
+    }
+    index
+}
+
+pub fn gadget_combo_box_reset(combo_box: &mut GameWindow) {
+    let _ = combo_box.send_system_message(WindowMessage::User(GCM_DEL_ALL), 0, 0);
+}
+
+pub fn gadget_combo_box_get_selected_pos(combo_box: &mut GameWindow, selected_index: &mut i32) {
+    let token = push_payload(WindowMsgPayload::Int(-1));
+    let _ = combo_box.send_system_message(WindowMessage::User(GCM_GET_SELECTION), 0, token);
+    if let Some(WindowMsgPayload::Int(value)) = pop_payload(token) {
+        *selected_index = value;
+    }
+}
+
+pub fn gadget_combo_box_set_selected_pos(
+    combo_box: &mut GameWindow,
+    selected_index: i32,
+    dont_hide: bool,
+) {
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_SET_SELECTION),
+        selected_index as WindowMsgData,
+        dont_hide as WindowMsgData,
+    );
+}
+
+pub fn gadget_combo_box_set_item_data(combo_box: &mut GameWindow, index: i32, data: WindowMsgData) {
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_SET_ITEM_DATA),
+        index as WindowMsgData,
+        data,
+    );
+}
+
+pub fn gadget_combo_box_get_item_data(combo_box: &mut GameWindow, index: i32) -> WindowMsgData {
+    let token = push_payload(WindowMsgPayload::UInt(0));
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_GET_ITEM_DATA),
+        index as WindowMsgData,
+        token,
+    );
+    match pop_payload(token) {
+        Some(WindowMsgPayload::UInt(value)) => value,
+        Some(WindowMsgPayload::Int(value)) => value as WindowMsgData,
+        _ => 0,
+    }
+}
+
+pub fn gadget_combo_box_get_length(combo_box: &GameWindow) -> i32 {
+    match combo_box.widget.as_ref() {
+        Some(WindowWidget::ComboBox(combo)) => combo.items().len() as i32,
+        _ => 0,
+    }
+}
+
+pub fn gadget_combo_box_hide_list(combo_box: &mut GameWindow) {
+    combo_box.hide_combobox_list();
+}
+
+pub fn gadget_combo_box_set_max_display(combo_box: &mut GameWindow, max_display: i32) {
+    if let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() {
+        combo.set_max_display(max_display.max(0) as usize);
+    }
+}
+
+pub fn gadget_combo_box_set_is_editable(combo_box: &mut GameWindow, editable: bool) {
+    combo_box.set_combobox_editable(editable);
+}
+
+pub fn gadget_combo_box_set_ascii_only(combo_box: &mut GameWindow, ascii_only: bool) {
+    combo_box.set_combobox_validation_flags(Some(ascii_only), None);
+}
+
+pub fn gadget_combo_box_set_letters_and_numbers_only(
+    combo_box: &mut GameWindow,
+    letters_and_numbers_only: bool,
+) {
+    combo_box.set_combobox_validation_flags(None, Some(letters_and_numbers_only));
+}
+
+pub fn gadget_combo_box_set_max_chars(combo_box: &mut GameWindow, max_chars: i32) {
+    let max_chars = max_chars.max(0) as usize;
+    if let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() {
+        combo.set_max_chars(max_chars);
+    }
+    if let Some(links) = combo_box.combobox_links {
+        if let Some(edit_box) = combo_box.find_child_by_id(links.edit_box) {
+            if let Some(WindowWidget::TextEntry(entry)) = edit_box.borrow_mut().widget_mut() {
+                entry.set_max_length(max_chars);
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn gadget_combo_box_set_colors(
+    combo_box: &mut GameWindow,
+    enabled_color: Color,
+    enabled_border_color: Color,
+    enabled_selected_item_color: Color,
+    enabled_selected_item_border_color: Color,
+    disabled_color: Color,
+    disabled_border_color: Color,
+    disabled_selected_item_color: Color,
+    disabled_selected_item_border_color: Color,
+    hilite_color: Color,
+    hilite_border_color: Color,
+    hilite_selected_item_color: Color,
+    hilite_selected_item_border_color: Color,
+) {
+    let _ = combo_box.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+    let _ = combo_box.set_enabled_draw_colors(
+        1,
+        enabled_selected_item_color,
+        enabled_selected_item_border_color,
+    );
+    let _ = combo_box.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+    let _ = combo_box.set_disabled_draw_colors(
+        1,
+        disabled_selected_item_color,
+        disabled_selected_item_border_color,
+    );
+    let _ = combo_box.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+    let _ = combo_box.set_hilite_draw_colors(
+        1,
+        hilite_selected_item_color,
+        hilite_selected_item_border_color,
+    );
+
+    let Some(links) = combo_box.combobox_links else {
+        return;
+    };
+
+    for child_id in [links.edit_box, links.drop_down] {
+        if let Some(child) = combo_box.find_child_by_id(child_id) {
+            let mut child = child.borrow_mut();
+            let _ = child.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+            let _ = child.set_enabled_draw_colors(
+                1,
+                enabled_selected_item_color,
+                enabled_selected_item_border_color,
+            );
+            let _ = child.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+            let _ = child.set_disabled_draw_colors(
+                1,
+                disabled_selected_item_color,
+                disabled_selected_item_border_color,
+            );
+            let _ = child.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+            let _ = child.set_hilite_draw_colors(
+                1,
+                hilite_selected_item_color,
+                hilite_selected_item_border_color,
+            );
+        }
+    }
+
+    if let Some(list_box) = combo_box.find_child_by_id(links.list_box) {
+        gadget_list_box_set_colors(
+            &mut list_box.borrow_mut(),
+            enabled_color,
+            enabled_border_color,
+            enabled_selected_item_color,
+            enabled_selected_item_border_color,
+            disabled_color,
+            disabled_border_color,
+            disabled_selected_item_color,
+            disabled_selected_item_border_color,
+            hilite_color,
+            hilite_border_color,
+            hilite_selected_item_color,
+            hilite_selected_item_border_color,
+        );
+    }
+}
+
+// ===== SCAN DUMP FROM game_window/other_gadgets.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use crate::gui::gadgets::{Gadget, GadgetMessage, GadgetState, InputEvent};
+
+use super::window_struct::WindowWidget;
+
+impl WindowWidget {
+    pub(crate) fn set_visible(&mut self, visible: bool) {
+        match self {
+            WindowWidget::PushButton(widget) => widget.set_visible(visible),
+            WindowWidget::RadioButton(widget) => widget.set_visible(visible),
+            WindowWidget::CheckBox(widget) => widget.set_visible(visible),
+            WindowWidget::VerticalSlider(widget) => widget.set_visible(visible),
+            WindowWidget::HorizontalSlider(widget) => widget.set_visible(visible),
+            WindowWidget::ListBox(widget) => widget.set_visible(visible),
+            WindowWidget::TextEntry(widget) => widget.set_visible(visible),
+            WindowWidget::StaticText(widget) => widget.set_visible(visible),
+            WindowWidget::ProgressBar(widget) => widget.set_visible(visible),
+            WindowWidget::TabControl(widget) => widget.set_visible(visible),
+            WindowWidget::ComboBox(widget) => widget.set_visible(visible),
+            WindowWidget::TabPane
+            | WindowWidget::User
+            | WindowWidget::Animated
+            | WindowWidget::MouseTrack => {}
+        }
+    }
+
+    pub(crate) fn set_enabled(&mut self, enabled: bool) {
+        match self {
+            WindowWidget::PushButton(widget) => widget.set_enabled(enabled),
+            WindowWidget::RadioButton(widget) => widget.set_enabled(enabled),
+            WindowWidget::CheckBox(widget) => widget.set_enabled(enabled),
+            WindowWidget::VerticalSlider(widget) => widget.set_enabled(enabled),
+            WindowWidget::HorizontalSlider(widget) => widget.set_enabled(enabled),
+            WindowWidget::ListBox(widget) => widget.set_enabled(enabled),
+            WindowWidget::TextEntry(widget) => widget.set_enabled(enabled),
+            WindowWidget::StaticText(widget) => widget.set_enabled(enabled),
+            WindowWidget::ProgressBar(widget) => widget.set_enabled(enabled),
+            WindowWidget::TabControl(widget) => widget.set_enabled(enabled),
+            WindowWidget::ComboBox(widget) => widget.set_enabled(enabled),
+            WindowWidget::TabPane
+            | WindowWidget::User
+            | WindowWidget::Animated
+            | WindowWidget::MouseTrack => {}
+        }
+    }
+
+    pub(crate) fn handle_input(&mut self, event: &InputEvent) -> Vec<GadgetMessage> {
+        match self {
+            WindowWidget::PushButton(widget) => widget.handle_input(event),
+            WindowWidget::RadioButton(widget) => widget.handle_input(event),
+            WindowWidget::CheckBox(widget) => widget.handle_input(event),
+            WindowWidget::VerticalSlider(widget) => widget.handle_input(event),
+            WindowWidget::HorizontalSlider(widget) => widget.handle_input(event),
+            WindowWidget::ListBox(widget) => widget.handle_input(event),
+            WindowWidget::TextEntry(widget) => widget.handle_input(event),
+            WindowWidget::StaticText(widget) => widget.handle_input(event),
+            WindowWidget::ProgressBar(widget) => widget.handle_input(event),
+            WindowWidget::TabControl(widget) => widget.handle_input(event),
+            WindowWidget::ComboBox(widget) => widget.handle_input(event),
+            WindowWidget::TabPane
+            | WindowWidget::User
+            | WindowWidget::Animated
+            | WindowWidget::MouseTrack => Vec::new(),
+        }
+    }
+
+    pub(crate) fn state(&self) -> GadgetState {
+        match self {
+            WindowWidget::PushButton(widget) => widget.state(),
+            WindowWidget::RadioButton(widget) => widget.state(),
+            WindowWidget::CheckBox(widget) => widget.state(),
+            WindowWidget::VerticalSlider(widget) => widget.state(),
+            WindowWidget::HorizontalSlider(widget) => widget.state(),
+            WindowWidget::ListBox(widget) => widget.state(),
+            WindowWidget::TextEntry(widget) => widget.state(),
+            WindowWidget::StaticText(widget) => widget.state(),
+            WindowWidget::ProgressBar(widget) => widget.state(),
+            WindowWidget::TabControl(widget) => widget.state(),
+            WindowWidget::ComboBox(widget) => widget.state(),
+            WindowWidget::TabPane
+            | WindowWidget::User
+            | WindowWidget::Animated
+            | WindowWidget::MouseTrack => GadgetState::Normal,
+        }
+    }
+}
+
+// ===== SCAN DUMP FROM game_window/window_struct.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use std::cell::{Cell, RefCell};
+use std::fmt;
+use std::rc::{Rc, Weak};
+
+use crate::gui::display_string::DisplayStringHandle;
+use crate::gui::gadgets::{
+    CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
+    StaticText, TabControl, TextEntry, VerticalSlider,
+};
+use crate::video_buffer::VideoBufferHandle;
+
+use super::callbacks::{
+    default_input_callback, default_system_callback, legacy_default_draw_callback,
+};
+use super::font::{
+    Color, GameFont, Image, Point2D, WindowDrawData, WindowInstanceData, WindowRegion, WindowState,
+    WindowTextColors,
+};
+use super::messages::{WindowMessage, WindowMsgHandled, WindowStatus, WINDOW_ID_INVALID};
+use super::payload::{WindowId, WindowMsgData};
 
 /// Callback function types
 pub type DrawCallback = Box<dyn Fn(&GameWindow, &WindowInstanceData)>;
@@ -1112,55 +1329,55 @@ pub struct WindowCallbacks {
 /// Main GameWindow struct representing a UI window or control
 pub struct GameWindow {
     // Core properties
-    id: WindowId,
-    status: WindowStatus,
-    size: Point2D,
-    region: WindowRegion,
-    cursor_pos: Cell<Point2D>,
+    pub(crate) id: WindowId,
+    pub(crate) status: WindowStatus,
+    pub(crate) size: Point2D,
+    pub(crate) region: WindowRegion,
+    pub(crate) cursor_pos: Cell<Point2D>,
 
     // Instance data
-    inst_data: WindowInstanceData,
+    pub(crate) inst_data: WindowInstanceData,
 
     // User data
-    user_data: Option<Box<dyn std::any::Any>>,
-    edit_data: Option<GameWindowEditData>,
+    pub(crate) user_data: Option<Box<dyn std::any::Any>>,
+    pub(crate) edit_data: Option<GameWindowEditData>,
 
     // Hierarchy
-    parent: Option<Weak<RefCell<GameWindow>>>,
-    children: Vec<Rc<RefCell<GameWindow>>>,
-    next_sibling: Option<Weak<RefCell<GameWindow>>>,
-    prev_sibling: Option<Weak<RefCell<GameWindow>>>,
-    owner_is_self: bool,
+    pub(crate) parent: Option<Weak<RefCell<GameWindow>>>,
+    pub(crate) children: Vec<Rc<RefCell<GameWindow>>>,
+    pub(crate) next_sibling: Option<Weak<RefCell<GameWindow>>>,
+    pub(crate) prev_sibling: Option<Weak<RefCell<GameWindow>>>,
+    pub(crate) owner_is_self: bool,
 
     // Layout information
-    next_in_layout: Option<Weak<RefCell<GameWindow>>>,
-    prev_in_layout: Option<Weak<RefCell<GameWindow>>>,
-    layout: Option<Weak<RefCell<super::WindowLayout>>>,
+    pub(crate) next_in_layout: Option<Weak<RefCell<GameWindow>>>,
+    pub(crate) prev_in_layout: Option<Weak<RefCell<GameWindow>>>,
+    pub(crate) layout: Option<Weak<RefCell<crate::gui::WindowLayout>>>,
 
     // Callbacks
-    callbacks: WindowCallbacks,
+    pub(crate) callbacks: WindowCallbacks,
 
     // Optional gadget backing this window
-    widget: Option<WindowWidget>,
+    pub(crate) widget: Option<WindowWidget>,
 
     // Combo box child window references (drop-down, edit, list)
-    combobox_links: Option<ComboBoxLinks>,
+    pub(crate) combobox_links: Option<ComboBoxLinks>,
 
     // List box scrollbar child window references
-    listbox_links: Option<ListBoxLinks>,
+    pub(crate) listbox_links: Option<ListBoxLinks>,
 
     // Slider thumb child window reference
-    slider_thumb: Option<WindowId>,
+    pub(crate) slider_thumb: Option<WindowId>,
 
     // Press animation state for elastic button feel
-    press_scale: f32,
-    press_scale_target: f32,
-    press_scale_velocity: f32,
-    press_spring_strength: f32,
-    press_spring_damping: f32,
-    press_impulse: f32,
-    release_impulse: f32,
-    press_was_down: bool,
+    pub(crate) press_scale: f32,
+    pub(crate) press_scale_target: f32,
+    pub(crate) press_scale_velocity: f32,
+    pub(crate) press_spring_strength: f32,
+    pub(crate) press_spring_damping: f32,
+    pub(crate) press_impulse: f32,
+    pub(crate) release_impulse: f32,
+    pub(crate) press_was_down: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1230,6 +1447,18 @@ impl fmt::Debug for GameWindow {
     }
 }
 
+impl Default for GameWindow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ===== SCAN DUMP FROM game_window/window_impl_core.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use super::prelude::*;
+
 impl GameWindow {
     /// Create a new GameWindow
     pub fn new() -> Self {
@@ -1281,7 +1510,7 @@ impl GameWindow {
         self.inst_data.style
     }
 
-    fn is_press_anim_enabled(&self) -> bool {
+    pub(crate) fn is_press_anim_enabled(&self) -> bool {
         if matches!(
             self.widget,
             Some(WindowWidget::PushButton(_))
@@ -1301,7 +1530,7 @@ impl GameWindow {
         }
     }
 
-    fn sync_state_from_widget(&mut self) {
+    pub(crate) fn sync_state_from_widget(&mut self) {
         let (pressed, hilited, selected, has_widget) = if let Some(widget) = self.widget.as_ref() {
             let widget_state = widget.state();
             let selected = match widget {
@@ -1711,7 +1940,7 @@ impl GameWindow {
         Ok(())
     }
 
-    fn set_hidden_status(&mut self, hide: bool) {
+    pub(crate) fn set_hidden_status(&mut self, hide: bool) {
         if hide {
             // C++ parity: parent visibility suppresses child rendering/input through
             // ancestry checks in is_hidden(), rather than permanently mutating every
@@ -2159,12 +2388,12 @@ impl GameWindow {
     }
 
     /// Set the layout this window belongs to.
-    pub fn set_layout(&mut self, layout: Option<&Rc<RefCell<super::WindowLayout>>>) {
+    pub fn set_layout(&mut self, layout: Option<&Rc<RefCell<crate::gui::WindowLayout>>>) {
         self.layout = layout.map(Rc::downgrade);
     }
 
     /// Get the layout this window belongs to.
-    pub fn get_layout(&self) -> Option<Rc<RefCell<super::WindowLayout>>> {
+    pub fn get_layout(&self) -> Option<Rc<RefCell<crate::gui::WindowLayout>>> {
         self.layout.as_ref()?.upgrade()
     }
 
@@ -2275,7 +2504,7 @@ impl GameWindow {
         }
     }
 
-    fn root_of(window: &Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+    pub(crate) fn root_of(window: &Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
         let mut root = window.clone();
         loop {
             let parent = root.borrow().get_parent();
@@ -2287,7 +2516,7 @@ impl GameWindow {
         }
     }
 
-    fn last_sibling(mut window: Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+    pub(crate) fn last_sibling(mut window: Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
         loop {
             let next = window.borrow().get_next_sibling();
             if let Some(next) = next {
@@ -2298,7 +2527,7 @@ impl GameWindow {
         }
     }
 
-    fn first_leaf_from(mut leaf: Rc<RefCell<GameWindow>>) -> Option<Rc<RefCell<GameWindow>>> {
+    pub(crate) fn first_leaf_from(mut leaf: Rc<RefCell<GameWindow>>) -> Option<Rc<RefCell<GameWindow>>> {
         loop {
             let leaf_borrow = leaf.borrow();
             if leaf_borrow.children().is_empty()
@@ -2313,7 +2542,7 @@ impl GameWindow {
         }
     }
 
-    fn last_leaf_from(mut leaf: Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+    pub(crate) fn last_leaf_from(mut leaf: Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
         loop {
             let descend = {
                 let leaf_borrow = leaf.borrow();
@@ -2441,7 +2670,7 @@ impl GameWindow {
         self.inst_data.video_buffer.clone()
     }
 
-    fn ensure_display_text(&mut self) -> Option<DisplayStringHandle> {
+    pub(crate) fn ensure_display_text(&mut self) -> Option<DisplayStringHandle> {
         if self.inst_data.display_text.is_none() {
             let handle = {
                 let mut manager = get_display_string_manager();
@@ -2457,7 +2686,7 @@ impl GameWindow {
         self.inst_data.display_text.clone()
     }
 
-    fn ensure_display_tooltip(&mut self) -> Option<DisplayStringHandle> {
+    pub(crate) fn ensure_display_tooltip(&mut self) -> Option<DisplayStringHandle> {
         if self.inst_data.display_tooltip.is_none() {
             let handle = {
                 let mut manager = get_display_string_manager();
@@ -2550,7 +2779,7 @@ impl GameWindow {
         Some(result)
     }
 
-    fn listbox_content_top_inset(&self) -> u32 {
+    pub(crate) fn listbox_content_top_inset(&self) -> u32 {
         if self.inst_data.text.is_empty() {
             return 0;
         }
@@ -2564,7 +2793,7 @@ impl GameWindow {
         (font_height + 1).max(0) as u32
     }
 
-    fn sync_listbox_content_top_inset(&mut self) {
+    pub(crate) fn sync_listbox_content_top_inset(&mut self) {
         let inset = self.listbox_content_top_inset();
         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
             listbox.set_content_top_inset(inset);
@@ -2596,7 +2825,7 @@ impl GameWindow {
         }
     }
 
-    fn hide_combobox_list(&mut self) {
+    pub(crate) fn hide_combobox_list(&mut self) {
         let Some(links) = self.combobox_links else {
             return;
         };
@@ -2614,7 +2843,7 @@ impl GameWindow {
         }
     }
 
-    fn set_combobox_editable(&mut self, editable: bool) {
+    pub(crate) fn set_combobox_editable(&mut self, editable: bool) {
         if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
             combo.set_editable(editable);
         }
@@ -2631,7 +2860,7 @@ impl GameWindow {
         }
     }
 
-    fn set_combobox_validation_flags(
+    pub(crate) fn set_combobox_validation_flags(
         &mut self,
         ascii_only: Option<bool>,
         letters_and_numbers: Option<bool>,
@@ -2664,7 +2893,7 @@ impl GameWindow {
         }
     }
 
-    fn handle_combobox_list_selection(
+    pub(crate) fn handle_combobox_list_selection(
         &mut self,
         links: ComboBoxLinks,
         list_box: &Rc<RefCell<GameWindow>>,
@@ -2750,7 +2979,7 @@ impl GameWindow {
         WindowMsgHandled::Handled
     }
 
-    fn notify_owner_gadget_selected(&mut self) {
+    pub(crate) fn notify_owner_gadget_selected(&mut self) {
         if self.owner_is_self {
             let _ = self.send_system_message(
                 WindowMessage::GadgetSelected,
@@ -2787,7 +3016,7 @@ impl GameWindow {
         }
     }
 
-    fn set_slider_thumb_hilite_state(&mut self, state: bool) {
+    pub(crate) fn set_slider_thumb_hilite_state(&mut self, state: bool) {
         let Some(thumb_id) = self.slider_thumb else {
             return;
         };
@@ -2975,7 +3204,7 @@ impl GameWindow {
         }
     }
 
-    fn update_press_state_from_message(&mut self, msg: WindowMessage) {
+    pub(crate) fn update_press_state_from_message(&mut self, msg: WindowMessage) {
         if !self.is_press_anim_enabled() {
             return;
         }
@@ -3018,8 +3247,312 @@ impl GameWindow {
             self.handle_widget_system(msg, data1, data2)
         }
     }
+}
 
-    fn handle_widget_input(
+// ===== SCAN DUMP FROM game_window/window_impl_widgets.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use super::prelude::*;
+
+impl GameWindow {
+    pub(crate) fn sync_combobox_listbox(&mut self, list_box: &Rc<RefCell<GameWindow>>) {
+        let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
+            return;
+        };
+        let mut list_box_guard = list_box.borrow_mut();
+        let Some(WindowWidget::ListBox(listbox)) = list_box_guard.widget_mut() else {
+            return;
+        };
+        listbox.clear();
+        for item in combo.items() {
+            listbox.add_item(&item.text);
+        }
+        if let Some(selected) = combo.selected_index() {
+            let _ = listbox.select_index(selected, KeyModifiers::none());
+        }
+        drop(list_box_guard);
+        list_box.borrow_mut().update_listbox_scrollbar();
+    }
+
+    pub(crate) fn sync_combobox_edit_box(&mut self, edit_box: &Rc<RefCell<GameWindow>>) {
+        let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
+            return;
+        };
+        let mut edit_box_guard = edit_box.borrow_mut();
+        let Some(WindowWidget::TextEntry(entry)) = edit_box_guard.widget_mut() else {
+            return;
+        };
+        entry.set_text(combo.text());
+    }
+
+    pub(crate) fn combo_box_dropdown_visible_count(entry_count: usize, max_display: usize) -> usize {
+        if max_display > 0 {
+            entry_count.min(max_display)
+        } else {
+            entry_count
+        }
+    }
+
+    pub(crate) fn combo_box_dropdown_height(entry_count: usize, max_display: usize, font_height: i32) -> i32 {
+        let visible = Self::combo_box_dropdown_visible_count(entry_count, max_display);
+        (font_height.max(0) * visible as i32) + (visible as i32 * 2) + 4
+    }
+
+    pub(crate) fn resize_combobox_listbox(&mut self, list_box: &Rc<RefCell<GameWindow>>) {
+        let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
+            return;
+        };
+        let count = combo.items().len();
+        let max_display = combo.max_display();
+        let visible = Self::combo_box_dropdown_visible_count(count, max_display);
+        let show_scrollbar = max_display > 0 && count > max_display;
+        let font_height = {
+            let list_box_ref = list_box.borrow();
+            with_window_manager_ref(|manager| {
+                list_box_ref
+                    .inst_data
+                    .font
+                    .as_ref()
+                    .map(|font| manager.win_font_height(font))
+                    .unwrap_or_else(|| {
+                        list_box_ref
+                            .widget()
+                            .and_then(|widget| match widget {
+                                WindowWidget::ListBox(listbox) => {
+                                    Some(listbox.item_height().saturating_sub(2) as i32)
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or(16)
+                    })
+            })
+        };
+        let height = Self::combo_box_dropdown_height(count, max_display, font_height);
+        let (width, _) = list_box.borrow().get_size();
+        let _ = list_box.borrow_mut().set_size(width, height);
+        if let Some(links) = list_box.borrow().listbox_links() {
+            if let Some(up) = list_box.borrow().find_child_by_id(links.up_button) {
+                let _ = up.borrow_mut().hide(!show_scrollbar);
+            }
+            if let Some(down) = list_box.borrow().find_child_by_id(links.down_button) {
+                let _ = down.borrow_mut().hide(!show_scrollbar);
+            }
+            if let Some(slider) = list_box.borrow().find_child_by_id(links.slider) {
+                let _ = slider.borrow_mut().hide(!show_scrollbar);
+            }
+        }
+        list_box.borrow_mut().update_listbox_scrollbar();
+    }
+
+    pub(crate) fn update_listbox_scrollbar(&mut self) {
+        let Some(links) = self.listbox_links else {
+            return;
+        };
+        let Some(WindowWidget::ListBox(listbox)) = self.widget.as_ref() else {
+            return;
+        };
+
+        let bounds = listbox.bounds();
+        let item_height = listbox.item_height().max(1) as usize;
+        let visible = (bounds.height as usize / item_height).max(1);
+        let max_offset = listbox.items().len().saturating_sub(visible);
+        let scroll_offset = listbox.scroll_offset().min(max_offset);
+        if scroll_offset != listbox.scroll_offset() {
+            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                listbox.set_scroll_offset(scroll_offset);
+            }
+        }
+
+        if let Some(slider) = self.find_child_by_id(links.slider) {
+            if let Some(WindowWidget::VerticalSlider(slider)) = slider.borrow_mut().widget_mut() {
+                slider.set_range(0, max_offset as i32);
+                slider.set_value(max_offset.saturating_sub(scroll_offset) as i32);
+            } else if let Some(WindowWidget::HorizontalSlider(slider)) =
+                slider.borrow_mut().widget_mut()
+            {
+                slider.set_range(0, max_offset as i32);
+                slider.set_value(max_offset.saturating_sub(scroll_offset) as i32);
+            }
+        }
+
+        if let Some(up_button) = self.find_child_by_id(links.up_button) {
+            let enabled = max_offset > 0 && scroll_offset > 0;
+            let _ = up_button.borrow_mut().enable(enabled);
+        }
+        if let Some(down_button) = self.find_child_by_id(links.down_button) {
+            let enabled = max_offset > 0 && scroll_offset < max_offset;
+            let _ = down_button.borrow_mut().enable(enabled);
+        }
+        if let Some(slider) = self.find_child_by_id(links.slider) {
+            let enabled = max_offset > 0;
+            let _ = slider.borrow_mut().enable(enabled);
+        }
+
+        let mut content_width = bounds.width;
+        if let Some(slider) = self.find_child_by_id(links.slider) {
+            if !slider.borrow().is_hidden() {
+                let (slider_width, _) = slider.borrow().get_size();
+                content_width = content_width.saturating_sub(slider_width.max(0) as u32 + 2);
+            }
+        }
+        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+            listbox.set_content_width(content_width);
+        }
+
+        if let Some(thumb_id) = links.thumb {
+            if let Some(thumb) = self.find_child_by_id(thumb_id) {
+                if let Some(slider) = self.find_child_by_id(links.slider) {
+                    let (_, slider_height) = slider.borrow().get_size();
+                    let (_, thumb_height) = thumb.borrow().get_size();
+                    let available = (slider_height - thumb_height).max(0);
+                    let ratio = if max_offset > 0 {
+                        scroll_offset as f32 / max_offset as f32
+                    } else {
+                        0.0
+                    };
+                    let thumb_y = (ratio * available as f32).round() as i32;
+                    let _ = thumb.borrow_mut().set_position(0, thumb_y);
+                    let _ = thumb.borrow_mut().hide(max_offset == 0);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn update_slider_thumb(&mut self) {
+        let Some(thumb_id) = self.slider_thumb else {
+            return;
+        };
+        let Some(thumb) = self.find_child_by_id(thumb_id) else {
+            return;
+        };
+        let (thumb_w, thumb_h) = thumb.borrow().get_size();
+        let (width, height) = self.get_size();
+
+        match self.widget.as_ref() {
+            Some(WindowWidget::HorizontalSlider(slider)) => {
+                let (min_val, max_val) = slider.range();
+                let range = (max_val - min_val).max(1);
+                let track = (width - thumb_w).max(0);
+                let ratio = (slider.value() - min_val) as f32 / range as f32;
+                let x = (ratio * track as f32).round() as i32;
+                let _ = thumb
+                    .borrow_mut()
+                    .set_position(x, HORIZONTAL_SLIDER_THUMB_POSITION);
+            }
+            Some(WindowWidget::VerticalSlider(slider)) => {
+                let (min_val, max_val) = slider.range();
+                let range = (max_val - min_val).max(1);
+                let track = (height - thumb_h).max(0);
+                let ratio = (max_val - slider.value()) as f32 / range as f32;
+                let y = (ratio * track as f32).round() as i32;
+                let _ = thumb.borrow_mut().set_position(0, y);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn show_tab_pane(&mut self, index: usize) {
+        let panes: Vec<Rc<RefCell<GameWindow>>> = self
+            .children
+            .iter()
+            .rev()
+            .filter(|child| {
+                let child = child.borrow();
+                (child.inst_data.style & GWS_TAB_PANE) != 0
+            })
+            .cloned()
+            .collect();
+
+        if panes.is_empty() {
+            return;
+        }
+
+        let mut active_index = if panes.get(index).is_some() { index } else { 0 };
+        if let Some(WindowWidget::TabControl(tab_control)) = &mut self.widget {
+            let tab_count = tab_control.tab_count();
+            if tab_count > 0 {
+                active_index = active_index.min(tab_count - 1);
+            }
+            active_index = active_index.min(panes.len() - 1);
+            tab_control.set_active_tab_index_silent(active_index);
+        }
+
+        for pane in panes.iter() {
+            let _ = pane.borrow_mut().hide(true);
+        }
+
+        if let Some(pane) = panes.get(active_index) {
+            let _ = pane.borrow_mut().hide(false);
+        }
+    }
+
+    pub(crate) fn resize_tab_panes_to_content(&mut self) {
+        let Some(WindowWidget::TabControl(tab_control)) = self.widget.as_ref() else {
+            return;
+        };
+
+        let (win_width, win_height) = self.get_size();
+        let mut width = win_width - (2 * tab_control.pane_border());
+        let mut height = win_height - (2 * tab_control.pane_border());
+
+        if tab_control.tab_edge() == crate::gui::gadgets::tabcontrol::TP_TOP_SIDE
+            || tab_control.tab_edge() == crate::gui::gadgets::tabcontrol::TP_BOTTOM_SIDE
+        {
+            height -= tab_control.tab_height_px();
+        }
+        if tab_control.tab_edge() == crate::gui::gadgets::tabcontrol::TP_LEFT_SIDE
+            || tab_control.tab_edge() == crate::gui::gadgets::tabcontrol::TP_RIGHT_SIDE
+        {
+            width -= tab_control.tab_width_px();
+        }
+
+        let mut x = tab_control.pane_border();
+        let mut y = tab_control.pane_border();
+        if tab_control.tab_edge() == crate::gui::gadgets::tabcontrol::TP_LEFT_SIDE {
+            x += tab_control.tab_width_px();
+        }
+        if tab_control.tab_edge() == crate::gui::gadgets::tabcontrol::TP_TOP_SIDE {
+            y += tab_control.tab_height_px();
+        }
+
+        let panes: Vec<Rc<RefCell<GameWindow>>> = self
+            .children
+            .iter()
+            .rev()
+            .filter(|child| {
+                let child = child.borrow();
+                (child.inst_data.style & GWS_TAB_PANE) != 0
+            })
+            .cloned()
+            .collect();
+
+        for pane in panes {
+            let mut pane = pane.borrow_mut();
+            let _ = pane.set_size(width.max(0), height.max(0));
+            let _ = pane.set_position(x, y);
+        }
+    }
+
+    /// Normalize window region (ensure low < high)
+    pub(crate) fn normalize_region(&mut self) {
+        if self.region.low.x > self.region.high.x {
+            std::mem::swap(&mut self.region.low.x, &mut self.region.high.x);
+        }
+        if self.region.low.y > self.region.high.y {
+            std::mem::swap(&mut self.region.low.y, &mut self.region.high.y);
+        }
+    }
+}
+
+// ===== SCAN DUMP FROM game_window/window_impl_input.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use super::prelude::*;
+
+impl GameWindow {
+    pub(crate) fn handle_widget_input(
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
@@ -3325,7 +3858,7 @@ impl GameWindow {
         }
     }
 
-    fn unselect_radio_peers_by_group(&mut self, group_id: u32) {
+    pub(crate) fn unselect_radio_peers_by_group(&mut self, group_id: u32) {
         let Some(parent) = self.get_parent() else {
             return;
         };
@@ -3333,7 +3866,7 @@ impl GameWindow {
         Self::unselect_radio_peers_in_subtree(&root, group_id, self.id);
     }
 
-    fn unselect_radio_peers_in_subtree(
+    pub(crate) fn unselect_radio_peers_in_subtree(
         window: &Rc<RefCell<GameWindow>>,
         group_id: u32,
         except_id: WindowId,
@@ -3362,7 +3895,7 @@ impl GameWindow {
         }
     }
 
-    fn handle_widget_system(
+    pub(crate) fn handle_widget_system(
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
@@ -4105,683 +4638,16 @@ impl GameWindow {
 
         WindowMsgHandled::Ignored
     }
-
-    fn sync_combobox_listbox(&mut self, list_box: &Rc<RefCell<GameWindow>>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
-            return;
-        };
-        let mut list_box_guard = list_box.borrow_mut();
-        let Some(WindowWidget::ListBox(listbox)) = list_box_guard.widget_mut() else {
-            return;
-        };
-        listbox.clear();
-        for item in combo.items() {
-            listbox.add_item(&item.text);
-        }
-        if let Some(selected) = combo.selected_index() {
-            let _ = listbox.select_index(selected, KeyModifiers::none());
-        }
-        drop(list_box_guard);
-        list_box.borrow_mut().update_listbox_scrollbar();
-    }
-
-    fn sync_combobox_edit_box(&mut self, edit_box: &Rc<RefCell<GameWindow>>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
-            return;
-        };
-        let mut edit_box_guard = edit_box.borrow_mut();
-        let Some(WindowWidget::TextEntry(entry)) = edit_box_guard.widget_mut() else {
-            return;
-        };
-        entry.set_text(combo.text());
-    }
-
-    fn combo_box_dropdown_visible_count(entry_count: usize, max_display: usize) -> usize {
-        if max_display > 0 {
-            entry_count.min(max_display)
-        } else {
-            entry_count
-        }
-    }
-
-    fn combo_box_dropdown_height(entry_count: usize, max_display: usize, font_height: i32) -> i32 {
-        let visible = Self::combo_box_dropdown_visible_count(entry_count, max_display);
-        (font_height.max(0) * visible as i32) + (visible as i32 * 2) + 4
-    }
-
-    fn resize_combobox_listbox(&mut self, list_box: &Rc<RefCell<GameWindow>>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
-            return;
-        };
-        let count = combo.items().len();
-        let max_display = combo.max_display();
-        let visible = Self::combo_box_dropdown_visible_count(count, max_display);
-        let show_scrollbar = max_display > 0 && count > max_display;
-        let font_height = {
-            let list_box_ref = list_box.borrow();
-            with_window_manager_ref(|manager| {
-                list_box_ref
-                    .inst_data
-                    .font
-                    .as_ref()
-                    .map(|font| manager.win_font_height(font))
-                    .unwrap_or_else(|| {
-                        list_box_ref
-                            .widget()
-                            .and_then(|widget| match widget {
-                                WindowWidget::ListBox(listbox) => {
-                                    Some(listbox.item_height().saturating_sub(2) as i32)
-                                }
-                                _ => None,
-                            })
-                            .unwrap_or(16)
-                    })
-            })
-        };
-        let height = Self::combo_box_dropdown_height(count, max_display, font_height);
-        let (width, _) = list_box.borrow().get_size();
-        let _ = list_box.borrow_mut().set_size(width, height);
-        if let Some(links) = list_box.borrow().listbox_links() {
-            if let Some(up) = list_box.borrow().find_child_by_id(links.up_button) {
-                let _ = up.borrow_mut().hide(!show_scrollbar);
-            }
-            if let Some(down) = list_box.borrow().find_child_by_id(links.down_button) {
-                let _ = down.borrow_mut().hide(!show_scrollbar);
-            }
-            if let Some(slider) = list_box.borrow().find_child_by_id(links.slider) {
-                let _ = slider.borrow_mut().hide(!show_scrollbar);
-            }
-        }
-        list_box.borrow_mut().update_listbox_scrollbar();
-    }
-
-    pub(crate) fn update_listbox_scrollbar(&mut self) {
-        let Some(links) = self.listbox_links else {
-            return;
-        };
-        let Some(WindowWidget::ListBox(listbox)) = self.widget.as_ref() else {
-            return;
-        };
-
-        let bounds = listbox.bounds();
-        let item_height = listbox.item_height().max(1) as usize;
-        let visible = (bounds.height as usize / item_height).max(1);
-        let max_offset = listbox.items().len().saturating_sub(visible);
-        let scroll_offset = listbox.scroll_offset().min(max_offset);
-        if scroll_offset != listbox.scroll_offset() {
-            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                listbox.set_scroll_offset(scroll_offset);
-            }
-        }
-
-        if let Some(slider) = self.find_child_by_id(links.slider) {
-            if let Some(WindowWidget::VerticalSlider(slider)) = slider.borrow_mut().widget_mut() {
-                slider.set_range(0, max_offset as i32);
-                slider.set_value(max_offset.saturating_sub(scroll_offset) as i32);
-            } else if let Some(WindowWidget::HorizontalSlider(slider)) =
-                slider.borrow_mut().widget_mut()
-            {
-                slider.set_range(0, max_offset as i32);
-                slider.set_value(max_offset.saturating_sub(scroll_offset) as i32);
-            }
-        }
-
-        if let Some(up_button) = self.find_child_by_id(links.up_button) {
-            let enabled = max_offset > 0 && scroll_offset > 0;
-            let _ = up_button.borrow_mut().enable(enabled);
-        }
-        if let Some(down_button) = self.find_child_by_id(links.down_button) {
-            let enabled = max_offset > 0 && scroll_offset < max_offset;
-            let _ = down_button.borrow_mut().enable(enabled);
-        }
-        if let Some(slider) = self.find_child_by_id(links.slider) {
-            let enabled = max_offset > 0;
-            let _ = slider.borrow_mut().enable(enabled);
-        }
-
-        let mut content_width = bounds.width;
-        if let Some(slider) = self.find_child_by_id(links.slider) {
-            if !slider.borrow().is_hidden() {
-                let (slider_width, _) = slider.borrow().get_size();
-                content_width = content_width.saturating_sub(slider_width.max(0) as u32 + 2);
-            }
-        }
-        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-            listbox.set_content_width(content_width);
-        }
-
-        if let Some(thumb_id) = links.thumb {
-            if let Some(thumb) = self.find_child_by_id(thumb_id) {
-                if let Some(slider) = self.find_child_by_id(links.slider) {
-                    let (_, slider_height) = slider.borrow().get_size();
-                    let (_, thumb_height) = thumb.borrow().get_size();
-                    let available = (slider_height - thumb_height).max(0);
-                    let ratio = if max_offset > 0 {
-                        scroll_offset as f32 / max_offset as f32
-                    } else {
-                        0.0
-                    };
-                    let thumb_y = (ratio * available as f32).round() as i32;
-                    let _ = thumb.borrow_mut().set_position(0, thumb_y);
-                    let _ = thumb.borrow_mut().hide(max_offset == 0);
-                }
-            }
-        }
-    }
-
-    pub(crate) fn update_slider_thumb(&mut self) {
-        let Some(thumb_id) = self.slider_thumb else {
-            return;
-        };
-        let Some(thumb) = self.find_child_by_id(thumb_id) else {
-            return;
-        };
-        let (thumb_w, thumb_h) = thumb.borrow().get_size();
-        let (width, height) = self.get_size();
-
-        match self.widget.as_ref() {
-            Some(WindowWidget::HorizontalSlider(slider)) => {
-                let (min_val, max_val) = slider.range();
-                let range = (max_val - min_val).max(1);
-                let track = (width - thumb_w).max(0);
-                let ratio = (slider.value() - min_val) as f32 / range as f32;
-                let x = (ratio * track as f32).round() as i32;
-                let _ = thumb
-                    .borrow_mut()
-                    .set_position(x, HORIZONTAL_SLIDER_THUMB_POSITION);
-            }
-            Some(WindowWidget::VerticalSlider(slider)) => {
-                let (min_val, max_val) = slider.range();
-                let range = (max_val - min_val).max(1);
-                let track = (height - thumb_h).max(0);
-                let ratio = (max_val - slider.value()) as f32 / range as f32;
-                let y = (ratio * track as f32).round() as i32;
-                let _ = thumb.borrow_mut().set_position(0, y);
-            }
-            _ => {}
-        }
-    }
-
-    pub(crate) fn show_tab_pane(&mut self, index: usize) {
-        let panes: Vec<Rc<RefCell<GameWindow>>> = self
-            .children
-            .iter()
-            .rev()
-            .filter(|child| {
-                let child = child.borrow();
-                (child.inst_data.style & GWS_TAB_PANE) != 0
-            })
-            .cloned()
-            .collect();
-
-        if panes.is_empty() {
-            return;
-        }
-
-        let mut active_index = if panes.get(index).is_some() { index } else { 0 };
-        if let Some(WindowWidget::TabControl(tab_control)) = &mut self.widget {
-            let tab_count = tab_control.tab_count();
-            if tab_count > 0 {
-                active_index = active_index.min(tab_count - 1);
-            }
-            active_index = active_index.min(panes.len() - 1);
-            tab_control.set_active_tab_index_silent(active_index);
-        }
-
-        for pane in panes.iter() {
-            let _ = pane.borrow_mut().hide(true);
-        }
-
-        if let Some(pane) = panes.get(active_index) {
-            let _ = pane.borrow_mut().hide(false);
-        }
-    }
-
-    fn resize_tab_panes_to_content(&mut self) {
-        let Some(WindowWidget::TabControl(tab_control)) = self.widget.as_ref() else {
-            return;
-        };
-
-        let (win_width, win_height) = self.get_size();
-        let mut width = win_width - (2 * tab_control.pane_border());
-        let mut height = win_height - (2 * tab_control.pane_border());
-
-        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_TOP_SIDE
-            || tab_control.tab_edge() == super::gadgets::tabcontrol::TP_BOTTOM_SIDE
-        {
-            height -= tab_control.tab_height_px();
-        }
-        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_LEFT_SIDE
-            || tab_control.tab_edge() == super::gadgets::tabcontrol::TP_RIGHT_SIDE
-        {
-            width -= tab_control.tab_width_px();
-        }
-
-        let mut x = tab_control.pane_border();
-        let mut y = tab_control.pane_border();
-        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_LEFT_SIDE {
-            x += tab_control.tab_width_px();
-        }
-        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_TOP_SIDE {
-            y += tab_control.tab_height_px();
-        }
-
-        let panes: Vec<Rc<RefCell<GameWindow>>> = self
-            .children
-            .iter()
-            .rev()
-            .filter(|child| {
-                let child = child.borrow();
-                (child.inst_data.style & GWS_TAB_PANE) != 0
-            })
-            .cloned()
-            .collect();
-
-        for pane in panes {
-            let mut pane = pane.borrow_mut();
-            let _ = pane.set_size(width.max(0), height.max(0));
-            let _ = pane.set_position(x, y);
-        }
-    }
-
-    /// Normalize window region (ensure low < high)
-    fn normalize_region(&mut self) {
-        if self.region.low.x > self.region.high.x {
-            std::mem::swap(&mut self.region.low.x, &mut self.region.high.x);
-        }
-        if self.region.low.y > self.region.high.y {
-            std::mem::swap(&mut self.region.low.y, &mut self.region.high.y);
-        }
-    }
 }
 
-impl Default for GameWindow {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// ===== SCAN DUMP FROM game_window/window_impl_draw.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
 
-impl WindowWidget {
-    fn set_visible(&mut self, visible: bool) {
-        match self {
-            WindowWidget::PushButton(widget) => widget.set_visible(visible),
-            WindowWidget::RadioButton(widget) => widget.set_visible(visible),
-            WindowWidget::CheckBox(widget) => widget.set_visible(visible),
-            WindowWidget::VerticalSlider(widget) => widget.set_visible(visible),
-            WindowWidget::HorizontalSlider(widget) => widget.set_visible(visible),
-            WindowWidget::ListBox(widget) => widget.set_visible(visible),
-            WindowWidget::TextEntry(widget) => widget.set_visible(visible),
-            WindowWidget::StaticText(widget) => widget.set_visible(visible),
-            WindowWidget::ProgressBar(widget) => widget.set_visible(visible),
-            WindowWidget::TabControl(widget) => widget.set_visible(visible),
-            WindowWidget::ComboBox(widget) => widget.set_visible(visible),
-            WindowWidget::TabPane
-            | WindowWidget::User
-            | WindowWidget::Animated
-            | WindowWidget::MouseTrack => {}
-        }
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        match self {
-            WindowWidget::PushButton(widget) => widget.set_enabled(enabled),
-            WindowWidget::RadioButton(widget) => widget.set_enabled(enabled),
-            WindowWidget::CheckBox(widget) => widget.set_enabled(enabled),
-            WindowWidget::VerticalSlider(widget) => widget.set_enabled(enabled),
-            WindowWidget::HorizontalSlider(widget) => widget.set_enabled(enabled),
-            WindowWidget::ListBox(widget) => widget.set_enabled(enabled),
-            WindowWidget::TextEntry(widget) => widget.set_enabled(enabled),
-            WindowWidget::StaticText(widget) => widget.set_enabled(enabled),
-            WindowWidget::ProgressBar(widget) => widget.set_enabled(enabled),
-            WindowWidget::TabControl(widget) => widget.set_enabled(enabled),
-            WindowWidget::ComboBox(widget) => widget.set_enabled(enabled),
-            WindowWidget::TabPane
-            | WindowWidget::User
-            | WindowWidget::Animated
-            | WindowWidget::MouseTrack => {}
-        }
-    }
-
-    fn handle_input(&mut self, event: &InputEvent) -> Vec<GadgetMessage> {
-        match self {
-            WindowWidget::PushButton(widget) => widget.handle_input(event),
-            WindowWidget::RadioButton(widget) => widget.handle_input(event),
-            WindowWidget::CheckBox(widget) => widget.handle_input(event),
-            WindowWidget::VerticalSlider(widget) => widget.handle_input(event),
-            WindowWidget::HorizontalSlider(widget) => widget.handle_input(event),
-            WindowWidget::ListBox(widget) => widget.handle_input(event),
-            WindowWidget::TextEntry(widget) => widget.handle_input(event),
-            WindowWidget::StaticText(widget) => widget.handle_input(event),
-            WindowWidget::ProgressBar(widget) => widget.handle_input(event),
-            WindowWidget::TabControl(widget) => widget.handle_input(event),
-            WindowWidget::ComboBox(widget) => widget.handle_input(event),
-            WindowWidget::TabPane
-            | WindowWidget::User
-            | WindowWidget::Animated
-            | WindowWidget::MouseTrack => Vec::new(),
-        }
-    }
-
-    fn state(&self) -> GadgetState {
-        match self {
-            WindowWidget::PushButton(widget) => widget.state(),
-            WindowWidget::RadioButton(widget) => widget.state(),
-            WindowWidget::CheckBox(widget) => widget.state(),
-            WindowWidget::VerticalSlider(widget) => widget.state(),
-            WindowWidget::HorizontalSlider(widget) => widget.state(),
-            WindowWidget::ListBox(widget) => widget.state(),
-            WindowWidget::TextEntry(widget) => widget.state(),
-            WindowWidget::StaticText(widget) => widget.state(),
-            WindowWidget::ProgressBar(widget) => widget.state(),
-            WindowWidget::TabControl(widget) => widget.state(),
-            WindowWidget::ComboBox(widget) => widget.state(),
-            WindowWidget::TabPane
-            | WindowWidget::User
-            | WindowWidget::Animated
-            | WindowWidget::MouseTrack => GadgetState::Normal,
-        }
-    }
-}
-
-// Default callback implementations
-pub fn legacy_default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
-    // C++ parity: GameWinDefaultDraw is a no-op. USER/[None]/W3DNoDraw windows
-    // should not fall through into a Rust-only generic image draw path.
-}
-
-pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
-    let video_frame = _inst_data.video_buffer.as_ref().and_then(read_video_frame);
-    let _ = with_ui_renderer_mut(|renderer| {
-        let (x, y) = _window.get_screen_position();
-        let (width, height) = _window.get_size();
-        let offset = _inst_data.image_offset;
-        let mut rect = UIRect::new(
-            (x + offset.x) as f32,
-            (y + offset.y) as f32,
-            width as f32,
-            height as f32,
-        );
-        let scale = _window.get_press_scale();
-        if (scale - 1.0).abs() > f32::EPSILON {
-            let cx = rect.x + rect.width * 0.5;
-            let cy = rect.y + rect.height * 0.5;
-            let scaled_width = rect.width * scale;
-            let scaled_height = rect.height * scale;
-            rect = UIRect::new(
-                cx - scaled_width * 0.5,
-                cy - scaled_height * 0.5,
-                scaled_width,
-                scaled_height,
-            );
-        }
-
-        let (draw_data, text_colors) =
-            if _inst_data.state.contains(WindowState::DISABLED) || !_window.is_enabled() {
-                (&_inst_data.disabled_draw_data, &_inst_data.disabled_text)
-            } else if _inst_data.state.contains(WindowState::HILITED) {
-                (&_inst_data.hilite_draw_data, &_inst_data.hilite_text)
-            } else {
-                (&_inst_data.enabled_draw_data, &_inst_data.enabled_text)
-            };
-
-        if _window.get_status().contains(WindowStatus::IMAGE) {
-            // C++ parity: W3DGameWinDefaultDraw ALWAYS draws the color background,
-            // then overlays the image if available. Don't skip the color fill just
-            // because the image is missing.
-            if let Some(entry) = draw_data.first() {
-                if entry.color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
-                }
-                if entry.border_color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
-                }
-            }
-            if let Some(entry) = draw_data.first() {
-                if let Some(image) = &entry.image {
-                    let _ = ensure_client_mapped_image(&image.name);
-                    let texture = {
-                        let collection = get_mapped_image_collection();
-                        let mut collection = collection.write();
-                        if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
-                            if mapped.get_gpu_texture().is_none() {
-                                let _ =
-                                    mapped.create_gpu_texture(renderer.device(), renderer.queue());
-                            }
-                            let texture = mapped.get_gpu_texture().map(|gpu| {
-                                let uv = mapped.get_uv();
-                                (
-                                    Arc::new(gpu.view().clone()),
-                                    UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height()),
-                                )
-                            });
-                            texture
-                        } else {
-                            None
-                        }
-                    };
-
-                    if let Some((texture, tex_rect)) = texture {
-                        renderer.draw_textured_rect(
-                            rect,
-                            texture,
-                            [1.0, 1.0, 1.0, 1.0],
-                            Some(tex_rect),
-                            0.0,
-                        );
-                    }
-                }
-            }
-        } else {
-            if let Some(entry) = draw_data.first() {
-                if entry.color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
-                }
-
-                if entry.border_color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
-                }
-            }
-        }
-
-        if let Some(frame) = video_frame.as_ref() {
-            let video_rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
-            let texture = renderer.create_texture_from_rgba(frame.width, frame.height, &frame.data);
-            renderer.draw_textured_rect(video_rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
-        }
-        // C++ parity: W3DGameWinDefaultDraw does NOT draw text here.
-        // Text drawing is the responsibility of gadget-specific draw callbacks
-        // (e.g., W3DGadgetPushButtonDraw, W3DGadgetStaticTextDraw) which call
-        // drawButtonText() explicitly. The default draw only handles image/color
-        // backgrounds and video buffers.
-    });
-}
-
-pub(crate) fn resolve_window_text(raw_text: &str) -> String {
-    let trimmed = raw_text.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-
-    let localized = GameText::fetch(trimmed);
-    if localized.is_empty() {
-        trimmed.to_string()
-    } else {
-        localized
-    }
-}
-
-pub(crate) struct VideoFrameData {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) data: Vec<u8>,
-}
-
-pub(crate) fn read_video_frame(buffer: &VideoBufferHandle) -> Option<VideoFrameData> {
-    let mut guard = buffer.lock();
-    if !guard.valid() {
-        return None;
-    }
-    let width = guard.width();
-    let height = guard.height();
-    let pitch = guard.pitch();
-    if width == 0 || height == 0 || pitch == 0 {
-        return None;
-    }
-    let byte_len = (pitch as usize).saturating_mul(height as usize);
-    let ptr = guard.lock();
-    if ptr.is_null() || byte_len == 0 {
-        guard.unlock();
-        return None;
-    }
-    let src = unsafe { std::slice::from_raw_parts(ptr, byte_len) };
-    let data = match guard.format() {
-        VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),
-        VideoBufferType::R8G8B8 => convert_r8g8b8(src, width, height, pitch),
-        VideoBufferType::R5G6B5 => convert_r5g6b5(src, width, height, pitch),
-        VideoBufferType::X1R5G5B5 => convert_x1r5g5b5(src, width, height, pitch),
-        VideoBufferType::Unknown => None,
-    };
-    guard.unlock();
-    data.map(|data| VideoFrameData {
-        width,
-        height,
-        data,
-    })
-}
-
-fn convert_x8r8g8b8(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
-    let row_bytes = (width as usize).saturating_mul(4);
-    let pitch = pitch as usize;
-    if pitch < row_bytes {
-        return None;
-    }
-    let mut out = vec![
-        0u8;
-        (width as usize)
-            .saturating_mul(height as usize)
-            .saturating_mul(4)
-    ];
-    for y in 0..height as usize {
-        let src_row = y.saturating_mul(pitch);
-        if src_row + row_bytes > src.len() {
-            return None;
-        }
-        let row = &src[src_row..src_row + row_bytes];
-        for x in 0..width as usize {
-            let src_idx = x * 4;
-            let dst_idx = (y * width as usize + x) * 4;
-            let b = row[src_idx];
-            let g = row[src_idx + 1];
-            let r = row[src_idx + 2];
-            out[dst_idx] = r;
-            out[dst_idx + 1] = g;
-            out[dst_idx + 2] = b;
-            out[dst_idx + 3] = 255;
-        }
-    }
-    Some(out)
-}
-
-fn convert_r8g8b8(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
-    let row_bytes = (width as usize).saturating_mul(3);
-    let pitch = pitch as usize;
-    if pitch < row_bytes {
-        return None;
-    }
-    let mut out = vec![
-        0u8;
-        (width as usize)
-            .saturating_mul(height as usize)
-            .saturating_mul(4)
-    ];
-    for y in 0..height as usize {
-        let src_row = y.saturating_mul(pitch);
-        if src_row + row_bytes > src.len() {
-            return None;
-        }
-        let row = &src[src_row..src_row + row_bytes];
-        for x in 0..width as usize {
-            let src_idx = x * 3;
-            let dst_idx = (y * width as usize + x) * 4;
-            out[dst_idx] = row[src_idx];
-            out[dst_idx + 1] = row[src_idx + 1];
-            out[dst_idx + 2] = row[src_idx + 2];
-            out[dst_idx + 3] = 255;
-        }
-    }
-    Some(out)
-}
-
-fn convert_r5g6b5(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
-    let row_bytes = (width as usize).saturating_mul(2);
-    let pitch = pitch as usize;
-    if pitch < row_bytes {
-        return None;
-    }
-    let mut out = vec![
-        0u8;
-        (width as usize)
-            .saturating_mul(height as usize)
-            .saturating_mul(4)
-    ];
-    for y in 0..height as usize {
-        let src_row = y.saturating_mul(pitch);
-        if src_row + row_bytes > src.len() {
-            return None;
-        }
-        let row = &src[src_row..src_row + row_bytes];
-        for x in 0..width as usize {
-            let idx = x * 2;
-            let value = u16::from_le_bytes([row[idx], row[idx + 1]]);
-            let r = ((value >> 11) & 0x1F) as u8;
-            let g = ((value >> 5) & 0x3F) as u8;
-            let b = (value & 0x1F) as u8;
-            let dst_idx = (y * width as usize + x) * 4;
-            out[dst_idx] = (r << 3) | (r >> 2);
-            out[dst_idx + 1] = (g << 2) | (g >> 4);
-            out[dst_idx + 2] = (b << 3) | (b >> 2);
-            out[dst_idx + 3] = 255;
-        }
-    }
-    Some(out)
-}
-
-fn convert_x1r5g5b5(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
-    let row_bytes = (width as usize).saturating_mul(2);
-    let pitch = pitch as usize;
-    if pitch < row_bytes {
-        return None;
-    }
-    let mut out = vec![
-        0u8;
-        (width as usize)
-            .saturating_mul(height as usize)
-            .saturating_mul(4)
-    ];
-    for y in 0..height as usize {
-        let src_row = y.saturating_mul(pitch);
-        if src_row + row_bytes > src.len() {
-            return None;
-        }
-        let row = &src[src_row..src_row + row_bytes];
-        for x in 0..width as usize {
-            let idx = x * 2;
-            let value = u16::from_le_bytes([row[idx], row[idx + 1]]);
-            let r = ((value >> 10) & 0x1F) as u8;
-            let g = ((value >> 5) & 0x1F) as u8;
-            let b = (value & 0x1F) as u8;
-            let dst_idx = (y * width as usize + x) * 4;
-            out[dst_idx] = (r << 3) | (r >> 2);
-            out[dst_idx + 1] = (g << 3) | (g >> 2);
-            out[dst_idx + 2] = (b << 3) | (b >> 2);
-            out[dst_idx + 3] = 255;
-        }
-    }
-    Some(out)
-}
+use super::prelude::*;
 
 #[derive(Default, Clone)]
-struct BorderPieces {
+pub(crate) struct BorderPieces {
     corner_ul: Option<Image>,
     corner_ur: Option<Image>,
     corner_ll: Option<Image>,
@@ -4796,7 +4662,7 @@ struct BorderPieces {
     horizontal_bottom_short: Option<Image>,
 }
 
-fn border_pieces() -> &'static BorderPieces {
+pub(crate) fn border_pieces() -> &'static BorderPieces {
     static PIECES: OnceLock<BorderPieces> = OnceLock::new();
     PIECES.get_or_init(|| {
         with_window_manager_ref(|manager| BorderPieces {
@@ -4938,7 +4804,7 @@ impl GameWindow {
         }
     }
 
-    fn blit_border_rect(
+    pub(crate) fn blit_border_rect(
         &self,
         x: i32,
         y: i32,
@@ -5114,6 +4980,324 @@ impl GameWindow {
     }
 }
 
+// ===== SCAN DUMP FROM game_window/callbacks.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
+
+use std::sync::Arc;
+
+use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
+use crate::game_text::GameText;
+use crate::gui::gadgets::{InputEvent, KeyCode, KeyModifiers};
+use crate::gui::with_ui_renderer_mut;
+use crate::gui::UIRect;
+use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
+
+use super::font::{Color, WindowInstanceData, WindowState};
+use super::messages::{WindowMessage, WindowMsgHandled, WindowStatus, WIN_COLOR_UNDEFINED};
+use super::payload::{
+    KEY_STATE_DOWN, KEY_STATE_LALT, KEY_STATE_LCONTROL, KEY_STATE_LSHIFT, KEY_STATE_RALT,
+    KEY_STATE_RCONTROL, KEY_STATE_RSHIFT, KEY_STATE_UP, WindowMsgData,
+};
+use super::window_struct::GameWindow;
+
+// Default callback implementations
+pub fn legacy_default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+    // C++ parity: GameWinDefaultDraw is a no-op. USER/[None]/W3DNoDraw windows
+    // should not fall through into a Rust-only generic image draw path.
+}
+
+pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+    let video_frame = _inst_data.video_buffer.as_ref().and_then(read_video_frame);
+    let _ = with_ui_renderer_mut(|renderer| {
+        let (x, y) = _window.get_screen_position();
+        let (width, height) = _window.get_size();
+        let offset = _inst_data.image_offset;
+        let mut rect = UIRect::new(
+            (x + offset.x) as f32,
+            (y + offset.y) as f32,
+            width as f32,
+            height as f32,
+        );
+        let scale = _window.get_press_scale();
+        if (scale - 1.0).abs() > f32::EPSILON {
+            let cx = rect.x + rect.width * 0.5;
+            let cy = rect.y + rect.height * 0.5;
+            let scaled_width = rect.width * scale;
+            let scaled_height = rect.height * scale;
+            rect = UIRect::new(
+                cx - scaled_width * 0.5,
+                cy - scaled_height * 0.5,
+                scaled_width,
+                scaled_height,
+            );
+        }
+
+        let (draw_data, text_colors) =
+            if _inst_data.state.contains(WindowState::DISABLED) || !_window.is_enabled() {
+                (&_inst_data.disabled_draw_data, &_inst_data.disabled_text)
+            } else if _inst_data.state.contains(WindowState::HILITED) {
+                (&_inst_data.hilite_draw_data, &_inst_data.hilite_text)
+            } else {
+                (&_inst_data.enabled_draw_data, &_inst_data.enabled_text)
+            };
+
+        if _window.get_status().contains(WindowStatus::IMAGE) {
+            // C++ parity: W3DGameWinDefaultDraw ALWAYS draws the color background,
+            // then overlays the image if available. Don't skip the color fill just
+            // because the image is missing.
+            if let Some(entry) = draw_data.first() {
+                if entry.color != WIN_COLOR_UNDEFINED {
+                    renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
+                }
+                if entry.border_color != WIN_COLOR_UNDEFINED {
+                    renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
+                }
+            }
+            if let Some(entry) = draw_data.first() {
+                if let Some(image) = &entry.image {
+                    let _ = ensure_client_mapped_image(&image.name);
+                    let texture = {
+                        let collection = get_mapped_image_collection();
+                        let mut collection = collection.write();
+                        if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
+                            if mapped.get_gpu_texture().is_none() {
+                                let _ =
+                                    mapped.create_gpu_texture(renderer.device(), renderer.queue());
+                            }
+                            let texture = mapped.get_gpu_texture().map(|gpu| {
+                                let uv = mapped.get_uv();
+                                (
+                                    Arc::new(gpu.view().clone()),
+                                    UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height()),
+                                )
+                            });
+                            texture
+                        } else {
+                            None
+                        }
+                    };
+
+                    if let Some((texture, tex_rect)) = texture {
+                        renderer.draw_textured_rect(
+                            rect,
+                            texture,
+                            [1.0, 1.0, 1.0, 1.0],
+                            Some(tex_rect),
+                            0.0,
+                        );
+                    }
+                }
+            }
+        } else {
+            if let Some(entry) = draw_data.first() {
+                if entry.color != WIN_COLOR_UNDEFINED {
+                    renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
+                }
+
+                if entry.border_color != WIN_COLOR_UNDEFINED {
+                    renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
+                }
+            }
+        }
+
+        if let Some(frame) = video_frame.as_ref() {
+            let video_rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
+            let texture = renderer.create_texture_from_rgba(frame.width, frame.height, &frame.data);
+            renderer.draw_textured_rect(video_rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+        }
+        // C++ parity: W3DGameWinDefaultDraw does NOT draw text here.
+        // Text drawing is the responsibility of gadget-specific draw callbacks
+        // (e.g., W3DGadgetPushButtonDraw, W3DGadgetStaticTextDraw) which call
+        // drawButtonText() explicitly. The default draw only handles image/color
+        // backgrounds and video buffers.
+    });
+}
+
+pub(crate) fn resolve_window_text(raw_text: &str) -> String {
+    let trimmed = raw_text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let localized = GameText::fetch(trimmed);
+    if localized.is_empty() {
+        trimmed.to_string()
+    } else {
+        localized
+    }
+}
+
+pub(crate) struct VideoFrameData {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) data: Vec<u8>,
+}
+
+pub(crate) fn read_video_frame(buffer: &VideoBufferHandle) -> Option<VideoFrameData> {
+    let mut guard = buffer.lock();
+    if !guard.valid() {
+        return None;
+    }
+    let width = guard.width();
+    let height = guard.height();
+    let pitch = guard.pitch();
+    if width == 0 || height == 0 || pitch == 0 {
+        return None;
+    }
+    let byte_len = (pitch as usize).saturating_mul(height as usize);
+    let ptr = guard.lock();
+    if ptr.is_null() || byte_len == 0 {
+        guard.unlock();
+        return None;
+    }
+    let src = unsafe { std::slice::from_raw_parts(ptr, byte_len) };
+    let data = match guard.format() {
+        VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),
+        VideoBufferType::R8G8B8 => convert_r8g8b8(src, width, height, pitch),
+        VideoBufferType::R5G6B5 => convert_r5g6b5(src, width, height, pitch),
+        VideoBufferType::X1R5G5B5 => convert_x1r5g5b5(src, width, height, pitch),
+        VideoBufferType::Unknown => None,
+    };
+    guard.unlock();
+    data.map(|data| VideoFrameData {
+        width,
+        height,
+        data,
+    })
+}
+
+pub(crate) fn convert_x8r8g8b8(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
+    let row_bytes = (width as usize).saturating_mul(4);
+    let pitch = pitch as usize;
+    if pitch < row_bytes {
+        return None;
+    }
+    let mut out = vec![
+        0u8;
+        (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4)
+    ];
+    for y in 0..height as usize {
+        let src_row = y.saturating_mul(pitch);
+        if src_row + row_bytes > src.len() {
+            return None;
+        }
+        let row = &src[src_row..src_row + row_bytes];
+        for x in 0..width as usize {
+            let src_idx = x * 4;
+            let dst_idx = (y * width as usize + x) * 4;
+            let b = row[src_idx];
+            let g = row[src_idx + 1];
+            let r = row[src_idx + 2];
+            out[dst_idx] = r;
+            out[dst_idx + 1] = g;
+            out[dst_idx + 2] = b;
+            out[dst_idx + 3] = 255;
+        }
+    }
+    Some(out)
+}
+
+pub(crate) fn convert_r8g8b8(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
+    let row_bytes = (width as usize).saturating_mul(3);
+    let pitch = pitch as usize;
+    if pitch < row_bytes {
+        return None;
+    }
+    let mut out = vec![
+        0u8;
+        (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4)
+    ];
+    for y in 0..height as usize {
+        let src_row = y.saturating_mul(pitch);
+        if src_row + row_bytes > src.len() {
+            return None;
+        }
+        let row = &src[src_row..src_row + row_bytes];
+        for x in 0..width as usize {
+            let src_idx = x * 3;
+            let dst_idx = (y * width as usize + x) * 4;
+            out[dst_idx] = row[src_idx];
+            out[dst_idx + 1] = row[src_idx + 1];
+            out[dst_idx + 2] = row[src_idx + 2];
+            out[dst_idx + 3] = 255;
+        }
+    }
+    Some(out)
+}
+
+pub(crate) fn convert_r5g6b5(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
+    let row_bytes = (width as usize).saturating_mul(2);
+    let pitch = pitch as usize;
+    if pitch < row_bytes {
+        return None;
+    }
+    let mut out = vec![
+        0u8;
+        (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4)
+    ];
+    for y in 0..height as usize {
+        let src_row = y.saturating_mul(pitch);
+        if src_row + row_bytes > src.len() {
+            return None;
+        }
+        let row = &src[src_row..src_row + row_bytes];
+        for x in 0..width as usize {
+            let idx = x * 2;
+            let value = u16::from_le_bytes([row[idx], row[idx + 1]]);
+            let r = ((value >> 11) & 0x1F) as u8;
+            let g = ((value >> 5) & 0x3F) as u8;
+            let b = (value & 0x1F) as u8;
+            let dst_idx = (y * width as usize + x) * 4;
+            out[dst_idx] = (r << 3) | (r >> 2);
+            out[dst_idx + 1] = (g << 2) | (g >> 4);
+            out[dst_idx + 2] = (b << 3) | (b >> 2);
+            out[dst_idx + 3] = 255;
+        }
+    }
+    Some(out)
+}
+
+pub(crate) fn convert_x1r5g5b5(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec<u8>> {
+    let row_bytes = (width as usize).saturating_mul(2);
+    let pitch = pitch as usize;
+    if pitch < row_bytes {
+        return None;
+    }
+    let mut out = vec![
+        0u8;
+        (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4)
+    ];
+    for y in 0..height as usize {
+        let src_row = y.saturating_mul(pitch);
+        if src_row + row_bytes > src.len() {
+            return None;
+        }
+        let row = &src[src_row..src_row + row_bytes];
+        for x in 0..width as usize {
+            let idx = x * 2;
+            let value = u16::from_le_bytes([row[idx], row[idx + 1]]);
+            let r = ((value >> 10) & 0x1F) as u8;
+            let g = ((value >> 5) & 0x1F) as u8;
+            let b = (value & 0x1F) as u8;
+            let dst_idx = (y * width as usize + x) * 4;
+            out[dst_idx] = (r << 3) | (r >> 2);
+            out[dst_idx + 1] = (g << 3) | (g >> 2);
+            out[dst_idx + 2] = (b << 3) | (b >> 2);
+            out[dst_idx + 3] = 255;
+        }
+    }
+    Some(out)
+}
+
 pub(crate) fn color_to_rgba(color: Color) -> [f32; 4] {
     let a = ((color >> 24) & 0xFF) as f32 / 255.0;
     let r = ((color >> 16) & 0xFF) as f32 / 255.0;
@@ -5148,7 +5332,7 @@ pub fn default_tooltip_callback(
     // Default implementation does nothing
 }
 
-fn map_keycode(data: WindowMsgData) -> KeyCode {
+pub(crate) fn map_keycode(data: WindowMsgData) -> KeyCode {
     let key = (data & 0xFF) as u8;
     match key {
         8 => KeyCode::Backspace,
@@ -5208,7 +5392,7 @@ fn map_keycode(data: WindowMsgData) -> KeyCode {
     }
 }
 
-fn key_modifiers_from_state(state: WindowMsgData) -> KeyModifiers {
+pub(crate) fn key_modifiers_from_state(state: WindowMsgData) -> KeyModifiers {
     KeyModifiers {
         shift: (state & (KEY_STATE_LSHIFT | KEY_STATE_RSHIFT)) != 0,
         ctrl: (state & (KEY_STATE_LCONTROL | KEY_STATE_RCONTROL)) != 0,
@@ -5216,7 +5400,7 @@ fn key_modifiers_from_state(state: WindowMsgData) -> KeyModifiers {
     }
 }
 
-fn char_input_event(key: WindowMsgData, state: WindowMsgData) -> Option<InputEvent> {
+pub(crate) fn char_input_event(key: WindowMsgData, state: WindowMsgData) -> Option<InputEvent> {
     let key = map_keycode(key);
     let modifiers = key_modifiers_from_state(state);
 
@@ -5229,14 +5413,17 @@ fn char_input_event(key: WindowMsgData, state: WindowMsgData) -> Option<InputEve
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::gui::gadgets::tabcontrol;
-    use crate::gui::gadgets::RadioButtonGroup;
-    use crate::gui::gadgets::Rect;
-    use crate::gui::shell::Color as ShellColor;
+// ===== SCAN DUMP FROM game_window/tests.rs =====
+//! Split from `gui/game_window.rs` for module-size parity.
+//! Observable window behavior is unchanged.
 
-    use super::*;
+use crate::gui::gadgets::tabcontrol;
+use crate::gui::gadgets::RadioButtonGroup;
+use crate::gui::gadgets::Rect;
+use crate::gui::shell::Color as ShellColor;
+
+use super::prelude::*;
+use super::*;
 
     fn combo_fixture() -> (
         GameWindow,
@@ -7732,4 +7919,4 @@ mod tests {
             WindowMsgHandled::Ignored
         );
     }
-}
+

@@ -1,0 +1,1419 @@
+#![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::*;
+impl CnCGameEngine {
+    /// Retail SELECT_NEXT/PREV_UNIT residual.
+    pub(super) fn cycle_friendly_selection(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+
+        let all: Vec<ObjectId> = frame.alive_selectable_friendly_ids(team);
+        if all.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            all.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = all.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    all[i]
+                })
+                .unwrap_or(all[0])
+        } else if delta >= 0 {
+            all[0]
+        } else {
+            all[all.len() - 1]
+        };
+
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Retail SELECT_NEXT/PREV_WORKER residual — prefer dozers/workers/harvesters.
+    pub(super) fn cycle_friendly_worker_selection(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+
+        let (mut idle_workers, mut busy_workers) = (
+            frame.alive_selectable_friendly_idle_worker_ids(team),
+            frame.alive_selectable_friendly_busy_worker_ids(team),
+        );
+        idle_workers.sort_by_key(|id| id.0);
+        busy_workers.sort_by_key(|id| id.0);
+        // Cycle idle first; fall back to all workers if none idle.
+        let mut workers = if !idle_workers.is_empty() {
+            idle_workers
+        } else {
+            busy_workers
+        };
+        if workers.is_empty() {
+            // Fail-open: fall back to general unit cycle.
+            self.cycle_friendly_selection(delta);
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            workers
+                .iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = workers.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    workers[i]
+                })
+                .unwrap_or(workers[0])
+        } else if delta >= 0 {
+            workers[0]
+        } else {
+            workers[workers.len() - 1]
+        };
+
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Retail-ish SELECT_NEXT/PREV_STRUCTURE residual.
+    pub(super) fn cycle_friendly_structure_selection(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut structures: Vec<ObjectId> = frame
+            .objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && o.team == team
+                    && o.is_structure
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            })
+            .map(|o| o.id)
+            .collect();
+        structures.sort_by_key(|id| id.0);
+        if structures.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            structures
+                .iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = structures.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    structures[i]
+                })
+                .unwrap_or(structures[0])
+        } else if delta >= 0 {
+            structures[0]
+        } else {
+            structures[structures.len() - 1]
+        };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+    }
+    /// Cycle damaged friendly structures residual (for repair response).
+
+    /// Cycle unfinished friendly construction residual (Ctrl+Alt+Home/End).
+
+    /// Resume unfinished construction with selected dozers residual (Alt+E).
+    /// Wave 612: via `host_resume_selected_construction`.
+    pub(super) fn resume_selected_construction(&mut self) {
+        // Wave 612: thin wrapper — residual via host helper.
+        self.host_resume_selected_construction()
+    }
+
+    /// Resume unfinished construction with selected dozers residual (Alt+E).
+    pub(super) fn host_resume_selected_construction(&mut self) {
+        // Wave 612: host residual helper.
+        let player_id = self.current_player_id;
+        // Wave 226: selection/team via presentation-first helpers.
+        let selected = self.ui_selected_ids(player_id);
+        let team = self.local_team_for_ui();
+        let unfinished: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.objects.iter().any(|o| {
+                        o.id == id
+                            && o.team == team
+                            && !o.destroyed
+                            && o.under_construction
+                            && !o.sold
+                    })
+                } else {
+                    // Presentation required (no live dual-read).
+                    false
+                }
+            })
+            .collect();
+        let dozers: Vec<_> = selected
+            .iter()
+            .copied()
+            .filter(|&id| {
+                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.objects.iter().any(|o| {
+                        o.id == id
+                            && o.team == team
+                            && !o.destroyed
+                            && crate::presentation_frame::PresentationFrame::presentation_is_worker_like(
+                                o,
+                            )
+                    })
+                } else {
+                    // Presentation required (no live dual-read).
+                    false
+                }
+            })
+            .collect();
+        // If only unfinished selected, pick all team dozers idle residual.
+        let mut builders = dozers;
+        if builders.is_empty() {
+            builders = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_idle_worker_ids(team)
+            } else {
+                // Presentation required (no live get_objects dual-read).
+                Vec::new()
+            };
+        }
+        let target = unfinished.first().copied().or_else(|| {
+            // Fall back to cycled unfinished if selection is dozers only.
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame
+                    .alive_selectable_friendly_unfinished_ids(team)
+                    .into_iter()
+                    .next()
+            } else {
+                // Presentation required (no live get_objects dual-read).
+                None
+            }
+        });
+        let Some(target_id) = target else {
+            let msg = "No unfinished construction to resume";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        };
+        if builders.is_empty() {
+            let msg = "No dozer/worker available to resume";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.host_queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::ResumeConstruction { target_id },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: builders,
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        self.host_process_commands_with_command_sound();
+        let msg = "Resuming construction";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    pub(super) fn cycle_unfinished_construction(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_unfinished_ids(team);
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Unfinished construction selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    pub(super) fn cycle_damaged_structure_selection(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_damaged_structure_ids(team);
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Damaged structure selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all idle friendly combat units residual (Ctrl+I).
+
+    /// Purchase next available GeneralsExperience science residual (Alt+G).
+    pub(super) fn try_purchase_next_generals_science(&mut self) {
+        // Wave 234: science points/team prefer presentation freeze for UI gate.
+        let player_id = self.current_player_id;
+        let spp = self.ui_local_science_purchase_points();
+        if spp <= 0 {
+            let msg = "No science purchase points";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let team = self.local_team_for_ui();
+        // Retail-ish purchasable science order residual (fail-closed vs full Science.ini tree).
+        let candidates: &[&str] = match team {
+            crate::game_logic::Team::China => &[
+                "SCIENCE_RedGuardTraining",
+                "SCIENCE_BattlemasterTraining",
+                "SCIENCE_ArtilleryTraining",
+                "SCIENCE_NukeCannon",
+                "SCIENCE_CashBounty1",
+            ],
+            crate::game_logic::Team::GLA => &[
+                "SCIENCE_RebelAmbush1",
+                "SCIENCE_CashBounty1",
+                "SCIENCE_SneakAttack",
+                "SCIENCE_AnthraxBomb",
+                "SCIENCE_ScudLauncher",
+            ],
+            _ => &[
+                // America / default
+                "SCIENCE_PaladinTank",
+                "SCIENCE_StealthFighter",
+                "SCIENCE_Pathfinder",
+                "SCIENCE_CashBounty1",
+                "SCIENCE_A10ThunderboltMissileStrike1",
+                "SCIENCE_EmergencyRepair1",
+                "SCIENCE_SpyDrone",
+            ],
+        };
+        // Wave 238/555: unlocked sciences prefer presentation freeze; boot via
+        // player_unlocked_sciences probe API (presentation_or_boot_unlocked_sciences).
+        let unlocked: Vec<String> = self.presentation_or_boot_unlocked_sciences(player_id);
+
+        let mut chosen = None;
+        for &name in candidates {
+            if unlocked.iter().any(|s| s.eq_ignore_ascii_case(name)) {
+                continue;
+            }
+            // Wave 238: InGame fail-open from presentation unlocked list;
+            // boot-only capability probe without &Player expose.
+            // Wave 584: boot science capability residual via helper.
+            if self.last_presentation_frame.is_none()
+                && !self.host_player_can_purchase_science(player_id, name)
+            {
+                continue;
+            }
+            chosen = Some(name.to_string());
+            break;
+        }
+        let Some(science_name) = chosen else {
+            let msg = format!("No purchasable science (spp={spp})");
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            return;
+        };
+
+        // Wave 584: host queue purchase-science residual.
+        self.host_queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::PurchaseScience {
+                science_name: science_name.clone(),
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: Vec::new(),
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        let msg = format!("Purchased {science_name}");
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+        self.play_sound_effect(SoundType::Command);
+    }
+
+    /// Cycle idle friendly combat units residual (Ctrl+Alt+, / .).
+    pub(super) fn cycle_idle_military_selection(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_idle_military_ids(team);
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Idle military selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all friendly units currently repairing residual (Ctrl+Alt+R).
+    pub(super) fn select_all_repairing_units(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_repairing_ids(team);
+        if ids.is_empty() {
+            let msg = "No repairing units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} repairing", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn select_all_idle_military(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_idle_military_ids(team);
+        if ids.is_empty() {
+            let msg = "No idle military units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        let msg = format!("Selected {} idle military", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select all friendly harvesters / supply collectors residual (Ctrl+Shift+I).
+    pub(super) fn select_all_harvesters(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_harvester_ids(team);
+        if ids.is_empty() {
+            let msg = "No harvesters found";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        let msg = format!("Selected {} harvesters", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Select idle friendly harvesters residual (Ctrl+Alt+I).
+    pub(super) fn select_idle_harvesters(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_idle_harvester_ids(team);
+        if ids.is_empty() {
+            let msg = "No idle harvesters";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} idle harvesters", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Cycle construction panel tab residual (`[` / `]`).
+    pub(super) fn cycle_construction_tab(&mut self, delta: i32) {
+        use crate::ui::ConstructionTab;
+        if !self.game_hud.construction_panel.is_visible() {
+            return;
+        }
+        let tabs = [
+            ConstructionTab::Buildings,
+            ConstructionTab::Infantry,
+            ConstructionTab::Vehicles,
+            ConstructionTab::Aircraft,
+        ];
+        let cur = self.game_hud.construction_panel.current_tab();
+        let idx = tabs.iter().position(|t| *t == cur).unwrap_or(0) as i32;
+        let n = tabs.len() as i32;
+        let next = (((idx + delta) % n) + n) % n;
+        let tab = tabs[next as usize];
+        self.game_hud.construction_panel.force_tab(tab);
+        let label = match tab {
+            ConstructionTab::Buildings => "Buildings",
+            ConstructionTab::Infantry => "Infantry",
+            ConstructionTab::Vehicles => "Vehicles",
+            ConstructionTab::Aircraft => "Aircraft",
+            ConstructionTab::NavalUnits => "Naval",
+            ConstructionTab::SuperWeapons => "Superweapons",
+        };
+        let msg = format!("Construction tab: {label}");
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select friendly units near camera (on-screen residual, Ctrl+Alt+A).
+
+    /// Select all friendly structures residual (Ctrl+Alt+S).
+    pub(super) fn select_all_friendly_structures(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        for o in &frame.objects {
+            if o.team == team
+                && o.is_structure
+                && !o.destroyed
+                && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            {
+                ids.push(o.id);
+            }
+        }
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No structures found";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} structures", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Adjust guard radius on selected guarding units residual (Alt+[ / ]).
+
+    /// Clear movement path / waypoints on selection residual (Alt+Z).
+    pub(super) fn clear_selected_path_waypoints(&mut self) {
+        // Wave 225: selection via presentation-first ui_selected_ids; mutation via GameLogic API.
+        let selected = self.ui_selected_ids(self.current_player_id);
+        if selected.is_empty() {
+            if self.sticky_waypoint_mode {
+                self.sticky_waypoint_mode = false;
+                let msg = "Waypoint mode: OFF";
+                self.game_hud.push_info_message(msg);
+                self.ui_manager.game_hud_mut().push_info_message(msg);
+            }
+            return;
+        }
+        let mut any = false;
+        for id in selected {
+            if self.host_clear_unit_movement_path(id) {
+                any = true;
+            }
+        }
+        if self.sticky_waypoint_mode {
+            self.sticky_waypoint_mode = false;
+            any = true;
+        }
+        if any {
+            let msg = "Path cleared";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            self.play_sound_effect(SoundType::Command);
+        }
+    }
+
+    /// Cycle damaged friendly mobile units residual (Ctrl+Alt+Up/Down).
+    pub(super) fn cycle_damaged_unit_selection(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_damaged_unit_ids(team);
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Damaged unit selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    pub(super) fn adjust_selected_guard_radius(&mut self, delta: f32) {
+        // Wave 225: selection via presentation-first ui_selected_ids; mutation via GameLogic API.
+        let selected = self.ui_selected_ids(self.current_player_id);
+        if selected.is_empty() {
+            return;
+        }
+        let mut any = false;
+        let mut last_r = 0.0_f32;
+        for id in selected {
+            if let Some(r) = self.host_adjust_unit_guard_radius(id, delta) {
+                last_r = r;
+                any = true;
+            }
+        }
+
+        if any {
+            let msg = format!("Guard radius: {last_r:.0}");
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+        }
+    }
+
+    /// Select all friendly combat units (exclude workers/dozers/supply) residual.
+
+    /// Select all friendly units currently moving residual (Ctrl+Alt+M).
+
+    /// Select all friendly units currently attacking residual (Ctrl+Alt+T).
+    pub(super) fn select_all_friendly_attacking(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_attacking_ids(team);
+        if ids.is_empty() {
+            let msg = "No attacking units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} attacking", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Issue Stop to all friendly mobile units residual (Ctrl+Alt+S is structures).
+    /// Ctrl+Shift+Period residual: stop everything friendly.
+
+    /// Runtime-host residual: ensure at least one local mobile is selected.
+    pub(super) fn ensure_host_mobile_selection(&mut self) {
+        if !self.selected_objects.is_empty() {
+            return;
+        }
+        // Wave 726: auto-pick first friendly mobile is opt-in only (default fail-closed).
+        // Retail commands require a real selection. Vertical-slice smoke already
+        // issues select_local_unit / box_select before movement commands.
+        // Opt in: GENERALS_RUNTIME_HOST_AUTO_SELECT_MOBILE=1.
+        let allow_auto_select = std::env::var_os("GENERALS_RUNTIME_HOST_AUTO_SELECT_MOBILE")
+            .is_some_and(|v| {
+                let s = v.to_string_lossy();
+                !(s.is_empty()
+                    || s == "0"
+                    || s.eq_ignore_ascii_case("false")
+                    || s.eq_ignore_ascii_case("no"))
+            });
+        if !allow_auto_select {
+            return;
+        }
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let id = frame
+            .alive_selectable_friendly_mobile_ids(team)
+            .into_iter()
+            .next();
+        if let Some(id) = id {
+            self.host_set_selection(self.current_player_id, vec![id]);
+        }
+    }
+
+    /// Wave 611: via `host_stop_all_friendly_units`.
+    pub(super) fn stop_all_friendly_units(&mut self) {
+        // Wave 611: thin wrapper — residual via host helper.
+        self.host_stop_all_friendly_units()
+    }
+
+    pub(super) fn host_stop_all_friendly_units(&mut self) {
+        // Wave 611: host residual helper.
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids = frame.alive_friendly_stoppable_ids(team);
+        if ids.is_empty() {
+            let msg = "No units to stop";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        self.host_queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Stop,
+            player_id: self.current_player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: ids.clone(),
+            modifier_keys: crate::command_system::ModifierKeys {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            },
+        });
+        self.host_process_commands_with_command_sound();
+        let msg = format!("Stopped {} units", ids.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn select_all_friendly_moving(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_moving_ids(team);
+        if ids.is_empty() {
+            let msg = "No moving units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} moving", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+    /// Select friendly transports currently carrying units residual (Ctrl+Alt+J).
+    pub(super) fn select_all_occupied_transports(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_occupied_transport_ids(team);
+        ids.dedup();
+        if ids.is_empty() {
+            let msg = "No occupied transports";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!(
+            "Selected {} occupied transports",
+            self.selected_objects.len()
+        );
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Toggle attack-order line drawing residual (Ctrl+F4).
+    pub(super) fn toggle_attack_lines_hotkey(&mut self) {
+        self.show_attack_lines = !self.show_attack_lines;
+        let msg = if self.show_attack_lines {
+            "Attack lines: ON"
+        } else {
+            "Attack lines: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Toggle movement path line drawing residual (Ctrl+F3).
+    pub(super) fn toggle_move_lines_hotkey(&mut self) {
+        self.show_move_lines = !self.show_move_lines;
+        let msg = if self.show_move_lines {
+            "Move lines: ON"
+        } else {
+            "Move lines: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select structures that currently hold garrisoned units residual (Ctrl+Alt+U).
+    pub(super) fn select_all_garrisoned_structures(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+        {
+            for o in frame.garrisoned_structures() {
+                if o.team == team && !o.destroyed {
+                    ids.push(o.id);
+                }
+            }
+        };
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            let msg = "No garrisoned structures";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} garrisoned", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn toggle_fps_counter_hotkey(&mut self) {
+        self.show_fps = !self.show_fps;
+        let msg = if self.show_fps {
+            "FPS counter: ON"
+        } else {
+            "FPS counter: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all friendly veteran+ units residual (Ctrl+Alt+E).
+
+    /// Cycle non-empty control groups residual (Ctrl+Alt+Left/Right already damaged structures).
+    /// Use Ctrl+Shift+Tab residual: next/prev control group.
+    pub(super) fn cycle_control_group_selection(&mut self, delta: i32) {
+        let mut groups: Vec<u8> = self
+            .control_groups
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, _)| *k)
+            .collect();
+        groups.sort();
+        if groups.is_empty() {
+            let msg = "No control groups";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let current = self
+            .last_control_group_select
+            .map(|(g, _)| g)
+            .and_then(|g| groups.iter().position(|x| *x == g));
+        let idx = match current {
+            Some(i) => {
+                let n = groups.len() as i32;
+                ((i as i32 + delta).rem_euclid(n)) as usize
+            }
+            None => {
+                if delta >= 0 {
+                    0
+                } else {
+                    groups.len() - 1
+                }
+            }
+        };
+        let group_num = groups[idx];
+        let stored = self
+            .control_groups
+            .get(&group_num)
+            .cloned()
+            .unwrap_or_default();
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let selection = frame.filter_alive_selectable_ids(&stored, team);
+        if selection.is_empty() {
+            let msg = format!("Control group {group_num} empty");
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
+        self.last_control_group_select = Some((group_num, Instant::now()));
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Control group {group_num}");
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select all friendly effectively stealthed units residual (Ctrl+Alt+K).
+    pub(super) fn select_all_friendly_stealthed(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_stealthed_ids(team);
+        if ids.is_empty() {
+            let msg = "No stealthed units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} stealthed", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn select_all_friendly_veterans(&mut self) {
+        use crate::game_logic::VeterancyLevel;
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_veteran_ids(team);
+        if ids.is_empty() {
+            let msg = "No veteran units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} veterans", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select aircraft currently docked/parked residual (Ctrl+Alt+W).
+    pub(super) fn select_all_docked_aircraft(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_docked_aircraft_ids(team);
+        if ids.is_empty() {
+            let msg = "No docked aircraft";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} docked aircraft", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn toggle_debug_info_hotkey(&mut self) {
+        self.show_debug_info = !self.show_debug_info;
+        let msg = if self.show_debug_info {
+            "Debug overlay: ON"
+        } else {
+            "Debug overlay: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Cycle friendly producers with a non-empty queue residual (Ctrl+Alt+P).
+    pub(super) fn cycle_busy_producer_selection(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_busy_producer_ids(team);
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Busy producer selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select all friendly units currently guarding residual (Ctrl+Alt+G).
+
+    /// Select all friendly units currently patrolling residual (Ctrl+Alt+Y).
+    pub(super) fn select_all_friendly_patrolling(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_patrolling_ids(team);
+        if ids.is_empty() {
+            let msg = "No patrolling units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} patrolling", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Select all friendly units currently gathering residual (Ctrl+Alt+H).
+    pub(super) fn select_all_friendly_gathering(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_gathering_ids(team);
+        if ids.is_empty() {
+            let msg = "No gathering units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} gathering", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Cycle structures with ready special power residual (Ctrl+Alt+V).
+    pub(super) fn cycle_ready_special_power_structure(&mut self, delta: i32) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_ready_special_power_ids(team);
+        ids.sort_by_key(|id| id.0);
+        if ids.is_empty() {
+            return;
+        }
+
+        let next = if let Some(current) = self.selected_objects.first().copied() {
+            ids.iter()
+                .position(|id| *id == current)
+                .map(|idx| {
+                    let n = ids.len() as i32;
+                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    ids[i]
+                })
+                .unwrap_or(ids[0])
+        } else if delta >= 0 {
+            ids[0]
+        } else {
+            ids[ids.len() - 1]
+        };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.host_set_selection(self.current_player_id, vec![next]);
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
+            self.camera_target.x = clamped.x;
+            self.camera_target.z = clamped.z;
+        }
+        let msg = "Ready special power selected";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    pub(super) fn select_all_friendly_guarding(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_guarding_ids(team);
+        if ids.is_empty() {
+            let msg = "No guarding units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} guarding", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn toggle_health_bars_hotkey(&mut self) {
+        self.show_health_bars = !self.show_health_bars;
+        let msg = if self.show_health_bars {
+            "Health bars: ON"
+        } else {
+            "Health bars: OFF"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    pub(super) fn select_all_friendly_combat(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_combat_ids(team);
+        if ids.is_empty() {
+            let msg = "No combat units";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} combat units", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn select_all_friendly_on_screen(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let center = self.camera_target;
+        // Fail-closed frustum residual: radius scales with zoom.
+        let radius = (180.0 * self.camera_zoom.max(0.5)).clamp(120.0, 600.0);
+        let selection = frame.alive_selectable_friendly_near(team, center, radius);
+        if selection.is_empty() {
+            let msg = "No units on screen";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} on screen", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    /// Toggle camera follow on primary selection residual (Alt+F).
+
+    /// Snap camera to centroid of current selection residual (Alt+Space).
+    pub(super) fn center_camera_on_selection(&mut self) {
+        // Wave 234: selection prefers engine/presentation freeze.
+        let selected = self.ui_selected_ids(self.current_player_id);
+        if selected.is_empty() {
+            let msg = "Nothing selected";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Presentation-only poses for InGame camera center.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let Some(center) = frame.centroid_of_ids(&selected) else {
+            return;
+        };
+        let clamped = self.clamp_to_world_bounds(center);
+        self.camera_target.x = clamped.x;
+        self.camera_target.z = clamped.z;
+        let msg = "Centered on selection";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Select friendly dozers/workers currently constructing residual (Ctrl+Alt+B).
+    pub(super) fn select_all_constructing_workers(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let ids: Vec<crate::game_logic::ObjectId> =
+            frame.alive_selectable_friendly_constructing_worker_ids(team);
+        if ids.is_empty() {
+            let msg = "No constructing workers";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, ids);
+        self.play_sound_effect(SoundType::Select);
+        let msg = format!("Selected {} constructing", self.selected_objects.len());
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
+    }
+
+    pub(super) fn toggle_camera_follow_selection(&mut self) {
+        // Wave 548: presentation freeze owns follow-active residual when installed
+        // (`camera_follow_position`; no live `camera_follow_object_id` dual-read).
+        // Command authority still writes `set_camera_follow_object` for host follow state.
+        // Wave 583: follow-active via presentation_or_boot helper.
+        let follow_active = self.presentation_or_boot_camera_follow_active();
+        if follow_active {
+            self.host_set_camera_follow_object(None);
+            let msg = "Camera follow off";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
+        let id = self.ui_selection_seed_id();
+        let Some(id) = id else {
+            let msg = "Select a unit to follow";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        };
+        self.host_set_camera_follow_object(Some(id));
+        let msg = "Camera follow on";
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
+    }
+
+    /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
+    pub(super) fn select_all_friendly_units(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let selection = frame.alive_selectable_friendly_ids(team);
+
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
+    pub(super) fn select_all_friendly_aircraft(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+        let selection = frame.alive_selectable_friendly_aircraft_ids(team);
+
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
+        if !self.selected_objects.is_empty() {
+            self.play_sound_effect(SoundType::Select);
+        }
+    }
+
+    /// Retail SELECT_HERO (Ctrl+H) residual.
+    pub(super) fn select_hero_units_hotkey(&mut self) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let team = frame.local_team();
+
+        let selection: Vec<ObjectId> = // Presentation-owned hero identity (no live GameLogic dual-scan).
+            frame.alive_selectable_friendly_hero_ids(team);
+
+        if selection.is_empty() {
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, selection);
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Retail SELECT_MATCHING_UNITS (KEY_E) residual — type-select from current selection.
+    pub(super) fn select_matching_units_hotkey(&mut self) {
+        let seed = self.ui_selection_seed_id();
+        let Some(seed) = seed else {
+            return;
+        };
+        self.select_similar_units(seed);
+    }
+}

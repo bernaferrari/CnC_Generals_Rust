@@ -1,0 +1,490 @@
+use super::*;
+
+impl Player {
+    /// Check whether the player is allowed to build the given template.
+    pub fn can_build_template(&self, template: &dyn crate::common::ThingTemplate) -> Bool {
+        if template.is_kind_of(crate::common::KindOf::Structure) {
+            if !self.can_build_base {
+                return false;
+            }
+        } else if !self.can_build_units {
+            return false;
+        }
+
+        let buildable_status = crate::helpers::TheGameLogic::find_buildable_status_override(
+            template.get_name().as_str(),
+        );
+        if let Some(status) = buildable_status {
+            // BuildableStatus values mirror C++:
+            // 0=Yes, 1=Ignore_Prerequisites, 2=No, 3=Only_By_AI.
+            if status == 2 {
+                return false;
+            }
+            if status == 1 {
+                return true;
+            }
+            if status == 3 && self.player_type != PlayerType::Computer {
+                return false;
+            }
+        } else if let Some(status) = template.get_buildable_status() {
+            use game_engine::common::thing::BuildableStatus;
+
+            match status {
+                BuildableStatus::No => return false,
+                BuildableStatus::IgnorePrerequisites => return true,
+                BuildableStatus::OnlyByAi if self.player_type != PlayerType::Computer => {
+                    return false;
+                }
+                BuildableStatus::Yes | BuildableStatus::OnlyByAi => {}
+            }
+        }
+
+        if !self.ignores_prereqs() {
+            for prereq in template.get_production_prerequisites() {
+                if !self.is_production_prerequisite_satisfied(prereq) {
+                    return false;
+                }
+            }
+        }
+
+        if !self.can_build_more_of_type(template) {
+            return false;
+        }
+
+        true
+    }
+
+    pub(super) fn is_production_prerequisite_satisfied(
+        &self,
+        prereq: &game_engine::common::rts::ProductionPrerequisite,
+    ) -> Bool {
+        prereq.is_satisfied_with_counter(
+            |science| self.has_science(science),
+            |handles, ignore_dead, counts| {
+                let templates: Vec<_> = handles
+                    .iter()
+                    .filter_map(|handle| {
+                        crate::helpers::TheThingFactory::find_template_by_id(handle.value())
+                    })
+                    .collect();
+
+                if templates.len() != handles.len() {
+                    counts.fill(0);
+                    return;
+                }
+
+                self.count_objects_by_thing_template(&templates, ignore_dead, false, counts);
+            },
+        )
+    }
+
+    pub(super) fn can_build_more_of_type(&self, template: &dyn crate::common::ThingTemplate) -> Bool {
+        // Wave 268: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
+        let max_simultaneous = template.get_max_simultaneous_of_type();
+        if max_simultaneous == 0 {
+            return true;
+        }
+
+        let link_key = template.get_max_simultaneous_link_key();
+        let check_production_queue = !template.is_kind_of(crate::common::KindOf::Structure);
+        let mut count = 0u32;
+        for &object_id in &self.owned_objects {
+            let Some(at_cap) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() {
+                        return false;
+                    }
+
+                    let object_template = object_guard.get_template();
+                    if template.is_equivalent_to(object_template.as_ref())
+                        || (link_key != 0
+                            && link_key == object_template.get_max_simultaneous_link_key())
+                    {
+                        count += 1;
+                        if count >= max_simultaneous {
+                            return true;
+                        }
+                    }
+
+                    if check_production_queue {
+                        let Some(production_behavior) =
+                            object_guard.get_production_update_interface()
+                        else {
+                            return false;
+                        };
+                        let Ok(mut behavior_guard) = production_behavior.lock() else {
+                            return false;
+                        };
+                        let Some(production) = behavior_guard.get_production_update_interface()
+                        else {
+                            return false;
+                        };
+
+                        for entry in production.get_queue_entries() {
+                            if entry.production_type
+                                != crate::object::production::queue::ProductionType::Unit
+                            {
+                                continue;
+                            }
+                            let Some(queued_template) =
+                                crate::helpers::TheThingFactory::find_template(
+                                    &entry.template_name,
+                                )
+                            else {
+                                continue;
+                            };
+                            if template.is_equivalent_to(queued_template.as_ref())
+                                || (link_key != 0
+                                    && link_key == queued_template.get_max_simultaneous_link_key())
+                            {
+                                count += 1;
+                                if count >= max_simultaneous {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    false
+                })
+            else {
+                continue;
+            };
+            if at_cap {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Hunting behavior
+    pub fn get_units_should_hunt(&self) -> Bool {
+        self.units_should_hunt
+    }
+
+    pub fn set_units_should_hunt(&mut self, should_hunt: Bool, _source: CommandSourceType) {
+        self.units_should_hunt = should_hunt;
+    }
+
+    /// Forward scripted repair requests to this player's AI controller.
+    /// Matches C++ Player::repairStructure.
+    pub fn repair_structure(&mut self, structure_id: ObjectID) {
+        let player_id = self.player_index as u32;
+        let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+            manager.with_ai_player_mut(player_id, |ai_player| {
+                let _ = ai_player.repair_structure(structure_id);
+            })
+        });
+    }
+
+    /// Set the current AI skillset selector for this player.
+    /// Matches C++ Player::friend_setSkillset.
+    pub fn friend_set_skillset(&mut self, skill_set: Int) {
+        let player_id = self.player_index as u32;
+        let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+            manager.with_ai_player_mut(player_id, |ai_player| {
+                ai_player.select_skillset(skill_set);
+            })
+        });
+    }
+
+    /// Set AI team build delay in seconds for this player.
+    /// Matches C++ Player::setTeamDelaySeconds.
+    pub fn set_team_delay_seconds(&mut self, delay: Int) {
+        let player_id = self.player_index as u32;
+        let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+            manager.with_ai_player_mut(player_id, |ai_player| {
+                ai_player.set_team_delay_seconds(delay as Real);
+            })
+        });
+    }
+
+    /// Force units to idle in place or resume supply trucking.
+    /// Matches C++ Player::setUnitsShouldIdleOrResume.
+    pub fn set_units_should_idle_or_resume(&mut self, idle: Bool, source: CommandSourceType) {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return;
+        }
+        for object_id in &self.owned_objects {
+            let Some((is_structure, ai, pos)) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(*object_id, |object_guard| {
+                    (
+                        object_guard.is_kind_of(crate::common::KindOf::Structure),
+                        object_guard.get_ai_update_interface(),
+                        *object_guard.get_position(),
+                    )
+                })
+            else {
+                continue;
+            };
+            if is_structure {
+                continue;
+            }
+            let Some(ai) = ai else {
+                continue;
+            };
+
+            if idle {
+                ai.ai_move_to_position(&pos, false, source);
+            } else if let Ok(mut ai_guard) = ai.lock() {
+                if ai_guard.is_idle() {
+                    if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
+                        truck.set_force_wanting_state(true);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Attack tracking
+    pub fn set_attacked_by(&mut self, player_index: Int) {
+        if player_index >= 0 && (player_index as usize) < MAX_PLAYER_COUNT {
+            self.attacked_by[player_index as usize] = true;
+            self.attacked_frame = TheGameLogic::get_frame();
+        }
+    }
+
+    pub fn get_attacked_by(&self, player_index: Int) -> Bool {
+        if player_index >= 0 && (player_index as usize) < MAX_PLAYER_COUNT {
+            self.attacked_by[player_index as usize]
+        } else {
+            false
+        }
+    }
+
+    pub fn get_attacked_frame(&self) -> UnsignedInt {
+        self.attacked_frame
+    }
+
+    /// Cash bounty system
+    pub fn get_cash_bounty(&self) -> Real {
+        self.cash_bounty_percent
+    }
+
+    pub fn set_cash_bounty(&mut self, percentage: Real) {
+        self.cash_bounty_percent = percentage;
+    }
+
+    /// Do bounty for kill - awards cash when player kills an enemy
+    /// C++ Reference: Player::doBountyForKill() (Player.cpp lines 1963-1989)
+    ///
+    /// # Arguments
+    /// * `killer_cost` - The cost of the victim object (used for bounty calculation)
+    ///
+    /// # Returns
+    /// The bounty amount awarded.
+    pub fn do_bounty_for_kill(&mut self, killer_cost: Int) -> Int {
+        // Calculate bounty based on victim's cost and our cash bounty percent
+        // C++: Int bounty = REAL_TO_INT_CEIL(costToBuild * m_cashBountyPercent);
+        let bounty = ((killer_cost as Real) * self.cash_bounty_percent).ceil() as Int;
+
+        // Award the bounty — C++ deposits + scoreKeeper.addMoneyEarned
+        if bounty > 0 {
+            let _ = self.money.deposit(bounty as u32);
+            self.score_keeper.add_money_earned(bounty as u32);
+        }
+
+        bounty
+    }
+
+    /// Do bounty for kill using object references.
+    /// C++ Reference: Player::doBountyForKill() with object parameters
+    ///
+    /// # Arguments
+    /// * `_killer` - The object that made the kill (unused in basic implementation)
+    /// * `victim` - The object that was killed
+    ///
+    /// Returns the bounty amount awarded.
+    pub fn do_bounty_for_kill_obj(
+        &mut self,
+        _killer: &dyn game_engine::common::rts::player::BountyObject,
+        victim: &dyn game_engine::common::rts::player::BountyObject,
+    ) -> Int {
+        // C++ line 1972: Get victim's build cost for bounty calculation
+        let killer_cost = victim.get_build_cost();
+
+        // C++ line 1973: Under construction objects don't give bounty
+        if victim.is_under_construction() {
+            return 0;
+        }
+
+        self.do_bounty_for_kill(killer_cost)
+    }
+
+    /// Add skill points for kill using object references.
+    /// C++ Reference: Player::addSkillPointsForKill() with object parameters
+    ///
+    /// # Arguments
+    /// * `killer` - The object that made the kill
+    /// * `victim` - The object that was killed
+    ///
+    /// Returns true if player gained/lost levels.
+    pub fn add_skill_points_for_kill_obj(
+        &mut self,
+        killer: &dyn game_engine::common::rts::player::SkillPointObject,
+        victim: &dyn game_engine::common::rts::player::SkillPointObject,
+    ) -> Bool {
+        let _victim_level = victim.get_veterancy_level();
+        let skill_value = victim.get_skill_point_value(killer);
+        self.add_skill_points_for_kill(None, false, skill_value)
+    }
+
+    /// Retaliation mode
+    pub fn is_logical_retaliation_mode_enabled(&self) -> Bool {
+        self.logical_retaliation_mode_enabled
+    }
+
+    pub fn set_logical_retaliation_mode_enabled(&mut self, enabled: Bool) {
+        self.logical_retaliation_mode_enabled = enabled;
+    }
+
+    /// Hotkey squad management
+    pub fn get_hotkey_squad(&mut self, squad_number: Int) -> Option<&mut Squad> {
+        if squad_number >= 0 && (squad_number as usize) < NUM_HOTKEY_SQUADS {
+            self.squads[squad_number as usize].as_mut()
+        } else {
+            None
+        }
+    }
+
+    /// Return the current selection as an AIGroup (matches C++ Player::getCurrentSelectionAsAIGroup).
+    pub fn get_current_selection_as_ai_group(&mut self, group: &mut AIGroup) {
+        if let Some(selection) = &mut self.current_selection {
+            let _ = selection.ai_group_from_squad(group);
+        }
+    }
+
+    /// Return the current selection as a list of object IDs.
+    /// Matches C++ selection iteration that operates on selected object IDs.
+    pub fn get_current_selection_ids(&self) -> Vec<ObjectID> {
+        self.current_selection
+            .as_ref()
+            .map(|selection| selection.get_object_ids().clone())
+            .unwrap_or_default()
+    }
+
+    /// Set the current selection from an AIGroup (matches C++ Player::setCurrentlySelectedAIGroup).
+    pub fn set_currently_selected_ai_group(&mut self, group: Option<&AIGroup>) {
+        if self.current_selection.is_none() {
+            self.current_selection = Some(Squad::new());
+        }
+
+        if let Some(selection) = &mut self.current_selection {
+            selection.clear_squad();
+            if let Some(group) = group {
+                selection.squad_from_ai_group(group, true);
+            }
+        }
+    }
+
+    /// Add members of an AIGroup to the current selection (matches C++ Player::addAIGroupToCurrentSelection).
+    pub fn add_ai_group_to_current_selection(&mut self, group: &AIGroup) {
+        if self.current_selection.is_none() {
+            self.current_selection = Some(Squad::new());
+        }
+
+        if let Some(selection) = &mut self.current_selection {
+            let ids = group.get_all_ids_snapshot();
+            for object_id in ids {
+                selection.add_object_id(object_id);
+            }
+        }
+    }
+
+    /// Add a single object to the current selection.
+    pub fn add_object_to_current_selection(&mut self, object_id: ObjectID) {
+        if self.current_selection.is_none() {
+            self.current_selection = Some(Squad::new());
+        }
+
+        if let Some(selection) = &mut self.current_selection {
+            selection.add_object_id(object_id);
+        }
+    }
+
+    /// Replace current selection with a single object.
+    pub fn set_current_selection_to_object(&mut self, object_id: ObjectID) {
+        if self.current_selection.is_none() {
+            self.current_selection = Some(Squad::new());
+        }
+
+        if let Some(selection) = &mut self.current_selection {
+            selection.clear_squad();
+            selection.add_object_id(object_id);
+        }
+    }
+
+    /// Remove a single object from current selection.
+    pub fn remove_object_from_current_selection(&mut self, object_id: ObjectID) -> Bool {
+        let Some(selection) = &mut self.current_selection else {
+            return false;
+        };
+
+        let before = selection.get_object_ids().len();
+        selection.remove_object_id(object_id);
+        let after = selection.get_object_ids().len();
+
+        if after == 0 {
+            self.current_selection = None;
+        }
+
+        before != after
+    }
+
+    // Debug/cheat functions.
+    // Getters must exist in all build profiles: can_build / cost / build-time call sites
+    // use them unconditionally. In release without internal features they always return
+    // false (production-safe). Toggles remain debug/internal-only.
+
+    #[cfg(any(debug_assertions, feature = "internal"))]
+    pub fn toggle_ignore_prereqs(&mut self) {
+        self.demo_ignore_prereqs = !self.demo_ignore_prereqs;
+    }
+
+    pub fn ignores_prereqs(&self) -> Bool {
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            self.demo_ignore_prereqs
+        }
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        {
+            false
+        }
+    }
+
+    #[cfg(any(debug_assertions, feature = "internal"))]
+    pub fn toggle_free_build(&mut self) {
+        self.demo_free_build = !self.demo_free_build;
+    }
+
+    pub fn builds_for_free(&self) -> Bool {
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            self.demo_free_build
+        }
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        {
+            false
+        }
+    }
+
+    #[cfg(any(debug_assertions, feature = "internal", feature = "allow_debug_cheats"))]
+    pub fn toggle_instant_build(&mut self) {
+        self.demo_instant_build = !self.demo_instant_build;
+    }
+
+    pub fn builds_instantly(&self) -> Bool {
+        #[cfg(any(debug_assertions, feature = "internal", feature = "allow_debug_cheats"))]
+        {
+            self.demo_instant_build
+        }
+        #[cfg(not(any(debug_assertions, feature = "internal", feature = "allow_debug_cheats")))]
+        {
+            false
+        }
+    }
+}

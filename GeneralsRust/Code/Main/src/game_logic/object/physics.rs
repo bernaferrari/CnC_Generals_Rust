@@ -1,0 +1,1267 @@
+use super::*;
+
+impl Object {
+    pub fn take_damage(&mut self, damage: f32) -> bool {
+        self.take_damage_from(damage, None)
+    }
+
+    /// Apply damage with optional C++ BodyModule last-damage-source residual.
+    ///
+    /// Passive AI mood (WaitForAttack) uses `last_damage_source` for idle
+    /// mood-target retaliate residual.
+
+    /// C++ PhysicsBehavior::applyShock residual (ground units only).
+    ///
+    /// Adds lateral+up velocity impulse and a short stun residual. Airborne /
+    /// aircraft / projectiles are immune (C++ isAirborneTarget / KINDOF_PROJECTILE).
+
+    /// C++ PhysicsBehavior defaults for shock random rotation residual.
+    pub const SHOCK_MAX_YAW: f32 = 0.05;
+    pub const SHOCK_MAX_PITCH: f32 = 0.025;
+    pub const SHOCK_MAX_ROLL: f32 = 0.025;
+
+    /// C++ PhysicsBehavior::applyRandomRotation residual.
+    ///
+    /// Adds random yaw/pitch/roll rates and immediately kicks orientation yaw
+    /// so the tumble is observable without a full rigid-body integrator.
+    /// Structures stick-to-ground residual: no rotation.
+    pub fn apply_shock_random_rotation(&mut self, seed: u32) {
+        if self.is_kind_of(KindOf::Structure) {
+            return;
+        }
+        use crate::game_logic::host_rng_residual::pure_logic_random_real;
+        // GameLogicRandomValue(-1, 1) residual via pure stream.
+        let yaw_m = pure_logic_random_real(seed, 10, -1.0, 1.0);
+        let pitch_m = pure_logic_random_real(seed, 11, -1.0, 1.0);
+        let roll_m = pure_logic_random_real(seed, 12, -1.0, 1.0);
+        self.shock_yaw_rate += Self::SHOCK_MAX_YAW * yaw_m;
+        self.shock_pitch_rate += Self::SHOCK_MAX_PITCH * pitch_m;
+        self.shock_roll_rate += Self::SHOCK_MAX_ROLL * roll_m;
+        // Immediate yaw kick (presentation/tumble residual).
+        let ori = self.get_orientation() + self.shock_yaw_rate;
+        self.set_orientation(ori);
+        // Tumble upright residual: strong pitch/roll can invert (Z-up < 0).
+        self.shock_up_z -= (pitch_m.abs() + roll_m.abs()) * 0.75;
+        if self.shock_up_z < -1.0 {
+            self.shock_up_z = -1.0;
+        }
+        if self.shock_up_z > 1.0 {
+            self.shock_up_z = 1.0;
+        }
+        self.record_host_shock_stun();
+    }
+
+    pub fn apply_shock_wave_impulse(&mut self, force: glam::Vec3) -> bool {
+        if !self.is_alive() {
+            return false;
+        }
+        if self.is_kind_of(KindOf::Aircraft) || self.status.airborne_target {
+            return false;
+        }
+        if self.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        // Scale residual: force is weapon units; convert to velocity nudge.
+        const FORCE_TO_VEL: f32 = 0.05;
+        let impulse = force * FORCE_TO_VEL;
+        self.movement.velocity += impulse;
+        // Cap residual velocity so MOAB doesn't fling units off-map instantly.
+        let speed = self.movement.velocity.length();
+        const MAX_SHOCK_SPEED: f32 = 80.0;
+        if speed > MAX_SHOCK_SPEED {
+            self.movement.velocity *= MAX_SHOCK_SPEED / speed;
+        }
+        // C++ applyRandomRotation residual (deterministic seed from id + force).
+        let seed = self
+            .id
+            .0
+            .wrapping_mul(0x9E37_79B9)
+            .wrapping_add((force.x.to_bits()).wrapping_mul(0x85EB_CA6B))
+            .wrapping_add(force.z.to_bits());
+        self.apply_shock_random_rotation(seed);
+        // C++ applyRandomRotation sets ALLOW_BOUNCE until bounce completes.
+        self.shock_allow_bounce = true;
+        self.shock_grounded_once = false;
+        self.shock_up_z = 1.0;
+        self.ensure_locomotor_surfaces();
+        // Strong upward impulse residual: freefall model bit while airborne from shock.
+        if self.movement.velocity.y > 8.0 {
+            use crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
+            self.model_condition_bits |= 1u128 << MC_BIT_FREEFALL;
+            self.shock_was_airborne = true;
+        }
+        // C++ setStunned(true) + MODELCONDITION_STUNNED_FLAILING residual.
+        // Duration: 45 frames (~1.5s). First 30 flailing, then STUNNED, then clear.
+        const TOTAL: u32 = 45;
+        self.shock_stun_frames = self.shock_stun_frames.max(TOTAL);
+        self.refresh_model_condition_bits();
+        if matches!(
+            self.ai_state,
+            AIState::Attacking | AIState::AttackMoving | AIState::Moving
+        ) {
+            self.set_status_moving(true);
+        }
+        true
+    }
+
+    /// C++ GlobalData::m_groundStiffness default residual.
+    pub const GROUND_STIFFNESS: f32 = 0.5;
+    /// Host gravity residual (world-Y up) while shock-airborne.
+    pub const SHOCK_GRAVITY: f32 = -1.0; // C++ GlobalData::m_gravity residual
+    /// C++ handleBounce YPR damping residual.
+    pub const BOUNCE_YPR_DAMPING: f32 = 0.7;
+    /// C++ PhysicsBehavior mass default residual.
+    pub const SHOCK_MASS: f32 = 1.0;
+    /// C++ FallHeightDamageFactor default residual.
+    pub const FALL_HEIGHT_DAMAGE_FACTOR: f32 = 1.0;
+    /// C++ min fall angle tan residual (~71 degrees).
+    pub const FALL_MIN_ANGLE_TAN: f32 = 3.0;
+    pub const FALL_TINY_DELTA: f32 = 0.01;
+
+    /// C++ heightToSpeed(height) = sqrt(|2*g*h|) with g residual 1.0.
+    pub fn height_to_fall_speed(height: f32) -> f32 {
+        (2.0 * Self::SHOCK_GRAVITY.abs() * height.abs()).sqrt()
+    }
+
+    /// C++ PhysicsBehaviorModuleData::m_minFallSpeedForDamage default (height 40).
+    pub fn min_fall_speed_for_damage() -> f32 {
+        Self::height_to_fall_speed(40.0)
+    }
+
+    /// C++ falling-damage residual when leaving airborne for ground.
+    ///
+    /// `impact_vy` is world-Y velocity at impact (negative when falling).
+    /// Returns damage applied (0 if none).
+
+    /// C++ isVerySmall3D residual on velocity.
+    pub fn velocity_is_very_small(&self) -> bool {
+        let v = self.movement.velocity;
+        v.x.abs() < VERY_SMALL_VEL && v.y.abs() < VERY_SMALL_VEL && v.z.abs() < VERY_SMALL_VEL
+    }
+
+    /// C++ PhysicsBehavior::doBounceSound residual (event count + fall dy + volume).
+
+    /// C++ PhysicsBehavior onCollide vehicle-into-immobile crash residual.
+
+    /// C++ PhysicsBehavior::scrubVelocity2D residual (host XZ ground plane).
+    ///
+    /// If desired < 0.001, zero lateral velocity. Else scale down if faster than desired.
+
+    /// C++ PhysicsBehavior::setIgnoreCollisionsWith residual.
+
+    /// C++ Object::getUnitDirectionVector2D residual (XZ ground, glam x/z).
+    pub fn unit_direction_vector_2d(&self) -> glam::Vec2 {
+        // Match unit_direction_xz: orientation 0 faces +X (host XZ plane).
+        let (x, z) = self.unit_direction_xz();
+        glam::Vec2::new(x, z)
+    }
+
+    /// C++ AIUpdateInterface::blockedBy residual (simplified geometry).
+    ///
+    /// Fail-closed vs full pathfind goal cell / path priority matrix.
+    pub fn ai_blocked_by(&self, other: &Object) -> bool {
+        if self.can_crush_only(other, false) {
+            return false;
+        }
+        let other_ground =
+            other.can_move() && !other.status.airborne_target && !other.is_parachuting();
+        if !other_ground {
+            return false;
+        }
+        let us = self.get_position();
+        let them = other.get_position();
+        let dx = them.x - us.x;
+        let dz = them.z - us.z; // host XZ ground plane (C++ XY)
+        let dsqr = dx * dx + dz * dz;
+        // Same-cell residual: path priority by ObjectId.
+        if dsqr < PATHFIND_CELL_SIZE_F_RESIDUAL * PATHFIND_CELL_SIZE_F_RESIDUAL * 0.0001 {
+            return self.id.0 > other.id.0; // higher id = lower priority loses
+        }
+
+        let our_dir = self.unit_direction_vector_2d();
+        let their_dir = other.unit_direction_vector_2d();
+        let dir_dot = our_dir.x * their_dir.x + our_dir.y * their_dir.y;
+
+        // Infantry vs infantry: only block if same-ish heading.
+        if self.is_kind_of(crate::game_logic::KindOf::Infantry)
+            && other.is_kind_of(crate::game_logic::KindOf::Infantry)
+            && dir_dot <= 0.25
+        {
+            return false;
+        }
+
+        // Relative angle of other from us along our facing.
+        let collision_angle = self.relative_angle_2d_to(them);
+        let mut angle_limit = std::f32::consts::FRAC_PI_4; // 45 deg
+        let other_moving = other.movement.velocity.length_squared() > 0.01;
+        if !other_moving {
+            angle_limit *= 0.75;
+        }
+        if collision_angle > std::f32::consts::FRAC_PI_2
+            || collision_angle < -std::f32::consts::FRAC_PI_2
+        {
+            return false; // moving away
+        }
+        if collision_angle > angle_limit || collision_angle < -angle_limit {
+            if dir_dot <= 0.0 {
+                return false;
+            }
+            // Off-angle residual: not blocked unless head-on closing.
+            return false;
+        }
+
+        // Long blocked + opposite heading: pass through residual.
+        if self.num_frames_blocked > 30 && dir_dot <= 0.0 {
+            return false;
+        }
+
+        !other.status.destroyed && other.is_alive()
+    }
+
+    /// C++ AIUpdateInterface::calculateMaxBlockedSpeed residual.
+    pub fn calculate_max_blocked_speed(&self, other: &Object) -> f32 {
+        let us = self.get_position();
+        let them = other.get_position();
+        let mut vx = them.x - us.x;
+        let mut vz = them.z - us.z;
+        let len = (vx * vx + vz * vz).sqrt();
+        if len < 1.0e-4 {
+            return 0.0;
+        }
+        vx /= len;
+        vz /= len;
+        let other_dir = other.unit_direction_vector_2d();
+        let speed_factor = vx * other_dir.x + vz * other_dir.y;
+        if speed_factor < 0.0 {
+            return 0.0; // they run into us
+        }
+        let other_vel = other.movement.velocity;
+        let other_speed_2d = (other_vel.x * other_vel.x + other_vel.z * other_vel.z).sqrt();
+        let away_speed = other_speed_2d * speed_factor;
+        let our_dir = self.unit_direction_vector_2d();
+        let toward = vx * our_dir.x + vz * our_dir.y;
+        if toward <= 0.0 {
+            return self.cur_max_blocked_speed;
+        }
+        let max_speed = away_speed / toward;
+        // Formation crowd residual not wired — fail-closed skip 0.55 factor.
+        if max_speed > self.cur_max_blocked_speed {
+            return self.cur_max_blocked_speed;
+        }
+        max_speed
+    }
+
+    /// C++ AIUpdateInterface::processCollision residual (force-apply gate + blocked).
+    ///
+    /// Returns true if physics should apply bounce force. Sets is_blocked /
+    /// cur_max_blocked_speed when self is moving into other.
+    pub fn ai_process_collision(&mut self, other: &Object, current_frame: u32) -> bool {
+        if !self.allow_collide_force {
+            return false;
+        }
+        if self.can_path_through_units {
+            self.is_blocked = false;
+            return false;
+        }
+        if self.ignore_collisions_until_frame > 0
+            && current_frame < self.ignore_collisions_until_frame
+        {
+            return false;
+        }
+        // Other needs AI residual: can_move stand-in.
+        if !other.can_move() {
+            // Immobile bounce handled outside AI processCollision.
+            return true;
+        }
+        let self_ground = self.can_move() && !self.status.airborne_target && !self.is_parachuting();
+        let other_ground =
+            other.can_move() && !other.status.airborne_target && !other.is_parachuting();
+        if !self_ground || !other_ground {
+            return false;
+        }
+
+        let self_moving = self.movement.velocity.length_squared() > 0.01;
+        if self_moving {
+            let blocked = self.ai_blocked_by(other);
+            if blocked {
+                // Panic infantry bounces residual.
+                if self.is_kind_of(crate::game_logic::KindOf::Infantry) && self.is_panicking {
+                    return true;
+                }
+                self.is_blocked = true;
+                let max_speed = self.calculate_max_blocked_speed(other);
+                if max_speed < self.cur_max_blocked_speed {
+                    self.cur_max_blocked_speed = max_speed;
+                }
+                // Vehicle into infantry: request move-away residual.
+                if other.is_kind_of(crate::game_logic::KindOf::Infantry)
+                    && !self.is_kind_of(crate::game_logic::KindOf::Infantry)
+                {
+                    // C++ busy/using-ability gate residual.
+                    if !other.status.using_ability {
+                        self.request_other_move_away = Some(other.id);
+                    }
+                }
+                return false;
+            }
+        }
+        false
+    }
+
+    /// Apply cur_max_blocked_speed cap residual (2D XZ).
+    pub fn apply_blocked_speed_cap(&mut self) {
+        if !self.is_blocked || !self.cur_max_blocked_speed.is_finite() {
+            return;
+        }
+        let v = self.movement.velocity;
+        let speed_2d = (v.x * v.x + v.z * v.z).sqrt();
+        if speed_2d > self.cur_max_blocked_speed && speed_2d > 1.0e-4 {
+            let s = self.cur_max_blocked_speed / speed_2d;
+            self.movement.velocity.x *= s;
+            self.movement.velocity.z *= s;
+        }
+    }
+
+    /// C++ PhysicsBehavior::getMass residual.
+    pub fn physics_get_mass(&self) -> f32 {
+        self.physics_mass.max(1.0e-4)
+    }
+
+    /// C++ PhysicsBehavior::isMotive residual.
+    pub fn is_motive(&self) -> bool {
+        self.motive_frames_remaining > 0
+    }
+
+    /// C++ PhysicsBehavior::applyForce residual.
+    ///
+    /// When motive, only lateral component (perp to unit facing) is accepted.
+    /// Host XZ ground plane maps C++ XY; world Y is vertical.
+    pub fn apply_physics_force(&mut self, force: glam::Vec3) {
+        if !force.x.is_finite() || !force.y.is_finite() || !force.z.is_finite() {
+            return;
+        }
+        let mut mod_force = force;
+        if self.is_motive() {
+            let dir = self.unit_direction_vector_2d(); // (x,z)
+                                                       // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
+                                                       // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
+            let lateral_dot = force.x * (-dir.y) + force.z * dir.x;
+            mod_force.x = lateral_dot * (-dir.y);
+            mod_force.z = lateral_dot * dir.x;
+            // vertical unchanged
+        }
+        let inv = 1.0 / self.physics_get_mass();
+        self.physics_accel += mod_force * inv;
+    }
+
+    /// C++ rotateObjAroundLocoPivot / rotateTowardsPosition residual.
+    pub fn rotate_towards_position(
+        &mut self,
+        goal: glam::Vec3,
+        dt: f32,
+    ) -> (PhysicsTurningType, f32) {
+        let max_turn = self.movement.turn_rate * dt;
+        self.rotate_obj_around_loco_pivot(goal, max_turn)
+    }
+
+    /// C++ Locomotor::rotateObjAroundLocoPivot residual.
+    pub fn rotate_obj_around_loco_pivot(
+        &mut self,
+        goal: glam::Vec3,
+        max_turn_rate: f32,
+    ) -> (PhysicsTurningType, f32) {
+        let angle = self.get_orientation();
+        let mut offset = self.turn_pivot_offset;
+        if self.is_braking {
+            offset = 0.0;
+        }
+        let us = self.get_position();
+        let (dx, dz, turn_pos) = if offset.abs() > 1e-6 {
+            let radius = self.selection_radius.max(1.0);
+            let turn_point = offset * radius;
+            let dir = self.unit_direction_vector_2d();
+            let turn_pos =
+                glam::Vec3::new(us.x + dir.x * turn_point, us.y, us.z + dir.y * turn_point);
+            let dx = goal.x - turn_pos.x;
+            let dz = goal.z - turn_pos.z;
+            if dx.abs() < 0.1 && dz.abs() < 0.1 {
+                self.physics_turning = PhysicsTurningType::TurnNone;
+                self.record_host_locomotor();
+                return (PhysicsTurningType::TurnNone, 0.0);
+            }
+            (dx, dz, Some(turn_pos))
+        } else {
+            let dx = goal.x - us.x;
+            let dz = goal.z - us.z;
+            if dx * dx + dz * dz < 1.0e-8 {
+                self.physics_turning = PhysicsTurningType::TurnNone;
+                self.record_host_locomotor();
+                return (PhysicsTurningType::TurnNone, 0.0);
+            }
+            (dx, dz, None)
+        };
+        let desired = (-dz).atan2(dx);
+        let mut amount = desired - angle;
+        while amount > std::f32::consts::PI {
+            amount -= std::f32::consts::TAU;
+        }
+        while amount < -std::f32::consts::PI {
+            amount += std::f32::consts::TAU;
+        }
+        let rel = amount;
+        let (amount, turning) = if amount > max_turn_rate {
+            (max_turn_rate, PhysicsTurningType::TurnPositive)
+        } else if amount < -max_turn_rate {
+            (-max_turn_rate, PhysicsTurningType::TurnNegative)
+        } else {
+            (amount, PhysicsTurningType::TurnNone)
+        };
+        if let Some(tp) = turn_pos {
+            let cos_a = amount.cos();
+            let sin_a = amount.sin();
+            let rx = us.x - tp.x;
+            let rz = us.z - tp.z;
+            let nx = tp.x + rx * cos_a - rz * sin_a;
+            let nz = tp.z + rx * sin_a + rz * cos_a;
+            self.set_position(glam::Vec3::new(nx, us.y, nz));
+        }
+        self.set_orientation(angle + amount);
+        self.physics_turning = turning;
+        self.record_host_locomotor();
+        (turning, rel)
+    }
+
+    /// C++ Locomotor::locoUpdate_moveTowardsAngle residual.
+    pub fn loco_update_move_towards_angle(&mut self, goal_angle: f32, dt: f32) {
+        self.maintain_pos_valid = false;
+        if self.shock_stun_frames > 0 {
+            return;
+        }
+        let min_speed = self.min_speed;
+        if min_speed > 0.0 {
+            let us = self.get_position();
+            let desired = glam::Vec3::new(
+                us.x + goal_angle.cos() * min_speed * 2.0,
+                us.y,
+                us.z + (-goal_angle.sin()) * min_speed * 2.0,
+            );
+            let prev = self.movement.target_position;
+            self.movement.target_position = Some(desired);
+            let _ = self.rotate_towards_position(desired, dt);
+            self.apply_forward_speed_force(min_speed, dt);
+            let p = self.get_position() + self.movement.velocity * dt;
+            self.set_position(p);
+            let _ = self.handle_behavior_z(p.y, None);
+            self.movement.target_position = prev;
+        } else {
+            let us = self.get_position();
+            let desired = glam::Vec3::new(
+                us.x + goal_angle.cos() * 1000.0,
+                us.y,
+                us.z + (-goal_angle.sin()) * 1000.0,
+            );
+            let _ = self.rotate_towards_position(desired, dt);
+            let _ = self.handle_behavior_z(us.y, None);
+        }
+    }
+
+    /// Advance wander angle offset residual (legs).
+    pub fn tick_wander_angle_offset(&mut self, actual_speed: f32) -> f32 {
+        if self.wander_width_factor == 0.0 {
+            return 0.0;
+        }
+        if self.wander_offset_increment == 0.0 {
+            self.wander_offset_increment = std::f32::consts::PI / 40.0;
+        }
+        let angle_limit = std::f32::consts::PI / 8.0 * self.wander_width_factor;
+        if self.wander_offset_increasing {
+            self.wander_angle_offset += self.wander_offset_increment * actual_speed;
+            if self.wander_angle_offset > angle_limit {
+                self.wander_offset_increasing = false;
+            }
+        } else {
+            self.wander_angle_offset -= self.wander_offset_increment * actual_speed;
+            if self.wander_angle_offset < -angle_limit {
+                self.wander_offset_increasing = true;
+            }
+        }
+        self.wander_angle_offset
+    }
+
+    /// C++ Locomotor::handleBehaviorZ residual (fail-closed subset).
+    ///
+    /// `ground_y` is terrain height at object XZ. Returns true if needs constant calling.
+    pub fn handle_behavior_z(&mut self, ground_y: f32, goal_y: Option<f32>) -> bool {
+        match self.loco_behavior_z {
+            LocomotorBehaviorZ::NoZMotiveForce => false,
+            LocomotorBehaviorZ::SeaLevel => {
+                // Fail-closed: no water table — snap to ground layer.
+                let mut p = self.get_position();
+                p.y = ground_y;
+                self.set_position(p);
+                true
+            }
+            LocomotorBehaviorZ::SurfaceRelativeHeight
+            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+                if self.loco_preferred_height == 0.0 && goal_y.is_none() {
+                    return true;
+                }
+                let p = self.get_position();
+                let preferred_raw = if let Some(gy) = goal_y {
+                    gy
+                } else {
+                    self.loco_preferred_height + ground_y
+                };
+                let mut delta = preferred_raw - p.y;
+                delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+                let preferred = p.y + delta;
+                let lift = if self.effective_max_lift() > 0.0 {
+                    self.calc_lift_to_use_at_pt(p.y, preferred)
+                } else {
+                    // Fail-closed: no lift template — proportional residual.
+                    preferred - p.y
+                };
+                if lift.abs() > 1.0e-4 {
+                    let force_y = lift * self.physics_get_mass();
+                    self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));
+                }
+                true
+            }
+            LocomotorBehaviorZ::AbsoluteHeight => {
+                if self.loco_preferred_height == 0.0 && goal_y.is_none() {
+                    return true;
+                }
+                let mut p = self.get_position();
+                let preferred = goal_y.unwrap_or(self.loco_preferred_height);
+                let mut delta = preferred - p.y;
+                delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+                p.y += delta;
+                self.set_position(p);
+                true
+            }
+        }
+    }
+
+    /// C++ Locomotor::locoUpdate_maintainCurrentPosition residual (ground units).
+    ///
+    /// Stops horizontal motion for legs/treads/wheels; hover/wings need constant Z.
+    pub fn loco_maintain_current_position(&mut self, ground_y: f32) -> bool {
+        if !self.maintain_pos_valid {
+            self.maintain_pos = Some(self.get_position());
+            self.record_host_combat_attack();
+            self.maintain_pos_valid = true;
+        }
+        self.is_braking = false;
+        self.physics_turning = PhysicsTurningType::TurnNone;
+        self.record_host_locomotor();
+
+        // Appearance-specific maintain residual.
+        match self.loco_appearance {
+            LocomotorAppearance::Wings => {
+                // Circling maintain — needs dt; use 1/30 frame residual.
+                self.maintain_position_wings(1.0 / 30.0);
+                return true;
+            }
+            LocomotorAppearance::Thrust => {
+                if let Some(m) = self.maintain_pos {
+                    let spd = self.min_speed.max(1.0);
+                    self.move_towards_thrust(m, 0.0, spd, 1.0 / 30.0);
+                }
+                return true;
+            }
+            LocomotorAppearance::Hover => {
+                self.physics_turning = PhysicsTurningType::TurnNone;
+                if self.is_motive() {
+                    self.scrub_velocity_2d(0.0);
+                }
+                let maintain_y = self.maintain_pos.map(|p| p.y);
+                let _ = self.handle_behavior_z(ground_y, maintain_y);
+                return true;
+            }
+            _ => {}
+        }
+
+        // Ground-appearance residual: scrub horizontal velocity (legs/treads/wheels).
+        let airborne_loco = self.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            || matches!(
+                self.loco_behavior_z,
+                LocomotorBehaviorZ::SurfaceRelativeHeight
+                    | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                    | LocomotorBehaviorZ::AbsoluteHeight
+            );
+        if !airborne_loco {
+            self.scrub_velocity_2d(0.0);
+        }
+
+        let maintain_y = self.maintain_pos.map(|p| p.y);
+        let needs_z = self.handle_behavior_z(ground_y, maintain_y);
+        // Hover/air need constant calling; ground settled does not.
+        airborne_loco || needs_z
+    }
+
+    /// C++ Locomotor::setPhysicsOptions residual.
+    pub fn set_locomotor_physics_options(&mut self) {
+        // C++ EXTRA_FRIC 0.5 when ULTRA_ACCURATE.
+        let ultra = if self.ultra_accurate { 0.5 } else { 0.0 };
+        self.extra_friction = self.loco_extra_2d_friction + ultra;
+        self.apply_friction_2d_when_airborne = self.loco_apply_2d_friction_airborne;
+        // Walking units stick to ground residual.
+        if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
+            self.stick_to_ground = true;
+            if matches!(self.loco_appearance, LocomotorAppearance::Other) {
+                self.loco_appearance = LocomotorAppearance::LegsTwo;
+                self.record_host_locomotor();
+            }
+        } else if self.is_kind_of(crate::game_logic::KindOf::Aircraft) {
+            if matches!(self.loco_appearance, LocomotorAppearance::Other) {
+                self.loco_appearance = LocomotorAppearance::Wings;
+                self.record_host_locomotor();
+            }
+        } else if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
+            if matches!(self.loco_appearance, LocomotorAppearance::Other) {
+                // Fail-closed: vehicles default treads-like (tanks common in host).
+                self.loco_appearance = LocomotorAppearance::Treads;
+                self.record_host_locomotor();
+            }
+        }
+    }
+
+    /// C++ Locomotor::getMaxLift residual (host world-Y).
+    /// C++ Locomotor::getMaxLift residual (damage-conditioned).
+    pub fn get_max_lift(&self) -> f32 {
+        self.effective_max_lift()
+    }
+
+    /// C++ Locomotor::getMaxLift(BodyDamageType) residual.
+    pub fn effective_max_lift(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.max_lift.max(0.0);
+        let damaged = self.max_lift_damaged.clamp(0.0, pristine.max(0.0));
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else if pristine > 0.0 {
+                    pristine * 0.5
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+
+    /// C++ Locomotor::calcLiftToUseAtPt residual (simplified).
+    ///
+    /// Gravity residual = -1.0 (host world-Y). Returns lift accel to apply (not force).
+    pub fn calc_lift_to_use_at_pt(&self, cur_y: f32, preferred_height: f32) -> f32 {
+        const GRAVITY: f32 = -1.0;
+        let max_gross = self.get_max_lift();
+        let mut max_net = max_gross + GRAVITY;
+        if max_net < 0.0 {
+            max_net = 0.0;
+        }
+        let cur_vy = self.movement.velocity.y;
+        let max_accel = if self.ultra_accurate {
+            if cur_vy < 0.0 {
+                2.0 * max_net
+            } else {
+                -2.0 * max_net
+            }
+        } else if cur_vy < 0.0 {
+            max_net
+        } else {
+            GRAVITY
+        };
+        let desired_accel = if max_accel.abs() > 0.001 {
+            let delta_y = preferred_height - cur_y;
+            let brake_dist = (cur_vy * cur_vy) / max_accel.abs().max(1e-6);
+            if brake_dist.abs() > delta_y.abs() {
+                max_accel
+            } else if cur_vy.abs() > self.speed_limit_z {
+                self.speed_limit_z - cur_vy
+            } else {
+                // a = 2(dz - v) assuming t=1 frame
+                2.0 * (delta_y - cur_vy)
+            }
+        } else {
+            0.0
+        };
+        let mut lift = desired_accel - GRAVITY;
+        if self.ultra_accurate {
+            const UP_FACTOR: f32 = 3.0;
+            if lift > UP_FACTOR * max_gross {
+                lift = UP_FACTOR * max_gross;
+            } else if lift < -max_gross {
+                lift = -max_gross;
+            }
+        } else if lift > max_gross {
+            lift = max_gross;
+        } else if lift < 0.0 {
+            lift = 0.0;
+        }
+        lift
+    }
+
+    /// C++ AIUpdateInterface::requestAttackPath flag residual (before pathfinder).
+    pub fn begin_request_attack_path(
+        &mut self,
+        victim_id: Option<ObjectId>,
+        victim_pos: glam::Vec3,
+        current_frame: u32,
+    ) -> bool {
+        // Returns false if should defer (repath too soon).
+        self.requested_destination = Some(victim_pos);
+        self.record_host_ai_request();
+        self.requested_victim_id = victim_id;
+        self.record_host_ai_request();
+        self.is_attack_path = true;
+        self.is_approach_path = false;
+        self.record_host_locomotor();
+        self.is_safe_path = false;
+        self.waiting_for_path = true;
+        if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
+            // C++ setQueueForPathTime(2 sec)
+            self.queue_for_path_frames = 60;
+            return false;
+        }
+        self.path_timestamp = current_frame;
+        self.record_host_ai_request();
+        true
+    }
+
+    /// C++ AIUpdateInterface::requestPath flag residual (non-attack).
+    pub fn begin_request_move_path(&mut self, destination: glam::Vec3, current_frame: u32) -> bool {
+        self.requested_destination = Some(destination);
+        self.record_host_ai_request();
+        self.requested_victim_id = None;
+        self.record_host_ai_request();
+        self.is_attack_path = false;
+        self.is_exact_path = false;
+        self.is_approach_path = false;
+        self.record_host_locomotor();
+        self.is_safe_path = false;
+        self.waiting_for_path = true;
+        if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
+            self.queue_for_path_frames = 60;
+            return false;
+        }
+        self.path_timestamp = current_frame;
+        self.record_host_ai_request();
+        true
+    }
+
+    /// C++ requestApproachPath residual.
+    pub fn begin_request_approach_path(
+        &mut self,
+        destination: glam::Vec3,
+        current_frame: u32,
+    ) -> bool {
+        let ok = self.begin_request_move_path(destination, current_frame);
+        self.is_approach_path = true;
+        self.record_host_locomotor();
+        ok
+    }
+
+    /// C++ requestSafePath residual.
+    pub fn begin_request_safe_path(
+        &mut self,
+        repulsor: ObjectId,
+        flee_pos: glam::Vec3,
+        current_frame: u32,
+    ) -> bool {
+        let ok = self.begin_request_move_path(flee_pos, current_frame);
+        self.is_safe_path = true;
+        self.requested_victim_id = Some(repulsor);
+        self.record_host_ai_request();
+        ok
+    }
+
+    /// Tick path queue delay residual.
+    pub fn tick_path_queue(&mut self) {
+        if self.queue_for_path_frames > 0 {
+            self.queue_for_path_frames -= 1;
+        }
+        if self.temporary_move_frames > 0 {
+            self.temporary_move_frames -= 1;
+            if self.temporary_move_frames == 0
+                && matches!(self.ai_state, AIState::Moving)
+                && self.movement.target_position.is_none()
+            {
+                // Temporary AI move expired with no destination — idle residual.
+                self.set_ai_state(AIState::Idle);
+                self.record_host_combat_attack();
+            }
+        }
+    }
+
+    /// C++ privateAttackObject max-shots residual.
+    /// C++ Locomotor::getMaxSpeedForCondition residual.
+    /// Better than MovementPenaltyDamageState (REALLYDAMAGED) → pristine max;
+    /// else → max_speed_damaged (clamped by pristine max).
+    pub fn effective_max_speed(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.movement.max_speed.max(0.0);
+        let damaged = self
+            .movement
+            .max_speed_damaged
+            .clamp(0.0, pristine.max(0.0));
+        // Penalty threshold = ReallyDamaged (GameData.ini residual).
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else {
+                    pristine * 0.5
+                }
+            }
+        }
+    }
+
+    /// C++ Locomotor::getMaxTurnRate residual (damage-conditioned).
+    pub fn effective_turn_rate(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.movement.turn_rate.max(0.0);
+        let damaged = self
+            .movement
+            .turn_rate_damaged
+            .clamp(0.0, pristine.max(0.0));
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else {
+                    pristine * 0.5
+                }
+            }
+        }
+    }
+
+    /// C++ Locomotor::getMaxAcceleration residual (damage-conditioned).
+    pub fn effective_acceleration(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.movement.acceleration.max(0.0);
+        let damaged = self
+            .movement
+            .acceleration_damaged
+            .clamp(0.0, pristine.max(0.0));
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else {
+                    pristine * 0.5
+                }
+            }
+        }
+    }
+
+    pub fn set_max_shots_to_fire(&mut self, max_shots: i32) {
+        self.max_shots_to_fire = max_shots;
+        self.record_host_combat_attack();
+    }
+
+    /// C++ Weapon::getMaxShotCount residual: 0 means cannot fire more.
+    /// Host uses -1 as unlimited (also accepts C++ NO_MAX_SHOTS_LIMIT).
+    #[inline]
+    pub fn has_max_shots_remaining(&self) -> bool {
+        self.max_shots_to_fire != 0
+    }
+
+    /// C++ `--m_maxShotCount` residual after a successful discharge.
+    pub fn consume_max_shot_count(&mut self) {
+        const NO_MAX: i32 =
+            crate::game_logic::host_ai_path_combat_residual_wave105::NO_MAX_SHOTS_LIMIT;
+        if self.max_shots_to_fire == -1 || self.max_shots_to_fire == NO_MAX {
+            return;
+        }
+        if self.max_shots_to_fire > 0 {
+            self.max_shots_to_fire -= 1;
+        }
+    }
+
+    /// C++ AIUpdateInterface::requestPath residual (fail-closed straight path).
+    ///
+    /// Sets waiting_for_path briefly, installs single-waypoint path to dest.
+    /// Full Pathfinder A* is applied by GameLogic when grid is available.
+    pub fn request_path(&mut self, destination: glam::Vec3, waypoints: Option<Vec<glam::Vec3>>) {
+        self.waiting_for_path = true;
+        self.queue_for_path_frames = 0;
+        self.maintain_pos_valid = false;
+        if let Some(mut wps) = waypoints {
+            if wps.is_empty() {
+                wps.push(destination);
+            }
+            self.movement.path = wps;
+        } else {
+            self.movement.path = vec![destination];
+        }
+        self.movement.current_path_index = 0;
+        self.movement.target_position = self.movement.path.first().copied();
+        self.waiting_for_path = false;
+        self.is_braking = false;
+        self.record_host_movement();
+    }
+
+    /// True if effectively moving (C++ isMoving || isWaitingForPath).
+    pub fn is_effectively_moving(&self) -> bool {
+        self.waiting_for_path
+            || self.movement.target_position.is_some()
+            || self.movement.velocity.length_squared() > 0.01
+    }
+
+    /// C++ Locomotor::calcMinTurnRadius residual (host units).
+    pub fn calc_min_turn_radius(&self) -> f32 {
+        let min_speed = self.min_speed.max(0.0);
+        // turn_rate is rad/sec; convert to per-frame for C++ parity radius.
+        let max_turn_rate = self.movement.turn_rate / 30.0;
+        if max_turn_rate > 1.0e-6 {
+            // minSpeed is units/sec → per-frame for C++ formula minSpeed/maxTurnRate
+            (min_speed / 30.0) / max_turn_rate
+        } else {
+            999_999.0
+        }
+    }
+
+    /// C++ Locomotor::fixInvalidPosition residual.
+    ///
+    /// Fail-closed without full pathfinder neighbor scan: when
+    /// `on_invalid_movement_terrain` or cliff cell, push toward valid via motive force.
+    pub fn fix_invalid_position(&mut self) -> bool {
+        if self.is_dozer || self.is_kind_of(crate::game_logic::KindOf::Aircraft) {
+            return false;
+        }
+        if !self.on_invalid_movement_terrain && !self.cell_is_cliff {
+            return false;
+        }
+        // Push opposite current lateral velocity if sinking into obstacle; else nudge
+        // along facing residual (C++ 3×3 neighbor vote simplified).
+        let mass = self.physics_get_mass();
+        let v = self.movement.velocity;
+        let speed2 = v.x * v.x + v.z * v.z;
+        if speed2 > 0.01 {
+            let inv = 1.0 / speed2.sqrt();
+            let nx = -v.x * inv;
+            let nz = -v.z * inv;
+            // If already leaving (dot with correction > 0.25), skip.
+            let leaving = v.x * nx + v.z * nz; // nx opposite vel so leaving is negative of progress
+                                               // correction direction is opposite into-invalid → along -velocity when moving in
+            if leaving > 0.25 {
+                return false;
+            }
+            let force = glam::Vec3::new(nx * mass / 5.0, 0.0, nz * mass / 5.0);
+            self.apply_motive_force(force);
+            self.integrate_physics_accel();
+            return true;
+        }
+        // Stationary on invalid: nudge along facing.
+        let d = self.unit_direction_vector_2d();
+        let force = glam::Vec3::new(d.x * mass / 5.0, 0.0, d.y * mass / 5.0);
+        self.apply_motive_force(force);
+        self.integrate_physics_accel();
+        true
+    }
+
+    /// C++ maintainCurrentPositionWings residual — circle around maintain pos.
+    pub fn maintain_position_wings(&mut self, dt: f32) {
+        self.physics_turning = PhysicsTurningType::TurnNone;
+        if !self.is_motive() && !self.status.airborne_target {
+            return;
+        }
+        let Some(maintain) = self.maintain_pos else {
+            return;
+        };
+        let mut turn_radius = self.circling_radius;
+        if turn_radius.abs() < 1.0e-4 {
+            turn_radius = self.calc_min_turn_radius();
+        }
+        let us = self.get_position();
+        let dx = maintain.x - us.x;
+        let dz = maintain.z - us.z;
+        let mut angle = if dx * dx + dz * dz < 1.0e-6 {
+            self.get_orientation()
+        } else {
+            (-dz).atan2(dx) // host facing convention for direction to maintain
+        };
+        // C++ aimDir = PI - PI/8
+        let mut aim_dir = std::f32::consts::PI - std::f32::consts::PI / 8.0;
+        if turn_radius < 0.0 {
+            turn_radius = -turn_radius;
+            aim_dir = -aim_dir;
+        }
+        angle += aim_dir;
+        let desired = glam::Vec3::new(
+            maintain.x + angle.cos() * turn_radius,
+            maintain.y,
+            maintain.z + (-angle.sin()) * turn_radius, // match host dir xz from angle
+        );
+        // Drive toward opposite side of circle at min_speed.
+        let spd = self.min_speed.max(self.movement.max_speed * 0.25).max(1.0);
+        self.movement.target_position = Some(desired);
+        // One sub-step of other-like move without recursion into maintain.
+        let (_t, _rel) = self.rotate_towards_position(desired, dt);
+        self.apply_forward_speed_force(spd, dt);
+        let p = self.get_position() + self.movement.velocity * dt;
+        self.set_position(p);
+        // Restore no-order state.
+        self.movement.target_position = None;
+        let gy = p.y;
+        let _ = self.handle_behavior_z(gy, Some(maintain.y));
+    }
+
+    /// C++ moveTowardsPositionThrust residual (simplified 3D force toward goal).
+    pub fn move_towards_thrust(
+        &mut self,
+        goal: glam::Vec3,
+        on_path_dist: f32,
+        mut desired_speed: f32,
+        dt: f32,
+    ) {
+        let max_speed = self.effective_max_speed().max(0.01);
+        desired_speed = desired_speed.clamp(self.min_speed, max_speed);
+        let actual = self.movement.velocity.length();
+        if self.braking > 0.0 && !self.no_slow_down_as_approaching_dest {
+            let slow = (actual / 1.5) * (actual / self.braking.max(1e-3));
+            if on_path_dist < slow {
+                desired_speed = self.min_speed;
+            }
+        }
+        let mut local_goal = goal;
+        if self.loco_preferred_height != 0.0 && !self.precise_z_pos {
+            // surface relative preferred height residual (ground_y ≈ current if unknown)
+            let surface = self.get_position().y; // fail-closed
+            let preferred = self.loco_preferred_height + surface;
+            let mut delta = preferred - self.get_position().y;
+            delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
+            local_goal.y = self.get_position().y + delta;
+        }
+        let us = self.get_position();
+        let mut dir = local_goal - us;
+        let len = dir.length();
+        if len < 1e-4 {
+            return;
+        }
+        dir /= len;
+        let speed_delta = desired_speed - actual;
+        let max_accel = if speed_delta > 0.0 || self.braking <= 0.0 {
+            self.movement.acceleration
+        } else {
+            self.braking
+        };
+        // Damped accel residual: thrustDir*maxAccel - vel*damping
+        let damping = (max_accel / max_speed).clamp(0.0, 1.0);
+        let accel = dir * max_accel - self.movement.velocity * damping;
+        let mass = self.physics_get_mass();
+        self.apply_motive_force(accel * mass);
+        self.integrate_physics_accel();
+        // Orient toward velocity residual.
+        if self.movement.velocity.length_squared() > 1e-4 {
+            let v = self.movement.velocity;
+            let desired_yaw = (-v.z).atan2(v.x);
+            let (_t, _) = self.rotate_towards_position(
+                us + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin()),
+                dt,
+            );
+        }
+        let p = us + self.movement.velocity * dt;
+        self.set_position(p);
+    }
+
+    /// Apply forward motive force to close speedDelta (C++ legs/other residual).
+    pub(in super) fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32) {
+        let actual = self.forward_speed_2d();
+        // When moving backwards residual, treat signed speed.
+        let actual = if self.moving_backwards {
+            -actual.abs()
+        } else {
+            actual
+        };
+        let speed_delta = goal_speed - actual;
+        if speed_delta.abs() < 1.0e-5 {
+            return;
+        }
+        let mass = self.physics_get_mass();
+        // Host Movement accel is units/sec²; convert impulse for one logic frame.
+        let frame_dt = (dt * 30.0).clamp(0.5, 2.0) / 30.0; // ~one frame
+        let acceleration = if speed_delta > 0.0 {
+            self.movement.acceleration
+        } else {
+            -self.braking.max(self.movement.acceleration)
+        };
+        let mut accel_force = mass * acceleration * frame_dt * 30.0; // N-ish
+        let max_force_needed = mass * speed_delta;
+        if accel_force.abs() > max_force_needed.abs() {
+            accel_force = max_force_needed;
+        }
+        let dir = self.unit_direction_vector_2d();
+        let sign = if self.moving_backwards { -1.0 } else { 1.0 };
+        self.apply_motive_force(glam::Vec3::new(
+            accel_force * dir.x * sign,
+            0.0,
+            accel_force * dir.y * sign,
+        ));
+        // Integrate immediately so this frame's movement sees it (host dt path).
+        self.integrate_physics_accel();
+        // Also blend velocity toward goal for host-second dt residual.
+        let dir = self.unit_direction_vector_2d();
+        let target = glam::Vec3::new(
+            dir.x * goal_speed * sign,
+            self.movement.velocity.y,
+            dir.y * goal_speed * sign,
+        );
+        let max_accel = self.movement.acceleration * dt;
+        let diff = target - self.movement.velocity;
+        if diff.length() <= max_accel {
+            self.movement.velocity = target;
+        } else if diff.length() > 1e-6 {
+            self.movement.velocity += diff.normalize() * max_accel;
+        }
+        self.invalidate_velocity_magnitude();
+        self.record_host_movement();
+    }
+
+    /// C++ PhysicsBehavior::applyMotiveForce residual.
+    ///
+    /// Temporarily accepts full force (clears motive), applies, then arms motive
+    /// window for MOTIVE_FRAMES so subsequent collide forces are lateral-only.
+    pub fn apply_motive_force(&mut self, force: glam::Vec3) {
+        let prev = self.motive_frames_remaining;
+        self.motive_frames_remaining = 0;
+        self.record_host_physics_motive();
+        self.apply_physics_force(force);
+        self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(prev);
+        self.record_host_physics_motive();
+    }
+
+    /// C++ PhysicsBehavior::resetDynamicPhysics residual.
+    pub fn reset_dynamic_physics(&mut self) {
+        self.physics_accel = glam::Vec3::ZERO;
+        self.movement.velocity = glam::Vec3::ZERO;
+        self.invalidate_velocity_magnitude();
+        self.shock_yaw_rate = 0.0;
+        self.shock_pitch_rate = 0.0;
+        self.shock_roll_rate = 0.0;
+        self.motive_frames_remaining = 0;
+        self.record_host_physics_motive();
+        self.record_host_movement();
+    }
+
+    /// Integrate physics_accel into velocity residual (a → v per logic frame).
+    pub fn integrate_physics_accel(&mut self) {
+        if self.physics_accel != glam::Vec3::ZERO {
+            self.movement.velocity += self.physics_accel;
+            self.physics_accel = glam::Vec3::ZERO;
+            self.invalidate_velocity_magnitude();
+        }
+        if self.motive_frames_remaining > 0 {
+            self.motive_frames_remaining -= 1;
+        }
+    }
+
+    /// Invalidate cached velocity magnitude residual.
+    pub fn invalidate_velocity_magnitude(&mut self) {
+        self.velocity_magnitude_cache = -1.0;
+    }
+
+    /// C++ PhysicsBehavior::getVelocityMagnitude residual.
+    pub fn velocity_magnitude(&mut self) -> f32 {
+        if self.velocity_magnitude_cache < 0.0 {
+            let v = self.movement.velocity;
+            self.velocity_magnitude_cache = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
+        }
+        self.velocity_magnitude_cache
+    }
+
+    /// C++ getForwardSpeed2D residual (signed along facing on XZ).
+    pub fn forward_speed_2d(&self) -> f32 {
+        let dir = self.unit_direction_vector_2d();
+        let v = self.movement.velocity;
+        let vx = v.x * dir.x;
+        let vz = v.z * dir.y;
+        let dot = vx + vz;
+        let speed = (vx * vx + vz * vz).sqrt();
+        if dot >= 0.0 {
+            speed
+        } else {
+            -speed
+        }
+    }
+
+    /// C++ getAerodynamicFriction residual (clamped).
+    pub fn get_aerodynamic_friction(&self) -> f32 {
+        let f = self.aerodynamic_friction + self.extra_friction;
+        f.max(MIN_AERO_FRICTION_RESIDUAL).min(MAX_FRICTION_RESIDUAL)
+    }
+
+    /// C++ getForwardFriction residual.
+    pub fn get_forward_friction(&self) -> f32 {
+        let f = self.forward_friction + self.extra_friction;
+        f.clamp(0.0, MAX_FRICTION_RESIDUAL)
+    }
+
+    /// C++ getLateralFriction residual.
+    pub fn get_lateral_friction(&self) -> f32 {
+        let f = self.lateral_friction + self.extra_friction;
+        f.clamp(0.0, MAX_FRICTION_RESIDUAL)
+    }
+
+    /// C++ PhysicsBehavior::applyFrictionalForces residual (host XZ ground).
+    pub fn apply_frictional_forces(&mut self) {
+        // C++: APPLY_FRICTION2D_WHEN_AIRBORNE || !isSignificantlyAboveTerrain || deckTaxiing
+        // Host residual: non-airborne OR flag → 2D friction; else aero.
+        let use_2d = self.apply_friction_2d_when_airborne || !self.status.airborne_target;
+
+        if use_2d {
+            // YPR damping residual: DEFAULT_LATERAL_FRICTION on shock rates.
+            let d = 1.0 - DEFAULT_LATERAL_FRICTION_RESIDUAL;
+            self.shock_yaw_rate *= d;
+            self.shock_pitch_rate *= d;
+            self.shock_roll_rate *= d;
+
+            let v = self.movement.velocity;
+            if v.x != 0.0 || v.z != 0.0 {
+                let dir = self.unit_direction_vector_2d();
+                let mass = self.physics_get_mass();
+                let lateral_dot = v.x * (-dir.y) + v.z * dir.x;
+                let lat_x = lateral_dot * (-dir.y);
+                let lat_z = lateral_dot * dir.x;
+                let lf = mass * self.get_lateral_friction();
+                let mut accel = glam::Vec3::new(-(lf * lat_x), 0.0, -(lf * lat_z));
+                if !self.is_motive() {
+                    let forward_dot = v.x * dir.x + v.z * dir.y;
+                    let fwd_x = forward_dot * dir.x;
+                    let fwd_z = forward_dot * dir.y;
+                    let ff = mass * self.get_forward_friction();
+                    accel.x += -(ff * fwd_x);
+                    accel.z += -(ff * fwd_z);
+                }
+                self.apply_physics_force(accel);
+            }
+        } else {
+            let aero = -self.get_aerodynamic_friction();
+            let v = self.movement.velocity;
+            self.physics_accel.x += v.x * aero;
+            self.physics_accel.y += v.y * aero;
+            self.physics_accel.z += v.z * aero;
+            let d = 1.0 + aero;
+            self.shock_yaw_rate *= d;
+            self.shock_pitch_rate *= d;
+            self.shock_roll_rate *= d;
+        }
+    }
+
+    /// C++ PhysicsBehavior::transferVelocityTo residual.
+    pub fn transfer_velocity_to(&self, other: &mut Object) {
+        other.movement.velocity += self.movement.velocity;
+        other.invalidate_velocity_magnitude();
+    }
+
+    /// C++ PhysicsBehavior::addVelocityTo residual.
+    pub fn add_velocity(&mut self, vel: glam::Vec3) {
+        self.movement.velocity += vel;
+        self.invalidate_velocity_magnitude();
+    }
+}

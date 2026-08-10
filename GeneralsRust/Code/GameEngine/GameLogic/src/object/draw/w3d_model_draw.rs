@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Residual include_str! scans keep reading this sibling file.
+// Live module is w3d_model_draw_impl/ + #[path = "w3d_model_draw_impl/mod.rs"] in the parent.
+
 //! W3DModelDraw - Main 3D model drawing module
 //!
 //! Port of C++ W3DModelDraw.h/cpp

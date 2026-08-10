@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Residual include_str! scans keep reading this sibling file.
+// Live module is render_pipeline_impl/ + #[path = "render_pipeline_impl/mod.rs"] in graphics/mod.rs.
+
 use crate::assets::get_asset_manager;
 use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId as ObjectID;

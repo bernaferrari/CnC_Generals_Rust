@@ -1,3 +1,7 @@
+// SCAN DUMP ONLY — not compiled.
+// Concatenation of GeneralsRust/Code/GameEngine/GameLogic/src/common/types for residual include_str! scans.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Common types and utilities shared across all GameLogic modules
 //!
 //! This module provides type definitions that match the C++ Object system

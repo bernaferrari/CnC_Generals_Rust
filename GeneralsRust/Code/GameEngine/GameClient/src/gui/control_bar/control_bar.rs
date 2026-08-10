@@ -1,3 +1,8 @@
+// SCAN DUMP ONLY — not compiled.
+// Original dump of GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar.rs
+// for residual include_str! scans. Live module is control_bar_impl/ +
+// #[path = "control_bar_impl/mod.rs"] in control_bar/mod.rs.
+
 //! Control Bar Implementation
 //!
 //! Rust conversion of ControlBar.cpp + ControlBarCommand.cpp - the main control bar system

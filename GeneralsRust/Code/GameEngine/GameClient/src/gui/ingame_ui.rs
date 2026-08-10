@@ -1,3 +1,8 @@
+// SCAN DUMP ONLY — not compiled.
+// Original dump of GeneralsRust/Code/GameEngine/GameClient/src/gui/ingame_ui.rs
+// for residual include_str! scans. Live module is the sibling directory +
+// #[path = "ingame_ui/mod.rs"] in gui/mod.rs.
+
 //! # In-Game UI System
 //!
 //! Comprehensive in-game user interface system ported from C++ InGameUI.cpp

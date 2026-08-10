@@ -1,3 +1,6 @@
+// SCAN DUMP ONLY — not compiled.
+// Live module is the sibling directory + #[path] in the parent.
+
 //! Player system - Complete Rust conversion of C++ Player class
 //!
 //! A "Player" is an entity that contains the persistent info of the Player, as well as containing

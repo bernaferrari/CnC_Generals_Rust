@@ -101,7 +101,12 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: legacy AI states empty dual-world short-circuits.
 pub fn honesty_ai_legacy_states_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/ai/states.rs");
+    let g = concat!(
+        include_str!("../../../../GameEngine/GameLogic/src/ai/states/helpers.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/ai/states/state_machine.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/ai/states/attack.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/ai/states/attack_machine.rs"),
+    );
     if !(g.contains("Wave 257")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

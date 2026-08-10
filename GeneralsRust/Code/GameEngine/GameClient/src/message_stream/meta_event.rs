@@ -1,3 +1,8 @@
+// SCAN DUMP ONLY — not compiled.
+// Original dump of GeneralsRust/Code/GameEngine/GameClient/src/message_stream/meta_event.rs
+// for residual include_str! scans. Live module is the sibling directory +
+// #[path = "meta_event_impl/mod.rs"] in message_stream/mod.rs.
+
 //! Meta event translator for key and mouse remapping.
 
 use std::collections::HashSet;

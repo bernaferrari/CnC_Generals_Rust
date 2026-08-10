@@ -1,0 +1,465 @@
+// HUD messages, military subtitles, and tooltip helpers.
+// Split from `gui/ingame_ui.rs` dump. Included by `ingame_ui/mod.rs`.
+
+impl InGameUI {
+    // ── HUD message system ──────────────────────────────────────────────
+    // C++: InGameUI::message() (InGameUI.cpp:1993), addMessageText() (InGameUI.cpp:2061)
+
+    pub fn message(&mut self, text: &str) {
+        self.add_message_text(text, None);
+    }
+
+    pub fn message_color(&mut self, text: &str, color: u32) {
+        self.add_message_text(text, Some(color));
+    }
+
+    fn add_message_text(&mut self, text: &str, rgb_color: Option<u32>) {
+        if !self.messages_enabled {
+            return;
+        }
+
+        let color1 = rgb_color.unwrap_or(self.message_color1);
+        let color2 = rgb_color.unwrap_or(self.message_color2);
+
+        let color = if self.messages.is_empty() || self.messages[0].color == color2 {
+            color1
+        } else {
+            color2
+        };
+
+        let msg = MessageText {
+            text: text.to_string(),
+            color,
+            creation_frame: self.current_frame,
+        };
+
+        self.messages.insert(0, msg);
+        if self.messages.len() > MAX_UI_MESSAGES {
+            self.messages.truncate(MAX_UI_MESSAGES);
+        }
+    }
+
+    pub fn toggle_messages(&mut self) -> bool {
+        self.messages_enabled = !self.messages_enabled;
+        self.messages_enabled
+    }
+
+    pub fn are_messages_enabled(&self) -> bool {
+        self.messages_enabled
+    }
+
+    pub fn expire_messages(&mut self) {
+        let delay_frames = (self.message_delay_ms as f32 / 33.0) as u32;
+        self.messages
+            .retain(|m| self.current_frame < m.creation_frame + delay_frames);
+    }
+
+    pub fn remove_message_at_index(&mut self, index: usize) {
+        if index < self.messages.len() {
+            self.messages.remove(index);
+        }
+    }
+
+    pub fn get_messages(&self) -> &[MessageText] {
+        &self.messages
+    }
+
+    pub fn get_message_color1(&self) -> u32 {
+        self.message_color1
+    }
+
+    pub fn get_message_color2(&self) -> u32 {
+        self.message_color2
+    }
+
+    pub fn get_message_position(&self) -> (i32, i32) {
+        self.message_position
+    }
+
+    pub fn get_message_font_name(&self) -> &str {
+        &self.message_font_name
+    }
+
+    pub fn get_message_point_size(&self) -> i32 {
+        self.message_point_size
+    }
+
+    pub fn is_message_bold(&self) -> bool {
+        self.message_bold
+    }
+
+    // ── Military subtitle system ─────────────────────────────────────────
+    // C++: InGameUI::militarySubtitle() (InGameUI.cpp:4039)
+    // C++: InGameUI::removeMilitarySubtitle() (InGameUI.cpp:4093)
+
+    pub fn military_subtitle(&mut self, title: &str, duration_ms: i32) {
+        update_diplomacy_briefing_text(title, false);
+        let title = Self::military_caption_text(title);
+        if title.is_empty() || duration_ms <= 0 {
+            return;
+        }
+
+        let multiplier_x = self.screen_size.x / 800.0;
+        let multiplier_y = self.screen_size.y / 600.0;
+
+        let pos_x = self.military_caption_position.0 as f32 * multiplier_x;
+        let pos_y = self.military_caption_position.1 as f32 * multiplier_y;
+
+        let lifetime_frame = self.current_frame + (30 * duration_ms as u32) / 1000;
+        self.disable_tooltips_until(lifetime_frame);
+
+        let color = ((self.military_caption_color.3 as u32) << 24)
+            | ((self.military_caption_color.0 as u32) << 16)
+            | ((self.military_caption_color.1 as u32) << 8)
+            | (self.military_caption_color.2 as u32);
+
+        self.current_military_subtitle = Some(MilitarySubtitle {
+            text: title,
+            index: 0,
+            position: (pos_x, pos_y),
+            lifetime_frame,
+            block_drawn: true,
+            block_begin_frame: self.current_frame,
+            block_pos: (pos_x, pos_y),
+            increment_on_frame: self.current_frame + Self::military_caption_delay_frames(),
+            color,
+        });
+    }
+
+    fn military_caption_text(label: &str) -> String {
+        GameText::fetch(label)
+    }
+
+    fn mouseover_tooltip_text(template_name: &str, display_name: &str) -> Option<String> {
+        let mut tooltip = display_name.trim().to_string();
+        if tooltip.is_empty() {
+            tooltip = GameText::fetch(&format!("ThingTemplate:{template_name}"));
+        }
+
+        if tooltip.is_empty() || tooltip == GameText::fetch("OBJECT:Prop") {
+            return None;
+        }
+
+        Some(tooltip)
+    }
+
+    fn mouseover_tooltip_for_template(template_name: &str) -> Option<String> {
+        let display_name = get_thing_factory()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .and_then(|factory| factory.find_template(template_name, false))
+                    .map(|template| template.get_display_name().to_string())
+            })
+            .unwrap_or_default();
+        Self::mouseover_tooltip_text(template_name, &display_name)
+    }
+
+    fn format_supply_warehouse_tooltip_feedback(
+        label: &str,
+        boxes_stored: i32,
+        base_value_per_supply_box: i32,
+    ) -> String {
+        let value = boxes_stored * base_value_per_supply_box;
+        let value_text = value.to_string();
+        if label.contains("%d") {
+            label.replace("%d", &value_text)
+        } else if label.contains("%i") {
+            label.replace("%i", &value_text)
+        } else if label.contains("{}") {
+            label.replacen("{}", &value_text, 1)
+        } else {
+            format!("{label}{value_text}")
+        }
+    }
+
+    fn supply_warehouse_tooltip_feedback(
+        boxes_stored: i32,
+        base_value_per_supply_box: i32,
+    ) -> String {
+        let label = GameText::fetch("TOOLTIP:SupplyWarehouse");
+        Self::format_supply_warehouse_tooltip_feedback(
+            &label,
+            boxes_stored,
+            base_value_per_supply_box,
+        )
+    }
+
+    fn supply_warehouse_boxes_for_object(object: &Object) -> Option<i32> {
+        for behavior in object.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(dock) = behavior.get_dock_update_interface() else {
+                continue;
+            };
+            if let Some(boxes) = dock.supply_warehouse_boxes_stored() {
+                return Some(boxes);
+            }
+        }
+        None
+    }
+
+    fn mouseover_tooltip_template_for_object(object: &Object) -> String {
+        let local_player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
+
+        if Self::disguise_visible_player_index_for_object(object, local_player_guard.as_deref())
+            .is_some()
+        {
+            if let Some(template_name) = get_disguise_manager()
+                .lock()
+                .ok()
+                .and_then(|manager| manager.get_disguise(object.get_id()).ok())
+            {
+                return template_name;
+            }
+        }
+
+        object.get_template_name().to_string()
+    }
+
+    fn mouseover_tooltip_color_for_object(object: &Object) -> [u8; 4] {
+        let mut color = object.get_indicator_color();
+        let local_player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
+
+        if let Some(disguised_index) =
+            Self::disguise_visible_player_index_for_object(object, local_player_guard.as_deref())
+        {
+            if let Some(disguised_color) = player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(disguised_index).cloned())
+                .and_then(|player| player.read().ok().map(|player| player.get_player_color()))
+            {
+                color = disguised_color;
+            }
+        }
+
+        if let Some(contain) = object.get_contain() {
+            if let Ok(contain_guard) = contain.lock() {
+                if contain_guard.is_garrisonable() {
+                    if let Some(player) =
+                        contain_guard.get_apparent_controlling_player(local_player_guard.as_deref())
+                    {
+                        if let Ok(player_guard) = player.read() {
+                            color = player_guard.get_player_color();
+                        }
+                    }
+                }
+            }
+        }
+
+        [color.r, color.g, color.b, color.a]
+    }
+
+    fn mouseover_tooltip_player_for_object(object: &Object) -> Option<Arc<RwLock<Player>>> {
+        let local_player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
+
+        let mut player = object.get_contain().and_then(|contain| {
+            contain.lock().ok().and_then(|contain_guard| {
+                contain_guard.get_apparent_controlling_player(local_player_guard.as_deref())
+            })
+        });
+
+        if player.is_none() {
+            player = object.get_controlling_player();
+        }
+
+        if let Some(disguised_index) =
+            Self::disguise_visible_player_index_for_object(object, local_player_guard.as_deref())
+        {
+            if let Some(disguised_player) = player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(disguised_index).cloned())
+            {
+                player = Some(disguised_player);
+            }
+        }
+
+        player
+    }
+
+    fn mouseover_tooltip_with_player_suffix(
+        tooltip: &str,
+        player: &Player,
+        is_multiplayer: bool,
+    ) -> String {
+        if is_multiplayer && player.is_playable_side() {
+            format!("{}\n{}", tooltip, player.get_player_display_name())
+        } else {
+            tooltip.to_string()
+        }
+    }
+
+    fn mouseover_tooltip_is_multiplayer() -> bool {
+        with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false)
+    }
+
+    fn mouseover_tooltip_visible_for_shroud(status: ObjectShroudStatus) -> bool {
+        status == ObjectShroudStatus::Clear
+    }
+
+    fn military_caption_delay_frames() -> u32 {
+        let delay_ms = get_global_language_read()
+            .map(|language| language.military_caption_delay_ms)
+            .unwrap_or(750);
+        Self::milliseconds_to_logic_frames(delay_ms)
+    }
+
+    fn milliseconds_to_logic_frames(milliseconds: i32) -> u32 {
+        (30 * milliseconds.max(0) as u32) / 1000
+    }
+
+    pub fn remove_military_subtitle(&mut self) {
+        self.current_military_subtitle = None;
+        self.clear_tooltips_disabled();
+    }
+
+    pub fn get_military_subtitle(&self) -> Option<&MilitarySubtitle> {
+        self.current_military_subtitle.as_ref()
+    }
+
+    pub fn expire_military_subtitle(&mut self) {
+        if let Some(ref sub) = self.current_military_subtitle {
+            if self.current_frame >= sub.lifetime_frame {
+                self.remove_military_subtitle();
+            }
+        }
+    }
+
+    pub fn disable_tooltips_until(&mut self, frame_num: u32) {
+        if frame_num > self.tooltips_disabled_until {
+            self.tooltips_disabled_until = frame_num;
+        }
+    }
+
+    pub fn clear_tooltips_disabled(&mut self) {
+        self.tooltips_disabled_until = 0;
+    }
+
+    pub fn are_tooltips_disabled(&self) -> bool {
+        self.current_frame < self.tooltips_disabled_until
+    }
+
+    fn update_military_subtitle(&mut self) {
+        let speed_frames = self.military_caption_speed_frames();
+        let point_size = self.military_caption_point_size;
+        let char_width = self.caption_char_width();
+        let delay_frames = Self::military_caption_delay_frames();
+        if Self::update_military_subtitle_state(
+            &mut self.current_military_subtitle,
+            self.current_frame,
+            speed_frames,
+            point_size,
+            char_width,
+            delay_frames,
+        ) {
+            Self::play_military_subtitle_typing_sound();
+        }
+    }
+
+    fn update_military_subtitle_state(
+        current_subtitle: &mut Option<MilitarySubtitle>,
+        current_frame: u32,
+        speed_frames: u32,
+        point_size: i32,
+        char_width: f32,
+        delay_frames: u32,
+    ) -> bool {
+        let Some(subtitle) = current_subtitle.as_mut() else {
+            return false;
+        };
+
+        if subtitle.lifetime_frame < current_frame {
+            let alpha = (subtitle.color >> 24) as i32;
+            let fade_amount = ((current_frame - subtitle.lifetime_frame) as f32 * 0.1) as i32;
+            if alpha - fade_amount < 0 {
+                *current_subtitle = None;
+            } else {
+                let new_alpha = (alpha - fade_amount) as u32;
+                subtitle.color = (subtitle.color & 0x00FF_FFFF) | (new_alpha << 24);
+            }
+            return false;
+        }
+
+        if subtitle.block_begin_frame + 9 < current_frame {
+            subtitle.block_begin_frame = current_frame;
+            subtitle.block_drawn = !subtitle.block_drawn;
+        }
+
+        if subtitle.increment_on_frame >= current_frame {
+            return false;
+        }
+
+        let Some(ch) = subtitle.text.chars().nth(subtitle.index) else {
+            subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
+            return false;
+        };
+
+        let mut typed_visible_char = false;
+        if ch == '\n' {
+            subtitle.block_pos.0 = subtitle.position.0;
+            subtitle.block_pos.1 += point_size.max(1) as f32;
+            subtitle.block_drawn = true;
+            subtitle.increment_on_frame = current_frame + delay_frames;
+        } else {
+            let printed_chars_on_line = subtitle
+                .text
+                .chars()
+                .take(subtitle.index + 1)
+                .fold(0usize, |count, c| if c == '\n' { 0 } else { count + 1 });
+            subtitle.block_pos.0 =
+                subtitle.position.0 + (printed_chars_on_line as f32 * char_width);
+            subtitle.increment_on_frame = current_frame + speed_frames;
+            typed_visible_char = true;
+        }
+
+        subtitle.index += 1;
+        if subtitle.index >= subtitle.text.chars().count() {
+            subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
+        }
+        typed_visible_char
+    }
+
+    fn play_military_subtitle_typing_sound() {
+        if let Some(audio) = TheAudio::get() {
+            let event = AudioEventRts::new("MilitarySubtitlesTyping");
+            let _ = audio.add_audio_event(&event);
+        }
+    }
+
+    fn caption_char_width(&self) -> f32 {
+        self.military_caption_point_size.max(1) as f32 * 0.6
+    }
+
+    fn military_caption_speed_frames(&self) -> u32 {
+        get_global_language_read()
+            .map(|language| language.military_caption_speed.max(0) as u32)
+            .unwrap_or_else(|| self.military_caption_speed.max(0) as u32)
+    }
+
+    // ── Popup message system ─────────────────────────────────────────────
+    // C++: InGameUI::popupMessage() (InGameUI.cpp:5137)
+
+    pub fn get_popup_message_color(&self) -> u32 {
+        self.popup_message_color
+    }
+
+    // ── INI settings loading ─────────────────────────────────────────────
+    // C++: InGameUI::init() loads Data\INI\InGameUI.ini via TheINIParser
+
+}

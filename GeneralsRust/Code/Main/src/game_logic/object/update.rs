@@ -1,0 +1,541 @@
+use super::*;
+
+impl Object {
+    pub fn tick_timers(&mut self, dt: f32) -> bool {
+        if self.cheer_timer > 0.0 {
+            self.cheer_timer -= dt;
+            if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
+                self.set_ai_state(AIState::Idle);
+                self.cheer_timer = 0.0;
+                self.record_host_demo_mine_cheer();
+            }
+        }
+
+        if self.prone_timer > 0.0 {
+            self.prone_timer -= dt;
+            if self.prone_timer <= 0.0 {
+                self.prone_timer = 0.0;
+                if let Some(bit) =
+                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                        "PRONE",
+                    )
+                {
+                    self.model_condition_bits &= !(1u128 << bit);
+                    // Wave 487: clear prone model bit into GW.
+                    self.record_host_model_condition();
+                }
+            }
+        }
+
+        if self.emoticon_frames_left > 0 {
+            // dt is seconds; logic is 30Hz — consume fractional frames.
+            let frames = (dt * 30.0).max(0.0);
+            let next = self.emoticon_frames_left as f32 - frames;
+            if next <= 0.0 {
+                self.emoticon_frames_left = 0;
+                self.emoticon_name.clear();
+            } else {
+                self.emoticon_frames_left = next.ceil() as i32;
+            }
+        }
+
+        let was_ready = self.special_power_ready;
+        // C++ SpecialPowerModule::getReadyFrame residual: while isDisabled (or
+        // pauseCountdown), availableOnFrame slides with the logic frame — countdown
+        // does not advance. SharedNSync player timers are separate and keep ticking.
+        let freeze_special_power = self.is_disabled();
+        // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks countdown;
+        // host only refreshes ready aggregate after writeback (Wave 618 ready-log).
+        let sole_sp = crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled();
+        if dt > 0.0 && !freeze_special_power && !sole_sp && !self.special_power_cooldowns.is_empty()
+        {
+            for rem in self.special_power_cooldowns.values_mut() {
+                *rem = (*rem - dt).max(0.0);
+            }
+        }
+        // Legacy single-timer residual (older paths / saves).
+        if dt > 0.0
+            && !freeze_special_power
+            && !sole_sp
+            && self.special_power_cooldown_remaining > 0.0
+        {
+            self.special_power_cooldown_remaining =
+                (self.special_power_cooldown_remaining - dt).max(0.0);
+        }
+        self.refresh_special_power_aggregate_cooldown();
+        let became_ready = !was_ready && self.special_power_ready;
+        // GameWorld last-writer residual: publish SP timer after every tick that
+        // may have advanced/frozen countdown or flipped ready.
+        if became_ready
+            || self.special_power_cooldown_remaining > 0.0
+            || !self.special_power_cooldowns.is_empty()
+            || was_ready != self.special_power_ready
+        {
+            self.record_host_special_power();
+        }
+        became_ready
+    }
+
+    pub fn update_construction(&mut self, dt: f32) {
+        if self.status.under_construction {
+            let build_rate = 1.0 / self.thing.template.build_time;
+            self.construction_percent += build_rate * dt;
+
+            if self.construction_percent >= 1.0 {
+                self.construction_percent = 1.0;
+                self.set_status_under_construction(false);
+                self.health.current = self.health.maximum;
+            } else {
+                // Health scales with construction progress
+                self.health.current = self.health.maximum * (0.1 + 0.9 * self.construction_percent);
+            }
+        }
+    }
+
+    pub fn update_movement(&mut self, dt: f32) {
+        if matches!(self.ai_state, AIState::Docked | AIState::Garrisoned) {
+            self.movement.target_position = None;
+            self.movement.velocity = Vec3::ZERO;
+            return;
+        }
+
+        // C++ Locomotor::setPhysicsOptions residual each move tick.
+        self.set_locomotor_physics_options();
+
+        // Stunned residual: no loco move while shock-stunned.
+        if self.shock_stun_frames > 0 {
+            return;
+        }
+
+        // C++ fixInvalidPosition residual when on invalid terrain.
+        if self.fix_invalid_position() {
+            return;
+        }
+
+        if self.movement.target_position.is_none() {
+            // C++ maintainCurrentPosition when no move order.
+            // ground_y unknown here — use current y as layer residual.
+            let gy = self.get_position().y;
+            let _ = self.loco_maintain_current_position(gy);
+            return;
+        }
+
+        // Moving: invalidate maintain pos residual.
+        self.maintain_pos_valid = false;
+
+        if let Some(target_pos) = self.movement.target_position {
+            let current_pos = self.get_position();
+            let dx = target_pos.x - current_pos.x;
+            let dz = target_pos.z - current_pos.z;
+            let dist_2d = (dx * dx + dz * dz).sqrt();
+
+            if dist_2d < 1.0e-4 {
+                // Advance path or stop.
+                let next_waypoint =
+                    if self.movement.current_path_index + 1 < self.movement.path.len() {
+                        self.movement.current_path_index += 1;
+                        Some(self.movement.path[self.movement.current_path_index])
+                    } else {
+                        None
+                    };
+                if let Some(waypoint) = next_waypoint {
+                    self.movement.target_position = Some(waypoint);
+                } else {
+                    self.stop_moving();
+                }
+                return;
+            }
+
+            // C++ locoUpdate_moveTowardsPosition residual (treads-like host default).
+            let max_speed = self.effective_max_speed().max(0.0);
+            let mut desired_speed = max_speed * self.group_speed_factor.clamp(0.0, 1.0);
+            // Cap by blocked speed residual (convert frame→sec: blocked is per-frame).
+            if self.is_blocked && self.cur_max_blocked_speed.is_finite() {
+                let blocked_per_sec = self.cur_max_blocked_speed * 30.0;
+                desired_speed = desired_speed.min(blocked_per_sec);
+            }
+
+            // C++ getIsDownhillOnly residual: refuse uphill goals.
+            if self.downhill_only {
+                let us_y = current_pos.y;
+                let goal_y = target_pos.y;
+                if us_y < goal_y - 0.05 {
+                    return;
+                }
+            }
+
+            // Legs wander residual: bias desired heading before rotate.
+            let mut rotate_goal = target_pos;
+            if matches!(
+                self.loco_appearance,
+                LocomotorAppearance::LegsTwo | LocomotorAppearance::Climber
+            ) && self.wander_width_factor != 0.0
+            {
+                let actual = self.forward_speed_2d().abs();
+                let wobble = self.tick_wander_angle_offset(actual);
+                let us = self.get_position();
+                let base = (-dz).atan2(dx) + wobble;
+                rotate_goal = glam::Vec3::new(
+                    us.x + base.cos() * 100.0,
+                    us.y,
+                    us.z + (-base.sin()) * 100.0,
+                );
+            }
+
+            // C++ rotateTowardsPosition residual.
+            let (_turning, angle_diff) = self.rotate_towards_position(rotate_goal, dt);
+
+            // Appearance-specific speed residual (C++ moveTowardsPosition*).
+            let quarter_pi = std::f32::consts::FRAC_PI_4;
+            let mut angle_coeff = angle_diff.abs() / quarter_pi;
+            if angle_coeff > 1.0 {
+                angle_coeff = 1.0;
+            }
+
+            // Wheels: can only turn while moving — cap to minTurnSpeed when turning.
+            if matches!(
+                self.loco_appearance,
+                LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
+            ) {
+                let mut turn_speed = self.min_turn_speed;
+                if turn_speed < desired_speed / 4.0 {
+                    turn_speed = desired_speed / 4.0;
+                }
+                let small_turn = std::f32::consts::PI / 20.0;
+                if angle_diff.abs() > small_turn && desired_speed > turn_speed {
+                    desired_speed = turn_speed;
+                }
+                // Reverse residual when goal is behind and can_move_backward.
+                if self.can_move_backward
+                    && actual_speed_is_zero(self)
+                    && angle_diff.abs() > std::f32::consts::FRAC_PI_2
+                {
+                    self.moving_backwards = true;
+                    self.record_host_locomotor();
+                }
+                if self.moving_backwards && angle_diff.abs() < std::f32::consts::FRAC_PI_2 {
+                    self.moving_backwards = false;
+                    self.record_host_locomotor();
+                }
+            }
+
+            let mut goal_speed = match self.loco_appearance {
+                LocomotorAppearance::LegsTwo
+                | LocomotorAppearance::Climber
+                | LocomotorAppearance::Treads => (1.0 - angle_coeff) * desired_speed,
+                LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle => desired_speed,
+                LocomotorAppearance::Hover
+                | LocomotorAppearance::Wings
+                | LocomotorAppearance::Thrust
+                | LocomotorAppearance::Other => desired_speed,
+            };
+
+            // Braking residual near destination (unless NO_SLOW_DOWN).
+            let actual_speed = self.forward_speed_2d().abs();
+            let braking = self.braking.max(1.0e-3);
+            let slow_down_dist =
+                calc_slow_down_dist(actual_speed, self.min_speed.max(0.0), braking);
+            if !self.no_slow_down_as_approaching_dest {
+                if dist_2d < slow_down_dist && !self.is_braking {
+                    self.is_braking = true;
+                    self.braking_factor = 1.1;
+                }
+                if dist_2d > PATHFIND_CELL_SIZE_F_RESIDUAL && dist_2d > 2.0 * slow_down_dist {
+                    self.is_braking = false;
+                    self.braking_factor = 1.0;
+                }
+                if self.is_braking {
+                    let floor = self.min_speed.max(0.0);
+                    goal_speed = goal_speed
+                        .min(actual_speed * 0.85 / self.braking_factor.max(1.0))
+                        .max(floor);
+                }
+            }
+            // Treads near-goal tight turn residual.
+            if matches!(self.loco_appearance, LocomotorAppearance::Treads)
+                && dist_2d < 2.0 * PATHFIND_CELL_SIZE_F_RESIDUAL
+                && angle_coeff > 0.05
+            {
+                goal_speed = actual_speed * 0.6;
+            }
+
+            // Wings/Thrust specialized residual (may set position itself).
+            if matches!(self.loco_appearance, LocomotorAppearance::Thrust) {
+                self.move_towards_thrust(target_pos, dist_2d, goal_speed, dt);
+                let _ = self.handle_behavior_z(self.get_position().y, Some(target_pos.y));
+            } else if matches!(self.loco_appearance, LocomotorAppearance::Wings) {
+                // 2D other-like + preferred height via BehaviorZ.
+                self.apply_forward_speed_force(goal_speed, dt);
+                let new_position = current_pos + self.movement.velocity * dt;
+                self.set_position(new_position);
+                let _ = self.handle_behavior_z(new_position.y, Some(target_pos.y));
+            } else {
+                // Force/velocity apply residual (legs/wheels/treads/hover/other).
+                self.apply_forward_speed_force(goal_speed, dt);
+
+                // Hover over-water residual (model condition flag only).
+                if matches!(self.loco_appearance, LocomotorAppearance::Hover) {
+                    // Fail-closed: no water table — never set over_water true here.
+                    if self.over_water {
+                        self.over_water = false;
+                    }
+                }
+
+                // Arm motive window so collide forces stay lateral while driving.
+                if goal_speed.abs() > 0.1 {
+                    self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
+                    self.record_host_physics_motive();
+                }
+
+                // Position integrate (host dt seconds).
+                let new_position = current_pos + self.movement.velocity * dt;
+                self.set_position(new_position);
+
+                // C++ handleBehaviorZ residual after loco XY step.
+                let ground_y = new_position.y; // caller/physics motion step samples terrain
+                let _ = self.handle_behavior_z(ground_y, Some(target_pos.y));
+            }
+
+            // Arrival residual.
+            let distance_to_target = current_pos.distance(target_pos);
+            if distance_to_target < 2.0 {
+                let next_waypoint =
+                    if self.movement.current_path_index + 1 < self.movement.path.len() {
+                        self.movement.current_path_index += 1;
+                        Some(self.movement.path[self.movement.current_path_index])
+                    } else {
+                        None
+                    };
+                if let Some(waypoint) = next_waypoint {
+                    self.movement.target_position = Some(waypoint);
+                    self.is_braking = false;
+                } else {
+                    self.stop_moving();
+                    self.is_braking = false;
+                }
+            }
+        }
+        self.record_host_movement();
+    }
+
+    /// C++ SalvageCrateCollide::doWeaponSet residual.
+    pub fn apply_salvage_weapon_upgrade(&mut self) {
+        if self.weapon_crate_upgrade >= 2 {
+            return;
+        }
+        self.weapon_crate_upgrade = self.weapon_crate_upgrade.saturating_add(1);
+        self.record_host_ai_request();
+        if let Some(w) = self.weapon.as_mut() {
+            w.damage *= 1.15;
+        }
+    }
+
+    /// C++ SalvageCrateCollide::doArmorSet residual.
+    pub fn apply_salvage_armor_upgrade(&mut self) {
+        if self.armor_crate_upgrade >= 2 {
+            return;
+        }
+        self.armor_crate_upgrade = self.armor_crate_upgrade.saturating_add(1);
+        self.thing.template.armor += 10.0;
+    }
+
+    /// C++ SalvageCrateCollide::doLevelGain residual.
+    pub fn apply_salvage_level_gain(&mut self) {
+        use crate::game_logic::VeterancyLevel;
+        let cur = self.experience.level;
+        if matches!(cur, VeterancyLevel::Heroic) {
+            return;
+        }
+        let need = match cur {
+            VeterancyLevel::Rookie => self.thing.template.veterancy_xp_thresholds[0],
+            VeterancyLevel::Veteran => self.thing.template.veterancy_xp_thresholds[1],
+            VeterancyLevel::Elite => self.thing.template.veterancy_xp_thresholds[2],
+            VeterancyLevel::Heroic => return,
+        };
+        let add = (need - self.experience.current).max(1.0);
+        self.gain_experience(add);
+    }
+
+    /// C++ ExperienceTracker::gainExpForLevel residual.
+    ///
+    /// Grants just enough XP to gain `levels` veterancy ranks (clamped to Heroic).
+    /// `can_level_up` false skips (non-trainable residual).
+    pub fn gain_exp_for_level(&mut self, levels: u8, can_level_up: bool) -> u8 {
+        if levels == 0 || !can_level_up {
+            return 0;
+        }
+        use crate::game_logic::VeterancyLevel;
+        let mut gained = 0u8;
+        for _ in 0..levels {
+            if matches!(self.experience.level, VeterancyLevel::Heroic) {
+                break;
+            }
+            self.apply_salvage_level_gain();
+            gained += 1;
+        }
+        gained
+    }
+
+    pub fn record_host_experience(&self) {
+        crate::game_logic::host_experience_log::record(self.id, self.experience.current.max(0.0));
+    }
+
+    pub(in super) fn record_host_veterancy_level(&self) {
+        let ordinal = match self.experience.level {
+            crate::game_logic::VeterancyLevel::Rookie => 0u8,
+            crate::game_logic::VeterancyLevel::Veteran => 1,
+            crate::game_logic::VeterancyLevel::Elite => 2,
+            crate::game_logic::VeterancyLevel::Heroic => 3,
+        };
+        crate::game_logic::host_veterancy_log::record(self.id, ordinal);
+    }
+
+    pub fn gain_experience(&mut self, amount: f32) {
+        // Wave 79: AdvancedTraining ExperienceScalarUpgrade residual application.
+        // C++ AddXPScalar 1.0 → double XP when the upgrade tag is present.
+        let amount = if self.has_advanced_training_xp_scalar() {
+            crate::game_logic::host_unit_training::residual_xp_gain_with_advanced_training(
+                amount, true,
+            )
+        } else {
+            amount
+        };
+        if amount <= 0.0 || !amount.is_finite() {
+            return;
+        }
+        let projected = self.experience.current + amount;
+
+        // C++ parity: veterancy thresholds are per-template (Object::ExperienceValues
+        // in INI).  Use template-defined thresholds, falling back to defaults.
+        let thresholds = self.thing.template.veterancy_xp_thresholds;
+
+        // Check for level up against projected XP (even when HP/XP authority defers current).
+        let previous_level = self.experience.level;
+        let new_level = if projected >= thresholds[2] {
+            VeterancyLevel::Heroic
+        } else if projected >= thresholds[1] {
+            VeterancyLevel::Elite
+        } else if projected >= thresholds[0] {
+            VeterancyLevel::Veteran
+        } else {
+            VeterancyLevel::Rookie
+        };
+
+        if new_level != previous_level {
+            self.experience.level = new_level;
+            // Apply veterancy bonuses
+            self.apply_veterancy_bonuses(previous_level, new_level);
+            self.record_host_veterancy_level();
+        }
+
+        // GameWorld residual authority: log absolute XP; defer host current mutate.
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
+            crate::game_logic::host_experience_log::record(self.id, projected.max(0.0));
+        } else {
+            self.experience.current = projected;
+            self.record_host_experience();
+        }
+    }
+
+    /// C++ parity (GameData.ini veterancy bonuses):
+    ///   Veteran: +10% dmg, +20% RoF, +20% HP
+    ///   Elite:   +20% dmg, +40% RoF, +30% HP
+    ///   Heroic:  +30% dmg, +60% RoF, +50% HP
+    /// Returns (health_multiplier, damage_multiplier, rof_multiplier).
+    fn veterancy_bonuses(level: VeterancyLevel) -> (f32, f32, f32) {
+        crate::game_logic::host_unit_training::veterancy_bonus_multipliers(level)
+    }
+
+    /// Wave 79: true when AdvancedTraining ExperienceScalar residual tag is present.
+    pub fn has_advanced_training_xp_scalar(&self) -> bool {
+        use crate::game_logic::host_unit_training::{
+            is_advanced_training_upgrade, UPGRADE_AMERICA_ADVANCED_TRAINING,
+        };
+        self.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
+            || self.has_upgrade_tag("UpgradeAdvancedTraining")
+            || self
+                .applied_upgrades
+                .iter()
+                .any(|u| is_advanced_training_upgrade(u))
+    }
+
+    pub fn record_host_max_health(&self) {
+        crate::game_logic::host_max_health_log::record(
+            self.id,
+            self.max_health.max(self.health.maximum).max(1.0),
+        );
+    }
+
+    pub(crate) fn apply_veterancy_bonuses(
+        &mut self,
+        previous_level: VeterancyLevel,
+        new_level: VeterancyLevel,
+    ) {
+        let (_old_health_bonus, old_damage_bonus, old_rof_bonus) =
+            Self::veterancy_bonuses(previous_level);
+        let (health_bonus, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
+
+        // Apply health bonus
+        let base_health = self.thing.template.max_health;
+        let old_max_health = self.health.maximum.max(1.0);
+        let health_ratio = (self.health.current / old_max_health).clamp(0.0, 1.0);
+        self.health.maximum = base_health * health_bonus;
+        self.health.current = (self.health.maximum * health_ratio).clamp(0.0, self.health.maximum);
+
+        // Apply weapon damage and rate-of-fire bonuses
+        if let Some(weapon) = &mut self.weapon {
+            let dmg_scale = if old_damage_bonus > 0.0 {
+                damage_bonus / old_damage_bonus
+            } else {
+                1.0
+            };
+            weapon.damage *= dmg_scale;
+            // C++ parity: RoF bonus reduces reload time (faster firing).
+            // Scale relative to previous level so multi-level transitions work.
+            let rof_scale = rof_bonus / old_rof_bonus;
+            weapon.reload_time *= rof_scale;
+        }
+        self.record_host_veterancy_level();
+        self.max_health = self.health.maximum.max(1.0);
+        self.record_host_max_health();
+    }
+
+    /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).
+    ///
+    /// Never lowers rank. Seeds residual XP so gain_experience does not demote.
+    /// Applies health / weapon bonuses when promoting.
+    pub fn set_min_veterancy_level(&mut self, level: VeterancyLevel) -> bool {
+        fn rank(level: VeterancyLevel) -> u8 {
+            match level {
+                VeterancyLevel::Rookie => 0,
+                VeterancyLevel::Veteran => 1,
+                VeterancyLevel::Elite => 2,
+                VeterancyLevel::Heroic => 3,
+            }
+        }
+        fn xp_seed(level: VeterancyLevel, thresholds: [f32; 3]) -> f32 {
+            match level {
+                VeterancyLevel::Rookie => 0.0,
+                VeterancyLevel::Veteran => thresholds[0],
+                VeterancyLevel::Elite => thresholds[1],
+                VeterancyLevel::Heroic => thresholds[2],
+            }
+        }
+
+        let previous = self.experience.level;
+        let thresholds = self.thing.template.veterancy_xp_thresholds;
+        if rank(level) <= rank(previous) {
+            // Still seed XP if level already matches but XP is below threshold.
+            let seed = xp_seed(previous, thresholds);
+            if self.experience.current < seed {
+                self.experience.current = seed;
+            }
+            return false;
+        }
+        self.experience.level = level;
+        let seed = xp_seed(level, thresholds);
+        self.experience.current = self.experience.current.max(seed);
+        self.apply_veterancy_bonuses(previous, level);
+        true
+    }
+}

@@ -14,6 +14,7 @@ pub mod scene;
 pub mod shadow_system;
 pub mod texture_manager;
 pub mod volumetric_shadow;
+#[path = "w3d_c_api/mod.rs"]
 pub mod w3d_c_api;
 pub mod w3d_device;
 

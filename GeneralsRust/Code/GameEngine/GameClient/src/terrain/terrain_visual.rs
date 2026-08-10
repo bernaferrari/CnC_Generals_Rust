@@ -1,3 +1,8 @@
+// SCAN DUMP ONLY — not compiled.
+// Original dump of GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual.rs
+// for residual include_str! scans. Live module is the sibling directory +
+// #[path = "terrain_visual/mod.rs"] in terrain/mod.rs.
+
 //! # Terrain Visual System
 //!
 //! Core terrain rendering system that matches the C++ TerrainVisual implementation exactly.

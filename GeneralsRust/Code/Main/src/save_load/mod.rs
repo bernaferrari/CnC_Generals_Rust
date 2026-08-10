@@ -3,6 +3,7 @@ pub mod compression;
 pub mod game_state;
 pub mod replay;
 pub mod save_file;
+#[path = "snapshot/mod.rs"]
 pub mod snapshot;
 pub mod xfer;
 
