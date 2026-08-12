@@ -483,3 +483,42 @@ impl UnitBehavior {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unit_factory_uses_exact_retail_models_instead_of_legacy_proxies() {
+        let templates = create_unit_templates();
+        let expected_models = [
+            ("GLA_Soldier", "uirgrd_skn"),
+            ("GLA_Worker", "uiwrkr_skn"),
+            ("GLA_Technical", "uvtechtrck"),
+            ("GLA_Scorpion", "uvlitetank"),
+            ("GLA_RPGTrooper", "uitunf_skn"),
+            ("GLA_MarauderTank", "uvmarauder"),
+            ("USA_Ranger", "airngr_skn"),
+            ("USA_Dozer", "avconstdoz_a"),
+            ("USA_Crusader", "avleopard"),
+            ("USA_Paladin", "avpaladin"),
+            ("China_Soldier", "nicnsc_skn"),
+            ("China_Dozer", "nvconstdoz_a"),
+            ("China_BattleTank", "nvbtmstr"),
+            ("China_DragonTank", "nvdragon"),
+            ("China_GattlingTank", "nvgatttank"),
+            ("China_TankHunter", "nimsst_skn"),
+        ];
+
+        for (template_name, expected_model) in expected_models {
+            let template = templates
+                .get(template_name)
+                .unwrap_or_else(|| panic!("missing unit factory template {template_name}"));
+            assert_eq!(
+                template.model_name.as_deref(),
+                Some(expected_model),
+                "{template_name} must not borrow another retail unit's W3D"
+            );
+        }
+    }
+}

@@ -556,7 +556,8 @@ pub struct CnCGameEngine {
     pub(crate) game_logic: GameLogic,
     /// Immutable presentation feed for client/render after last logic step.
     pub(crate) last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
-    /// Wave 842: host-owned match mode residual set at start_game_from_ui.
+    /// Wave 842: host-owned match mode residual set after a successful match
+    /// world start or restore.
     /// Prefer over live GameLogic::game_mode when presentation freeze is missing.
     pub(crate) host_match_game_mode: Option<GameMode>,
     /// Wave 843: host-owned match map / local player / AI difficulty residuals.

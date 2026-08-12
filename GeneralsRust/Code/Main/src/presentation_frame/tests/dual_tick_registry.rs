@@ -259,8 +259,8 @@ fn presentation_snapshot_includes_selection_radius_for_cull() {
 
 #[test]
 fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
-    // Residual: USA_Ranger / common infantry must expose a non-empty model_key
-    // so mesh_asset_resolve can target AIRanger_S (or honest placeholder).
+    // USA_Ranger must expose its exact retail DefaultConditionState model key
+    // so mesh_asset_resolve can target AIRngr_SKN (or honestly skip it).
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RangerMeshKey");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
@@ -284,12 +284,12 @@ fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
     );
     assert_eq!(
         key.to_ascii_lowercase(),
-        "airanger_s",
-        "USA_Ranger model_key should alias to shipped AIRanger_S basename"
+        "airngr_skn",
+        "USA_Ranger model_key should retain its shipped retail basename"
     );
     let inputs = snap.unit_render_inputs();
     let unit = inputs.iter().find(|u| u.id == id).expect("unit input");
-    assert_eq!(unit.model_key.to_ascii_lowercase(), "airanger_s");
+    assert_eq!(unit.model_key.to_ascii_lowercase(), "airngr_skn");
     // Wave 75: combat unit mesh scale residual freezes at 1.0.
     assert!(
         (ro.mesh_scale - 1.0).abs() < 0.001,

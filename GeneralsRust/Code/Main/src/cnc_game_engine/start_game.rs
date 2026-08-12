@@ -114,8 +114,10 @@ impl CnCGameEngine {
         info!("host_start_game_from_ui: load screen prepared");
         self.transition_to_state(GameState::Loading);
         info!("host_start_game_from_ui: state=Loading");
-        // Wave 842: stamp host-owned match mode before map load / presentation seed.
-        self.host_match_game_mode = Some(mode);
+        // Wave 842: retain the selected host-owned match mode through map load
+        // / presentation seed.
+        // The load boundary deliberately clears every old-world residual, so
+        // the selected mode is stamped only after that boundary succeeds.
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
@@ -180,6 +182,11 @@ impl CnCGameEngine {
             "host_start_game_from_ui: map load done (requested='{}', loaded='{}')",
             map_name, loaded_map_name
         );
+        // `host_load_map_or_default` clears stale match-owned residuals before
+        // installing a world.  A selected mode is authoritative only after a
+        // successful load; failed starts return to Menu with no stale offline
+        // mode that could make physical-evidence gates eligible.
+        self.host_match_game_mode = Some(mode);
         // Wave 840: drop shell presentation freeze so match seed cannot keep ShellMapMD.
         self.render_pipeline.set_presentation_frame(None);
         self.last_presentation_frame = None;
