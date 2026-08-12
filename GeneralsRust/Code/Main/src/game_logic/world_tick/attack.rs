@@ -890,6 +890,15 @@ impl GameLogic {
             }
         }
 
+        // The nested AttackStateMachine is an active weapon path separate
+        // from update_combat.  Gate the actual discharge here as well so a
+        // DeployStyle unit that reached FIRE before unpacking cannot bypass
+        // the parsed DeployStyleAIUpdate state machine.  Do not start an
+        // unpack merely for an out-of-range approach.
+        if in_range && !self.ensure_deploy_style_ready_to_fire(unit_id) {
+            return AttackFireResult::Continue;
+        }
+
         let (victim_infantry, victim_faerie) = self
             .objects
             .get(&victim_id)
@@ -947,6 +956,20 @@ impl GameLogic {
             return false;
         }
         if !atk.has_max_shots_remaining() {
+            return false;
+        }
+        // This read-only query cannot begin an unpack transition, but it must
+        // still reject a weapon whose exact parsed DeployStyleAIUpdate module
+        // is not ReadyToAttack. The mutating fire paths start that transition
+        // only after their target/range checks.
+        let source_has_deploy_style = atk.get_template().deploy_style_metadata.is_some();
+        let runtime_deploy_ready = atk
+            .deploy_style
+            .as_ref()
+            .is_some_and(|deploy| deploy.is_ready_to_attack());
+        if (source_has_deploy_style && !runtime_deploy_ready)
+            || (!source_has_deploy_style && atk.deploy_style.is_some())
+        {
             return false;
         }
         let Some(slot) = atk.selected_weapon_slot() else {

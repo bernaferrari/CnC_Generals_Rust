@@ -517,6 +517,7 @@ impl PresentationFrame {
                 is_panicking: obj.is_panicking,
                 moving_backwards: obj.moving_backwards,
                 overcharge_enabled: obj.overcharge_enabled,
+                can_toggle_overcharge: obj.thing.template.supports_overcharge(),
                 // Wave 519: shock / power-plant rods / jet slow-death residuals.
                 shock_was_airborne: obj.shock_was_airborne,
                 shock_allow_bounce: obj.shock_allow_bounce,

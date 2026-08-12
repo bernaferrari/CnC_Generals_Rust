@@ -144,6 +144,7 @@ mod tests {
             template_name: "USA_Ranger".into(),
             progress: 0.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources::default(),
             quantity_total: 1,
             quantity_produced: 0,

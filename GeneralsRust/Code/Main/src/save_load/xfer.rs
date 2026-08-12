@@ -215,6 +215,10 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         // trip as authored service authority.
         KindOf::RepairPad => 49,
         KindOf::HealPad => 50,
+        // Append-only identifier.  The compact presentation kind bit bank is
+        // full, but `MONEY_HACKER` must survive save/load for exact
+        // InternetHackContain admission and HackInternet authority.
+        KindOf::MoneyHacker => 51,
     }
 }
 
@@ -271,6 +275,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         48 => Ok(KindOf::Disguiser),
         49 => Ok(KindOf::RepairPad),
         50 => Ok(KindOf::HealPad),
+        51 => Ok(KindOf::MoneyHacker),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

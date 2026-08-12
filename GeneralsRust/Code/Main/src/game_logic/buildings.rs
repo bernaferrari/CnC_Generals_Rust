@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 /// C++ ProductionUpdateModuleData default MaxQueueEntries.
 pub const DEFAULT_PRODUCTION_QUEUE_LIMIT: usize = 9;
 
+/// Generals simulation logic runs at 30 updates per second.  C++ stores the
+/// QueueProductionExitUpdate countdown as an integer number of those updates,
+/// not as elapsed seconds.
+const PRODUCTION_EXIT_LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+
 /// Building-specific data and behaviors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildingData {
@@ -12,8 +17,22 @@ pub struct BuildingData {
     /// Wave 985: C++ ProductionUpdate pause residual (hold queue timer).
     pub production_paused: bool,
     /// C++ QueueProductionExitUpdate exit countdown residual (seconds).
-    /// While > 0, factory cannot release the next completed unit residual.
+    /// Compatibility/presentation mirror of the integer frame counter below.
+    /// New source-backed Queue exits never use this float as authority.
     pub exit_delay_remaining: f32,
+    /// C++ `QueueProductionExitUpdate::m_currentDelay`, in logic frames.
+    /// `serde(default)` keeps float-only legacy snapshots loadable; the first
+    /// parsed Queue tick reconstructs a conservative frame count from the
+    /// compatibility value.
+    #[serde(default)]
+    pub exit_delay_remaining_frames: u32,
+    /// C++ `QueueProductionExitUpdate::m_currentBurstCount`.
+    #[serde(default)]
+    pub exit_burst_remaining: u32,
+    /// Whether the two Queue counters were initialized from an authored
+    /// `QueueProductionExitUpdate` for this producer Object.
+    #[serde(default)]
+    pub queue_exit_state_initialized: bool,
     pub rally_point: Option<Vec3>,
     pub power_output: i32,
     pub power_requirement: i32,
@@ -97,11 +116,38 @@ pub enum ProductionKind {
     Upgrade,
 }
 
+/// A completed production queue head.  Unit entries may release their whole
+/// remaining QuantityModifier batch in one C++ `ProductionUpdate::update`;
+/// upgrade entries remain a single completion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductionCompletion {
+    pub template_name: String,
+    pub kind: ProductionKind,
+    pub quantity: u32,
+}
+
+/// Mutable C++ `QueueProductionExitUpdate` state mirrored across the
+/// host/GameWorld boundary.  This stays separate from immutable Object INI
+/// metadata, because every producer instance has its own delay/burst counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProductionExitRuntimeState {
+    pub delay_frames: u32,
+    pub burst_remaining: u32,
+    pub initialized: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductionItem {
     pub template_name: String,
+    /// Compatibility/presentation progress in seconds.  C++ completion is
+    /// driven by `frames_under_construction`, never by this float.
     pub progress: f32,
     pub total_time: f32,
+    /// C++ `ProductionEntry::m_framesUnderConstruction` (incremented once per
+    /// logic update).  `serde(default)` migrates old float-only save snapshots
+    /// through [`Self::migrate_legacy_construction_frames`] on their next tick.
+    #[serde(default)]
+    pub construction_frames: u32,
     pub cost: Resources,
     /// C++ ProductionEntry::m_productionQuantityTotal residual.
     pub quantity_total: u32,
@@ -114,6 +160,53 @@ pub struct ProductionItem {
 impl ProductionItem {
     pub fn is_upgrade(&self) -> bool {
         matches!(self.kind, ProductionKind::Upgrade)
+    }
+
+    /// C++ `ProductionEntry::getProductionQuantityRemaining`.
+    pub fn remaining_quantity(&self) -> u32 {
+        self.quantity_total
+            .max(1)
+            .saturating_sub(self.quantity_produced)
+    }
+
+    fn total_construction_frames(&self, power_factor: f32) -> u32 {
+        gamelogic::world::entities::production_total_logic_frames(
+            self.total_time,
+            self.is_upgrade(),
+            power_factor,
+        )
+    }
+
+    fn migrate_legacy_construction_frames(&mut self, power_factor: f32) {
+        if self.construction_frames == 0 && self.progress > 0.0 {
+            self.construction_frames =
+                gamelogic::world::entities::production_frames_from_legacy_progress(
+                    self.progress,
+                    self.total_time,
+                    self.total_construction_frames(power_factor),
+                );
+        }
+    }
+
+    fn advance_one_construction_frame(&mut self, power_factor: f32) {
+        self.migrate_legacy_construction_frames(power_factor);
+        let total_frames = self.total_construction_frames(power_factor);
+        if total_frames == 0 {
+            self.progress = self.total_time.max(0.0);
+            return;
+        }
+        self.construction_frames = self.construction_frames.saturating_add(1);
+        self.progress = gamelogic::world::entities::production_progress_from_logic_frames(
+            self.construction_frames,
+            total_frames,
+            self.total_time,
+        );
+    }
+
+    fn is_complete_at_power(&mut self, power_factor: f32) -> bool {
+        self.migrate_legacy_construction_frames(power_factor);
+        let total_frames = self.total_construction_frames(power_factor);
+        total_frames == 0 || self.construction_frames >= total_frames
     }
 }
 
@@ -145,6 +238,9 @@ impl BuildingData {
             production_queue: Vec::new(),
             production_paused: false,
             exit_delay_remaining: 0.0,
+            exit_delay_remaining_frames: 0,
+            exit_burst_remaining: 0,
+            queue_exit_state_initialized: false,
             rally_point: None,
             power_output,
             power_requirement,
@@ -193,6 +289,7 @@ impl BuildingData {
                 template_name,
                 progress: 0.0,
                 total_time: template.build_time,
+                construction_frames: 0,
                 cost: template.build_cost,
                 quantity_total: quantity.max(1),
                 quantity_produced: 0,
@@ -232,6 +329,7 @@ impl BuildingData {
             template_name: upgrade_name,
             progress: 0.0,
             total_time: total_time_secs.max(0.0),
+            construction_frames: 0,
             cost,
             quantity_total: 1,
             quantity_produced: 0,
@@ -250,10 +348,10 @@ impl BuildingData {
         &mut self,
         dt: f32,
         power_factor: f32,
-    ) -> Option<(String, ProductionKind)> {
+    ) -> Option<ProductionCompletion> {
         self.tick_exit_delay(dt);
         self.advance_production_progress(dt, power_factor);
-        self.try_complete_production()
+        self.try_complete_production_at_power(power_factor)
     }
 
     /// C++ QueueProductionExitUpdate door/exit residual.
@@ -263,7 +361,169 @@ impl BuildingData {
         }
     }
 
-    /// Advance head-of-queue build timer only (no completion/spawn).
+    fn sync_exit_delay_presentation(&mut self) {
+        self.exit_delay_remaining =
+            self.exit_delay_remaining_frames as f32 / PRODUCTION_EXIT_LOGIC_FRAMES_PER_SECOND;
+    }
+
+    /// Lazily migrate a float-only legacy snapshot into C++ Queue runtime
+    /// state.  A legacy snapshot cannot recover an already-partially-consumed
+    /// InitialBurst, so an active legacy delay deliberately fails closed rather
+    /// than manufacturing an extra immediate exit.
+    fn initialize_queue_exit_state(&mut self, metadata: &ProductionExitMetadata) {
+        debug_assert!(metadata.is_queue());
+        if self.queue_exit_state_initialized {
+            return;
+        }
+        if self.exit_delay_remaining_frames == 0 && self.exit_delay_remaining > 0.0 {
+            self.exit_delay_remaining_frames = (self.exit_delay_remaining
+                * PRODUCTION_EXIT_LOGIC_FRAMES_PER_SECOND)
+                .ceil()
+                .clamp(0.0, u32::MAX as f32) as u32;
+        }
+        if self.exit_delay_remaining_frames == 0 {
+            self.exit_burst_remaining = metadata.initial_burst;
+        } else {
+            self.exit_burst_remaining = 0;
+        }
+        self.queue_exit_state_initialized = true;
+        self.sync_exit_delay_presentation();
+    }
+
+    /// Advance C++ `QueueProductionExitUpdate::update` once.  Its burst state
+    /// keeps an exit free and clears the current delay; otherwise an active
+    /// delay counts down exactly one logic frame.  DefaultProductionExitUpdate
+    /// has no busy state at all.
+    pub fn tick_production_exit(&mut self, metadata: Option<&ProductionExitMetadata>, dt: f32) {
+        match metadata {
+            Some(metadata) if metadata.is_queue() => {
+                self.initialize_queue_exit_state(metadata);
+                if self.exit_burst_remaining > 0 || self.exit_delay_remaining_frames == 0 {
+                    self.exit_delay_remaining_frames = 0;
+                } else {
+                    self.exit_delay_remaining_frames =
+                        self.exit_delay_remaining_frames.saturating_sub(1);
+                }
+                self.sync_exit_delay_presentation();
+            }
+            Some(_) => {
+                // C++ DefaultProductionExitUpdate owns no delay/burst fields.
+                self.exit_delay_remaining = 0.0;
+                self.exit_delay_remaining_frames = 0;
+                self.exit_burst_remaining = 0;
+                self.queue_exit_state_initialized = false;
+            }
+            None => self.tick_exit_delay(dt),
+        }
+    }
+
+    /// Snapshot/Xfer-safe C++ QueueProductionExitUpdate state for GameWorld
+    /// ownership.  The float remains a presentation/legacy compatibility
+    /// mirror and is not used to decide a parsed Queue exit.
+    pub fn production_exit_runtime_state(&self) -> ProductionExitRuntimeState {
+        ProductionExitRuntimeState {
+            delay_frames: self.exit_delay_remaining_frames,
+            burst_remaining: self.exit_burst_remaining,
+            initialized: self.queue_exit_state_initialized,
+        }
+    }
+
+    pub fn set_production_exit_runtime_state(&mut self, state: ProductionExitRuntimeState) {
+        self.exit_delay_remaining_frames = state.delay_frames;
+        self.exit_burst_remaining = state.burst_remaining;
+        self.queue_exit_state_initialized = state.initialized;
+        if state.initialized {
+            self.sync_exit_delay_presentation();
+        }
+    }
+
+    /// C++ `QueueProductionExitUpdate::isFreeToExit` authority.  This
+    /// initializes a parsed Queue instance before asking, so fresh state has
+    /// its authored InitialBurst instead of a name-derived policy.
+    pub fn production_head_exit_available(
+        &mut self,
+        metadata: Option<&ProductionExitMetadata>,
+    ) -> bool {
+        if self
+            .production_queue
+            .first()
+            .is_some_and(ProductionItem::is_upgrade)
+        {
+            return true;
+        }
+        match metadata {
+            Some(metadata) if metadata.is_queue() => {
+                self.initialize_queue_exit_state(metadata);
+                self.exit_burst_remaining > 0 || self.exit_delay_remaining_frames == 0
+            }
+            Some(_) => true,
+            // Unparsed legacy producers retain their former residual, but no
+            // source-authored Queue behavior is inferred from their name.
+            None => self.exit_delay_remaining <= 0.0,
+        }
+    }
+
+    /// Count how many members C++ ProductionUpdate may release this update.
+    /// Queue exits reserve/arm state per member; Default exits have no busy
+    /// state and therefore accept the complete remaining QuantityModifier
+    /// batch in one update.
+    pub fn production_exit_release_limit(
+        &mut self,
+        metadata: Option<&ProductionExitMetadata>,
+        remaining: u32,
+    ) -> u32 {
+        if remaining == 0 {
+            return 0;
+        }
+        let Some(metadata) = metadata else {
+            return self
+                .production_head_exit_available(None)
+                .then_some(remaining)
+                .unwrap_or(0);
+        };
+        if !metadata.is_queue() {
+            return remaining;
+        }
+        self.initialize_queue_exit_state(metadata);
+        let mut delay_frames = self.exit_delay_remaining_frames;
+        let mut burst_remaining = self.exit_burst_remaining;
+        let mut released = 0u32;
+        while released < remaining && (burst_remaining > 0 || delay_frames == 0) {
+            released = released.saturating_add(1);
+            delay_frames = metadata.exit_delay_frames;
+            if burst_remaining > 0 {
+                burst_remaining = burst_remaining.saturating_sub(1);
+            }
+        }
+        released
+    }
+
+    /// Mirror one successful C++ `QueueProductionExitUpdate::exitObjectViaDoor`.
+    /// Call once for every member actually spawned/bound, after production has
+    /// reserved that member's exit.
+    pub fn record_successful_production_exit(&mut self, metadata: Option<&ProductionExitMetadata>) {
+        match metadata {
+            Some(metadata) if metadata.is_queue() => {
+                self.initialize_queue_exit_state(metadata);
+                self.exit_delay_remaining_frames = metadata.exit_delay_frames;
+                if self.exit_burst_remaining > 0 {
+                    self.exit_burst_remaining = self.exit_burst_remaining.saturating_sub(1);
+                }
+                self.sync_exit_delay_presentation();
+            }
+            Some(_) => {
+                self.exit_delay_remaining = 0.0;
+                self.exit_delay_remaining_frames = 0;
+                self.exit_burst_remaining = 0;
+                self.queue_exit_state_initialized = false;
+            }
+            None => {}
+        }
+    }
+
+    /// Advance the head-of-queue exactly one C++ `ProductionUpdate::update`
+    /// frame (no completion/spawn).  `dt` remains in this API for detached
+    /// callers, but production itself is logic-frame based, not a float timer.
     /// Under GameWorld production authority, shadow owns this advance.
     pub fn advance_production_progress(&mut self, dt: f32, power_factor: f32) {
         // Wave 985: paused queue holds build timer (C++ ProductionUpdate pause).
@@ -271,46 +531,128 @@ impl BuildingData {
             let _ = (dt, power_factor);
             return;
         }
-        let effective_dt = dt * power_factor.max(0.01);
+        let _ = dt;
         if let Some(item) = self.production_queue.first_mut() {
             // Only advance build timer until the batch is fully produced residual.
             if item.quantity_produced == 0 {
-                item.progress += effective_dt;
-            }
-            if item.progress > item.total_time {
-                item.progress = item.total_time;
+                item.advance_one_construction_frame(power_factor);
             }
         }
     }
 
-    /// Complete/release head-of-queue when progress is done and exit delay clear.
-    pub fn try_complete_production(&mut self) -> Option<(String, ProductionKind)> {
-        if let Some(item) = self.production_queue.first_mut() {
-            if item.progress >= item.total_time {
-                // Hold each unit release until exit delay residual clears.
-                if self.exit_delay_remaining > 0.0 {
-                    // Clamp at complete so timer doesn't overshoot residual.
-                    item.progress = item.total_time;
-                    return None;
-                }
-                // Release one unit from this ProductionEntry residual.
-                item.progress = item.total_time;
-                item.quantity_produced = item.quantity_produced.saturating_add(1);
-                let name = item.template_name.clone();
-                let kind = item.kind;
-                let done = item.quantity_produced >= item.quantity_total.max(1);
-                if done {
-                    self.production_queue.remove(0);
-                }
-                return Some((name, kind));
-            }
+    /// Complete/release a full-power head with C++ QuantityModifier semantics.
+    pub fn try_complete_production(&mut self) -> Option<ProductionCompletion> {
+        self.try_complete_production_at_power(1.0)
+    }
+
+    /// Complete/release head-of-queue when C++ integer frame progress is done
+    /// and exit delay is clear.  `ThingTemplate::calcTimeToBuild` recalculates
+    /// its current power-adjusted integer threshold at this point.
+    pub fn try_complete_production_at_power(
+        &mut self,
+        power_factor: f32,
+    ) -> Option<ProductionCompletion> {
+        self.try_complete_production_at_power_with_exit_metadata(power_factor, None, None)
+    }
+
+    /// Complete/release the queue head with C++ QuantityModifier semantics.
+    ///
+    /// A unit entry releases every remaining batch member once its exit is
+    /// available.  `max_unit_releases` is only used by entity-first sole-tick
+    /// writeback: it caps release to the number of authoritative ready events
+    /// rather than inventing a missing completion.  It never changes upgrade
+    /// completion behavior.
+    pub fn try_complete_production_at_power_with_limit(
+        &mut self,
+        power_factor: f32,
+        max_unit_releases: Option<u32>,
+    ) -> Option<ProductionCompletion> {
+        self.try_complete_production_at_power_with_exit_metadata(
+            power_factor,
+            None,
+            max_unit_releases,
+        )
+    }
+
+    /// Complete/release the queue head with immutable authored exit metadata.
+    /// A caller only records the Queue exit state after each actual spawned
+    /// member; this method merely mirrors C++ ProductionUpdate's per-member
+    /// `reserveDoorForExit` availability loop.
+    pub fn try_complete_production_at_power_with_exit_metadata(
+        &mut self,
+        power_factor: f32,
+        exit_metadata: Option<&ProductionExitMetadata>,
+        max_unit_releases: Option<u32>,
+    ) -> Option<ProductionCompletion> {
+        // A legacy/corrupt entry that already emitted its whole batch must not
+        // wedge the queue.  Normal completion removes it in the same update.
+        if self
+            .production_queue
+            .first()
+            .is_some_and(|item| item.remaining_quantity() == 0)
+        {
+            self.production_queue.remove(0);
+            return None;
         }
-        None
+        let (is_complete, is_upgrade, remaining) = {
+            let item = self.production_queue.first_mut()?;
+            (
+                item.is_complete_at_power(power_factor),
+                item.is_upgrade(),
+                item.remaining_quantity(),
+            )
+        };
+        if !is_complete {
+            return None;
+        }
+        let quantity = if is_upgrade {
+            1
+        } else {
+            self.production_exit_release_limit(exit_metadata, remaining)
+                .min(max_unit_releases.unwrap_or(u32::MAX))
+        };
+        if quantity == 0 {
+            // Keep UI progress saturated while preserving the integer C++ frame
+            // counter for a saved, door-blocked production entry.
+            if let Some(item) = self.production_queue.first_mut() {
+                item.progress = item.total_time.max(0.0);
+            }
+            return None;
+        }
+        let item = self.production_queue.first_mut()?;
+        item.progress = item.total_time.max(0.0);
+        item.quantity_produced = item.quantity_produced.saturating_add(quantity);
+        let name = item.template_name.clone();
+        let kind = item.kind;
+        let done = item.quantity_produced >= item.quantity_total.max(1);
+        if done {
+            self.production_queue.remove(0);
+        }
+        Some(ProductionCompletion {
+            template_name: name,
+            kind,
+            quantity,
+        })
+    }
+
+    /// Query the C++ integer production threshold for the queue head.  This is
+    /// used before factory-door handling and by GameWorld sole-tick writeback;
+    /// it intentionally does not consult float UI progress.
+    pub fn production_head_complete_at_power(&mut self, power_factor: f32) -> bool {
+        self.production_queue
+            .first_mut()
+            .is_some_and(|item| item.is_complete_at_power(power_factor))
     }
 
     /// Arm QueueProductionExitUpdate residual after a unit exits.
     pub fn arm_exit_delay(&mut self, delay_seconds: f32) {
         self.exit_delay_remaining = delay_seconds.max(0.0);
+        self.exit_delay_remaining_frames = (self.exit_delay_remaining
+            * PRODUCTION_EXIT_LOGIC_FRAMES_PER_SECOND)
+            .ceil()
+            .clamp(0.0, u32::MAX as f32) as u32;
+        self.exit_burst_remaining = 0;
+        self.queue_exit_state_initialized = true;
     }
 
     pub fn exit_delay_remaining(&self) -> f32 {
@@ -577,14 +919,22 @@ impl BuildingBehavior {
                 let completed = building_data.update_production(dt, 1.0); // fallback path; main loop handles power
                 let rally = building_data.rally_point;
                 match completed {
-                    Some((template_name, ProductionKind::Unit)) => {
+                    Some(ProductionCompletion {
+                        template_name,
+                        kind: ProductionKind::Unit,
+                        quantity,
+                    }) => {
                         let spawn_pos = building.get_position()
                             + building.thing.get_direction_vector()
                                 * building.selection_radius.max(10.0);
-                        Some((building.team, template_name, spawn_pos, rally))
+                        Some((building.team, template_name, spawn_pos, rally, quantity))
                     }
                     // PRODUCTION_UPGRADE residual is applied by GameLogic::update_production.
-                    Some((_, ProductionKind::Upgrade)) | None => None,
+                    Some(ProductionCompletion {
+                        kind: ProductionKind::Upgrade,
+                        ..
+                    })
+                    | None => None,
                 }
             } else {
                 None
@@ -593,18 +943,20 @@ impl BuildingBehavior {
             None
         };
 
-        if let Some((team, template_name, spawn_pos, rally_point)) = completion {
-            if let Some(new_id) = game_logic.create_object(&template_name, team, spawn_pos) {
-                if let Some(rally) = rally_point {
-                    // Residual BuildingBehavior path — host update_production already
-                    // path_approach_with_state; keep pathfind parity here too.
-                    if !game_logic.assign_unit_path(new_id, rally, &[]) {
-                        if let Some(unit) = game_logic.host_object_mut(new_id) {
-                            unit.set_destination(rally);
+        if let Some((team, template_name, spawn_pos, rally_point, quantity)) = completion {
+            for _ in 0..quantity {
+                if let Some(new_id) = game_logic.create_object(&template_name, team, spawn_pos) {
+                    if let Some(rally) = rally_point {
+                        // Residual BuildingBehavior path — host update_production already
+                        // path_approach_with_state; keep pathfind parity here too.
+                        if !game_logic.assign_unit_path(new_id, rally, &[]) {
+                            if let Some(unit) = game_logic.host_object_mut(new_id) {
+                                unit.set_destination(rally);
+                                unit.ai_state = AIState::Moving;
+                            }
+                        } else if let Some(unit) = game_logic.host_object_mut(new_id) {
                             unit.ai_state = AIState::Moving;
                         }
-                    } else if let Some(unit) = game_logic.host_object_mut(new_id) {
-                        unit.ai_state = AIState::Moving;
                     }
                 }
             }
@@ -818,6 +1170,7 @@ mod tests {
             template_name: "TestInfantry".to_string(),
             progress: 12.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources::default(),
             quantity_total: 1,
             quantity_produced: 0,
@@ -838,6 +1191,7 @@ mod tests {
             template_name: "TestInfantry".to_string(),
             progress: 0.0,
             total_time: 0.0,
+            construction_frames: 0,
             cost: Resources::default(),
             quantity_total: 1,
             quantity_produced: 0,

@@ -371,6 +371,133 @@ impl GameLogic {
         }
     }
 
+    /// C++ `VeterancyCrateCollide::isValidToExecute` pilot ownership gate.
+    ///
+    /// A pilot is a crate-like collide source, not an allied transport rider:
+    /// the destination must have the **same controlling player**, not merely
+    /// an Allied relationship.  `DISABLED_UNMANNED` commonly neutralizes a
+    /// vehicle, so `apply_kill_pilot_unmanned` snapshots its exact owner ID
+    /// before the visible team transfer.  A stale ID, a mixed owner-aware
+    /// world, or a generic neutral target all fail closed.
+    #[inline]
+    pub fn pilot_recrew_controller_matches(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        if source_id == target_id {
+            return false;
+        }
+        let Some(source) = self.host_object(source_id) else {
+            return false;
+        };
+        let Some(target) = self.host_object(target_id) else {
+            return false;
+        };
+
+        let source_owner = self.player_owner_for_host_object(source);
+        let target_owner = match target.owner_player_id {
+            Some(_) => self.player_owner_for_host_object(target),
+            None if target.is_unmanned() => target
+                .status
+                .unmanned_owner_player_id
+                .filter(|player_id| {
+                    target
+                        .status
+                        .unmanned_owner_team
+                        .and_then(|owner_team| self.players.get(player_id).map(|player| (player, owner_team)))
+                        .is_some_and(|(player, owner_team)| {
+                            player.is_alive && player.team == owner_team
+                        })
+                }),
+            None => None,
+        };
+
+        if let (Some(source_owner), Some(target_owner)) = (source_owner, target_owner) {
+            return source_owner == target_owner;
+        }
+
+        // Compatibility only for an entirely ownerless legacy fixture or
+        // snapshot.  A neutral target needs a pre-neutralization team record;
+        // neutral itself must never become an implicit ally.
+        source.owner_player_id.is_none()
+            && target.owner_player_id.is_none()
+            && target.status.unmanned_owner_player_id.is_none()
+            && self.uses_legacy_team_ownership_fallback()
+            && source.team != Team::Neutral
+            && (target.team == source.team
+                || (target.is_unmanned()
+                    && target.team == Team::Neutral
+                    && target.status.unmanned_owner_team == Some(source.team)))
+            && (self.players.is_empty() || self.unique_player_id_for_team(source.team).is_some())
+    }
+
+    /// One live authority predicate for C++ `VeterancyCrateCollide IsPilot`
+    /// re-crew execution.  It is deliberately narrower than the generic
+    /// crate/experience system: only the retail `RequiredKindOf = VEHICLE`,
+    /// `ForbiddenKindOf = DOZER`, `EffectRange = 0`, and
+    /// `AddsOwnerVeterancy = Yes` pilot record is currently representable.
+    ///
+    /// The executor uses this before it queues Enter, and the arrival/physics
+    /// paths repeat it immediately before mutating the target.  This prevents
+    /// a frozen RMB decision, an owner change, or an airborne transition from
+    /// becoming a permanent authorization.
+    #[inline]
+    pub fn can_execute_pilot_recrew(&self, pilot_id: ObjectId, vehicle_id: ObjectId) -> bool {
+        use crate::game_logic::host_usa_pilot::{
+            is_recrewable_unmanned_vehicle, is_significantly_above_terrain,
+            pilot_levels_to_gain, vehicle_can_gain_exp_for_levels,
+        };
+
+        if pilot_id == vehicle_id {
+            return false;
+        }
+        let Some(pilot) = self.host_object(pilot_id) else {
+            return false;
+        };
+        let Some(vehicle) = self.host_object(vehicle_id) else {
+            return false;
+        };
+        if !pilot.is_alive()
+            || !pilot
+                .thing
+                .template
+                .veterancy_crate_collide
+                .as_ref()
+                .is_some_and(|metadata| metadata.supports_pilot_recrew())
+            || !self.pilot_recrew_controller_matches(pilot_id, vehicle_id)
+        {
+            return false;
+        }
+
+        // `RequiredKindOf`/`ForbiddenKindOf` are exact authored KindOf masks;
+        // do not fall back to ObjectType, Worker, or a template basename.
+        let is_airborne_locomotor = vehicle.is_kind_of(KindOf::Aircraft)
+            || vehicle.status.airborne_target;
+        let terrain_y = self
+            .terrain_height_at(vehicle.get_position())
+            .unwrap_or(0.0);
+        let significantly_above_terrain = is_significantly_above_terrain(
+            vehicle.get_position().y - terrain_y,
+        );
+        let recrewable = is_recrewable_unmanned_vehicle(
+            vehicle.is_alive(),
+            vehicle.is_kind_of(KindOf::Vehicle),
+            is_airborne_locomotor,
+            vehicle.is_unmanned(),
+            vehicle.status.under_construction,
+            vehicle.is_kind_of(KindOf::Dozer),
+        );
+        recrewable
+            && !significantly_above_terrain
+            // The compact host has no separate parsed IsTrainable record;
+            // its existing physical vehicle path is the bounded stand-in.
+            && vehicle_can_gain_exp_for_levels(
+                vehicle.experience.level,
+                pilot_levels_to_gain(pilot.experience.level),
+            )
+    }
+
     /// C++ `OpenContain` relationship for normal Enter.  Ownership provenance
     /// is authoritative.  Team behavior survives solely for an unambiguous
     /// pair of ownerless legacy objects.  A one-sided/stale owner stays
@@ -546,6 +673,11 @@ impl GameLogic {
                 }
                 crate::game_logic::ContainAdmission::InfantryOrVehicle => {
                     if unit.is_kind_of(KindOf::Aircraft) {
+                        return false;
+                    }
+                }
+                crate::game_logic::ContainAdmission::MoneyHackerOnly => {
+                    if !unit.is_kind_of(KindOf::MoneyHacker) {
                         return false;
                     }
                 }

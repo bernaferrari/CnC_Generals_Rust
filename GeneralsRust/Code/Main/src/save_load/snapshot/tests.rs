@@ -303,6 +303,18 @@ fn snapshot_restore_preserves_building_production_modules_and_object_upgrades() 
             .as_mut()
             .expect("barracks should have building data");
         building_data.production_queue[0].progress = 4.5;
+        // C++ ProductionUpdate snapshots the authoritative integer counter,
+        // not just this presentation-facing float.
+        building_data.production_queue[0].construction_frames = 135;
+        // Save after one member of a source-backed Queue modifier batch: both
+        // remaining quantity and the per-Object delay/burst state must survive
+        // rather than rebuilding an arbitrary fresh queue after load.
+        building_data.production_queue[0].quantity_total = 2;
+        building_data.production_queue[0].quantity_produced = 1;
+        building_data.exit_delay_remaining = 0.3;
+        building_data.exit_delay_remaining_frames = 9;
+        building_data.exit_burst_remaining = 0;
+        building_data.queue_exit_state_initialized = true;
         building_data.rally_point = Some(Vec3::new(30.0, 0.0, 40.0));
         building.apply_upgrade_tag("UpgradeVeteranTraining");
     }
@@ -333,6 +345,13 @@ fn snapshot_restore_preserves_building_production_modules_and_object_upgrades() 
     assert_eq!(item.cost.supplies, 225);
     assert_eq!(item.total_time, 12.0);
     assert!((item.progress - 4.5).abs() < 0.001);
+    assert_eq!(item.construction_frames, 135);
+    assert_eq!(item.quantity_total, 2);
+    assert_eq!(item.quantity_produced, 1);
+    assert!(!item.is_upgrade());
+    assert_eq!(restored_data.exit_delay_remaining_frames, 9);
+    assert_eq!(restored_data.exit_burst_remaining, 0);
+    assert!(restored_data.queue_exit_state_initialized);
 }
 
 #[test]

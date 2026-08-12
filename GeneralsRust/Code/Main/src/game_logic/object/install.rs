@@ -141,12 +141,14 @@ impl Object {
 
     /// Apply kill-pilot residual: vehicle becomes unmanned (no HP change).
     /// Caller is responsible for team transfer (typically Neutral).
-    /// Captures `unmanned_owner_team` for PilotFindVehicle PartitionFilterPlayer residual.
+    /// Captures controller provenance for PilotFindVehicle/
+    /// VeterancyCrateCollide same-player validation.
     pub fn apply_kill_pilot_unmanned(&mut self) {
         // Preserve original controller for same-player PartitionFilter residual.
         // Only snapshot on the edge into unmanned (refresh would overwrite Neutral).
         if !self.status.disabled_unmanned {
             self.status.unmanned_owner_team = Some(self.team);
+            self.status.unmanned_owner_player_id = self.owner_player_id;
         }
         self.set_status_disabled_unmanned(true);
         self.set_status_disabled_hacked(false);
@@ -172,6 +174,7 @@ impl Object {
     pub fn apply_pilot_recrew(
         &mut self,
         pilot_team: Team,
+        pilot_owner_player_id: Option<u32>,
         pilot_level: crate::game_logic::VeterancyLevel,
     ) -> bool {
         use crate::game_logic::host_usa_pilot::{merged_recrew_veterancy, veterancy_rank};
@@ -181,6 +184,7 @@ impl Object {
         }
         self.set_status_disabled_unmanned(false);
         self.status.unmanned_owner_team = None;
+        self.status.unmanned_owner_player_id = None;
         self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
@@ -194,7 +198,7 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
-        self.set_team(pilot_team);
+        self.set_team_and_owner(pilot_team, pilot_owner_player_id);
 
         let previous = self.experience.level;
         let merged = merged_recrew_veterancy(previous, pilot_level);

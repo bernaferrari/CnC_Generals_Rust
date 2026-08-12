@@ -2636,6 +2636,7 @@ mod cpp_parity_tests {
                     template_name: "USA_Ranger".into(),
                     progress: 0.1,
                     total_time: 10.0,
+                    construction_frames: 0,
                     cost: crate::game_logic::Resources {
                         supplies: 225,
                         power: 0,
@@ -2652,6 +2653,7 @@ mod cpp_parity_tests {
                     template_name: "USA_Humvee".into(),
                     progress: 0.1,
                     total_time: 10.0,
+                    construction_frames: 0,
                     cost: crate::game_logic::Resources {
                         supplies: 700,
                         power: 0,

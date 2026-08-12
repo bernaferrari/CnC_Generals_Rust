@@ -1249,6 +1249,7 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&vehicle_id) {
             o.set_status_disabled_unmanned(false);
             o.status.unmanned_owner_team = None;
+            o.status.unmanned_owner_player_id = None;
         }
         let ok = self.detonate_car_bomb(vehicle_id);
         if ok {
@@ -1257,111 +1258,167 @@ impl GameLogic {
         ok
     }
 
-    /// C++ OverchargeBehavior::enable / toggle residual for China power plants.
-    ///
-    /// Adjusts power_provided by EnergyBonus when toggling; auto-disable path
-    /// is handled by `update_overcharge_drain`.
-    pub fn toggle_overcharge_object(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_structure_economy_residual::{
-            is_power_plant_template, CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC,
-            CHINA_POWER_ENERGY_BONUS,
-        };
-        let _ = CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC;
+    /// C++ `OverchargeBehavior::enable(FALSE)`: PowerPlantUpdate owns rod
+    /// model conditions, then the controlling player's exact ThingTemplate
+    /// EnergyBonus is removed.  Callers provide the typed values captured
+    /// from the same authoritative template that enabled the behavior.
+    fn disable_overcharge_object(
+        &mut self,
+        object_id: ObjectId,
+        energy_bonus: i32,
+        has_power_plant_update: bool,
+    ) -> bool {
+        if has_power_plant_update {
+            let _ = self.retract_power_plant_rods(object_id);
+        }
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+        if !obj.overcharge_enabled {
             return false;
         }
-        if !is_power_plant_template(&obj.template_name)
-            && !obj.is_kind_of(KindOf::PowerPlant)
-            && !obj.is_kind_of(KindOf::FSPower)
-        {
-            return false;
-        }
-        // C++ NotAllowedWhenHealthBelowPercent residual (China  = typically 0.2?).
-        // Use 20% if enabling while critically damaged.
-        const NOT_ALLOWED_BELOW: f32 = 0.20;
-        let hp_frac = if obj.max_health > 0.0 {
-            obj.health.current / obj.max_health
-        } else {
-            0.0
-        };
-        if !obj.overcharge_enabled && hp_frac < NOT_ALLOWED_BELOW {
-            return false;
-        }
-        let bonus = CHINA_POWER_ENERGY_BONUS;
-        if obj.overcharge_enabled {
-            // Disable.
-            obj.set_overcharge_enabled(false);
-            obj.power_provided = (obj.power_provided - bonus).max(0);
-            obj.record_host_entity_power();
-            // C++ PowerPlantUpdate::extendRods(FALSE) residual.
-            use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
-            if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADED") {
-                obj.model_condition_bits &= !(1u128 << bit);
-            }
-        } else {
-            obj.set_overcharge_enabled(true);
-            obj.power_provided = obj.power_provided.saturating_add(bonus);
-            obj.record_host_entity_power();
-            if let Some(bit) =
-                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
-                    "POWER_PLANT_UPGRADED",
-                )
-            {
-                obj.model_condition_bits |= 1u128 << bit;
-            }
-        }
-        self.overcharge_toggles = self.overcharge_toggles.saturating_add(1);
+        obj.power_provided = obj.power_provided.saturating_sub(energy_bonus);
+        obj.record_host_entity_power();
+        obj.set_overcharge_enabled(false);
         true
     }
 
-    /// C++ OverchargeBehavior::update residual — drain HP while overcharge active.
+    /// C++ OverchargeBehavior::toggle / enable residual.
+    ///
+    /// Object INI `OverchargeBehavior` is the only authority gate.  A China
+    /// name, `PowerPlant` KindOf, or a legacy fixed +5 value cannot authorize
+    /// this action.  C++ does not reject an enable click at the health
+    /// threshold; the active behavior checks it after its next drain update.
+    pub fn toggle_overcharge_object(&mut self, object_id: ObjectId) -> bool {
+        let Some((energy_bonus, has_power_plant_update, was_active)) = self
+            .objects
+            .get(&object_id)
+            .and_then(|obj| {
+                (obj.is_alive() && obj.thing.template.supports_overcharge()).then(|| {
+                    (
+                        obj.thing.template.energy_bonus.unwrap_or(0),
+                        obj.thing.template.power_plant_update.is_some(),
+                        obj.overcharge_enabled,
+                    )
+                })
+            })
+        else {
+            return false;
+        };
+
+        let changed = if was_active {
+            self.disable_overcharge_object(object_id, energy_bonus, has_power_plant_update)
+        } else {
+            // C++ walks every PowerPlantUpdate interface before it adds the
+            // power bonus.  This route is deliberately optional: an authored
+            // OverchargeBehavior without PowerPlantUpdate still toggles.
+            if has_power_plant_update {
+                let _ = self.begin_power_plant_rods_extend(object_id);
+            }
+            let Some(obj) = self.objects.get_mut(&object_id) else {
+                return false;
+            };
+            // No click-time health threshold: C++ evaluates the strict `<`
+            // threshold only in OverchargeBehavior::update after damage.
+            obj.power_provided = obj.power_provided.saturating_add(energy_bonus);
+            obj.record_host_entity_power();
+            obj.set_overcharge_enabled(true);
+            true
+        };
+        if changed {
+            self.overcharge_toggles = self.overcharge_toggles.saturating_add(1);
+        }
+        changed
+    }
+
+    /// C++ OverchargeBehavior::update residual — drain HP while the typed
+    /// behavior is active, then evaluate its authored strict health threshold.
     pub fn update_overcharge_drain(&mut self, dt: f32) {
-        use crate::game_logic::host_structure_economy_residual::CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC;
         if dt <= 0.0 {
             return;
         }
-        const NOT_ALLOWED_BELOW: f32 = 0.20;
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.overcharge_enabled && o.is_alive())
+            .filter(|(_, object)| object.overcharge_enabled)
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
+            let Some((behavior, energy_bonus, has_power_plant_update)) = self
+                .objects
+                .get(&id)
+                .and_then(|obj| {
+                    obj.thing
+                        .template
+                        .overcharge_behavior
+                        .map(|behavior| {
+                            (
+                                behavior,
+                                obj.thing.template.energy_bonus.unwrap_or(0),
+                                obj.thing.template.power_plant_update.is_some(),
+                            )
+                        })
+                })
+            else {
+                // An old snapshot or malformed template must not keep an
+                // active effect when it cannot revalidate the source module.
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_overcharge_enabled(false);
+                }
                 continue;
             };
-            let max_hp = obj.max_health.max(1.0);
-            // C++ amount = (maxHealth * percentPerSec) / LOGICFRAMES_PER_SECOND per frame
-            // We receive dt seconds so: maxHealth * percentPerSec * dt
-            let dmg = max_hp * CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC * dt;
-            if dmg > 0.0 {
-                let _ = obj.take_damage_from(dmg, Some(id));
-            }
-            self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);
-            let frac = obj.health.current / max_hp;
-            let dead = !obj.is_alive() || obj.health.current <= 0.0;
-            if dead || frac < NOT_ALLOWED_BELOW {
-                // Auto-disable residual (GUI:OverchargeExhausted).
-                let bonus =
-                    crate::game_logic::host_structure_economy_residual::CHINA_POWER_ENERGY_BONUS;
-                obj.set_overcharge_enabled(false);
-                obj.power_provided = (obj.power_provided - bonus).max(0);
-                obj.record_host_entity_power();
-                if let Some(bit) =
-                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
-                        "POWER_PLANT_UPGRADED",
+
+            let (dead, below_threshold) = {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                if !obj.is_alive() {
+                    (true, false)
+                } else {
+                    // C++ reads BodyModule::getMaxHealth directly; do not
+                    // synthesize a 1 HP minimum for malformed/zero-body data.
+                    let max_health = obj.max_health.max(0.0);
+                    // C++ computes this once per 30 Hz logic frame.  This
+                    // host receives seconds, so the equivalent is max × rate
+                    // × dt and retains the parsed per-template rate.
+                    let damage = max_health * behavior.health_percent_to_drain_per_second * dt;
+                    if damage > 0.0 {
+                        // C++ explicitly issues DAMAGE_PENALTY here, rather
+                        // than the generic unresistable residual damage type.
+                        let _ = obj.take_damage_from_typed(
+                            damage,
+                            Some(id),
+                            crate::game_logic::combat::DamageType::Penalty,
+                        );
+                    }
+                    self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);
+                    (
+                        !obj.is_alive() || obj.health.current <= 0.0,
+                        obj.health.current
+                            < max_health * behavior.not_allowed_when_health_below_percent,
                     )
-                {
-                    obj.model_condition_bits &= !(1u128 << bit);
                 }
+            };
+
+            // `OverchargeBehavior::update` only calls enable(FALSE) through
+            // this strict post-damage threshold.  With retail's 0% threshold,
+            // a lethal hit instead keeps the module active until normal Object
+            // deletion, where C++ `onDelete` removes its power bonus.  Removing
+            // it here would incorrectly turn that 0% case into an exhaustion
+            // branch and retract rods before the death path owns the object.
+            if below_threshold {
+                let _ = self.disable_overcharge_object(
+                    id,
+                    energy_bonus,
+                    has_power_plant_update,
+                );
+                // C++ posts OverchargeExhausted only through the authored
+                // threshold branch.  Destruction itself is cleaned up by
+                // onDelete and is not an exhaustion message at the 0% default.
                 self.overcharge_exhaustions = self.overcharge_exhaustions.saturating_add(1);
-                if dead {
-                    self.mark_object_for_destruction(id, None);
-                }
+            }
+            if dead {
+                self.mark_object_for_destruction(id, None);
             }
         }
     }

@@ -280,28 +280,45 @@ impl GameWorldShadow {
         }
 
         // Wave 822: China Hacker HackInternet residual cash.
+        // Parsed HackInternetAIUpdate cash. The GameWorld shadow owns the
+        // active timer; amounts, delays, and XP were frozen from source
+        // module data when the host object was mirrored.
         if e.hacker_unit && e.hacker_hacking {
-            use crate::game_logic::{
-                cash_amount_for_level, cash_interval_frames, is_legal_hacker_income_source,
-                VeterancyLevel,
-            };
+            use crate::game_logic::is_legal_hacker_income_source;
             let alive = e.health > 0.0 && !e.destroyed;
             let neutral = e.team_ordinal == 255;
             let disabled_hacked = e.disabled_hacked;
             if is_legal_hacker_income_source(alive, neutral, disabled_hacked) {
-                let level = match e.veterancy_ordinal {
-                    1 => VeterancyLevel::Veteran,
-                    2 => VeterancyLevel::Elite,
-                    3 => VeterancyLevel::Heroic,
-                    _ => VeterancyLevel::Rookie,
+                // HackInternetState descends through the configured tiers and
+                // falls through to $1 when this real module has all-zero
+                // amounts. Do not substitute retail host constants here.
+                let amount = match e.veterancy_ordinal {
+                    3 if e.hacker_heroic_cash_amount != 0 => e.hacker_heroic_cash_amount,
+                    3 | 2 if e.hacker_elite_cash_amount != 0 => e.hacker_elite_cash_amount,
+                    3 | 2 | 1 if e.hacker_veteran_cash_amount != 0 => {
+                        e.hacker_veteran_cash_amount
+                    }
+                    _ if e.hacker_regular_cash_amount != 0 => e.hacker_regular_cash_amount,
+                    _ => 1,
                 };
-                let amount = cash_amount_for_level(level);
-                let interval = cash_interval_frames(e.hacker_in_internet_center);
+                // C++ selects the fast delay for any contained hacker, not
+                // only the particular InternetHackContain presentation state.
+                let contained = e.contained_by_host != 0;
+                let interval = if contained {
+                    e.hacker_cash_update_delay_fast_frames
+                } else {
+                    e.hacker_cash_update_delay_frames
+                };
                 if e.hacker_next_deposit_frame == 0 {
-                    e.hacker_next_deposit_frame = frame.saturating_add(interval.max(1));
+                    // C++ decrements a positive timer and performs the cash
+                    // update on the following logic update. A zero delay
+                    // likewise first fires on the next update.
+                    e.hacker_next_deposit_frame =
+                        frame.saturating_add(interval).saturating_add(1);
                     changed = true;
                 } else if frame >= e.hacker_next_deposit_frame {
-                    e.hacker_next_deposit_frame = frame.saturating_add(interval.max(1));
+                    e.hacker_next_deposit_frame =
+                        frame.saturating_add(interval).saturating_add(1);
                     if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
                         let pos = e.transform.position;
                         crate::game_logic::host_hacker_income_log::record(
@@ -311,6 +328,7 @@ impl GameWorldShadow {
                                 owner_player_id,
                                 pos: glam::Vec3::new(pos.x, pos.y, pos.z),
                                 amount,
+                                xp_per_cash_update: e.hacker_xp_per_cash_update,
                                 next_deposit_frame: e.hacker_next_deposit_frame,
                                 in_internet_center: e.hacker_in_internet_center,
                                 stealthed: e.stealthed,

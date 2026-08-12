@@ -148,6 +148,7 @@ pub fn simulate_live_gameworld_production_writeback_honesty() -> bool {
             template_name: "Ranger".into(),
             progress: 2.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost_supplies: 150,
             is_upgrade: false,
             quantity_total: 1,

@@ -9,7 +9,9 @@ impl Object {
         // authored capacity before the template moves into `Thing`; do not
         // synthesize slots from the vehicle's footprint or selection radius.
         // Keep the older railed field as a snapshot compatibility bridge.
-        let authored_transport_slots = if template.contain_module.kind.is_mobile_container() {
+        let authored_transport_slots = if template.contain_module.kind.is_mobile_container()
+            || template.contain_module.kind == crate::game_logic::ContainModuleKind::InternetHack
+        {
             template.contain_module.slots
         } else {
             None

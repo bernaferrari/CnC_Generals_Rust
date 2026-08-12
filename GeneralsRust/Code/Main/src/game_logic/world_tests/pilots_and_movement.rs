@@ -2494,13 +2494,16 @@ fn oil_derrick_residual_skips_under_construction() {
 }
 
 /// Residual: Hacker contained in Internet Center auto-hacks and deposits $5
-/// every 54 logic frames (CashUpdateDelayFast).
+/// after CashUpdateDelayFast plus the following logic update.
 #[test]
 fn hacker_internet_center_residual_deposits_cash() {
     use crate::game_logic::host_hacker_income::{
         HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR,
     };
-    use crate::game_logic::{KindOf, ThingTemplate};
+    use crate::game_logic::{
+        ContainAdmission, ContainModuleKind, ContainModuleMetadata, HackInternetAIUpdateMetadata,
+        KindOf, ThingTemplate,
+    };
 
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::China);
@@ -2508,9 +2511,23 @@ fn hacker_internet_center_residual_deposits_cash() {
     if !game_logic.templates.contains_key("TestHacker") {
         let mut t = ThingTemplate::new("TestHacker");
         t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::MoneyHacker)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0)
             .set_cost(200, 0);
+        t.transport_slot_count = Some(1);
+        t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+            unpack_time_frames: 219,
+            pack_time_frames: 154,
+            cash_update_delay_frames: 60,
+            cash_update_delay_fast_frames: 54,
+            regular_cash_amount: HACKER_CASH_REGULAR,
+            veteran_cash_amount: 6,
+            elite_cash_amount: 8,
+            heroic_cash_amount: 10,
+            xp_per_cash_update: 1.0,
+            pack_unpack_variation_factor: 0.5,
+        });
         game_logic.templates.insert("TestHacker".to_string(), t);
     }
     if !game_logic.templates.contains_key("TestInternetCenter") {
@@ -2520,6 +2537,12 @@ fn hacker_internet_center_residual_deposits_cash() {
             .add_kind_of(KindOf::Selectable)
             .set_health(2000.0)
             .set_cost(2500, 0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::InternetHack,
+            slots: Some(8),
+            admission: ContainAdmission::MoneyHackerOnly,
+            ..Default::default()
+        };
         game_logic
             .templates
             .insert("TestInternetCenter".to_string(), t);
@@ -2535,7 +2558,12 @@ fn hacker_internet_center_residual_deposits_cash() {
     let hacker_id = game_logic
         .create_object("TestHacker", Team::China, Vec3::new(1.0, 0.0, 0.0))
         .expect("hacker");
-    // Residual: place hacker inside Internet Center.
+    // Place the exact typed passenger inside the exact parsed containment
+    // contract. A mere `contained_by` link is intentionally insufficient.
+    assert!(game_logic
+        .host_object_mut(ic_id)
+        .expect("Internet Center")
+        .add_occupant(hacker_id));
     if let Some(obj) = game_logic.host_object_mut(hacker_id) {
         obj.set_contained_by(Some(ic_id));
         obj.set_ai_state(AIState::Docked);
@@ -2560,6 +2588,16 @@ fn hacker_internet_center_residual_deposits_cash() {
 
     game_logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES;
     game_logic.update_hacker_income();
+    assert_eq!(
+        game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0),
+        cash_before,
+        "C++ deposits after decrementing the final fast-delay frame"
+    );
+    game_logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES + 1;
+    game_logic.update_hacker_income();
     let cash_after = game_logic
         .get_player_mut_by_team(Team::China)
         .map(|p| p.resources.supplies)
@@ -2580,8 +2618,8 @@ fn hacker_internet_center_residual_deposits_cash() {
     assert_eq!(game_logic.hacker_residual_deposits(), 1);
     assert_eq!(game_logic.hacker_residual_cash_total(), HACKER_CASH_REGULAR);
 
-    // Second fast interval.
-    game_logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES * 2;
+    // Second fast interval, again with the state-machine's following update.
+    game_logic.frame = (HACKER_CASH_INTERVAL_FAST_FRAMES + 1) * 2;
     game_logic.update_hacker_income();
     assert_eq!(game_logic.hacker_residual_deposits(), 2);
     assert_eq!(
@@ -2590,11 +2628,12 @@ fn hacker_internet_center_residual_deposits_cash() {
     );
 }
 
-/// Residual: field HackInternet command deposits $5 every 60 frames.
+/// Residual: field HackInternet command deposits $5 after the authored
+/// 60-frame delay and the following logic update.
 #[test]
 fn hacker_field_residual_deposits_cash_on_interval() {
     use crate::game_logic::host_hacker_income::{HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR};
-    use crate::game_logic::{KindOf, ThingTemplate};
+    use crate::game_logic::{HackInternetAIUpdateMetadata, KindOf, ThingTemplate};
 
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::China);
@@ -2602,6 +2641,18 @@ fn hacker_field_residual_deposits_cash_on_interval() {
     if !game_logic.templates.contains_key("TestHacker") {
         let mut t = ThingTemplate::new("TestHacker");
         t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+            unpack_time_frames: 219,
+            pack_time_frames: 154,
+            cash_update_delay_frames: HACKER_CASH_INTERVAL_FRAMES,
+            cash_update_delay_fast_frames: 54,
+            regular_cash_amount: HACKER_CASH_REGULAR,
+            veteran_cash_amount: 6,
+            elite_cash_amount: 8,
+            heroic_cash_amount: 10,
+            xp_per_cash_update: 1.0,
+            pack_unpack_variation_factor: 0.5,
+        });
         game_logic.templates.insert("TestHacker".to_string(), t);
     }
 
@@ -2631,6 +2682,16 @@ fn hacker_field_residual_deposits_cash_on_interval() {
     assert_eq!(mid, cash_before, "no deposit before field interval");
 
     game_logic.frame = HACKER_CASH_INTERVAL_FRAMES;
+    game_logic.update_hacker_income();
+    assert_eq!(
+        game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0),
+        cash_before,
+        "C++ deposits after decrementing the final field-delay frame"
+    );
+    game_logic.frame = HACKER_CASH_INTERVAL_FRAMES + 1;
     game_logic.update_hacker_income();
     let cash_after = game_logic
         .get_player_mut_by_team(Team::China)

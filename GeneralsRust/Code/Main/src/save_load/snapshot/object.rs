@@ -172,6 +172,19 @@ pub struct ProductionModuleSnapshot {
     pub is_producing: bool,
     pub production_progress: f32,
     pub rally_point: Option<glam::Vec3>,
+    /// C++ QueueProductionExitUpdate::m_currentDelay presentation mirror.
+    /// The integer field below is authoritative for parsed Queue exits.
+    #[serde(default)]
+    pub exit_delay_remaining: f32,
+    /// C++ QueueProductionExitUpdate::m_currentDelay in logic frames.
+    #[serde(default)]
+    pub exit_delay_remaining_frames: u32,
+    /// C++ QueueProductionExitUpdate::m_currentBurstCount.
+    #[serde(default)]
+    pub exit_burst_remaining: u32,
+    /// Distinguishes legacy float-only saves from parsed Queue runtime state.
+    #[serde(default)]
+    pub queue_exit_state_initialized: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +192,28 @@ pub struct ProductionQueueEntry {
     pub template_name: String,
     pub progress: f32,
     pub cost: u32,
+    /// C++ `ProductionEntry::m_framesUnderConstruction`.  Old float-only
+    /// snapshots deserialize as zero and are reconstructed once from progress
+    /// by `ProductionItem` on their first production update.
+    ///
+    /// Keep this trailing in the serde record so legacy serialized entries
+    /// retain their original template/progress/cost prefix.
+    #[serde(default)]
+    pub construction_frames: u32,
+    /// C++ ProductionEntry quantity state.  It must survive with Queue exit
+    /// delay so a save after the first member of a modifier batch does not
+    /// recreate or discard remaining members on load.
+    #[serde(default = "production_quantity_one")]
+    pub quantity_total: u32,
+    #[serde(default)]
+    pub quantity_produced: u32,
+    /// `false` is C++ PRODUCTION_UNIT, preserving legacy snapshot behavior.
+    #[serde(default)]
+    pub is_upgrade: bool,
+}
+
+fn production_quantity_one() -> u32 {
+    1
 }
 
 /// Weapon module snapshot
@@ -547,13 +582,31 @@ impl XferData for AIUpdateModuleSnapshot {
 
 impl XferData for ProductionQueueEntry {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        // Version the per-entry payload so old Main snapshots retain their
+        // float-progress migration path.  Retail C++ stores this exact frame
+        // counter in `ProductionUpdate::xferSnapshot`.
+        const CURRENT_VERSION: crate::save_load::XferVersion = 3;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)?;
         xfer.xfer_marker_label("ProductionQueueEntry")?;
         xfer.xfer_marker_label("TemplateName")?;
         self.template_name.xfer(xfer)?;
         xfer.xfer_marker_label("Progress")?;
         xfer.xfer_f32(&mut self.progress)?;
+        if version >= 2 {
+            xfer.xfer_marker_label("ConstructionFrames")?;
+            xfer.xfer_u32(&mut self.construction_frames)?;
+        }
         xfer.xfer_marker_label("Cost")?;
         xfer.xfer_u32(&mut self.cost)?;
+        if version >= 3 {
+            xfer.xfer_marker_label("QuantityTotal")?;
+            xfer.xfer_u32(&mut self.quantity_total)?;
+            xfer.xfer_marker_label("QuantityProduced")?;
+            xfer.xfer_u32(&mut self.quantity_produced)?;
+            xfer.xfer_marker_label("IsUpgrade")?;
+            xfer.xfer_bool(&mut self.is_upgrade)?;
+        }
         Ok(())
     }
 }
@@ -568,7 +621,11 @@ impl XferData for ProductionModuleSnapshot {
             ProductionQueueEntry {
                 template_name: String::new(),
                 progress: 0.0,
+                construction_frames: 0,
                 cost: 0,
+                quantity_total: 1,
+                quantity_produced: 0,
+                is_upgrade: false,
             },
         )?;
         xfer.xfer_marker_label("IsProducing")?;
@@ -577,6 +634,17 @@ impl XferData for ProductionModuleSnapshot {
         xfer.xfer_f32(&mut self.production_progress)?;
         xfer.xfer_marker_label("RallyPoint")?;
         xfer_option(xfer, &mut self.rally_point, glam::Vec3::ZERO)?;
+        // These are appended to the module record.  The active bincode save
+        // path uses serde defaults for old snapshots; paired Xfer save/load
+        // streams retain the full C++ Queue runtime counters.
+        xfer.xfer_marker_label("ExitDelayRemaining")?;
+        xfer.xfer_f32(&mut self.exit_delay_remaining)?;
+        xfer.xfer_marker_label("ExitDelayRemainingFrames")?;
+        xfer.xfer_u32(&mut self.exit_delay_remaining_frames)?;
+        xfer.xfer_marker_label("ExitBurstRemaining")?;
+        xfer.xfer_u32(&mut self.exit_burst_remaining)?;
+        xfer.xfer_marker_label("QueueExitStateInitialized")?;
+        xfer.xfer_bool(&mut self.queue_exit_state_initialized)?;
         Ok(())
     }
 }
@@ -798,6 +866,10 @@ impl XferData for ModuleSnapshot {
                         is_producing: false,
                         production_progress: 0.0,
                         rally_point: None,
+                        exit_delay_remaining: 0.0,
+                        exit_delay_remaining_frames: 0,
+                        exit_burst_remaining: 0,
+                        queue_exit_state_initialized: false,
                     };
                     d.xfer(xfer)?;
                     ModuleSnapshot::Production(d)

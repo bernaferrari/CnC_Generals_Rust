@@ -345,12 +345,12 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
 
     let mut existing = ObjectDefinition::new("AmericaTankCrusader".to_string());
     existing.object_type = "Vehicle".to_string();
-    existing.hit_points = Some(480);
+    existing.hit_points = Some(480.0);
     existing.model_name = Some("AVCrusader".to_string());
 
     let mut added = ObjectDefinition::new("AmericaTankPaladin".to_string());
     added.object_type = "Vehicle".to_string();
-    added.hit_points = Some(600);
+    added.hit_points = Some(600.0);
     added.model_name = Some("AVPaladin".to_string());
     added.primary_weapon = Some("PaladinTankGun".to_string());
     added.secondary_weapon = Some("PaladinPointDefenseLaser".to_string());
@@ -1577,6 +1577,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 provides_vehicle_repair: false,
                 provides_aircraft_repair: false,
                 provides_heal: false,
+                can_provide_service: true,
                 dock_kind: target.dock_kind,
                 dock_controller_is_local: frame.is_owned_by_local(target),
                 stored_supplies: target.stored_supplies,
@@ -1597,12 +1598,14 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 is_worker: false,
                 can_attack: false,
                 can_move: collector.is_mobile,
+                can_request_service: true,
                 can_capture: false,
                 template_name: collector.template_name.clone(),
                 can_repair: false,
                 is_damaged: false,
                 is_vehicle: PresentationFrame::object_has_kind(collector, KindOf::Vehicle),
                 is_aircraft: false,
+                is_above_terrain: false,
                 is_infantry: false,
                 transport_slot_count: collector.transport_slot_count,
                 stored_supplies: collector.stored_supplies,
@@ -2984,6 +2987,9 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
     let mut service_pad = ThingTemplate::new("OwnerRelationServicePad");
     service_pad
         .add_kind_of(KindOf::Structure)
+        // The active service authority is C++ KINDOF_REPAIR_PAD, not the
+        // legacy BuildingType presentation fixture below.
+        .add_kind_of(KindOf::RepairPad)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1_000.0)
@@ -3021,12 +3027,14 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
         is_worker: false,
         can_attack: false,
         can_move: true,
+        can_request_service: true,
         can_capture: false,
         template_name: "TestTank".to_string(),
         can_repair: false,
         is_damaged: true,
         is_vehicle: true,
         is_aircraft: false,
+        is_above_terrain: false,
         is_infantry: false,
         transport_slot_count: 3,
         stored_supplies: 0,
@@ -3062,6 +3070,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
                 provides_vehicle_repair: true,
                 provides_aircraft_repair: false,
                 provides_heal: false,
+                can_provide_service: true,
                 dock_kind: DockKind::None,
                 dock_controller_is_local: false,
                 stored_supplies: 0,
@@ -4025,46 +4034,152 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
     );
 }
 
-/// Residual: USA Pilot Enter unmanned vehicle → recrew (team + clear unmanned + consume pilot).
-/// Fail-closed: not full EjectPilotDie parachute OCL / PilotFindVehicle AI scan.
+/// Retail `AmericaInfantryPilot` parser → live Enter re-crew authority.
+///
+/// C++ `VeterancyCrateCollide` requires exact `IsPilot`, a VEHICLE target
+/// excluding DOZER, equal controlling player, and a non-airborne target.  In
+/// particular, two USA slots are not one owner.  This uses the actual retail
+/// Object INI rather than attaching a test-only pilot flag to a name.
 #[test]
-fn pilot_recrew_unmanned_vehicle_after_enter_reach() {
+fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
     use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_usa_pilot::{is_pilot_template, pilot_default_veterancy};
     use crate::game_logic::VeterancyLevel;
+    use std::path::Path;
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    game_logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA 0", true));
+    game_logic
+        .players
+        .insert(1, Player::new(1, Team::USA, "USA 1", true));
 
-    let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
-    pilot_tpl
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("Main crate must remain three levels below repository root");
+    let source = std::fs::read_to_string(
+        repo_root.join(
+            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaInfantry.ini",
+        ),
+    )
+    .expect("retail AmericaInfantry.ini");
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(&source, "AmericaInfantry.ini")
+        .expect("parse retail America infantry");
+    let pilot_tpl = GameLogic::build_template_from_object_definition(
+        "AmericaInfantryPilot",
+        parser
+            .get_definition("AmericaInfantryPilot")
+            .expect("retail pilot definition"),
+        None,
+    );
+    let metadata = pilot_tpl
+        .veterancy_crate_collide
+        .expect("retail IsPilot metadata");
+    assert!(metadata.supports_pilot_recrew());
+    assert_eq!(metadata.pilot_starting_level(), Some(VeterancyLevel::Veteran));
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
 
     let pilot_id = game_logic
-        .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .create_object_for_player("AmericaInfantryPilot", 0, Vec3::new(2.0, 0.0, 0.0))
         .expect("pilot");
     {
         let p = game_logic.host_object_mut(pilot_id).expect("pilot obj");
-        assert!(is_pilot_template(&p.template_name));
-        // Seed residual VETERAN (VeterancyGainCreate StartingLevel).
-        p.experience.level = pilot_default_veterancy();
-        p.experience.current = 1.0;
+        assert_eq!(p.experience.level, VeterancyLevel::Veteran);
+        assert_eq!(p.owner_player_id, Some(0));
     }
 
-    let tank_id = game_logic
-        .create_object("TestTank", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
-        .expect("tank");
+    // A pilot-named template with no parsed behavior remains ordinary
+    // infantry: it starts Rookie and cannot create an Enter order.
+    let mut name_only = ThingTemplate::new("AmericaInfantryPilotNameOnly");
+    name_only
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("AmericaInfantryPilotNameOnly".to_string(), name_only);
+    let name_only_id = game_logic
+        .create_object_for_player(
+            "AmericaInfantryPilotNameOnly",
+            0,
+            Vec3::new(2.0, 0.0, 2.0),
+        )
+        .expect("name-only pilot");
+    assert_eq!(
+        game_logic
+            .host_object(name_only_id)
+            .expect("name-only object")
+            .experience
+            .level,
+        VeterancyLevel::Rookie,
+        "missing IsPilot metadata must fail closed for starting veterancy"
+    );
+
+    // A same-faction but different controlling player is rejected before an
+    // order is installed.  KillPilot neutralizes the target while preserving
+    // owner #1 in ObjectStatus, so this exercises the C++ controller gate.
+    let foreign_tank_id = game_logic
+        .create_object_for_player("TestTank", 1, Vec3::new(0.0, 0.0, 0.0))
+        .expect("foreign tank");
     {
-        let t = game_logic.host_object_mut(tank_id).expect("tank");
+        let t = game_logic
+            .host_object_mut(foreign_tank_id)
+            .expect("foreign tank object");
         t.apply_kill_pilot_unmanned();
         t.set_team(Team::Neutral);
         t.experience.level = VeterancyLevel::Rookie;
+        assert_eq!(t.status.unmanned_owner_player_id, Some(1));
     }
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::Enter {
+            target_id: foreign_tank_id,
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![pilot_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    let pilot = game_logic.host_object(pilot_id).expect("pilot after foreign cmd");
+    assert_eq!(pilot.ai_state, AIState::Idle);
+    assert_eq!(pilot.target, None);
+    assert!(
+        game_logic.host_object(foreign_tank_id).unwrap().is_unmanned(),
+        "same faction cannot bypass the exact controlling-player check"
+    );
+
+    // The name-only impostor is rejected even for a same-controller target.
+    let tank_id = game_logic
+        .create_object_for_player("TestTank", 0, Vec3::new(0.0, 0.0, 0.0))
+        .expect("own tank");
+    {
+        let t = game_logic.host_object_mut(tank_id).expect("own tank object");
+        t.apply_kill_pilot_unmanned();
+        t.set_team(Team::Neutral);
+        t.experience.level = VeterancyLevel::Rookie;
+        assert_eq!(t.status.unmanned_owner_player_id, Some(0));
+    }
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::Enter { target_id: tank_id },
+        player_id: 0,
+        command_id: 2,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![name_only_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    assert_eq!(
+        game_logic.host_object(name_only_id).unwrap().ai_state,
+        AIState::Idle,
+        "a template name is not IsPilot authority"
+    );
     assert!(
         game_logic.host_object(tank_id).unwrap().is_unmanned(),
         "precondition: unmanned vehicle"
@@ -4073,7 +4188,7 @@ fn pilot_recrew_unmanned_vehicle_after_enter_reach() {
     game_logic.queue_command(GameCommand {
         command_type: CommandType::Enter { target_id: tank_id },
         player_id: 0,
-        command_id: 1,
+        command_id: 3,
         timestamp: std::time::SystemTime::now(),
         selected_units: vec![pilot_id],
         modifier_keys: crate::command_system::ModifierKeys::default(),
@@ -4091,6 +4206,11 @@ fn pilot_recrew_unmanned_vehicle_after_enter_reach() {
     assert!(!tank.is_unmanned(), "recrew must clear DISABLED_UNMANNED");
     assert_eq!(tank.team, Team::USA, "recrew transfers pilot team");
     assert_eq!(
+        tank.owner_player_id,
+        Some(0),
+        "recrew restores the exact controlling player, not only its faction"
+    );
+    assert_eq!(
         tank.experience.level,
         VeterancyLevel::Veteran,
         "pilot veterancy must transfer onto vehicle"
@@ -4100,17 +4220,15 @@ fn pilot_recrew_unmanned_vehicle_after_enter_reach() {
         game_logic.honesty_pilot_veterancy_transfer_ok(),
         "veterancy transfer honesty"
     );
-    assert!(
-        game_logic.honesty_pilot_ok(),
-        "combined pilot residual honesty"
-    );
     assert_eq!(game_logic.usa_pilot_residual().recrews, 1);
 
     let pilot = game_logic
         .host_object(pilot_id)
         .expect("pilot after recrew");
+    // `SlowDeathBehavior` can keep the corpse in the object map for its
+    // authored delay, but it is no longer a live/controllable pilot.
     assert!(
-        pilot.status.destroyed,
-        "pilot infantry consumed after recrew"
+        !pilot.is_alive(),
+        "pilot infantry must be consumed even when its authored SlowDeath defers removal"
     );
 }

@@ -34,7 +34,7 @@ struct ObjectDump {
     textures: BTreeMap<String, String>,
     draw_module: Option<String>,
     armor_type: Option<String>,
-    hit_points: Option<u32>,
+    hit_points: Option<f32>,
     scale: f32,
     owner: Option<String>,
     attributes: BTreeMap<String, String>,

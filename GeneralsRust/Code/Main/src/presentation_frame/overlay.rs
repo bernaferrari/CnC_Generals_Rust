@@ -1632,6 +1632,10 @@ impl PresentationFrame {
             is_panicking: ent.is_panicking,
             moving_backwards: ent.moving_backwards,
             overcharge_enabled: ent.overcharge_enabled,
+            // GameWorld does not retain Main's typed Behavior metadata.  A
+            // standalone overlay therefore fails closed; a frame built from
+            // live GameLogic already carries the frozen source capability.
+            can_toggle_overcharge: false,
             shock_was_airborne: ent.shock_was_airborne,
             shock_allow_bounce: ent.shock_allow_bounce,
             shock_grounded_once: ent.shock_grounded_once,

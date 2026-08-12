@@ -19,8 +19,7 @@ fn unambiguous_locomotors_for_set(
     if matching.next().is_some() {
         return None;
     }
-    (!row.locomotor_names.is_empty())
-        .then(|| row.locomotor_names.clone())
+    (!row.locomotor_names.is_empty()).then(|| row.locomotor_names.clone())
 }
 
 #[inline]
@@ -178,8 +177,8 @@ impl GameLogic {
         }
 
         if let Some(hit_points) = definition.hit_points {
-            if hit_points > 0 {
-                template.set_health(hit_points as f32);
+            if hit_points > 0.0 {
+                template.set_health(hit_points);
             }
         }
 
@@ -207,6 +206,12 @@ impl GameLogic {
         );
         Self::apply_authored_parking_place_metadata(&mut template, definition);
         Self::apply_authored_deploy_style_metadata(&mut template, definition);
+        Self::apply_authored_production_exit_metadata(&mut template, definition);
+        Self::apply_authored_pilot_veterancy_metadata(&mut template, definition);
+        Self::apply_authored_eject_pilot_die_metadata(&mut template, definition);
+        Self::apply_authored_hack_internet_metadata(&mut template, definition);
+        Self::apply_authored_overcharge_metadata(&mut template, definition);
+        Self::apply_authored_power_plant_update_metadata(&mut template, definition);
 
         let primary_texture = texture_hint.or_else(|| definition.get_primary_texture());
         if let Some(texture_name) = primary_texture {
@@ -468,6 +473,11 @@ impl GameLogic {
         if has_kind("heal_pad") {
             template.add_kind_of(KindOf::HealPad);
         }
+        // `InternetHackContain` accepts C++ `MONEY_HACKER`, not generic
+        // infantry and not an identity inferred from a Hacker-ish basename.
+        if has_kind("money_hacker") {
+            template.add_kind_of(KindOf::MoneyHacker);
+        }
         if has_kind("unattackable") {
             template.add_kind_of(KindOf::Unattackable);
         }
@@ -528,6 +538,31 @@ impl GameLogic {
         /// object model.  A mask that needs a missing kind is fail-closed;
         /// this is preferable to accepting a tank in an infantry-only cabin.
         fn parse_admission(module: &crate::assets::BehaviorModuleDefinition) -> ContainAdmission {
+            fn tokenize(raw: &str) -> Vec<&str> {
+                raw.split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ',' | '|'))
+                    .filter(|token| !token.is_empty())
+                    .collect()
+            }
+            if let Some(raw) = module.attribute("AllowInsideKindOf") {
+                let tokens = tokenize(raw);
+                if tokens
+                    .iter()
+                    .any(|token| token.eq_ignore_ascii_case("MONEY_HACKER"))
+                {
+                    // Main can faithfully admit this exact one-kind mask.
+                    // Any combined/forbidden custom mask needs C++'s full
+                    // KindOf algebra and remains unavailable rather than
+                    // widening Internet Center entry.
+                    return if tokens.len() == 1
+                        && tokens[0].eq_ignore_ascii_case("MONEY_HACKER")
+                        && module.attribute("ForbidInsideKindOf").is_none()
+                    {
+                        ContainAdmission::MoneyHackerOnly
+                    } else {
+                        ContainAdmission::Unsupported
+                    };
+                }
+            }
             let mut allowed = [true, true, true]; // infantry, vehicle, aircraft
             if let Some(raw) = module.attribute("AllowInsideKindOf") {
                 allowed = [false, false, false];
@@ -611,8 +646,9 @@ impl GameLogic {
             // row only when every distinct-surface member resolves and has
             // identical represented behavior.  A partial/ambiguous set is
             // retained below but never becomes a physical Enter capability.
-            let normal_locomotor_binding = rider_change_normal_locomotors
-                .and_then(crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set);
+            let normal_locomotor_binding = rider_change_normal_locomotors.and_then(
+                crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set,
+            );
             for slot in 1u8..=8 {
                 let key = format!("Rider{slot}");
                 let Some(raw) = module.attribute(&key) else {
@@ -651,24 +687,21 @@ impl GameLogic {
                 let expected_weapon_set = format!("WEAPON_RIDER{slot}");
                 let expected_model_condition = format!("RIDER{slot}");
                 let expected_object_status = format!("STATUS_RIDER{slot}");
-                let (
-                    active_locomotor_name,
-                    active_locomotor_names,
-                    active_locomotor_surfaces,
-                ) = if locomotor_set.eq_ignore_ascii_case("SET_NORMAL") {
-                    normal_locomotor_binding
-                        .as_ref()
-                        .map(|binding| {
-                            (
-                                Some(binding.representative_name.clone()),
-                                binding.locomotor_names.clone(),
-                                binding.locomotor_surfaces,
-                            )
-                        })
-                        .unwrap_or((None, Vec::new(), 0))
-                } else {
-                    (None, Vec::new(), 0)
-                };
+                let (active_locomotor_name, active_locomotor_names, active_locomotor_surfaces) =
+                    if locomotor_set.eq_ignore_ascii_case("SET_NORMAL") {
+                        normal_locomotor_binding
+                            .as_ref()
+                            .map(|binding| {
+                                (
+                                    Some(binding.representative_name.clone()),
+                                    binding.locomotor_names.clone(),
+                                    binding.locomotor_surfaces,
+                                )
+                            })
+                            .unwrap_or((None, Vec::new(), 0))
+                    } else {
+                        (None, Vec::new(), 0)
+                    };
                 let physical_enter_supported = slot <= 7
                     && model_condition_mask != 0
                     && object_status_mask != 0
@@ -801,6 +834,14 @@ impl GameLogic {
                 Some((
                     ContainModuleKind::Garrison,
                     parse_slots(module, "ContainMax"),
+                ))
+            } else if module
+                .class_name
+                .eq_ignore_ascii_case("InternetHackContain")
+            {
+                Some((
+                    ContainModuleKind::InternetHack,
+                    parse_slots(module, "Slots"),
                 ))
             } else {
                 None
@@ -1024,6 +1065,675 @@ impl GameLogic {
         template.deploy_style_metadata = parse();
     }
 
+    /// Retain exactly one source `QueueProductionExitUpdate` or
+    /// `DefaultProductionExitUpdate` declaration.  The producer's C++ exit
+    /// interface is behavior-authored, not a Barracks/WarFactory name rule;
+    /// malformed or ambiguous declarations therefore expose no compact live
+    /// authority rather than selecting a guessed exit style.
+    fn apply_authored_production_exit_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::{ProductionExitMetadata, ProductionExitStyle};
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        /// C++ `INI::parseDurationUnsignedInt`: a source millisecond duration
+        /// becomes a ceil-rounded 30 Hz logic-frame count.
+        fn parse_duration_frames(value: &str) -> Option<u32> {
+            let digits: String = value
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            let milliseconds = digits.parse::<u64>().ok()?;
+            let frames = milliseconds.checked_mul(30)?.checked_add(999)? / 1_000;
+            u32::try_from(frames).ok()
+        }
+
+        fn parse_unsigned(value: &str) -> Option<u32> {
+            let digits: String = value
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            digits.parse::<u32>().ok()
+        }
+
+        /// Parse C++ `INI::parseCoord3D`'s `X: ... Y: ... Z: ...` spelling
+        /// without accepting a partial/malformed vector as an authored exit
+        /// position.  Semicolon comments are already retained in the raw
+        /// value, so stop each numeric scan at the first non-float token.
+        fn parse_coord3(value: &str) -> Option<[f32; 3]> {
+            fn axis(value: &str, wanted: u8) -> Option<f32> {
+                let bytes = value.as_bytes();
+                let mut index = 0usize;
+                while index + 1 < bytes.len() {
+                    if bytes[index].eq_ignore_ascii_case(&wanted) && bytes[index + 1] == b':' {
+                        let mut start = index + 2;
+                        while start < bytes.len() && bytes[start].is_ascii_whitespace() {
+                            start += 1;
+                        }
+                        let end = bytes[start..]
+                            .iter()
+                            .position(|byte| {
+                                !matches!(byte, b'0'..=b'9' | b'+' | b'-' | b'.' | b'e' | b'E')
+                            })
+                            .map(|offset| start + offset)
+                            .unwrap_or(bytes.len());
+                        let parsed = value.get(start..end)?.parse::<f32>().ok()?;
+                        return parsed.is_finite().then_some(parsed);
+                    }
+                    index += 1;
+                }
+                None
+            }
+
+            Some([axis(value, b'X')?, axis(value, b'Y')?, axis(value, b'Z')?])
+        }
+
+        let modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("QueueProductionExitUpdate")
+                    || module
+                        .class_name
+                        .eq_ignore_ascii_case("DefaultProductionExitUpdate")
+            })
+            .collect();
+        let [module] = modules.as_slice() else {
+            template.production_exit_metadata = None;
+            return;
+        };
+
+        let style = if module
+            .class_name
+            .eq_ignore_ascii_case("QueueProductionExitUpdate")
+        {
+            ProductionExitStyle::Queue
+        } else {
+            ProductionExitStyle::Default
+        };
+        let metadata = (|| -> Option<ProductionExitMetadata> {
+            let unit_create_point = match module.attribute("UnitCreatePoint") {
+                Some(value) => parse_coord3(value)?,
+                // Both C++ module constructors zero this field.
+                None => [0.0, 0.0, 0.0],
+            };
+            let natural_rally_point = match module.attribute("NaturalRallyPoint") {
+                Some(value) => parse_coord3(value)?,
+                // Both C++ module constructors zero this field.
+                None => [0.0, 0.0, 0.0],
+            };
+            match style {
+                ProductionExitStyle::Queue => Some(ProductionExitMetadata {
+                    style,
+                    unit_create_point,
+                    natural_rally_point,
+                    exit_delay_frames: match module.attribute("ExitDelay") {
+                        Some(value) => parse_duration_frames(value)?,
+                        None => 0,
+                    },
+                    allow_airborne_creation: match module.attribute("AllowAirborneCreation") {
+                        Some(value) => parse_bool(value)?,
+                        None => false,
+                    },
+                    initial_burst: match module.attribute("InitialBurst") {
+                        Some(value) => parse_unsigned(value)?,
+                        None => 0,
+                    },
+                    use_spawn_rally_point: false,
+                }),
+                ProductionExitStyle::Default => Some(ProductionExitMetadata {
+                    style,
+                    unit_create_point,
+                    natural_rally_point,
+                    exit_delay_frames: 0,
+                    allow_airborne_creation: false,
+                    initial_burst: 0,
+                    use_spawn_rally_point: match module.attribute("UseSpawnRallyPoint") {
+                        Some(value) => parse_bool(value)?,
+                        None => false,
+                    },
+                }),
+            }
+        })();
+        template.production_exit_metadata = metadata;
+    }
+
+    /// Retain the exact retail `VeterancyCrateCollide IsPilot` behavior used
+    /// by `AmericaInfantryPilot` to re-crew an unmanned vehicle.  This is not
+    /// a generic veterancy-crate parser: C++ has a wide crate matrix and the
+    /// compact host only has an authority path for the explicit pilot shape.
+    ///
+    /// A pilot-named object with no well-formed `IsPilot = Yes` behavior is
+    /// intentionally indistinguishable from ordinary infantry to live Enter
+    /// authority.  Likewise, an unrepresentable kind mask remains retained
+    /// as pilot metadata for its own `VeterancyGainCreate` starting level but
+    /// cannot invent a re-crew target criterion.
+    fn apply_authored_pilot_veterancy_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::{VeterancyCrateCollideMetadata, VeterancyLevel};
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        fn exactly_one_kind_token(value: &str, expected: &str) -> bool {
+            let mut tokens = value
+                .split(|character: char| {
+                    character.is_ascii_whitespace() || matches!(character, ',' | '|')
+                })
+                .filter(|token| !token.is_empty());
+            let Some(token) = tokens.next() else {
+                return false;
+            };
+            token.eq_ignore_ascii_case(expected) && tokens.next().is_none()
+        }
+
+        fn parse_starting_level(value: &str) -> Option<VeterancyLevel> {
+            match value.trim().to_ascii_uppercase().as_str() {
+                // C++ spelling is REGULAR, while the compact host calls the
+                // same base rank Rookie.  Accept both only at this parser
+                // representation boundary.
+                "REGULAR" | "ROOKIE" => Some(VeterancyLevel::Rookie),
+                "VETERAN" => Some(VeterancyLevel::Veteran),
+                "ELITE" => Some(VeterancyLevel::Elite),
+                "HEROIC" => Some(VeterancyLevel::Heroic),
+                _ => None,
+            }
+        }
+
+        // There may be ordinary level-up crate modules on other objects.  A
+        // live pilot source exists only when there is exactly one explicitly
+        // marked IsPilot behavior; duplicate pilot behaviors have cumulative
+        // C++ semantics the bounded re-crew path cannot safely collapse.
+        let pilot_modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("VeterancyCrateCollide")
+                    && module.attribute("IsPilot").and_then(parse_bool) == Some(true)
+            })
+            .collect();
+        let [module] = pilot_modules.as_slice() else {
+            template.veterancy_crate_collide = None;
+            return;
+        };
+
+        let gain_modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("VeterancyGainCreate")
+            })
+            .collect();
+        let starting_level = match gain_modules.as_slice() {
+            [gain] => gain
+                .attribute("StartingLevel")
+                .and_then(parse_starting_level),
+            // No behavior or multiple create behaviors is intentionally not
+            // approximated as a default veteran source.
+            _ => None,
+        };
+
+        let effect_range = module
+            .attribute("EffectRange")
+            .and_then(|value| value.trim().parse::<f32>().ok())
+            .filter(|value| value.is_finite());
+        let metadata = VeterancyCrateCollideMetadata {
+            is_pilot: true,
+            required_kind_of_vehicle: module
+                .attribute("RequiredKindOf")
+                .is_some_and(|value| exactly_one_kind_token(value, "VEHICLE")),
+            forbidden_kind_of_dozer: module
+                .attribute("ForbiddenKindOf")
+                .is_some_and(|value| exactly_one_kind_token(value, "DOZER")),
+            effect_range,
+            adds_owner_veterancy: module.attribute("AddsOwnerVeterancy").and_then(parse_bool)
+                == Some(true),
+            starting_level,
+        };
+        template.veterancy_crate_collide = Some(metadata);
+    }
+
+    /// Retain one C++ `EjectPilotDieModuleData` declaration as typed Object
+    /// metadata.  `getEjectPilotDieInterface()` is a module-presence query,
+    /// so even a custom/unrepresentable module remains visible to the
+    /// Hijacker path.  The death path, however, must not manufacture an OCL
+    /// result from data it cannot execute exactly.
+    fn apply_authored_eject_pilot_die_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::{
+            EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotDieMetadata,
+            EjectPilotExemptStatus, EjectPilotRequiredStatus, EjectPilotVeterancyLevels,
+        };
+
+        fn stripped_value(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+
+        fn normalized_tokens(value: &str) -> Vec<String> {
+            let mut tokens: Vec<_> = stripped_value(value)
+                .split(|character: char| {
+                    character.is_ascii_whitespace() || matches!(character, ',' | '|')
+                })
+                .filter(|token| !token.is_empty())
+                .map(|token| token.to_ascii_uppercase())
+                .collect();
+            tokens.sort_unstable();
+            tokens
+        }
+
+        fn parse_creation_list(value: &str) -> Option<EjectPilotCreationList> {
+            match stripped_value(value) {
+                value if value.eq_ignore_ascii_case("OCL_EjectPilotOnGround") => {
+                    Some(EjectPilotCreationList::OnGround)
+                }
+                value if value.eq_ignore_ascii_case("OCL_EjectPilotViaParachute") => {
+                    Some(EjectPilotCreationList::ViaParachute)
+                }
+                _ => None,
+            }
+        }
+
+        fn parse_duration_ms(value: &str) -> Option<u32> {
+            // C++ uses `INI::parseDurationUnsignedInt`.  The active retail
+            // blocks omit this field (constructor default 0); a non-bare
+            // custom duration is not approximated by the compact bridge.
+            stripped_value(value).parse::<u32>().ok()
+        }
+
+        fn parse_death_types(value: &str) -> EjectPilotDeathTypes {
+            match normalized_tokens(value).as_slice() {
+                [all] if all == "ALL" => EjectPilotDeathTypes::All,
+                [crushed, splatted, all]
+                    if crushed == "-CRUSHED" && splatted == "-SPLATTED" && all == "ALL" =>
+                {
+                    EjectPilotDeathTypes::AllExceptCrushedAndSplatted
+                }
+                _ => EjectPilotDeathTypes::Unsupported,
+            }
+        }
+
+        fn parse_veterancy_levels(value: &str) -> EjectPilotVeterancyLevels {
+            match normalized_tokens(value).as_slice() {
+                [all] if all == "ALL" => EjectPilotVeterancyLevels::All,
+                [regular, all] if regular == "-REGULAR" && all == "ALL" => {
+                    EjectPilotVeterancyLevels::AllExceptRegular
+                }
+                _ => EjectPilotVeterancyLevels::Unsupported,
+            }
+        }
+
+        fn parse_exempt_status(value: &str) -> EjectPilotExemptStatus {
+            let tokens = normalized_tokens(value);
+            match tokens.as_slice() {
+                [] => EjectPilotExemptStatus::None,
+                [none] if none == "NONE" => EjectPilotExemptStatus::None,
+                [hijacked] if hijacked == "HIJACKED" => EjectPilotExemptStatus::Hijacked,
+                _ => EjectPilotExemptStatus::Unsupported,
+            }
+        }
+
+        fn parse_required_status(value: &str) -> EjectPilotRequiredStatus {
+            let tokens = normalized_tokens(value);
+            match tokens.as_slice() {
+                [] => EjectPilotRequiredStatus::None,
+                [none] if none == "NONE" => EjectPilotRequiredStatus::None,
+                _ => EjectPilotRequiredStatus::Unsupported,
+            }
+        }
+
+        let mut eject_modules = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("EjectPilotDie"));
+        let Some(module) = eject_modules.next() else {
+            template.eject_pilot_die = None;
+            return;
+        };
+
+        // C++ exposes an EjectPilotDie interface for each module.  The host
+        // can retain that fact for Hijacker even when multiple die modules
+        // cannot be losslessly collapsed into one spawned-pilot behavior.
+        if eject_modules.next().is_some() {
+            let mut metadata = EjectPilotDieMetadata::default();
+            metadata.invulnerable_time_ms = None;
+            metadata.death_types = EjectPilotDeathTypes::Unsupported;
+            metadata.veterancy_levels = EjectPilotVeterancyLevels::Unsupported;
+            metadata.exempt_status = EjectPilotExemptStatus::Unsupported;
+            metadata.required_status = EjectPilotRequiredStatus::Unsupported;
+            template.eject_pilot_die = Some(metadata);
+            return;
+        }
+
+        let metadata = EjectPilotDieMetadata {
+            ground_creation_list: module
+                .attribute("GroundCreationList")
+                .and_then(parse_creation_list),
+            air_creation_list: module
+                .attribute("AirCreationList")
+                .and_then(parse_creation_list),
+            // EjectPilotDieModuleData's constructor has `m_invulnerableTime
+            // = 0`; the retail 2000ms shield belongs to the selected OCL,
+            // not this Behavior field.
+            invulnerable_time_ms: match module.attribute("InvulnerableTime") {
+                Some(value) => parse_duration_ms(value),
+                None => Some(0),
+            },
+            death_types: module
+                .attribute("DeathTypes")
+                .map(parse_death_types)
+                .unwrap_or(EjectPilotDeathTypes::All),
+            veterancy_levels: module
+                .attribute("VeterancyLevels")
+                .map(parse_veterancy_levels)
+                .unwrap_or(EjectPilotVeterancyLevels::All),
+            exempt_status: module
+                .attribute("ExemptStatus")
+                .map(parse_exempt_status)
+                .unwrap_or(EjectPilotExemptStatus::None),
+            required_status: module
+                .attribute("RequiredStatus")
+                .map(parse_required_status)
+                .unwrap_or(EjectPilotRequiredStatus::None),
+        };
+        template.eject_pilot_die = Some(metadata);
+    }
+
+    /// Retain one exact `HackInternetAIUpdate` behavior from Object INI.
+    ///
+    /// C++ owns these fields in `HackInternetAIUpdateModuleData`; it does not
+    /// derive them from a China faction, `MONEY_HACKER`, or a template name.
+    /// Missing fields preserve the C++ constructor's zero defaults.  A
+    /// malformed present field or multiple update modules cannot be merged
+    /// safely, so the live Hacker command/income path rejects that template.
+    fn apply_authored_hack_internet_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::HackInternetAIUpdateMetadata;
+
+        fn stripped_value(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+
+        // `INI::parseDurationUnsignedInt`: scan an unsigned millisecond
+        // prefix and round *up* to 30 Hz logic frames.
+        fn parse_duration_frames(value: &str) -> Option<u32> {
+            let digits: String = stripped_value(value)
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            let milliseconds = digits.parse::<u64>().ok()?;
+            let frames = milliseconds.checked_mul(30)?.checked_add(999)? / 1_000;
+            u32::try_from(frames).ok()
+        }
+
+        // C++ `parseUnsignedInt` uses an unsigned numeric prefix.  Retain
+        // that permissive numeric boundary but reject an empty/non-numeric
+        // authored value rather than substituting a retail constant.
+        fn parse_unsigned(value: &str) -> Option<u32> {
+            let digits: String = stripped_value(value)
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            digits.parse::<u32>().ok()
+        }
+
+        fn parse_real(value: &str) -> Option<f32> {
+            stripped_value(value)
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())
+        }
+
+        let modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("HackInternetAIUpdate")
+            })
+            .collect();
+        let [module] = modules.as_slice() else {
+            template.hack_internet_ai_update = None;
+            return;
+        };
+
+        let parse = || -> Option<HackInternetAIUpdateMetadata> {
+            Some(HackInternetAIUpdateMetadata {
+                unpack_time_frames: match module.attribute("UnpackTime") {
+                    Some(value) => parse_duration_frames(value)?,
+                    None => 0,
+                },
+                pack_time_frames: match module.attribute("PackTime") {
+                    Some(value) => parse_duration_frames(value)?,
+                    None => 0,
+                },
+                cash_update_delay_frames: match module.attribute("CashUpdateDelay") {
+                    Some(value) => parse_duration_frames(value)?,
+                    None => 0,
+                },
+                cash_update_delay_fast_frames: match module.attribute("CashUpdateDelayFast") {
+                    Some(value) => parse_duration_frames(value)?,
+                    None => 0,
+                },
+                regular_cash_amount: match module.attribute("RegularCashAmount") {
+                    Some(value) => parse_unsigned(value)?,
+                    None => 0,
+                },
+                veteran_cash_amount: match module.attribute("VeteranCashAmount") {
+                    Some(value) => parse_unsigned(value)?,
+                    None => 0,
+                },
+                elite_cash_amount: match module.attribute("EliteCashAmount") {
+                    Some(value) => parse_unsigned(value)?,
+                    None => 0,
+                },
+                heroic_cash_amount: match module.attribute("HeroicCashAmount") {
+                    Some(value) => parse_unsigned(value)?,
+                    None => 0,
+                },
+                xp_per_cash_update: match module.attribute("XpPerCashUpdate") {
+                    // C++ stores this as `UnsignedInt`; retain the exact
+                    // accepted syntax before adapting to Main's f32 XP API.
+                    Some(value) => parse_unsigned(value)? as f32,
+                    None => 0.0,
+                },
+                pack_unpack_variation_factor: match module.attribute("PackUnpackVariationFactor") {
+                    Some(value) => parse_real(value)?,
+                    None => 0.0,
+                },
+            })
+        };
+        template.hack_internet_ai_update = parse();
+    }
+
+    /// Retain the exact Object INI data C++ `OverchargeBehavior` consumes.
+    ///
+    /// This is intentionally neither a China-faction nor a `PowerPlant`
+    /// classification.  The live toggle/damage path is authorized only by
+    /// this behavior; a separately parsed ThingTemplate `EnergyBonus` only
+    /// determines its power delta and defaults to zero in C++.
+    /// Missing behavior stays absent; missing fields *inside* a real behavior
+    /// retain C++ `OverchargeBehaviorModuleData` constructor defaults of 0%.
+    fn apply_authored_overcharge_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::OverchargeBehaviorMetadata;
+
+        fn stripped_value(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+
+        // C++ `INI::parsePercentToReal` accepts a bare numeric or one ending
+        // in `%`, then divides by 100.  Reject NaN/Infinity because the host
+        // cannot safely represent a non-finite damage rate.
+        fn parse_percent_to_real(value: &str) -> Option<f32> {
+            stripped_value(value)
+                .trim_end_matches('%')
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| value / 100.0)
+        }
+
+        // C++ `INI::parseInt` ultimately uses `sscanf("%d")`: accept a
+        // signed integer prefix (so `5.0` retains its C++ value of 5) but do
+        // not manufacture a value when no integer begins the field.
+        fn parse_cxx_int(value: &str) -> Option<i32> {
+            let value = stripped_value(value).trim_start();
+            let sign_len = if value.starts_with('+') || value.starts_with('-') {
+                1
+            } else {
+                0
+            };
+            let digits_len = value[sign_len..]
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .count();
+            (digits_len > 0)
+                .then(|| &value[..sign_len + digits_len])
+                .and_then(|integer| integer.parse::<i32>().ok())
+        }
+
+        // `EnergyBonus` belongs to ThingTemplate rather than the Behavior.
+        // Its C++ constructor default is zero, and that default does *not*
+        // remove an authored OverchargeBehavior interface.  In contrast, a
+        // malformed present field cannot be safely given a made-up delta, so
+        // reject the whole live behavior rather than turn it into a +0 guess.
+        template.energy_bonus = match Self::object_definition_attr(definition, "energybonus") {
+            Some(value) => match parse_cxx_int(&value) {
+                Some(value) => Some(value),
+                None => {
+                    template.overcharge_behavior = None;
+                    return;
+                }
+            },
+            None => None,
+        };
+
+        let modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("OverchargeBehavior"))
+            .collect();
+        let [module] = modules.as_slice() else {
+            template.overcharge_behavior = None;
+            return;
+        };
+
+        template.overcharge_behavior = Some(OverchargeBehaviorMetadata {
+            health_percent_to_drain_per_second: match module
+                .attribute("HealthPercentToDrainPerSecond")
+            {
+                Some(value) => match parse_percent_to_real(value) {
+                    Some(value) => value,
+                    None => {
+                        template.overcharge_behavior = None;
+                        return;
+                    }
+                },
+                None => 0.0,
+            },
+            not_allowed_when_health_below_percent: match module
+                .attribute("NotAllowedWhenHealthBelowPercent")
+            {
+                Some(value) => match parse_percent_to_real(value) {
+                    Some(value) => value,
+                    None => {
+                        template.overcharge_behavior = None;
+                        return;
+                    }
+                },
+                None => 0.0,
+            },
+        });
+    }
+
+    /// Retain the exact `PowerPlantUpdate` interface used by
+    /// `OverchargeBehavior::enable` solely for its rod model conditions.  An
+    /// object may legitimately have Overcharge without this interface, so an
+    /// absent/malformed update never removes the typed power toggle; it only
+    /// suppresses a visual state Main cannot faithfully drive.
+    fn apply_authored_power_plant_update_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::PowerPlantUpdateMetadata;
+
+        fn stripped_value(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+
+        // `INI::parseDurationUnsignedInt`: scan an unsigned millisecond
+        // prefix and ceil-convert it to the 30 Hz logic frame counter.
+        fn parse_duration_frames(value: &str) -> Option<u32> {
+            let digits: String = stripped_value(value)
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            let milliseconds = digits.parse::<u64>().ok()?;
+            let frames = milliseconds.checked_mul(30)?.checked_add(999)? / 1_000;
+            u32::try_from(frames).ok()
+        }
+
+        let modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("PowerPlantUpdate"))
+            .collect();
+        let [module] = modules.as_slice() else {
+            template.power_plant_update = None;
+            return;
+        };
+
+        template.power_plant_update = match module.attribute("RodsExtendTime") {
+            Some(value) => parse_duration_frames(value).map(|rods_extend_time_frames| {
+                PowerPlantUpdateMetadata {
+                    rods_extend_time_frames,
+                }
+            }),
+            // C++ `PowerPlantUpdateModuleData` constructor default.
+            None => Some(PowerPlantUpdateMetadata {
+                rods_extend_time_frames: 0,
+            }),
+        };
+    }
+
     /// Retain the small exact data slice consumed by C++
     /// `ActionManager::canCaptureBuilding`: source capture SpecialPower,
     /// target CAPTURABLE/IMMUNE_TO_CAPTURE flags, and GarrisonContain state.
@@ -1239,6 +1949,16 @@ impl GameLogic {
                     }
                 }
                 Self::apply_authored_parking_place_metadata(template, &definition);
+                // Starter templates are retained by the host before the full
+                // Object INI catalogue is seeded.  They still need the exact
+                // authored exit interface; otherwise a retail ChinaBarracks
+                // silently falls back to the legacy/no-interface production
+                // path solely because it already existed in the template map.
+                Self::apply_authored_production_exit_metadata(template, &definition);
+                Self::apply_authored_eject_pilot_die_metadata(template, &definition);
+                Self::apply_authored_hack_internet_metadata(template, &definition);
+                Self::apply_authored_overcharge_metadata(template, &definition);
+                Self::apply_authored_power_plant_update_metadata(template, &definition);
                 if definition.scale_was_specified {
                     template.set_asset_scale(definition.scale);
                 }
@@ -2392,18 +3112,16 @@ mod tests {
             .ancestors()
             .nth(3)
             .expect("Main crate must remain three levels below repository root");
-        let faction_buildings = std::fs::read_to_string(
-            repo_root.join(
+        let faction_buildings =
+            std::fs::read_to_string(repo_root.join(
                 "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
-            ),
-        )
-        .expect("retail FactionBuilding.ini");
-        let america_vehicles = std::fs::read_to_string(
-            repo_root.join(
+            ))
+            .expect("retail FactionBuilding.ini");
+        let america_vehicles =
+            std::fs::read_to_string(repo_root.join(
                 "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaVehicle.ini",
-            ),
-        )
-        .expect("retail AmericaVehicle.ini");
+            ))
+            .expect("retail AmericaVehicle.ini");
 
         let mut parser = crate::assets::IniParser::new();
         parser
@@ -2426,6 +3144,135 @@ mod tests {
         assert!(parsed("AmericaBarracks").is_kind_of(KindOf::HealPad));
         assert!(parsed("AmericaWarFactory").is_kind_of(KindOf::RepairPad));
         assert!(parsed("AmericaVehicleDozer").is_kind_of(KindOf::Dozer));
+    }
+
+    #[test]
+    fn retail_hack_internet_metadata_drives_field_and_contained_income() {
+        use glam::Vec3;
+        use std::path::Path;
+
+        // This is deliberately a retail parser-to-runtime proof, rather than
+        // a `TestHacker` basename fixture.  ChinaInfantryHacker carries the
+        // exact HackInternetAIUpdate and MONEY_HACKER KindOf; ChinaInternetCenter
+        // carries InternetHackContain's eight transport slots and one-kind
+        // admission mask.
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("Main crate must remain three levels below repository root");
+        let china_infantry =
+            std::fs::read_to_string(repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaInfantry.ini",
+            ))
+            .expect("retail ChinaInfantry.ini");
+        let faction_buildings =
+            std::fs::read_to_string(repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+            ))
+            .expect("retail FactionBuilding.ini");
+
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&china_infantry, "ChinaInfantry.ini")
+            .expect("parse retail China infantry");
+        parser
+            .parse_ini_content(&faction_buildings, "FactionBuilding.ini")
+            .expect("parse retail faction buildings");
+
+        let hacker_template = GameLogic::build_template_from_object_definition(
+            "ChinaInfantryHacker",
+            parser
+                .get_definition("ChinaInfantryHacker")
+                .expect("retail China hacker definition"),
+            None,
+        );
+        let hacker_data = hacker_template
+            .hack_internet_ai_update
+            .expect("retail HackInternetAIUpdate metadata");
+        assert!(hacker_template.is_kind_of(KindOf::MoneyHacker));
+        assert_eq!(hacker_template.transport_slot_count, Some(1));
+        assert_eq!(hacker_data.unpack_time_frames, 219);
+        assert_eq!(hacker_data.pack_time_frames, 154);
+        assert_eq!(hacker_data.cash_update_delay_frames, 60);
+        assert_eq!(hacker_data.cash_update_delay_fast_frames, 54);
+        assert_eq!(hacker_data.regular_cash_amount, 5);
+        assert_eq!(hacker_data.veteran_cash_amount, 6);
+        assert_eq!(hacker_data.elite_cash_amount, 8);
+        assert_eq!(hacker_data.heroic_cash_amount, 10);
+        assert!((hacker_data.xp_per_cash_update - 1.0).abs() < f32::EPSILON);
+
+        let center_template = GameLogic::build_template_from_object_definition(
+            "ChinaInternetCenter",
+            parser
+                .get_definition("ChinaInternetCenter")
+                .expect("retail China Internet Center definition"),
+            None,
+        );
+        assert_eq!(
+            center_template.contain_module.kind,
+            ContainModuleKind::InternetHack
+        );
+        assert_eq!(center_template.contain_module.slots, Some(8));
+        assert_eq!(
+            center_template.contain_module.admission,
+            ContainAdmission::MoneyHackerOnly
+        );
+
+        let mut logic = GameLogic::new();
+        let mut china = Player::new(1, Team::China, "China", true);
+        china.resources.supplies = 0;
+        logic.add_player(china);
+        logic
+            .templates
+            .insert("ChinaInfantryHacker".to_string(), hacker_template);
+        logic
+            .templates
+            .insert("ChinaInternetCenter".to_string(), center_template);
+
+        let field_hacker = logic
+            .create_object_for_player("ChinaInfantryHacker", 1, Vec3::new(16.0, 0.0, 0.0))
+            .expect("field hacker");
+        let contained_hacker = logic
+            .create_object_for_player("ChinaInfantryHacker", 1, Vec3::new(1.0, 0.0, 0.0))
+            .expect("contained hacker");
+        let center = logic
+            .create_object_for_player("ChinaInternetCenter", 1, Vec3::ZERO)
+            .expect("Internet Center");
+
+        // This checks the frozen input authority and the arrival-side
+        // containment bookkeeping together: a generic infantry unit cannot
+        // stand in for the parsed MONEY_HACKER contract.
+        assert!(logic.can_unit_enter_normal_target(contained_hacker, center));
+        assert!(logic
+            .host_object_mut(center)
+            .expect("Internet Center object")
+            .add_occupant(contained_hacker));
+        logic
+            .host_object_mut(contained_hacker)
+            .expect("contained hacker object")
+            .set_contained_by(Some(center));
+
+        logic.frame = 0;
+        assert!(logic.start_hacker_internet_hack(field_hacker));
+        logic.update_hacker_income();
+        assert!(logic.hacker_income().is_hacking(contained_hacker));
+        assert_eq!(logic.get_player(1).unwrap().resources.supplies, 0);
+
+        // `HackInternetState` decrements a positive timer, then deposits on
+        // its following update.  The contained hacker therefore fires at
+        // 54 + 1, before the field hacker's 60 + 1.
+        logic.frame = 54;
+        logic.update_hacker_income();
+        assert_eq!(logic.get_player(1).unwrap().resources.supplies, 0);
+        logic.frame = 55;
+        logic.update_hacker_income();
+        assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
+        logic.frame = 60;
+        logic.update_hacker_income();
+        assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
+        logic.frame = 61;
+        logic.update_hacker_income();
+        assert_eq!(logic.get_player(1).unwrap().resources.supplies, 10);
     }
 
     #[test]
@@ -2585,6 +3432,166 @@ End
             ordinary.deploy_style_metadata.is_none(),
             "VEHICLE KindOf/name must not synthesize DeployStyle authority"
         );
+    }
+
+    #[test]
+    fn production_exit_modules_preserve_queue_and_default_authority() {
+        // Retail-shaped values from FactionBuilding.ini: ChinaBarracks has a
+        // QueueProductionExitUpdate (300 ms = 9 logic frames); AmericaWarFactory
+        // uses DefaultProductionExitUpdate and therefore has no artificial
+        // delay/burst state.  Neither result is inferred from the Object name.
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object RetailChinaProducer
+  Type = Structure
+  KindOf = STRUCTURE
+  Behavior = QueueProductionExitUpdate ModuleTag_Exit
+    UnitCreatePoint = X:0.0 Y:-25.0 Z:0.0
+    NaturalRallyPoint = X:36.0 Y:-25.0 Z:0.0
+    ExitDelay = 300
+    AllowAirborneCreation = Yes
+    InitialBurst = 2
+  End
+End
+Object RetailAmericaProducer
+  Type = Structure
+  KindOf = STRUCTURE
+  Behavior = DefaultProductionExitUpdate ModuleTag_Exit
+    UnitCreatePoint = X:-10.0 Y:-30.0 Z:0.0
+    NaturalRallyPoint = X:53.0 Y:-30.0 Z:0.0
+    UseSpawnRallyPoint = Yes
+  End
+End
+Object BarracksNamedWithoutExitBehavior
+  Type = Structure
+  KindOf = STRUCTURE
+End
+"#,
+                "production_exit_metadata_probe.ini",
+            )
+            .expect("parse production exit probes");
+
+        let china = GameLogic::build_template_from_object_definition(
+            "RetailChinaProducer",
+            parser
+                .get_definition("RetailChinaProducer")
+                .expect("Queue definition"),
+            None,
+        );
+        let queue = china
+            .production_exit_metadata
+            .expect("authored QueueProductionExitUpdate");
+        assert_eq!(queue.style, ProductionExitStyle::Queue);
+        assert_eq!(queue.unit_create_point, [0.0, -25.0, 0.0]);
+        assert_eq!(queue.natural_rally_point, [36.0, -25.0, 0.0]);
+        assert_eq!(queue.exit_delay_frames, 9);
+        assert!(queue.allow_airborne_creation);
+        assert_eq!(queue.initial_burst, 2);
+
+        let america = GameLogic::build_template_from_object_definition(
+            "RetailAmericaProducer",
+            parser
+                .get_definition("RetailAmericaProducer")
+                .expect("Default definition"),
+            None,
+        );
+        let default_exit = america
+            .production_exit_metadata
+            .expect("authored DefaultProductionExitUpdate");
+        assert_eq!(default_exit.style, ProductionExitStyle::Default);
+        assert_eq!(default_exit.unit_create_point, [-10.0, -30.0, 0.0]);
+        assert_eq!(default_exit.natural_rally_point, [53.0, -30.0, 0.0]);
+        assert_eq!(default_exit.exit_delay_frames, 0);
+        assert!(default_exit.use_spawn_rally_point);
+
+        let absent = GameLogic::build_template_from_object_definition(
+            "BarracksNamedWithoutExitBehavior",
+            parser
+                .get_definition("BarracksNamedWithoutExitBehavior")
+                .expect("no-exit definition"),
+            None,
+        );
+        assert!(
+            absent.production_exit_metadata.is_none(),
+            "a producer-shaped basename must not synthesize an exit interface"
+        );
+
+        // The runtime seeds retail definitions over a small starter-template
+        // catalogue.  Enrichment must preserve this exact Queue interface
+        // when the producer already exists; it is not only a newly-created
+        // template concern.
+        let mut seeded = GameLogic::new();
+        seeded.templates.insert(
+            "RetailChinaProducer".to_string(),
+            crate::game_logic::ThingTemplate::new("RetailChinaProducer"),
+        );
+        assert_eq!(
+            seeded.seed_asset_definition_templates_from_snapshot(vec![(
+                "RetailChinaProducer".to_string(),
+                parser
+                    .get_definition("RetailChinaProducer")
+                    .expect("Queue definition for existing template")
+                    .clone(),
+            )]),
+            0,
+        );
+        assert_eq!(
+            seeded
+                .templates
+                .get("RetailChinaProducer")
+                .and_then(|template| template.production_exit_metadata),
+            Some(queue),
+            "existing starter producers must receive parsed exit metadata"
+        );
+
+        // Exercise the actual retail definitions too, including their trailing
+        // INI comments and module tags.  These values are the live China Red
+        // Guard Queue producer and USA factory Default producer, not a
+        // hand-copied template-name fallback.
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("Main crate must remain three levels below repository root");
+        let retail =
+            std::fs::read_to_string(repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+            ))
+            .expect("retail FactionBuilding.ini");
+        let mut retail_parser = crate::assets::IniParser::new();
+        retail_parser
+            .parse_ini_content(&retail, "FactionBuilding.ini")
+            .expect("parse retail production exits");
+        let retail_china = GameLogic::build_template_from_object_definition(
+            "ChinaBarracks",
+            retail_parser
+                .get_definition("ChinaBarracks")
+                .expect("retail ChinaBarracks"),
+            None,
+        );
+        let retail_queue = retail_china
+            .production_exit_metadata
+            .expect("retail China QueueProductionExitUpdate");
+        assert_eq!(retail_queue.style, ProductionExitStyle::Queue);
+        assert_eq!(retail_queue.exit_delay_frames, 9);
+        assert_eq!(retail_queue.initial_burst, 0);
+        assert_eq!(retail_queue.unit_create_point, [0.0, -25.0, 0.0]);
+        assert_eq!(retail_queue.natural_rally_point, [36.0, -25.0, 0.0]);
+
+        let retail_factory = GameLogic::build_template_from_object_definition(
+            "AmericaWarFactory",
+            retail_parser
+                .get_definition("AmericaWarFactory")
+                .expect("retail AmericaWarFactory"),
+            None,
+        );
+        let retail_default = retail_factory
+            .production_exit_metadata
+            .expect("retail DefaultProductionExitUpdate");
+        assert_eq!(retail_default.style, ProductionExitStyle::Default);
+        assert_eq!(retail_default.unit_create_point, [-10.0, -30.0, 0.0]);
+        assert_eq!(retail_default.natural_rally_point, [53.0, -30.0, 0.0]);
     }
 
     #[test]
@@ -2787,7 +3794,7 @@ End
 
         let mut retail_unit = ObjectDefinition::new("AmericaTankCrusader".to_string());
         retail_unit.object_type = "Vehicle".to_string();
-        retail_unit.hit_points = Some(480);
+        retail_unit.hit_points = Some(480.0);
         retail_unit.model_name = Some("AVCrusader".to_string());
         retail_unit.scale = 0.9;
         retail_unit.scale_was_specified = true;
@@ -2801,7 +3808,7 @@ End
 
         let mut retail_new = ObjectDefinition::new("AmericaTankPaladin".to_string());
         retail_new.object_type = "Vehicle".to_string();
-        retail_new.hit_points = Some(600);
+        retail_new.hit_points = Some(600.0);
         retail_new.model_name = Some("AVPaladin".to_string());
         retail_new.scale = 0.66;
         retail_new.scale_was_specified = true;

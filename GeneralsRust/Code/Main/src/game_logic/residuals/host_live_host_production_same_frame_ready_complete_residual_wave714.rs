@@ -243,6 +243,7 @@ mod tests {
                 template_name: "SfUnit".into(),
                 progress: 10.0,
                 total_time: 10.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 100,
                     power: 0,

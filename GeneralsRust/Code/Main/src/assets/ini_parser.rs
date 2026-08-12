@@ -205,8 +205,10 @@ pub struct ObjectDefinition {
     /// Armor type
     pub armor_type: Option<String>,
 
-    /// Health points
-    pub hit_points: Option<u32>,
+    /// Health points.  Object INI `MaxHealth` is a C++ `Real`, so retain
+    /// authored fractional values such as the retail ChinaPowerPlant's
+    /// `1500.0` rather than silently discarding them as non-integer text.
+    pub hit_points: Option<f32>,
 
     /// Scale factor for the model
     pub scale: f32,
@@ -652,7 +654,11 @@ impl IniParser {
                         }
                         "armortype" => obj.armor_type = Some(value.to_string()),
                         "hitpoints" | "health" | "maxhealth" => {
-                            obj.hit_points = value.parse().ok();
+                            obj.hit_points = value
+                                .trim()
+                                .parse::<f32>()
+                                .ok()
+                                .filter(|health| health.is_finite());
                         }
                         "scale" => {
                             if let Ok(scale) = value.trim().parse::<f32>() {
@@ -942,7 +948,7 @@ End
         assert_eq!(def.object_type, "Infantry");
         assert_eq!(def.display_name, "USA Ranger");
         assert_eq!(def.model_name, Some("USA_INFANTRY_RANGER.w3d".to_string()));
-        assert_eq!(def.hit_points, Some(60));
+        assert_eq!(def.hit_points, Some(60.0));
     }
 
     #[test]
@@ -1102,7 +1108,7 @@ End
         assert_eq!(count, 1);
         let def = parser.get_definition("TestStructure").unwrap();
         assert_eq!(def.model_name.as_deref(), Some("TESTMODEL"));
-        assert_eq!(def.hit_points, Some(1500));
+        assert_eq!(def.hit_points, Some(1500.0));
         assert_eq!(
             def.attributes.get("KindOf").map(|s| s.as_str()),
             Some("STRUCTURE SELECTABLE")

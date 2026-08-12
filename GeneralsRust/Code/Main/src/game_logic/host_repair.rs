@@ -60,8 +60,7 @@ pub fn support_approach_position(
     if direction.length_squared() <= f32::EPSILON {
         return target_position;
     }
-    let side_offset = (target_selection_radius.max(0.0) * 0.5)
-        .min(HOST_REPAIR_INTERACT_RANGE);
+    let side_offset = (target_selection_radius.max(0.0) * 0.5).min(HOST_REPAIR_INTERACT_RANGE);
     target_position + direction * side_offset
 }
 
@@ -134,19 +133,6 @@ pub fn building_provides_aircraft_repair(building_type: BuildingType) -> bool {
     building_type == BuildingType::Airfield
 }
 
-/// Whether residual unit can issue structure Repair (C++ KINDOF_DOZER / Worker).
-/// Fail-closed: not full ActionManager canRepairObject edge matrix.
-pub fn is_structure_repairer(is_worker: bool, can_move: bool, template_name: &str) -> bool {
-    if !can_move {
-        return false;
-    }
-    if is_worker {
-        return true;
-    }
-    let n = template_name.to_ascii_lowercase();
-    n.contains("dozer") || n.contains("worker")
-}
-
 /// Whether target is a legal structure-repair destination residual.
 pub fn is_legal_structure_repair_target(
     is_structure: bool,
@@ -193,17 +179,6 @@ mod tests {
         ));
         assert!(building_provides_aircraft_repair(BuildingType::Airfield));
         assert!(!building_provides_aircraft_repair(BuildingType::WarFactory));
-    }
-
-    #[test]
-    fn structure_repairer_helpers() {
-        assert!(is_structure_repairer(true, true, "TestInfantry"));
-        assert!(is_structure_repairer(false, true, "USA_Dozer"));
-        assert!(is_structure_repairer(false, true, "GLA_Worker"));
-        assert!(!is_structure_repairer(false, true, "USA_Ranger"));
-        assert!(!is_structure_repairer(true, false, "TestDozer"));
-        assert!(HOST_REPAIR_RATE_HP_PER_SEC > 0.0);
-        assert!(HOST_REPAIR_INTERACT_RANGE > 0.0);
     }
 
     #[test]

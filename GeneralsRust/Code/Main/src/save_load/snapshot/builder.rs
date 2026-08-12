@@ -271,7 +271,11 @@ impl SnapshotBuilder {
                 .map(|item| ProductionQueueEntry {
                     template_name: item.template_name.clone(),
                     progress: item.progress,
+                    construction_frames: item.construction_frames,
                     cost: item.cost.supplies,
+                    quantity_total: item.quantity_total.max(1),
+                    quantity_produced: item.quantity_produced,
+                    is_upgrade: item.is_upgrade(),
                 })
                 .collect();
 
@@ -282,6 +286,10 @@ impl SnapshotBuilder {
                     is_producing: !building_data.production_queue.is_empty(),
                     production_progress: building_data.get_production_progress().unwrap_or(0.0),
                     rally_point: building_data.rally_point,
+                    exit_delay_remaining: building_data.exit_delay_remaining,
+                    exit_delay_remaining_frames: building_data.exit_delay_remaining_frames,
+                    exit_burst_remaining: building_data.exit_burst_remaining,
+                    queue_exit_state_initialized: building_data.queue_exit_state_initialized,
                 }),
             );
         }

@@ -1641,126 +1641,224 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
     );
 }
 
-/// Residual: EjectPilotDie spawns AmericaInfantryPilot when eligible USA vehicle dies.
+/// Retail parser → typed EjectPilotDie module → live death/OCL outcome.
 ///
-/// C++ EjectPilotDie → OCL_EjectPilotOnGround ObjectNames = AmericaInfantryPilot.
-/// VeterancyLevels = ALL -REGULAR residual: vehicle must be Veteran+.
-/// Fail-closed ground path (air OCL residual covered by air parachute test).
+/// This exercises the actual AmericaVehicle/AmericaAir Object INI entries
+/// instead of admitting an object from its basename.  It also proves the C++
+/// `getEjectPilotDieInterface()` distinction: module presence permits the
+/// Hijacker-side query even when a selected OCL is unsupported, while actual
+/// death spawning remains fail-closed.
 #[test]
-fn eject_pilot_die_spawns_pilot_on_vehicle_death_residual() {
+fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
     use crate::game_logic::host_usa_pilot::{
-        is_eject_pilot_eligible_template, EJECT_PILOT_TEMPLATE,
+        significantly_above_terrain_threshold, EJECT_PILOT_TEMPLATE,
     };
-    use crate::game_logic::VeterancyLevel;
+    use crate::game_logic::{EjectPilotCreationList, VeterancyLevel};
+    use std::path::Path;
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("Main crate must remain three levels below repository root");
+    let retail_object_dir =
+        repo_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object");
+    let mut parser = crate::assets::IniParser::new();
+    for filename in [
+        "AmericaVehicle.ini",
+        "AmericaAir.ini",
+        "AmericaInfantry.ini",
+    ] {
+        let source = std::fs::read_to_string(retail_object_dir.join(filename))
+            .unwrap_or_else(|error| panic!("read retail {filename}: {error}"));
+        parser
+            .parse_ini_content(&source, filename)
+            .unwrap_or_else(|error| panic!("parse retail {filename}: {error}"));
+    }
+
+    let build_retail_template = |name: &str| {
+        GameLogic::build_template_from_object_definition(
+            name,
+            parser
+                .get_definition(name)
+                .unwrap_or_else(|| panic!("retail definition {name}")),
+            None,
+        )
+    };
+    let humvee_template = build_retail_template("AmericaVehicleHumvee");
+    let raptor_template = build_retail_template("AmericaJetRaptor");
+    let pilot_template = build_retail_template(EJECT_PILOT_TEMPLATE);
+
+    let humvee_metadata = humvee_template
+        .eject_pilot_die
+        .expect("retail Humvee EjectPilotDie metadata");
+    assert_eq!(
+        humvee_metadata.ground_creation_list,
+        Some(EjectPilotCreationList::OnGround)
+    );
+    assert_eq!(
+        humvee_metadata.air_creation_list,
+        Some(EjectPilotCreationList::ViaParachute)
+    );
+    assert_eq!(
+        humvee_metadata.invulnerable_time_ms,
+        Some(0),
+        "module default stays distinct from the selected OCL's 2000 ms grant"
+    );
+    assert!(raptor_template.eject_pilot_die.is_some());
 
     let mut game_logic = GameLogic::new();
-
-    let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
-    humvee_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(200.0);
+    game_logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA 0", true));
     game_logic
         .templates
-        .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
-    assert!(is_eject_pilot_eligible_template("AmericaVehicleHumvee"));
+        .insert("AmericaVehicleHumvee".to_string(), humvee_template);
+    game_logic
+        .templates
+        .insert("AmericaJetRaptor".to_string(), raptor_template);
+    game_logic
+        .templates
+        .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_template);
 
-    // Ineligible control (TestTank has no EjectPilotDie residual).
-    ensure_test_tank_template(&mut game_logic);
-
+    // A real parsed ground module exposes the hijacker interface before its
+    // death OCL runs, then the selected OCL gives the pilot its parsed 60f
+    // invulnerability (not the module's default 0 ms).
     let humvee_id = game_logic
-        .create_object(
-            "AmericaVehicleHumvee",
-            Team::USA,
-            Vec3::new(50.0, 0.0, 50.0),
-        )
-        .expect("humvee");
+        .create_object_for_player("AmericaVehicleHumvee", 0, Vec3::new(50.0, 0.0, 50.0))
+        .expect("retail Humvee");
+    assert!(game_logic.vehicle_supports_hijacker_ride(humvee_id));
     {
-        // VeterancyLevels = ALL -REGULAR residual: only vet+ ejects.
-        let h = game_logic.host_object_mut(humvee_id).expect("humvee");
-        h.experience.level = VeterancyLevel::Veteran;
-    }
-    let tank_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 100.0))
-        .expect("tank");
-
-    assert!(!game_logic.honesty_pilot_eject_ok());
-    assert_eq!(game_logic.usa_pilot_residual().ejections, 0);
-
-    // Destroy eligible Humvee → pilot spawn residual.
-    {
-        let h = game_logic.host_object_mut(humvee_id).expect("humvee");
-        let _ = h.take_damage(h.max_health * 2.0);
-        h.status.destroyed = true;
+        let humvee = game_logic
+            .host_object_mut(humvee_id)
+            .expect("Humvee object");
+        humvee.experience.level = VeterancyLevel::Veteran;
+        humvee.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
     game_logic.process_destroy_list();
 
-    assert!(
-        game_logic.honesty_pilot_eject_ok(),
-        "EjectPilotDie residual must record eject honesty"
-    );
-    assert_eq!(game_logic.usa_pilot_residual().ejections, 1);
-    assert!(
-        game_logic.honesty_pilot_ok(),
-        "eject path counts as pilot residual honesty"
-    );
-
-    // Pilot must exist on same team near death pos.
-    let pilots: Vec<_> = game_logic
+    let pilot_id = game_logic
         .objects
-        .values()
-        .filter(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE && o.team == Team::USA)
-        .collect();
-    assert_eq!(pilots.len(), 1, "exactly one pilot must eject");
-    let pilot = pilots[0];
+        .iter()
+        .find(|(_, object)| {
+            object.is_alive()
+                && object.template_name == EJECT_PILOT_TEMPLATE
+                && object.owner_player_id == Some(0)
+        })
+        .map(|(id, _)| *id)
+        .expect("retail ground OCL must create an owned pilot");
+    let pilot = game_logic.host_object(pilot_id).expect("ejected pilot");
+    assert_eq!(pilot.experience.level, VeterancyLevel::Veteran);
     assert_eq!(
-        pilot.experience.level,
-        crate::game_logic::VeterancyLevel::Veteran,
-        "ejected pilot residual starts VETERAN"
+        pilot.status.eject_invulnerable_until_frame,
+        game_logic.frame + 60,
+        "retail OCL_EjectPilotOnGround InvulnerableTime=2000 ms is parsed as 60 frames"
     );
-    let pos = pilot.get_position();
-    assert!(
-        (pos.x - 52.0).abs() < 1.0 && (pos.z - 52.0).abs() < 1.0,
-        "pilot residual spawns near death position, got {pos:?}"
-    );
+    assert!(!pilot.is_parachuting());
 
-    // Ineligible vehicle death must not eject.
-    {
-        let t = game_logic.host_object_mut(tank_id).expect("tank");
-        let _ = t.take_damage(t.max_health * 2.0);
-        t.status.destroyed = true;
-    }
-    game_logic.mark_object_for_destruction(tank_id, Some(Team::GLA));
-    game_logic.process_destroy_list();
-    assert_eq!(
-        game_logic.usa_pilot_residual().ejections,
-        1,
-        "TestTank has no EjectPilotDie residual"
-    );
-
-    // Unmanned eligible vehicle must not eject (no pilot left).
-    let humvee2 = game_logic
-        .create_object(
-            "AmericaVehicleHumvee",
-            Team::USA,
-            Vec3::new(200.0, 0.0, 200.0),
+    // Aircraft may carry this module too.  C++ selects the air list solely
+    // by significant height, so this cannot retain the old vehicle-only
+    // eligibility guard.
+    let raptor_id = game_logic
+        .create_object_for_player(
+            "AmericaJetRaptor",
+            0,
+            Vec3::new(100.0, significantly_above_terrain_threshold() + 40.0, 0.0),
         )
-        .expect("humvee2");
+        .expect("retail Raptor");
+    assert!(game_logic.vehicle_supports_hijacker_ride(raptor_id));
     {
-        let h = game_logic.host_object_mut(humvee2).expect("humvee2");
-        h.experience.level = VeterancyLevel::Veteran;
-        h.apply_kill_pilot_unmanned();
-        let _ = h.take_damage(h.max_health * 2.0);
-        h.status.destroyed = true;
+        let raptor = game_logic
+            .host_object_mut(raptor_id)
+            .expect("Raptor object");
+        raptor.experience.level = VeterancyLevel::Veteran;
+        raptor.status.destroyed = true;
     }
-    game_logic.mark_object_for_destruction(humvee2, Some(Team::GLA));
+    game_logic.mark_object_for_destruction(raptor_id, Some(Team::GLA));
+    game_logic.process_destroy_list();
+    assert!(
+        game_logic.objects.values().any(|object| {
+            object.is_alive()
+                && object.template_name == EJECT_PILOT_TEMPLATE
+                && object.owner_player_id == Some(0)
+                && object.is_parachuting()
+        }),
+        "retail aircraft EjectPilotDie must select OCL_EjectPilotViaParachute"
+    );
+
+    // A name-only impostor gets neither the interface nor a death spawn.
+    let mut name_only = ThingTemplate::new("AmericaVehicleHumveeNameOnly");
+    name_only.add_kind_of(KindOf::Vehicle).set_health(200.0);
+    game_logic
+        .templates
+        .insert("AmericaVehicleHumveeNameOnly".to_string(), name_only);
+    let name_only_id = game_logic
+        .create_object_for_player(
+            "AmericaVehicleHumveeNameOnly",
+            0,
+            Vec3::new(150.0, 0.0, 0.0),
+        )
+        .expect("name-only vehicle");
+    assert!(!game_logic.vehicle_supports_hijacker_ride(name_only_id));
+    let ejections_before_name_only = game_logic.usa_pilot_residual().ejections;
+    game_logic
+        .host_object_mut(name_only_id)
+        .expect("name-only object")
+        .status
+        .destroyed = true;
+    game_logic.mark_object_for_destruction(name_only_id, Some(Team::GLA));
     game_logic.process_destroy_list();
     assert_eq!(
         game_logic.usa_pilot_residual().ejections,
-        1,
-        "unmanned residual must not eject pilot"
+        ejections_before_name_only,
+        "a matching basename is not an EjectPilotDie module"
+    );
+
+    // The interface does not depend on whether the selected OCL is supported.
+    // Parse an otherwise retail-shaped module with an unknown list: it remains
+    // hijack-visible, but its physical death outcome must fail closed.
+    let unknown_source = r#"
+Object ParserShapedUnknownEject
+  KindOf = VEHICLE
+  Behavior = EjectPilotDie ModuleTag_01
+    GroundCreationList = OCL_NotSupportedByHost
+  End
+End
+"#;
+    let mut unknown_parser = crate::assets::IniParser::new();
+    unknown_parser
+        .parse_ini_content(unknown_source, "unknown_eject.ini")
+        .expect("parse unknown EjectPilotDie fixture");
+    let unknown_template = GameLogic::build_template_from_object_definition(
+        "ParserShapedUnknownEject",
+        unknown_parser
+            .get_definition("ParserShapedUnknownEject")
+            .expect("unknown EjectPilotDie definition"),
+        None,
+    );
+    assert!(unknown_template.eject_pilot_die.is_some());
+    game_logic
+        .templates
+        .insert("ParserShapedUnknownEject".to_string(), unknown_template);
+    let unknown_id = game_logic
+        .create_object_for_player("ParserShapedUnknownEject", 0, Vec3::new(200.0, 0.0, 0.0))
+        .expect("unknown module vehicle");
+    assert!(
+        game_logic.vehicle_supports_hijacker_ride(unknown_id),
+        "module presence, not OCL support, is C++ targetCanEject authority"
+    );
+    let ejections_before_unknown = game_logic.usa_pilot_residual().ejections;
+    game_logic
+        .host_object_mut(unknown_id)
+        .expect("unknown module object")
+        .status
+        .destroyed = true;
+    game_logic.mark_object_for_destruction(unknown_id, Some(Team::GLA));
+    game_logic.process_destroy_list();
+    assert_eq!(
+        game_logic.usa_pilot_residual().ejections,
+        ejections_before_unknown,
+        "unknown selected OCL must not synthesize an ejection"
     );
 }
 

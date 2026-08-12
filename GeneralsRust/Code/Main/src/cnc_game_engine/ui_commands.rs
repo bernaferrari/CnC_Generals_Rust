@@ -306,7 +306,7 @@ impl CnCGameEngine {
         log::debug!("BeginStructurePlacement residual: {template_name}");
     }
 
-    /// Pick nearest alive friendly dozer/worker for structure placement residual.
+    /// Pick nearest alive friendly authored dozer for structure placement.
     pub(super) fn find_nearest_friendly_dozer(
         &self,
         player_id: u32,
@@ -327,8 +327,10 @@ impl CnCGameEngine {
                 if o.destroyed || o.team != team {
                     return None;
                 }
-                let n = o.template_name.to_ascii_lowercase();
-                if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
+                if !crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Dozer,
+                ) {
                     return None;
                 }
                 if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
@@ -915,14 +917,10 @@ impl CnCGameEngine {
         if o.destroyed || o.health_current <= 0.0 {
             return false;
         }
-        let n = o.template_name.to_ascii_lowercase();
-        n.contains("dozer")
-            || n.contains("worker")
-            || n.contains("crane")
-            || crate::presentation_frame::PresentationFrame::object_has_kind(
-                o,
-                crate::game_logic::KindOf::Worker,
-            )
+        crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::Dozer,
+        )
     }
 
     #[inline]

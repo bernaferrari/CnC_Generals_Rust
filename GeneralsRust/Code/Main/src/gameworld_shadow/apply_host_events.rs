@@ -131,6 +131,7 @@ impl GameWorldShadow {
                             template_name: it.template_name.clone(),
                             progress: it.progress,
                             total_time: it.total_time,
+                            construction_frames: it.construction_frames,
                             cost_supplies: it.cost.supplies,
                             is_upgrade: it.is_upgrade(),
                             quantity_total: it.quantity_total.max(1),
@@ -171,11 +172,22 @@ impl GameWorldShadow {
             }
             // Wave 480: post-spawn exit delay arm under sole-tick (no queue stomp).
             if ev.exit_delay_only {
-                self.world
-                    .queue_mutation(gamelogic::world::WorldMutation::SetExitDelay {
-                        target: eid,
-                        exit_delay_remaining: ev.exit_delay_remaining,
-                    });
+                if ev.queue_exit_state_initialized {
+                    self.world.queue_mutation(
+                        gamelogic::world::WorldMutation::SetProductionExitRuntime {
+                            target: eid,
+                            exit_delay_remaining_frames: ev.exit_delay_remaining_frames,
+                            exit_burst_remaining: ev.exit_burst_remaining,
+                            queue_exit_state_initialized: true,
+                        },
+                    );
+                } else {
+                    self.world
+                        .queue_mutation(gamelogic::world::WorldMutation::SetExitDelay {
+                            target: eid,
+                            exit_delay_remaining: ev.exit_delay_remaining,
+                        });
+                }
                 n += 1;
                 continue;
             }
@@ -186,6 +198,7 @@ impl GameWorldShadow {
                     template_name: it.template_name.clone(),
                     progress: it.progress,
                     total_time: it.total_time,
+                    construction_frames: it.construction_frames,
                     cost_supplies: it.cost_supplies,
                     is_upgrade: it.is_upgrade,
                     quantity_total: it.quantity_total.max(1),
@@ -201,6 +214,13 @@ impl GameWorldShadow {
                 .queue_mutation(gamelogic::world::WorldMutation::SetExitDelay {
                     target: eid,
                     exit_delay_remaining: ev.exit_delay_remaining,
+                });
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetProductionExitRuntime {
+                    target: eid,
+                    exit_delay_remaining_frames: ev.exit_delay_remaining_frames,
+                    exit_burst_remaining: ev.exit_burst_remaining,
+                    queue_exit_state_initialized: ev.queue_exit_state_initialized,
                 });
             n += 1;
         }

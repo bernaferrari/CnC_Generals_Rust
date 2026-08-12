@@ -823,18 +823,12 @@ impl InputCommandProcessor {
         // C++ ActionManager service eligibility is the source-authored
         // REPAIR_PAD / HEAL_PAD / FS_AIRFIELD KindOf matrix, frozen here for
         // physical input and revalidated at executor authority.
-        let provides_heal = PresentationFrame::object_has_kind(
-            o,
-            crate::game_logic::KindOf::HealPad,
-        );
-        let provides_aircraft_repair = PresentationFrame::object_has_kind(
-            o,
-            crate::game_logic::KindOf::FSAirfield,
-        );
-        let provides_vehicle_repair = PresentationFrame::object_has_kind(
-            o,
-            crate::game_logic::KindOf::RepairPad,
-        );
+        let provides_heal =
+            PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::HealPad);
+        let provides_aircraft_repair =
+            PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::FSAirfield);
+        let provides_vehicle_repair =
+            PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::RepairPad);
         // C++ capture has two independent containment gates: a
         // `GarrisonContain` target rejects any non-stealthed occupant, while
         // `appearsToContainFriendlies` rejects a friendly occupant on any
@@ -892,6 +886,7 @@ impl InputCommandProcessor {
             provides_vehicle_repair,
             provides_aircraft_repair,
             provides_heal,
+            can_provide_service: o.contained_by.is_none(),
             dock_kind: o.dock_kind,
             dock_controller_is_local: frame.is_owned_by_local(o),
             stored_supplies: o.stored_supplies,
@@ -915,13 +910,10 @@ impl InputCommandProcessor {
             let Some(o) = frame.objects.iter().find(|x| x.id == id) else {
                 continue;
             };
-            if o.destroyed || o.health_current <= 0.0 {
+            if o.destroyed || o.health_current <= 0.0 || o.under_construction {
                 continue;
             }
-            let is_worker = PresentationFrame::object_has_kind(
-                o,
-                crate::game_logic::KindOf::Dozer,
-            );
+            let is_worker = PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Dozer);
             let is_resource_collector =
                 PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Harvester);
             let can_attack = o.has_weapon;
@@ -933,14 +925,13 @@ impl InputCommandProcessor {
             let can_repair = is_worker;
             let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
             let is_vehicle =
-                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Vehicle)
-                    || o.object_type == PresentationObjectType::Vehicle;
+                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Vehicle);
             let is_aircraft =
-                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Aircraft)
-                    || o.object_type == PresentationObjectType::Aircraft;
+                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Aircraft);
             let is_infantry =
-                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Infantry)
-                    || o.object_type == PresentationObjectType::Infantry;
+                PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Infantry);
+            let is_above_terrain = o.airborne_target
+                || (o.ground_height_from_terrain && o.position.y > o.ground_height + 0.01);
             out.push(PresentationSelectedUnitHint {
                 id,
                 is_alive: true,
@@ -948,12 +939,14 @@ impl InputCommandProcessor {
                 is_worker,
                 can_attack,
                 can_move,
+                can_request_service: o.contained_by.is_none(),
                 can_capture,
                 template_name: o.template_name.clone(),
                 can_repair,
                 is_damaged,
                 is_vehicle,
                 is_aircraft,
+                is_above_terrain,
                 is_infantry,
                 transport_slot_count: o.transport_slot_count,
                 stored_supplies: o.stored_supplies,

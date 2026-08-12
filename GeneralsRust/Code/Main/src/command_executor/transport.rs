@@ -21,44 +21,19 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
-    /// C++ AIGroup::groupExecuteRailedTransport residual.
-    pub(crate) fn execute_railed_transport(&mut self, units: &[ObjectId]) -> CommandResult {
-        let mut any = false;
-        for &unit_id in units {
-            let is_railish = match self.game_logic.host_object(unit_id) {
-                Some(o) if o.is_alive() => {
-                    let n = o.template_name.to_ascii_lowercase();
-                    o.can_contain()
-                        || n.contains("train")
-                        || n.contains("rail")
-                        || n.contains("locomotive")
-                }
-                _ => false,
-            };
-            if !is_railish {
-                continue;
-            }
-            if matches!(self.execute_evacuate(&[unit_id]), CommandResult::Success) {
-                any = true;
-            }
-            let dest = self.game_logic.host_object(unit_id).and_then(|o| {
-                o.movement
-                    .path
-                    .last()
-                    .copied()
-                    .or(o.movement.target_position)
-            });
-            if let Some(dest) = dest {
-                if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
-                    any = true;
-                }
-            }
-        }
-        if any {
-            CommandResult::Success
-        } else {
-            self.execute_evacuate(units)
-        }
+    /// C++ `AIGroup::groupExecuteRailedTransport` delegates only to
+    /// `RailedTransportAIUpdate::privateExecuteRailedTransport`.
+    ///
+    /// The active Main host world retains the separate railed dock/contain
+    /// metadata, but not the AI module's authored `PathPrefixName`, paired
+    /// terrain waypoints, current-path/transit state, or loading interface.
+    /// Treating a generic contain object (or a name containing "rail") as a
+    /// railed transport used to evacuate passengers and replay an unrelated
+    /// movement target.  That is a different command.  Reject until that
+    /// complete source-backed runtime exists rather than claiming success or
+    /// mutating a player-visible transport.
+    pub(crate) fn execute_railed_transport(&mut self, _units: &[ObjectId]) -> CommandResult {
+        CommandResult::InvalidCommand
     }
 
     /// Find the nearest building that can accept this unit for garrison/enter.
@@ -121,21 +96,19 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> CommandResult {
         // USA Pilot residual: Enter unmanned vehicle for recrew (not transport contain).
-        let pilot_recrew_target = self.game_logic.host_object(target_id).map(|t| {
-            crate::game_logic::host_usa_pilot::is_recrewable_unmanned_vehicle(
-                t.is_alive(),
-                t.is_kind_of(crate::game_logic::KindOf::Vehicle),
-                t.is_kind_of(crate::game_logic::KindOf::Aircraft) || t.status.airborne_target,
-                t.is_unmanned(),
-                t.status.under_construction,
-                t.is_worker() || t.template_name.to_ascii_lowercase().contains("dozer"),
-            )
-        });
+        // A non-container target is legal only when at least one selected
+        // source passes the parsed `VeterancyCrateCollide IsPilot` authority
+        // predicate.  Do not make a generic unmanned VEHICLE look like a
+        // transport while the command is queued.
+        let has_pilot_recrew_source = units
+            .iter()
+            .copied()
+            .any(|unit_id| self.game_logic.can_execute_pilot_recrew(unit_id, target_id));
         let target_pos = match self.game_logic.host_object(target_id) {
             Some(transport)
                 if transport.is_alive()
                     && !transport.status.under_construction
-                    && (transport.can_contain() || pilot_recrew_target == Some(true)) =>
+                    && (transport.can_contain() || has_pilot_recrew_source) =>
             {
                 transport.get_position()
             }
@@ -144,14 +117,15 @@ impl<'a> CommandExecutor<'a> {
 
         let mut issued = false;
         for &unit_id in units {
-            let pilot_recrew = self.game_logic.host_object(unit_id).map(|u| {
-                crate::game_logic::host_usa_pilot::should_recrew_on_enter(
-                    crate::game_logic::host_usa_pilot::is_pilot_template(&u.template_name),
-                    pilot_recrew_target.unwrap_or(false),
-                ) && u.is_alive()
-                    && u.can_move()
-            });
-            if pilot_recrew != Some(true) && !self.can_issue_enter(unit_id, target_id) {
+            let pilot_recrew = self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|unit| {
+                    unit.is_alive()
+                        && unit.can_move()
+                        && self.game_logic.can_execute_pilot_recrew(unit_id, target_id)
+                });
+            if !pilot_recrew && !self.can_issue_enter(unit_id, target_id) {
                 continue;
             }
 

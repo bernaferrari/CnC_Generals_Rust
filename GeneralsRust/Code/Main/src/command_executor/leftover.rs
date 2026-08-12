@@ -571,6 +571,7 @@ impl<'a> CommandExecutor<'a> {
             target_alive,
             target_under_construction,
             target_sold,
+            target_contained,
             target_is_repair_pad,
             target_is_fs_airfield,
         ) = match self.game_logic.host_object(target_id) {
@@ -579,13 +580,14 @@ impl<'a> CommandExecutor<'a> {
                 target.is_alive(),
                 target.status.under_construction,
                 target.status.sold,
+                target.contained_by.is_some(),
                 target.is_kind_of(KindOf::RepairPad),
                 target.is_kind_of(KindOf::FSAirfield),
             ),
             None => return CommandResult::InvalidTarget,
         };
 
-        if !target_alive || target_under_construction || target_sold {
+        if !target_alive || target_under_construction || target_sold || target_contained {
             return CommandResult::InvalidTarget;
         }
 
@@ -609,6 +611,7 @@ impl<'a> CommandExecutor<'a> {
                         && unit.is_alive()
                         && unit.can_move()
                         && !unit.status.under_construction
+                        && unit.contained_by.is_none()
                         && is_damaged
                         && supports_unit
                         // C++ ActionManager::canGetRepairedAt accepts an
@@ -646,6 +649,7 @@ impl<'a> CommandExecutor<'a> {
             target_alive,
             target_under_construction,
             target_sold,
+            target_contained,
             target_is_heal_pad,
         ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
@@ -653,6 +657,7 @@ impl<'a> CommandExecutor<'a> {
                 target.is_alive(),
                 target.status.under_construction,
                 target.status.sold,
+                target.contained_by.is_some(),
                 target.is_kind_of(KindOf::HealPad),
             ),
             None => return CommandResult::InvalidTarget,
@@ -661,6 +666,7 @@ impl<'a> CommandExecutor<'a> {
         if !target_alive
             || target_under_construction
             || target_sold
+            || target_contained
             || !target_is_heal_pad
         {
             return CommandResult::InvalidTarget;
@@ -678,6 +684,7 @@ impl<'a> CommandExecutor<'a> {
                         && unit.is_alive()
                         && unit.can_move()
                         && !unit.status.under_construction
+                        && unit.contained_by.is_none()
                         && is_injured
                         && unit.is_kind_of(KindOf::Infantry)
                 })

@@ -3155,7 +3155,9 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     use crate::game_logic::host_production_buildable_command_residual::{
         production_quantity_modifier, QUANTITY_MODIFIER_SAMPLE_COUNT,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate, VeterancyLevel};
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate, VeterancyLevel,
+    };
     assert_eq!(QUANTITY_MODIFIER_SAMPLE_COUNT, 2);
     assert_eq!(
         production_quantity_modifier("ChinaBarracks", "ChinaInfantryRedguard"),
@@ -3172,6 +3174,15 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     bar.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks)
         .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 0.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+    });
     logic.templates.insert("ChinaBarracks".into(), bar);
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
     rg.add_kind_of(KindOf::Infantry)
@@ -3208,27 +3219,80 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
         .unwrap_or(0);
     assert_eq!(qty, 2, "Redguard quantity_total residual");
 
-    // Drain build + exit delays for both units (~0.05 + 0.3 + 0.3).
-    for _ in 0..40 {
-        logic.update();
+    // The terminal build frame reaches a closed China barracks door first;
+    // nothing may exit until it reaches C++ WAITING_OPEN.
+    logic.update();
+    let before_open = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.template_name == "ChinaInfantryRedguard" && o.is_alive())
+        .count();
+    assert_eq!(
+        before_open, 0,
+        "closed door must not release a batch member"
+    );
+    assert_eq!(
+        logic
+            .host_object(bid)
+            .and_then(|o| o.building_data.as_ref())
+            .map(|b| b.production_queue.len()),
+        Some(1),
+        "closed door retains the completed batch"
+    );
+
+    // Simulate the authored door reaching WAITING_OPEN.  A fresh Queue exit
+    // has currentDelay=0/currentBurst=InitialBurst(0), so it admits exactly
+    // one member before that successful exit arms its retail 300ms/9-frame
+    // delay.
+    let hold_open_until = logic.get_frame().saturating_add(100);
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.production_door_phase = 2;
+        o.production_door_phase_end_frame = hold_open_until;
     }
+    logic.update();
     let living = logic
         .host_objects()
         .values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
     assert_eq!(
-        living, 2,
-        "QuantityModifier residual spawns two Redguards from one enqueue, living={living}"
+        living, 1,
+        "fresh Queue exit must release one Red Guard before its delay, living={living}"
     );
-    // Queue empty after batch.
+    let first_state = logic
+        .host_object(bid)
+        .and_then(|o| o.building_data.as_ref())
+        .expect("building after first Queue exit");
+    assert_eq!(first_state.exit_delay_remaining_frames, 9);
+    assert_eq!(first_state.exit_burst_remaining, 0);
+    assert_eq!(first_state.production_queue[0].quantity_produced, 1);
+
+    for _ in 0..8 {
+        logic.update();
+    }
+    let held = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+        .count();
+    assert_eq!(held, 1, "Queue must hold the second Red Guard for 8 frames");
+    logic.update();
+    let released = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+        .count();
+    assert_eq!(
+        released, 2,
+        "9th Queue update releases the second Red Guard"
+    );
     let qlen_end = logic
         .host_object(bid)
         .and_then(|o| o.building_data.as_ref())
         .map(|b| b.production_queue.len())
         .unwrap_or(99);
     assert_eq!(qlen_end, 0);
-    // Exit path residual: units should be Moving toward natural/doubled rally.
+    // Exit path residual: units should be Moving toward authored natural rally.
     let moving = logic
         .host_objects()
         .values()
@@ -3287,16 +3351,11 @@ fn attack_move_to_command_sets_moving_residual() {
 }
 
 #[test]
-fn china_barracks_exit_delay_holds_second_unit_residual() {
+fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::host_dock_contain_exit_heal_residual::{
-        queue_exit_delay_seconds_for_template, QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_FRAMES,
-        QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS,
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    assert_eq!(QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_MS, 300);
-    assert_eq!(QUEUE_EXIT_CHINA_BARRACKS_EXIT_DELAY_FRAMES, 9);
-    assert!((queue_exit_delay_seconds_for_template("ChinaBarracks") - 0.3).abs() < 0.001);
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::China);
@@ -3304,6 +3363,15 @@ fn china_barracks_exit_delay_holds_second_unit_residual() {
     bar.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks)
         .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, 0.0, 0.0],
+        natural_rally_point: [0.0, 0.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 2,
+        use_spawn_rally_point: false,
+    });
     logic.templates.insert("ChinaBarracks".into(), bar);
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
     rg.add_kind_of(KindOf::Infantry)
@@ -3320,56 +3388,54 @@ fn china_barracks_exit_delay_holds_second_unit_residual() {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
     }
     assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
-    assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
-
-    // Tick until first completes (~0.05s).
-    for _ in 0..5 {
-        logic.update();
+    // C++ Queue state begins at InitialBurst and decrements after each success.
+    // This one entry deliberately retains the regular two-member modifier.
+    if let Some(building) = logic
+        .host_object_mut(bid)
+        .and_then(|object| object.building_data.as_mut())
+    {
+        building.production_queue[0].quantity_total = 3;
+        building.production_queue[0].construction_frames = 2;
     }
+    let hold_open_until = logic.get_frame().saturating_add(100);
+    if let Some(object) = logic.host_object_mut(bid) {
+        object.production_door_phase = 2;
+        object.production_door_phase_end_frame = hold_open_until;
+    }
+    logic.update();
     let living = logic
         .host_objects()
         .values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
-    assert!(living >= 1, "first redguard should spawn, living={living}");
-    // Exit delay armed residual.
-    let delay = logic
+    assert_eq!(
+        living, 2,
+        "InitialBurst=2 permits exactly two immediate exits"
+    );
+    let state = logic
         .host_object(bid)
         .and_then(|o| o.building_data.as_ref())
-        .map(|b| b.exit_delay_remaining())
-        .unwrap_or(0.0);
-    assert!(
-        delay > 0.0,
-        "ChinaBarracks should arm exit delay after first release, delay={delay}"
-    );
-    let living_mid = logic
-        .host_objects()
-        .values()
-        .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
-        .count();
-    // Immediate next frame should still hold second unit if progress complete.
-    logic.update();
-    let living_held = logic
-        .host_objects()
-        .values()
-        .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
-        .count();
-    assert_eq!(
-        living_held, living_mid,
-        "second unit held during exit delay residual"
-    );
-    // Drain exit delay (~0.3s at 30Hz ≈ 9 frames).
-    for _ in 0..15 {
+        .expect("Queue runtime state");
+    assert_eq!(state.exit_delay_remaining_frames, 9);
+    assert_eq!(state.exit_burst_remaining, 0);
+    for _ in 0..8 {
         logic.update();
     }
+    let held = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
+        .count();
+    assert_eq!(held, 2, "delay blocks the third member for 8 frames");
+    logic.update();
     let living_end = logic
         .host_objects()
         .values()
         .filter(|o| o.template_name.contains("Redguard") && o.is_alive())
         .count();
-    assert!(
-        living_end >= 2,
-        "second redguard releases after exit delay, living={living_end}"
+    assert_eq!(
+        living_end, 3,
+        "third redguard releases on the ninth post-exit frame, living={living_end}"
     );
 }
 
@@ -3731,17 +3797,11 @@ fn host_construction_completes_without_coupled_shadow() {
         t.build_time = 1.0;
     }
     let id = game_logic
-        .create_object_under_construction(
-            "TestBarracks",
-            Team::USA,
-            Vec3::new(40.0, 0.0, 40.0),
-        )
+        .create_object_under_construction("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 40.0))
         .expect("uc barracks");
-    assert!(
-        game_logic
-            .host_object(id)
-            .is_some_and(|o| o.status.under_construction)
-    );
+    assert!(game_logic
+        .host_object(id)
+        .is_some_and(|o| o.status.under_construction));
     for _ in 0..80 {
         game_logic.update_with_dt(1.0 / 30.0);
     }
@@ -3773,11 +3833,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
             t.build_time = 1.0;
         }
         let id = game_logic
-            .create_object_under_construction(
-                "TestBarracks",
-                Team::USA,
-                Vec3::new(40.0, 0.0, 40.0),
-            )
+            .create_object_under_construction("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 40.0))
             .expect("uc barracks");
         assert!(
             !crate::gameworld_shadow::coupled_host_mapped(id),

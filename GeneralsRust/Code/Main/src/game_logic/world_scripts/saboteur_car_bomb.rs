@@ -158,11 +158,10 @@ impl GameLogic {
     /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
     pub(in super::super) fn try_pilot_find_vehicle_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
-            is_pilot_find_vehicle_collide_target, is_pilot_template,
-            is_recrewable_unmanned_vehicle, pilot_collide_would_like_to_collide_with,
-            pilot_find_vehicle_same_player_ok, pilot_find_vehicle_scan_eligible,
+            is_pilot_find_vehicle_collide_target, is_recrewable_unmanned_vehicle,
+            pilot_collide_would_like_to_collide_with, pilot_find_vehicle_scan_eligible,
             pilot_find_vehicle_scan_frame, pilot_levels_to_gain, should_pilot_base_center_fallback,
-            uses_air_eject_ocl, vehicle_can_gain_exp_for_levels,
+            vehicle_can_gain_exp_for_levels,
             vehicle_meets_pilot_find_min_health, PILOT_FIND_VEHICLE_MIN_HEALTH,
             PILOT_FIND_VEHICLE_SCAN_RANGE,
         };
@@ -173,7 +172,12 @@ impl GameLogic {
 
         let snapshot = match self.objects.get(&pilot_id) {
             Some(obj) if obj.is_alive() => {
-                let is_pilot = is_pilot_template(&obj.template_name);
+                let is_pilot = obj
+                    .thing
+                    .template
+                    .veterancy_crate_collide
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.supports_pilot_recrew());
                 let is_idle = matches!(obj.ai_state, AIState::Idle);
                 // C++ PLAYER_HUMAN → no scan. Host residual: local player is human.
                 // No mapped player → fail-closed treat as non-AI (no auto-scan).
@@ -203,15 +207,14 @@ impl GameLogic {
             .objects
             .iter()
             .map(|(&vid, vehicle)| {
-                let is_vehicle = vehicle.is_kind_of(KindOf::Vehicle)
-                    || vehicle.object_type == ObjectType::Vehicle;
+                // RequiredKindOf/ForbiddenKindOf use the authored KindOf
+                // bank, not an ObjectType or basename approximation.
+                let is_vehicle = vehicle.is_kind_of(KindOf::Vehicle);
                 let is_air = vehicle.is_kind_of(KindOf::Aircraft)
-                    || vehicle.object_type == ObjectType::Aircraft
                     || vehicle.status.airborne_target;
                 let under_construction =
                     vehicle.status.under_construction || vehicle.construction_percent + 0.001 < 1.0;
-                let is_dozer = vehicle.is_worker()
-                    || vehicle.template_name.to_ascii_lowercase().contains("dozer");
+                let is_dozer = vehicle.is_kind_of(KindOf::Dozer);
                 let recrewable = is_recrewable_unmanned_vehicle(
                     vehicle.is_alive(),
                     is_vehicle,
@@ -226,22 +229,18 @@ impl GameLogic {
                     PILOT_FIND_VEHICLE_MIN_HEALTH,
                 );
                 let vpos = vehicle.get_position();
-                let same_team = vehicle.team == pilot_team;
-                let is_neutral = vehicle.team == Team::Neutral;
-                let owner_matches = vehicle
-                    .status
-                    .unmanned_owner_team
-                    .map(|t| t == pilot_team)
-                    .unwrap_or(false);
-                let same_player_ok =
-                    pilot_find_vehicle_same_player_ok(same_team, is_neutral, owner_matches);
-                let above_terrain = uses_air_eject_ocl(vpos.y, vehicle.status.airborne_target);
+                let same_player_ok = self.pilot_recrew_controller_matches(pilot_id, vid);
+                let terrain_y = self.terrain_height_at(vpos).unwrap_or(0.0);
+                let above_terrain =
+                    crate::game_logic::host_usa_pilot::is_significantly_above_terrain(
+                        vpos.y - terrain_y,
+                    );
                 let airborne_locomotor = is_air;
                 let is_trainable = is_vehicle && !is_air;
                 let can_gain =
                     vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
                 let collide_ok = pilot_collide_would_like_to_collide_with(
-                    true,
+                    vehicle.is_alive(),
                     is_vehicle,
                     is_dozer,
                     above_terrain,

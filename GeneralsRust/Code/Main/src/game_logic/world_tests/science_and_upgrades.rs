@@ -68,18 +68,10 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
 
     // Player 0 has a full grid; player 1 owns a separate, unpowered grid.
     let p0_plant = logic
-        .create_object_for_player(
-            "OwnerScopedPoweredBuilding",
-            0,
-            Vec3::new(-100.0, 0.0, 0.0),
-        )
+        .create_object_for_player("OwnerScopedPoweredBuilding", 0, Vec3::new(-100.0, 0.0, 0.0))
         .expect("player 0 power building");
     let p1_drain = logic
-        .create_object_for_player(
-            "OwnerScopedPoweredBuilding",
-            1,
-            Vec3::new(100.0, 0.0, 0.0),
-        )
+        .create_object_for_player("OwnerScopedPoweredBuilding", 1, Vec3::new(100.0, 0.0, 0.0))
         .expect("player 1 power drain");
     for id in [p0_plant, p1_drain] {
         let object = logic.host_object_mut(id).expect("power object");
@@ -159,7 +151,10 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     // remove that unrelated fixture load before asserting the two owners'
     // independently calculated power factors.
     for id in [p0_ready_supply, p1_ready_supply, p0_supply, p1_supply] {
-        logic.host_object_mut(id).expect("fixture supply center").power_consumed = 0;
+        logic
+            .host_object_mut(id)
+            .expect("fixture supply center")
+            .power_consumed = 0;
     }
 
     let p1_drain_object = logic.host_object(p1_drain).expect("player 1 drain object");
@@ -180,15 +175,23 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     logic.update_construction(&[p0_building, p1_building], 1.0);
     let p0_progress = logic.host_object(p0_building).unwrap().construction_percent;
     let p1_progress = logic.host_object(p1_building).unwrap().construction_percent;
-    assert!((p0_progress - 0.1).abs() < 0.001, "p0 progress={p0_progress}");
-    assert!((p1_progress - 0.06).abs() < 0.001, "p1 progress={p1_progress}");
+    assert!(
+        (p0_progress - 0.1).abs() < 0.001,
+        "p0 progress={p0_progress}"
+    );
+    assert!(
+        (p1_progress - 0.06).abs() < 0.001,
+        "p1 progress={p1_progress}"
+    );
 
     // This is the production completion boundary: it gets the producer ID in
     // addition to a team-shaped legacy record.  The other USA player must not
     // receive the upgrade or its supply-center tag.
-    logic.host_apply_upgrade_production_completions(vec![
-        (Team::USA, UPGRADE_AMERICA_SUPPLY_LINES.to_string(), p0_supply),
-    ]);
+    logic.host_apply_upgrade_production_completions(vec![(
+        Team::USA,
+        UPGRADE_AMERICA_SUPPLY_LINES.to_string(),
+        p0_supply,
+    )]);
     assert!(logic
         .get_player(0)
         .unwrap()
@@ -217,14 +220,18 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         )
         .expect("player-owned paradrop");
     assert_eq!(
-        logic.host_paradrops
+        logic
+            .host_paradrops
             .get(paradrop_id)
             .and_then(|mission| mission.source_owner_player_id),
         Some(0)
     );
     logic.frame = HostParadropKind::AmericaParadrop.drop_delay_frames();
     logic.update_paradrops();
-    let mission = logic.host_paradrops.get(paradrop_id).expect("completed paradrop");
+    let mission = logic
+        .host_paradrops
+        .get(paradrop_id)
+        .expect("completed paradrop");
     assert!(!mission.spawned_unit_ids.is_empty());
     assert!(mission.spawned_unit_ids.iter().all(|id| {
         logic
@@ -619,63 +626,335 @@ fn advanced_control_rods_boosts_america_power_plant_energy() {
 }
 
 #[test]
-fn overcharge_drains_hp_and_auto_disables_below_threshold() {
-    use crate::game_logic::host_structure_economy_residual::{
-        CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC, CHINA_POWER_ENERGY_BONUS,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+fn retail_overcharge_behavior_metadata_drives_frozen_command_and_live_drain() {
+    use crate::command_executor::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
+    use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use crate::presentation_frame::PresentationFrame;
+    use std::path::Path;
 
-    let mut plant = ThingTemplate::new("ChinaPowerPlant");
-    plant
+    // The retail object, not a hand-written China-name fixture, is the source
+    // of all three active inputs: +5 EnergyBonus, 3% drain, and 0% threshold.
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("Main crate must remain three levels below repository root");
+    let retail_source = std::fs::read_to_string(repo_root.join(
+        "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+    ))
+    .expect("read retail FactionBuilding.ini");
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(&retail_source, "FactionBuilding.ini")
+        .expect("parse retail FactionBuilding.ini");
+    assert_eq!(
+        parser
+            .get_definition("ChinaPowerPlant")
+            .expect("retail ChinaPowerPlant")
+            .hit_points,
+        Some(1_500.0),
+        "retail Body MaxHealth remains the parser source for the drain rate"
+    );
+    // C++ gives EnergyBonus its ThingTemplate default of zero.  It must not
+    // remove an otherwise valid behavior interface or turn this into a
+    // name/KindOf-only permission.
+    parser
+        .parse_ini_content(
+            r#"
+Object MetadataOnlyOvercharger
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  EnergyProduction = 10
+  Behavior = OverchargeBehavior ModuleTag_Overcharge
+    HealthPercentToDrainPerSecond = 3%
+  End
+End
+"#,
+            "overcharge-defaults.ini",
+        )
+        .expect("parse zero-bonus Overcharge fixture");
+    let retail_template = GameLogic::build_template_from_object_definition(
+        "ChinaPowerPlant",
+        parser
+            .get_definition("ChinaPowerPlant")
+            .expect("retail ChinaPowerPlant"),
+        None,
+    );
+    let behavior = retail_template
+        .overcharge_behavior
+        .expect("retail OverchargeBehavior metadata");
+    assert!((behavior.health_percent_to_drain_per_second - 0.03).abs() < f32::EPSILON);
+    assert!(behavior.not_allowed_when_health_below_percent.abs() < f32::EPSILON);
+    assert_eq!(retail_template.energy_bonus, Some(5));
+    assert_eq!(
+        retail_template.max_health, 1_500.0,
+        "the parsed StructureBody MaxHealth must reach the live drain template"
+    );
+    assert_eq!(
+        retail_template.armor, 0.0,
+        "ChinaPowerPlant has no scalar Armor override; StructureArmor remains the typed damage path"
+    );
+    assert_eq!(
+        retail_template
+            .power_plant_update
+            .expect("retail PowerPlantUpdate")
+            .rods_extend_time_frames,
+        1
+    );
+    assert!(retail_template.supports_overcharge());
+    let zero_bonus_template = GameLogic::build_template_from_object_definition(
+        "MetadataOnlyOvercharger",
+        parser
+            .get_definition("MetadataOnlyOvercharger")
+            .expect("parsed zero-bonus Overcharge fixture"),
+        None,
+    );
+    assert!(
+        zero_bonus_template.supports_overcharge(),
+        "a module remains authoritative when EnergyBonus uses C++'s zero default"
+    );
+    assert_eq!(zero_bonus_template.energy_bonus, None);
+    assert_eq!(
+        zero_bonus_template
+            .overcharge_behavior
+            .expect("zero-bonus metadata")
+            .not_allowed_when_health_below_percent,
+        0.0
+    );
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::China, "China", true));
+    logic
+        .templates
+        .insert("ChinaPowerPlant".into(), retail_template);
+    logic
+        .templates
+        .insert("MetadataOnlyOvercharger".into(), zero_bonus_template);
+
+    // This keeps the old false positive shape (a China/power name plus
+    // PowerPlant KindOf) but deliberately omits the parsed Behavior.
+    let mut name_only = ThingTemplate::new("ChinaPowerPlantNamedOnly");
+    name_only
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::PowerPlant)
-        .set_health(1000.0);
-    logic.templates.insert("ChinaPowerPlant".into(), plant);
+        .set_health(1_500.0);
+    logic.templates.insert(name_only.name.clone(), name_only);
 
-    let id = logic
-        .create_object(
-            "ChinaPowerPlant",
-            Team::China,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("plant");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.power_provided = 10;
-        o.construction_percent = 1.0;
-        o.set_status_under_construction(false);
+    let plant_id = logic
+        .create_object_for_player("ChinaPowerPlant", 0, glam::Vec3::ZERO)
+        .expect("retail plant");
+    let name_only_id = logic
+        .create_object_for_player("ChinaPowerPlantNamedOnly", 0, glam::Vec3::X * 30.0)
+        .expect("named-only plant");
+    let zero_bonus_id = logic
+        .create_object_for_player("MetadataOnlyOvercharger", 0, glam::Vec3::X * 60.0)
+        .expect("zero-bonus behavior object");
+    for id in [plant_id, name_only_id, zero_bonus_id] {
+        let object = logic.host_object_mut(id).expect("created plant");
+        object.construction_percent = 1.0;
+        object.set_status_under_construction(false);
+        object.power_provided = 10;
     }
-    assert!(logic.toggle_overcharge_object(id));
-    assert!(logic.overcharge_toggles > 0);
-    let after_on = logic.host_object(id).unwrap();
-    assert!(after_on.overcharge_enabled);
-    assert_eq!(after_on.power_provided, 10 + CHINA_POWER_ENERGY_BONUS);
 
-    // Drain: 3%/sec * 1000 HP = 30 HP/sec. At 0.2 threshold need 800 damage → ~26.7s.
-    // Accelerate by setting HP just above threshold then one tick.
-    if let Some(o) = logic.host_object_mut(id) {
-        o.health.current = 250.0; // 25% — above 20%
-    }
-    // One second of drain at 3% of 1000 = 30 → 220 HP (22%) still above.
-    logic.update_overcharge_drain(1.0);
-    assert!(logic.overcharge_drain_ticks > 0);
-    let mid = logic.host_object(id).unwrap();
-    assert!(mid.overcharge_enabled);
-    assert!(mid.health.current < 250.0);
+    // Frozen presentation shows the command only for the source-authored
+    // behavior; the executor separately revalidates the same live template.
+    logic.select_objects(0, vec![plant_id]);
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert!(
+        frame
+            .objects
+            .iter()
+            .find(|object| object.id == plant_id)
+            .expect("retail renderable")
+            .can_toggle_overcharge
+    );
+    assert!(frame.unit_command_buttons().iter().any(|button| {
+        button.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge") && button.enabled
+    }));
+    logic.select_objects(0, vec![name_only_id]);
+    let name_only_frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert!(!name_only_frame.unit_command_buttons().iter().any(|button| {
+        button.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge")
+    }));
+    logic.select_objects(0, vec![zero_bonus_id]);
+    let zero_bonus_frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert!(zero_bonus_frame.unit_command_buttons().iter().any(|button| {
+        button.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge") && button.enabled
+    }));
 
-    // Drop below 20% via drain.
-    if let Some(o) = logic.host_object_mut(id) {
-        o.health.current = 210.0; // 21%
+    let command = |id, command_id| GameCommand {
+        command_type: CommandType::ToggleOvercharge,
+        player_id: 0,
+        command_id,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![id],
+        modifier_keys: ModifierKeys::default(),
+    };
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor
+                .execute_command(command(name_only_id, 1))
+                .expect("name-only command result"),
+            CommandResult::InvalidCommand,
+            "a name/KindOf-shaped reactor must not gain Overcharge authority"
+        );
+        assert_eq!(
+            executor
+                .execute_command(command(zero_bonus_id, 2))
+                .expect("zero-bonus command result"),
+            CommandResult::Success
+        );
+        assert_eq!(
+            executor
+                .execute_command(command(plant_id, 3))
+                .expect("retail command result"),
+            CommandResult::Success
+        );
     }
-    logic.update_overcharge_drain(1.0); // -30 → 180 = 18%
-    let end = logic.host_object(id).unwrap();
-    assert!(!end.overcharge_enabled, "must auto-disable below threshold");
-    assert!(logic.overcharge_exhaustions > 0);
-    assert_eq!(end.power_provided, 10);
-    let _ = CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC;
+
+    let zero_bonus_enabled = logic
+        .host_object(zero_bonus_id)
+        .expect("zero-bonus enabled object");
+    assert!(zero_bonus_enabled.overcharge_enabled);
+    assert_eq!(
+        zero_bonus_enabled.power_provided, 10,
+        "a missing EnergyBonus toggles but contributes C++'s zero default"
+    );
+
+    let upgrading = model_condition_bit_name_index("POWER_PLANT_UPGRADING").unwrap();
+    let upgraded = model_condition_bit_name_index("POWER_PLANT_UPGRADED").unwrap();
+    let enabled = logic.host_object(plant_id).expect("enabled plant");
+    assert!(enabled.overcharge_enabled);
+    assert_eq!(enabled.power_provided, 15, "parsed EnergyBonus is applied");
+    assert_ne!(enabled.model_condition_bits & (1u128 << upgrading), 0);
+    assert_eq!(enabled.model_condition_bits & (1u128 << upgraded), 0);
+
+    // ChinaPowerPlant's parsed RodsExtendTime is one frame.  The existing
+    // PowerPlantUpdate route, rather than overcharge_enabled, flips its bit.
+    logic.frame = 1;
+    logic.update_power_plant_rods();
+    let extended = logic.host_object(plant_id).expect("extended rods");
+    assert_eq!(extended.model_condition_bits & (1u128 << upgrading), 0);
+    assert_ne!(extended.model_condition_bits & (1u128 << upgraded), 0);
+
+    // Retail threshold is exactly 0%, so a live reactor below the old 20%
+    // shortcut keeps draining rather than auto-disabling.
+    let health_before_drain = {
+        let plant = logic.host_object_mut(plant_id).expect("plant");
+        assert!(
+            !plant.highlander_body,
+            "retail ChinaPowerPlant uses StructureBody, not HighlanderBody"
+        );
+        plant.health.current = 270.0;
+        plant.health.current
+    };
+    assert!(
+        !crate::gameworld_shadow::gameworld_damage_authority_live(),
+        "this host-only regression must apply its typed DAMAGE_PENALTY immediately"
+    );
+    logic.update_overcharge_drain(0.1); // 1500 × 3% × 0.1 = 4.5
+    let after_drain = logic.host_object(plant_id).expect("drained plant");
+    assert!(after_drain.overcharge_enabled);
+    let raw_requested_drain =
+        after_drain.max_health * behavior.health_percent_to_drain_per_second * 0.1;
+    let actual_damage = health_before_drain - after_drain.health.current;
+    assert!(
+        actual_damage > 0.0 && actual_damage <= raw_requested_drain,
+        "DAMAGE_PENALTY goes through the parsed template's armor path (requested {raw_requested_drain}, actual {actual_damage})"
+    );
+    assert!(
+        (actual_damage - raw_requested_drain).abs() < 0.001,
+        "the retail StructureArmor Penalty default and zero scalar armor preserve the requested drain (requested {raw_requested_drain}, actual {actual_damage})"
+    );
+    assert_eq!(logic.overcharge_exhaustions, 0);
+
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor
+                .execute_command(command(plant_id, 4))
+                .expect("disable command result"),
+            CommandResult::Success
+        );
+    }
+    let disabled = logic.host_object(plant_id).expect("disabled plant");
+    assert!(!disabled.overcharge_enabled);
+    assert_eq!(disabled.power_provided, 10);
+    assert_eq!(disabled.model_condition_bits & (1u128 << upgrading), 0);
+    assert_eq!(disabled.model_condition_bits & (1u128 << upgraded), 0);
+
+    // A lethal retail drain at its 0% threshold starts ordinary death but
+    // does not call the threshold/exhaustion disable branch.  The active
+    // module remains until the normal destroy/onDelete route removes it.
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor
+                .execute_command(command(plant_id, 5))
+                .expect("re-enable before lethal drain"),
+            CommandResult::Success
+        );
+    }
+    // The authored Armor path also applies to DAMAGE_PENALTY.  Reuse the
+    // positive applied damage observed above rather than assuming raw 4.5
+    // damage is unresistable; this guarantees the next identical tick is
+    // truly lethal for the parsed retail armor path.
+    logic.host_object_mut(plant_id)
+        .expect("re-enabled plant")
+        .health
+        .current = actual_damage * 0.5;
+    logic.update_overcharge_drain(0.1);
+    let toppling = logic.host_object(plant_id).expect("death-start plant");
+    assert!(
+        toppling
+            .structure_topple_data
+            .as_ref()
+            .map(|data| data.is_active())
+            .unwrap_or(false),
+        "a lethal retail penalty drain must enter the active structure-topple death lifecycle"
+    );
+    assert!(
+        toppling.overcharge_enabled,
+        "the 0% threshold must not run the exhaustion disable while ordinary destruction owns cleanup"
+    );
+    assert_eq!(
+        toppling.power_provided, 15,
+        "the active bonus remains through the deferred topple and is removed only at normal deletion"
+    );
+    assert_eq!(logic.overcharge_exhaustions, 0);
+
+    // The host StructureTopple route deliberately restores a sliver of HP
+    // while the building falls.  C++ OverchargeBehavior::onDelete runs with
+    // ordinary object deletion, not with the threshold branch above, so tick
+    // the actual host lifecycle through its completed topple before draining
+    // the destroy list.
+    let mut topple_queued_for_destroy = false;
+    for _ in 0..800 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_ai(&[plant_id], 1.0 / 30.0);
+        if logic.has_pending_destroy_work() {
+            topple_queued_for_destroy = true;
+            break;
+        }
+    }
+    assert!(
+        topple_queued_for_destroy,
+        "the completed structure topple must hand the reactor to ordinary destruction"
+    );
+    logic.process_destroy_list_if_needed();
+    assert!(
+        logic.host_object(plant_id).is_none(),
+        "ordinary deletion must consume the toppled reactor"
+    );
+
+    logic.update_player_resources(0.0);
+    assert_eq!(
+        logic.get_player(0).expect("owner").power_produced,
+        20,
+        "ordinary death removes the former +5 overcharge contribution"
+    );
 }
 
 #[test]
@@ -1456,6 +1735,7 @@ fn actively_constructing_bit_on_dozer_and_factory() {
                     template_name: "AmericaInfantryRanger".into(),
                     progress: 0.0,
                     total_time: 10.0,
+                    construction_frames: 0,
                     cost: crate::game_logic::Resources {
                         supplies: 0,
                         power: 0,

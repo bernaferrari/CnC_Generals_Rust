@@ -136,6 +136,7 @@ mod tests {
             owner_player_id: None,
             pos: glam::Vec3::new(1.0, 2.0, 3.0),
             amount: 5,
+            xp_per_cash_update: 1.0,
             next_deposit_frame: 60,
             in_internet_center: false,
             stealthed: false,

@@ -222,6 +222,12 @@ impl SnapshotBuilder {
 
                     if let Some(building_data) = object.building_data.as_mut() {
                         building_data.rally_point = snapshot.rally_point;
+                        building_data.exit_delay_remaining = snapshot.exit_delay_remaining.max(0.0);
+                        building_data.exit_delay_remaining_frames =
+                            snapshot.exit_delay_remaining_frames;
+                        building_data.exit_burst_remaining = snapshot.exit_burst_remaining;
+                        building_data.queue_exit_state_initialized =
+                            snapshot.queue_exit_state_initialized;
                         building_data.production_queue.clear();
 
                         for (index, entry) in snapshot.production_queue.iter().enumerate() {
@@ -241,13 +247,20 @@ impl SnapshotBuilder {
                                 template_name: entry.template_name.clone(),
                                 progress,
                                 total_time,
+                                construction_frames: entry.construction_frames,
                                 cost: Resources {
                                     supplies: entry.cost,
                                     power: template_power,
                                 },
-                                quantity_total: 1,
-                                quantity_produced: 0,
-                                kind: crate::game_logic::buildings::ProductionKind::Unit,
+                                quantity_total: entry.quantity_total.max(1),
+                                quantity_produced: entry
+                                    .quantity_produced
+                                    .min(entry.quantity_total.max(1)),
+                                kind: if entry.is_upgrade {
+                                    crate::game_logic::buildings::ProductionKind::Upgrade
+                                } else {
+                                    crate::game_logic::buildings::ProductionKind::Unit
+                                },
                             });
                         }
                     }

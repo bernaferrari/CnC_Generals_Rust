@@ -1,7 +1,7 @@
 //! Production/door/body/death and related host writebacks.
 
 use super::*;
-use crate::game_logic::{GameLogic, ObjectId, Team};
+use crate::game_logic::{GameLogic, ObjectId, ProductionExitRuntimeState, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
@@ -29,9 +29,16 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
+            let production_power_factor = self
+                .production_power_factor_by_host
+                .get(&hid)
+                .copied()
+                .unwrap_or(1.0)
+                .max(0.01);
             let Some(obj) = /* Wave 946/947 */ logic./* Wave 950 */ host_object_mut(ObjectId(hid)) else {
                 continue;
             };
+            let exit_metadata = obj.thing.template.production_exit_metadata;
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_production_log::has_pending(ObjectId(hid))
@@ -61,6 +68,7 @@ impl GameWorldShadow {
                         template_name: it.template_name.clone(),
                         progress: it.progress,
                         total_time: it.total_time,
+                        construction_frames: it.construction_frames,
                         cost: Resources {
                             supplies: it.cost_supplies,
                             power: 0,
@@ -80,6 +88,7 @@ impl GameWorldShadow {
                         a.template_name != b.template_name
                             || (a.progress - b.progress).abs() > 1e-5
                             || (a.total_time - b.total_time).abs() > 1e-5
+                            || a.construction_frames != b.construction_frames
                             || a.cost.supplies != b.cost.supplies
                             || a.kind != b.kind
                             || a.quantity_total != b.quantity_total
@@ -94,18 +103,47 @@ impl GameWorldShadow {
                     bd.production_paused = ent.production_paused;
                     dirty = true;
                 }
-                // Host factory exit delay residual last-writer.
-                if (bd.exit_delay_remaining - ent.exit_delay_remaining).abs() > 1e-5 {
+                // Parsed Queue state is integer C++ authority.  Float-only
+                // entities remain backwards-compatible legacy producers.
+                let entity_exit_state = ProductionExitRuntimeState {
+                    delay_frames: ent.exit_delay_remaining_frames,
+                    burst_remaining: ent.exit_burst_remaining,
+                    initialized: ent.queue_exit_state_initialized,
+                };
+                if entity_exit_state.initialized
+                    && bd.production_exit_runtime_state() != entity_exit_state
+                {
+                    bd.set_production_exit_runtime_state(entity_exit_state);
+                    dirty = true;
+                } else if !entity_exit_state.initialized
+                    && (bd.exit_delay_remaining - ent.exit_delay_remaining).abs() > 1e-5
+                {
                     bd.exit_delay_remaining = ent.exit_delay_remaining.max(0.0);
                     dirty = true;
                 }
                 let completed = if crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
                 {
-                    bd.production_queue.first().and_then(|head| {
-                        (head.progress + 1e-6 >= head.total_time.max(0.0)
-                            && bd.exit_delay_remaining <= 1e-6)
-                            .then(|| (head.template_name.clone(), head.is_upgrade()))
+                    (bd.production_head_complete_at_power(production_power_factor)
+                        && bd.production_head_exit_available(exit_metadata.as_ref()))
+                    .then(|| {
+                        let (template, is_upgrade, remaining) =
+                            bd.production_queue.first().map(|head| {
+                                (
+                                    head.template_name.clone(),
+                                    head.is_upgrade(),
+                                    head.remaining_quantity(),
+                                )
+                            })?;
+                        // C++ ProductionUpdate loops every remaining unit
+                        // only while this exact interface reserves it.
+                        let release_quantity = if is_upgrade {
+                            1
+                        } else {
+                            bd.production_exit_release_limit(exit_metadata.as_ref(), remaining)
+                        };
+                        Some((template, is_upgrade, release_quantity))
                     })
+                    .flatten()
                 } else {
                     None
                 };
@@ -115,16 +153,26 @@ impl GameWorldShadow {
                 completed
             };
 
-            let Some((template, is_upgrade)) = completed_head else {
+            let Some((template, is_upgrade, release_quantity)) = completed_head else {
                 continue;
             };
+            if release_quantity == 0 {
+                // Normal host completion removes a fully-produced entry.  Do
+                // not manufacture a ready event from a stale/corrupt mirror.
+                continue;
+            }
             let door_count = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
                 &obj.template_name,
             );
-            if !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
-                door_count,
-                obj.production_door_phase,
-            ) {
+            // C++ `ProductionUpdate` routes only PRODUCTION_UNIT entries
+            // through ExitInterface / door animation.  Research completes
+            // immediately once its frame threshold is reached.
+            if !is_upgrade
+                && !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
+                    door_count,
+                    obj.production_door_phase,
+                )
+            {
                 // The completed head is retained until C++ ProductionUpdate has
                 // opened its exit door.  Starting that animation here avoids a
                 // speculative GameWorld spawn whose ready event the host must
@@ -145,16 +193,32 @@ impl GameWorldShadow {
             let p = ent.transform.position;
             let yaw = ent.transform.orientation;
             let radius = ent.selection_radius.max(10.0);
-            let spawn_pos = [p.x + yaw.cos() * radius, p.y, p.z + yaw.sin() * radius];
-            sole_ready_intents.push((
-                hid,
-                template,
-                is_upgrade,
-                if is_upgrade { None } else { Some(spawn_pos) },
-                ent.rally_point,
-                ent.owner,
-                obj.health.maximum.max(1.0),
-            ));
+            let spawn_pos = if let Some(exit) = exit_metadata {
+                let forward = glam::Vec3::new(yaw.cos(), 0.0, yaw.sin());
+                let pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                    glam::Vec3::new(p.x, p.y, p.z),
+                    forward,
+                    (
+                        exit.unit_create_point[0],
+                        exit.unit_create_point[1],
+                        exit.unit_create_point[2],
+                    ),
+                );
+                [pos.x, pos.y, pos.z]
+            } else {
+                [p.x + yaw.cos() * radius, p.y, p.z + yaw.sin() * radius]
+            };
+            for _ in 0..release_quantity {
+                sole_ready_intents.push((
+                    hid,
+                    template.clone(),
+                    is_upgrade,
+                    if is_upgrade { None } else { Some(spawn_pos) },
+                    ent.rally_point,
+                    ent.owner,
+                    obj.health.maximum.max(1.0),
+                ));
+            }
         }
         // Wave 736: entity-first production spawn + ready-log after host queue writeback.
         for (hid, template, is_upgrade, spawn_pos, rally, owner, health) in sole_ready_intents {

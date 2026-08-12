@@ -84,17 +84,9 @@ impl<'a> CommandExecutor<'a> {
 
         // USA Pilot residual: pilots may Enter unmanned ground vehicles for recrew
         // even when the vehicle is not a residual transport container.
-        let pilot_recrew = crate::game_logic::host_usa_pilot::should_recrew_on_enter(
-            crate::game_logic::host_usa_pilot::is_pilot_template(&unit.template_name),
-            crate::game_logic::host_usa_pilot::is_recrewable_unmanned_vehicle(
-                target.is_alive(),
-                target.is_kind_of(KindOf::Vehicle),
-                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
-                target.is_unmanned(),
-                target.status.under_construction,
-                target.is_worker() || target.template_name.to_ascii_lowercase().contains("dozer"),
-            ),
-        );
+        let pilot_recrew = self
+            .game_logic
+            .can_execute_pilot_recrew(unit_id, target_id);
         if pilot_recrew {
             return true;
         }

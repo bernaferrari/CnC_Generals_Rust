@@ -994,7 +994,7 @@ fn battle_bus_unresistable_bypasses_undead_body() {
 }
 
 #[test]
-fn highlander_body_clamps_normal_damage_unresistable_kills() {
+fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     let mut game_logic = GameLogic::new();
     // Ensure template + highlander install.
     let mut tpl = ThingTemplate::new("TreeHighlanderTest");
@@ -1029,6 +1029,41 @@ fn highlander_body_clamps_normal_damage_unresistable_kills() {
         "highlander must leave 1 HP, got {}",
         o.health.current
     );
+
+    // C++ HighlanderBody::attemptDamage clamps every lethal type except the
+    // literal DAMAGE_UNRESISTABLE comparison.  OverchargeBehavior uses
+    // DAMAGE_PENALTY, so it belongs on the clamped side rather than sharing
+    // the unresistable bypass.
+    let penalty_id = game_logic
+        .create_object("TreeHighlanderTest", Team::Neutral, Vec3::X * 10.0)
+        .expect("penalty highlander");
+    {
+        let penalty = game_logic.host_object_mut(penalty_id).unwrap();
+        assert!(penalty.highlander_body);
+        penalty.thing.template.armor = 0.0;
+        penalty.health.maximum = 50.0;
+        penalty.health.current = 50.0;
+    }
+    let penalty_killed = {
+        let penalty = game_logic.host_object_mut(penalty_id).unwrap();
+        penalty.take_damage_from_typed(
+            999.0,
+            None,
+            crate::game_logic::combat::DamageType::Penalty,
+        )
+    };
+    assert!(
+        !penalty_killed,
+        "DAMAGE_PENALTY must not bypass HighlanderBody's one-HP floor"
+    );
+    let penalty = game_logic.host_object(penalty_id).unwrap();
+    assert!(penalty.is_alive());
+    assert!(
+        (penalty.health.current - 1.0).abs() < 0.01,
+        "DAMAGE_PENALTY must leave one HP, got {}",
+        penalty.health.current
+    );
+
     // UNRESISTABLE kills.
     let killed2 = {
         let o = game_logic.host_object_mut(id).unwrap();
@@ -1100,6 +1135,242 @@ fn deploy_style_sentry_must_unpack_before_fire_and_pack_before_move() {
         .unwrap()
         .deploy_style_allows_move());
     assert!(game_logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
+}
+
+#[test]
+fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
+    use crate::game_logic::host_deploy_style::HostDeployStyleState;
+
+    let mut logic = GameLogic::new();
+    let mut launcher = ThingTemplate::new("ChinaVehicleNukeLauncher");
+    launcher
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(240.0)
+        .set_primary_weapon(Weapon {
+            damage: 30.0,
+            range: 100.0,
+            min_range: 0.0,
+            // Start reloading: C++ DeployStyleAIUpdate checks current-weapon
+            // range, not weapon readiness, before it begins unpacking.
+            reload_time: 100.0,
+            last_fire_time: 0.0,
+            ammo: None,
+            clip_size: 0,
+            clip_reload_time: 0.0,
+            can_target_air: false,
+            can_target_ground: true,
+            projectile_speed: 0.0,
+            pre_attack_delay: 0.0,
+            splash_radius: 0.0,
+        });
+    // Retail ChinaVehicleNukeLauncher has 3333ms Pack/Unpack, parsed with
+    // C++ duration rounding into 100 logic frames. The source flags remain
+    // data even though turret centering/manual animation are fail-closed.
+    launcher.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
+        pack_time_frames: 100,
+        unpack_time_frames: 100,
+        turrets_function_only_when_deployed: true,
+        turrets_must_center_before_packing: true,
+        manual_deploy_animations: true,
+        ..Default::default()
+    });
+    logic
+        .templates
+        .insert("ChinaVehicleNukeLauncher".to_string(), launcher);
+
+    let mut target_template = ThingTemplate::new("DeployStyleTarget");
+    target_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0);
+    logic
+        .templates
+        .insert("DeployStyleTarget".to_string(), target_template);
+
+    let launcher_id = logic
+        .create_object(
+            "ChinaVehicleNukeLauncher",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("nuke launcher");
+    let target_id = logic
+        .create_object("DeployStyleTarget", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+        .expect("out-of-range target");
+    let hp_before = logic.host_object(target_id).unwrap().health.current;
+
+    // A normal player AttackObject remains accepted and approaches; it must
+    // not begin the DeployStyle timer merely because the target is distant.
+    assert!(logic.unit_command_attack(launcher_id, target_id));
+    logic.set_current_frame(1);
+    logic.tick_deploy_style_updates();
+    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
+    let launcher_after_oor = logic.host_object(launcher_id).unwrap();
+    assert_eq!(launcher_after_oor.target, Some(target_id));
+    assert!(matches!(
+        launcher_after_oor
+            .deploy_style
+            .as_ref()
+            .map(|deploy| deploy.state),
+        Some(HostDeployStyleState::ReadyToMove)
+    ));
+    assert_eq!(
+        logic.deploy_style_reg.deploys, 0,
+        "an out-of-range attack must preserve the approach instead of unpacking"
+    );
+
+    // Once the same pending attack is actually in range, C++ DeployStyle
+    // begins its authored timer and blocks damage through the final frame.
+    logic
+        .host_object_mut(target_id)
+        .unwrap()
+        .set_position(Vec3::new(50.0, 0.0, 0.0));
+    logic.set_current_frame(2);
+    logic.tick_deploy_style_updates();
+    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(matches!(
+        logic
+            .host_object(launcher_id)
+            .and_then(|object| object.deploy_style.as_ref())
+            .map(|deploy| deploy.state),
+        Some(HostDeployStyleState::Deploying)
+    ));
+    assert_eq!(
+        logic.host_object(target_id).unwrap().health.current,
+        hp_before,
+        "the normal attack cannot fire while the launcher is unpacking"
+    );
+
+    // The deploy timer was allowed to begin while the weapon was reloading;
+    // make the shot ready now so the remainder isolates the exact timer edge.
+    if let Some(weapon) = logic
+        .host_object_mut(launcher_id)
+        .and_then(|launcher| launcher.weapon.as_mut())
+    {
+        weapon.reload_time = 0.0;
+        weapon.last_fire_time = -100.0;
+    }
+
+    logic.set_current_frame(101);
+    logic.tick_deploy_style_updates();
+    assert!(
+        !logic.attack_can_fire_at(launcher_id, target_id, 101.0 * LOGIC_FRAME_TIMESTEP, false,),
+        "every fire authority must reject a packed DeployStyle weapon"
+    );
+    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
+    assert_eq!(
+        logic.host_object(target_id).unwrap().health.current,
+        hp_before,
+        "retail 100-frame unpack still blocks one frame before completion"
+    );
+
+    logic.set_current_frame(102);
+    logic.tick_deploy_style_updates();
+    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        logic.host_object(launcher_id).unwrap().is_deployed(),
+        "the exact timer boundary enters ReadyToAttack"
+    );
+    assert!(
+        logic.host_object(target_id).unwrap().health.current < hp_before,
+        "the retained normal attack fires only after ReadyToAttack"
+    );
+}
+
+#[test]
+fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
+    use crate::game_logic::host_deploy_style::HostDeployStyleState;
+
+    let mut logic = GameLogic::new();
+    let mut sentry = ThingTemplate::new("AmericaVehicleSentryDrone");
+    sentry
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0);
+    sentry.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
+        pack_time_frames: 30,
+        unpack_time_frames: 30,
+        turrets_function_only_when_deployed: true,
+        turrets_must_center_before_packing: true,
+        ..Default::default()
+    });
+    logic
+        .templates
+        .insert("AmericaVehicleSentryDrone".to_string(), sentry);
+    let mut target_template = ThingTemplate::new("DeployStyleAutoTarget");
+    target_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("DeployStyleAutoTarget".to_string(), target_template);
+
+    let sentry_id = logic
+        .create_object(
+            "AmericaVehicleSentryDrone",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("sentry");
+    let target_id = logic
+        .create_object(
+            "DeployStyleAutoTarget",
+            Team::GLA,
+            Vec3::new(40.0, 0.0, 0.0),
+        )
+        .expect("auto target");
+    {
+        let sentry = logic.host_object_mut(sentry_id).unwrap();
+        sentry.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            min_range: 0.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: None,
+            clip_size: 0,
+            clip_reload_time: 0.0,
+            can_target_air: false,
+            can_target_ground: true,
+            projectile_speed: 0.0,
+            pre_attack_delay: 0.0,
+            splash_radius: 0.0,
+        });
+    }
+
+    logic.set_current_frame(1);
+    logic.update_combat(&[sentry_id, target_id], LOGIC_FRAME_TIMESTEP);
+    let sentry_after_acquire = logic.host_object(sentry_id).unwrap();
+    assert_eq!(sentry_after_acquire.target, Some(target_id));
+    assert!(matches!(
+        sentry_after_acquire
+            .deploy_style
+            .as_ref()
+            .map(|deploy| deploy.state),
+        Some(HostDeployStyleState::Deploying)
+    ));
+
+    // The acquired enemy can disappear while the unit is still packing. The
+    // next normal combat pass owns invalid-target cleanup; it must not leave a
+    // stale target that fires when ReadyToAttack is eventually reached.
+    assert!(logic.objects.remove(&target_id).is_some());
+    logic.set_current_frame(2);
+    logic.tick_deploy_style_updates();
+    let sentry_after_loss = logic.host_object(sentry_id).unwrap();
+    assert!(sentry_after_loss.target.is_none());
+    assert!(!sentry_after_loss.status.attacking);
+    assert_eq!(sentry_after_loss.ai_state, AIState::Idle);
+    assert!(matches!(
+        sentry_after_loss
+            .deploy_style
+            .as_ref()
+            .map(|deploy| deploy.state),
+        Some(HostDeployStyleState::Deploying)
+    ));
 }
 
 #[test]

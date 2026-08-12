@@ -3183,6 +3183,8 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_sentry_drone::{
         is_sentry_drone_template, SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON,
+        SENTRY_PACK_TIME_FRAMES, SENTRY_TURRETS_MUST_CENTER_BEFORE_PACK,
+        SENTRY_TURRETS_ONLY_WHEN_DEPLOYED, SENTRY_UNPACK_TIME_FRAMES,
         UPGRADE_AMERICA_SENTRY_DRONE_GUN,
     };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
@@ -3203,6 +3205,16 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0);
+    // Retail AmericaVehicleSentryDrone's exact DeployStyleAIUpdate module.
+    // The Sentry auto-acquire residual is permitted only through this authored
+    // metadata, never by the template basename alone.
+    sentry_tpl.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
+        pack_time_frames: SENTRY_PACK_TIME_FRAMES,
+        unpack_time_frames: SENTRY_UNPACK_TIME_FRAMES,
+        turrets_function_only_when_deployed: SENTRY_TURRETS_ONLY_WHEN_DEPLOYED,
+        turrets_must_center_before_packing: SENTRY_TURRETS_MUST_CENTER_BEFORE_PACK,
+        ..Default::default()
+    });
     // No primary weapon until gun upgrade residual.
     game_logic
         .templates
@@ -3211,6 +3223,13 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     let producer_id = game_logic
         .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
         .expect("producer");
+    // Keep this DeployStyle fire fixture independent of the low-power
+    // production-speed residual: its lone producer has no power draw, so the
+    // authored 30-second Upgrade.ini duration maps to 900 logic frames.
+    game_logic
+        .host_object_mut(producer_id)
+        .expect("producer object")
+        .power_consumed = 0;
 
     let sentry_id = game_logic
         .create_object(
@@ -3291,12 +3310,34 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             .honesty_queue_ok(HostUpgradeKind::SentryDroneGun),
         "sentry gun upgrade must queue residual"
     );
+    // The actual producer owns its parsed Upgrade.ini BuildTime. One logic
+    // frame must not make the Sentry gun appear. Advance the remaining exact
+    // fixed frames individually, avoiding an incidental large-delta catch-up
+    // path while preserving the real 900-frame research duration.
     game_logic.update();
+    assert!(
+        !game_logic
+            .get_player(0)
+            .is_some_and(|player| player.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)),
+        "Sentry gun must remain queued after one logic frame"
+    );
+    for _ in 1..HostUpgradeKind::SentryDroneGun.retail_research_frames() {
+        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    }
+    let queued_progress = game_logic
+        .host_object(producer_id)
+        .and_then(|producer| producer.building_data.as_ref())
+        .and_then(|building| building.production_queue.first())
+        .map(|item| (item.progress, item.total_time));
     assert!(
         game_logic
             .host_upgrades()
             .honesty_complete_ok(HostUpgradeKind::SentryDroneGun),
-        "sentry gun upgrade must complete residual"
+        "sentry gun upgrade must complete residual (producer={producer_id:?} owner={:?} frame={} power={:?} queue_progress={queued_progress:?} host_entries={:?})",
+        game_logic.host_object(producer_id).and_then(|producer| producer.owner_player_id),
+        game_logic.frame,
+        game_logic.get_player(0).map(|player| (player.power_produced, player.power_consumed)),
+        game_logic.host_upgrades().entries_snapshot(),
     );
     {
         let s = game_logic.host_object(sentry_id).expect("sentry");
@@ -3349,9 +3390,45 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
 
     assert!(
-        game_logic.honesty_sentry_drone_auto_fire_ok(),
-        "sentry auto-fire residual honesty must fire with gun equipped"
+        game_logic
+            .host_object(sentry_id)
+            .is_some_and(|s| s.target == Some(stealth_id)),
+        "in-range auto acquisition must retain its pending target while unpacking"
     );
+    assert!(
+        matches!(
+            game_logic
+                .host_object(sentry_id)
+                .and_then(|s| s.deploy_style.as_ref())
+                .map(|deploy| deploy.state),
+            Some(crate::game_logic::host_deploy_style::HostDeployStyleState::Deploying)
+        ),
+        "packed sentry must start the authored unpack timer before firing"
+    );
+    let enemy_hp_packed = game_logic
+        .host_object(stealth_id)
+        .map(|e| e.health.current)
+        .unwrap_or(0.0);
+    assert!(
+        (enemy_hp_packed - enemy_hp_before).abs() < f32::EPSILON,
+        "packed sentry must not damage before the 30-frame unpack completes"
+    );
+
+    // One frame before the C++ timer boundary remains packed.
+    game_logic.set_current_frame(59);
+    game_logic.tick_deploy_style_updates();
+    game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
+    assert_eq!(
+        game_logic.host_object(stealth_id).unwrap().health.current,
+        enemy_hp_before,
+        "no auto shot before the final unpack frame"
+    );
+
+    // At the exact 30-frame boundary, normal combat consumes the pending auto
+    // target; the special residual never directly bypasses DeployStyle.
+    game_logic.set_current_frame(60);
+    game_logic.tick_deploy_style_updates();
+    game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
     let enemy_hp_after = game_logic
         .host_object(stealth_id)
         .map(|e| e.health.current)
@@ -3362,7 +3439,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         .any(|e| e.target == stealth_id && e.amount > 0.0);
     assert!(
         enemy_hp_after < enemy_hp_before || log_hit,
-        "sentry auto-fire residual must damage enemy via HP or damage-authority log (before={enemy_hp_before} after={enemy_hp_after}, log_hit={log_hit})"
+        "deployed sentry must damage its pending auto target via HP or damage-authority log (before={enemy_hp_before} after={enemy_hp_after}, log_hit={log_hit})"
     );
 }
 

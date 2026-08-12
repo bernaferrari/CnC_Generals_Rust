@@ -1336,6 +1336,12 @@ impl PresentationFrame {
                 push(&mut cmds, "Command_DemoTertiarySuicide", true);
             }
         }
+        // C++ command availability comes from the concrete behavior module,
+        // not a China/power-plant name.  It is intentionally outside the
+        // structure-only branch: an authored module remains the authority.
+        if ro.can_toggle_overcharge {
+            push(&mut cmds, "Command_ToggleOvercharge", true);
+        }
         if ro.is_structure || ro.can_produce {
             if ro.under_construction {
                 push(&mut cmds, "Command_CancelConstruction", true);
@@ -1344,10 +1350,6 @@ impl PresentationFrame {
                 // C++ Command_Sell residual — completed structures only.
                 push(&mut cmds, "Command_Sell", true);
                 let n = ro.template_name.to_ascii_lowercase();
-                // C++ OverchargeBehavior residual (China nuclear plants).
-                if n.contains("china") && (n.contains("power") || n.contains("nuclear")) {
-                    push(&mut cmds, "Command_ToggleOvercharge", true);
-                }
                 // USA Strategy Center battle plans residual.
                 if n.contains("strategycenter") || n.contains("strategy_center") {
                     push(&mut cmds, "Command_InitiateBattlePlanBombardment", true);

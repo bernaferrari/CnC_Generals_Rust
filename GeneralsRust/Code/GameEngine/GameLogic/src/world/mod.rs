@@ -1103,6 +1103,14 @@ pub enum WorldMutation {
         target: EntityId,
         exit_delay_remaining: f32,
     },
+    /// Source-backed QueueProductionExitUpdate mutable state.  Unlike the
+    /// legacy seconds mutation, this is the actual 30 Hz C++ authority.
+    SetProductionExitRuntime {
+        target: EntityId,
+        exit_delay_remaining_frames: u32,
+        exit_burst_remaining: u32,
+        queue_exit_state_initialized: bool,
+    },
     /// Host ProductionUpdate door open/wait/close residual.
     SetProductionDoor {
         target: EntityId,
@@ -2621,6 +2629,22 @@ impl GameWorld {
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.exit_delay_remaining = exit_delay_remaining.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetProductionExitRuntime {
+                    target,
+                    exit_delay_remaining_frames,
+                    exit_burst_remaining,
+                    queue_exit_state_initialized,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.exit_delay_remaining_frames = exit_delay_remaining_frames;
+                        e.exit_burst_remaining = exit_burst_remaining;
+                        e.queue_exit_state_initialized = queue_exit_state_initialized;
+                        if queue_exit_state_initialized {
+                            e.exit_delay_remaining = exit_delay_remaining_frames as f32 / 30.0;
+                        }
                         applied += 1;
                     }
                 }
