@@ -248,6 +248,9 @@ impl CnCGameEngine {
             PendingMapCommand::CombatDrop(_) => "COMBATDROP",
             PendingMapCommand::PlaceBeacon => "RADAR",
             PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
+            PendingMapCommand::Weapon(ref weapon) if weapon.uses_mine_clearing_weapon_set() => {
+                "CLEARMINES"
+            }
             PendingMapCommand::Weapon(_) => "OFFENSIVE_SPECIALPOWER",
             PendingMapCommand::UnitAbility(_) => "OFFENSIVE_SPECIALPOWER",
         };
@@ -1477,6 +1480,15 @@ impl CnCGameEngine {
                 return;
             }
             crate::command_system::CommandType::HackerDisableBuilding { .. } => {
+                let selected = self.ui_selected_ids(self.current_player_id);
+                if !self.host_control_bar_selection_has_ready_hacker_disable(&selected) {
+                    self.game_hud
+                        .push_info_message("Hacker Disable Building is not ready");
+                    self.ui_manager
+                        .game_hud_mut()
+                        .push_info_message("Hacker Disable Building is not ready");
+                    return;
+                }
                 self.arm_pending_unit_ability(
                     PendingUnitAbility::HackerDisableBuilding,
                     "Hack building: click target",

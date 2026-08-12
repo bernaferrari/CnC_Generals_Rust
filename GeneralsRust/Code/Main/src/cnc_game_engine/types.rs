@@ -301,6 +301,14 @@ pub(super) struct PendingWeaponCommand {
 }
 
 impl PendingWeaponCommand {
+    /// C++ `USES_MINE_CLEARING_WEAPONSET`: the control bar sends
+    /// `MSG_SET_MINE_CLEARING_DETAIL` to the vetted selection before it arms
+    /// this otherwise ordinary `FIRE_WEAPON` target command.
+    pub(super) fn uses_mine_clearing_weapon_set(&self) -> bool {
+        const USES_MINE_CLEARING_WEAPONSET: u32 = 0x0020_0000;
+        self.options & USES_MINE_CLEARING_WEAPONSET != 0
+    }
+
     /// C++ `ATTACK_OBJECTS_POSITION`: an object validates the click, but the
     /// weapon attacks the terrain location under that object rather than its
     /// object ID.

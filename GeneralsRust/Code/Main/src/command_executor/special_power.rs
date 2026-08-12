@@ -213,6 +213,36 @@ impl<'a> CommandExecutor<'a> {
                 CommandResult::InvalidCommand
             };
         }
+
+        // Hacker Disable Building is a paired, persistent unit
+        // SpecialAbilityUpdate.  Its typed authority and charge timing are
+        // intentionally outside the generic SpecialPower path below: C++
+        // starts reload at preparation, not on this target click.
+        if *power_type == SpecialPowerType::HackerDisableBuilding {
+            let PowerTarget::Object(target_id) = target else {
+                return CommandResult::InvalidTarget;
+            };
+            let any = casters.iter().copied().any(|unit_id| {
+                matches!(
+                    self.execute_hacker_disable_building(&[unit_id], *target_id),
+                    CommandResult::Success
+                )
+            });
+            return if any {
+                CommandResult::Success
+            } else {
+                CommandResult::InvalidCommand
+            };
+        }
+
+        // Microwave has distinct C++ module/weapon semantics.  It must never
+        // borrow the Hacker Disable Building parser or persistent channel.
+        // Until its own typed runtime exists, reject it without spending a
+        // generic charge or mutating an unrelated target.
+        if *power_type == SpecialPowerType::MicrowaveDisableBuilding {
+            return CommandResult::InvalidCommand;
+        }
+
         let mut any = false;
         for &unit_id in &casters {
             // SharedSyncedTimer residual: player-wide gate for superweapons.
@@ -266,18 +296,6 @@ impl<'a> CommandExecutor<'a> {
                 };
                 if !matches!(
                     self.execute_disguise_as_vehicle(&[unit_id], *tid),
-                    CommandResult::Success
-                ) {
-                    continue;
-                }
-            } else if *power_type == SpecialPowerType::HackerDisableBuilding
-                || *power_type == SpecialPowerType::MicrowaveDisableBuilding
-            {
-                let PowerTarget::Object(tid) = target else {
-                    continue;
-                };
-                if !matches!(
-                    self.execute_hacker_disable_building(&[unit_id], *tid),
                     CommandResult::Success
                 ) {
                     continue;

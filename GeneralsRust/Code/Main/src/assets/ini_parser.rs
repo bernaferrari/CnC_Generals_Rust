@@ -238,6 +238,14 @@ pub struct ObjectDefinition {
     /// layer; this parser only preserves the source declaration.
     pub tertiary_weapon: Option<String>,
 
+    /// Source-authored outer `WeaponSet` blocks in declaration order.
+    ///
+    /// `Weapon = ...` belongs to this nested block, not to the Object-level
+    /// compatibility slots above.  Keeping the rows separate prevents a
+    /// conditional row (for example `MINE_CLEARING_DETAIL`) from overwriting
+    /// the normal primary while the parser walks the source file.
+    pub weapon_sets: Vec<WeaponSetDefinition>,
+
     /// Source-authored outer `Locomotor = SET_* ...` rows, in declaration
     /// order.  `attributes` intentionally remains a lossy compatibility map,
     /// but repeating Locomotor is meaningful: RiderChangeContain chooses one
@@ -257,6 +265,76 @@ pub struct ObjectDefinition {
 pub struct LocomotorSetDefinition {
     pub set_name: String,
     pub locomotor_names: Vec<String>,
+}
+
+/// One C++ Object INI `WeaponSet` declaration.
+///
+/// The active host slice intentionally evaluates only the exact
+/// `MINE_CLEARING_DETAIL` single-condition row.  The full source row is still
+/// retained in declaration order so ChildObject/ObjectReskin replacement does
+/// not collapse a conditional declaration into a generic Object attribute.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WeaponSetDefinition {
+    /// `Conditions = ...` tokens as authored. `None` is represented by the
+    /// literal token rather than discarded, preserving source diagnostics.
+    pub conditions: Vec<String>,
+    pub primary_weapon: Option<String>,
+    pub secondary_weapon: Option<String>,
+    pub tertiary_weapon: Option<String>,
+    /// Non-slot rows such as `AutoChooseSources`, retained per nested block.
+    pub attributes: HashMap<String, String>,
+}
+
+impl WeaponSetDefinition {
+    fn active_conditions(&self) -> impl Iterator<Item = &str> {
+        self.conditions.iter().map(String::as_str).filter_map(|condition| {
+            let condition = condition.trim().trim_matches(',');
+            (!condition.is_empty() && !condition.eq_ignore_ascii_case("none")).then_some(condition)
+        })
+    }
+
+    /// C++'s normal no-flag WeaponSet row.
+    pub fn is_unconditional(&self) -> bool {
+        self.active_conditions().next().is_none()
+    }
+
+    /// The bounded retail mine-clear path may only activate this one concrete
+    /// condition.  Combined/unknown conditional rows remain unavailable until
+    /// their full C++ WeaponSet flag matcher is ported.
+    pub fn is_exact_mine_clearing_detail(&self) -> bool {
+        let mut conditions = self.active_conditions();
+        conditions
+            .next()
+            .is_some_and(|condition| condition.eq_ignore_ascii_case("MINE_CLEARING_DETAIL"))
+            && conditions.next().is_none()
+    }
+
+    pub fn weapon_name(&self, slot: u8) -> Option<&str> {
+        match slot {
+            0 => self.primary_weapon.as_deref(),
+            1 => self.secondary_weapon.as_deref(),
+            2 => self.tertiary_weapon.as_deref(),
+            _ => None,
+        }
+    }
+
+    fn record_weapon(&mut self, value: &str) {
+        let mut fields = value.split_whitespace();
+        let Some(slot) = fields.next() else {
+            return;
+        };
+        let Some(name) = fields.next() else {
+            return;
+        };
+        let name = (!name.eq_ignore_ascii_case("none")).then_some(name.to_string());
+        if slot.eq_ignore_ascii_case("primary") {
+            self.primary_weapon = name;
+        } else if slot.eq_ignore_ascii_case("secondary") {
+            self.secondary_weapon = name;
+        } else if slot.eq_ignore_ascii_case("tertiary") {
+            self.tertiary_weapon = name;
+        }
+    }
 }
 
 impl ObjectDefinition {
@@ -280,6 +358,7 @@ impl ObjectDefinition {
             primary_weapon: None,
             secondary_weapon: None,
             tertiary_weapon: None,
+            weapon_sets: Vec::new(),
             locomotor_sets: Vec::new(),
             attributes: HashMap::new(),
         }
@@ -291,6 +370,32 @@ impl ObjectDefinition {
             .get("0")
             .map(|s| s.as_str())
             .or_else(|| self.textures.values().next().map(|s| s.as_str()))
+    }
+
+    /// Resolve the ordinary no-flag WeaponSet slot without letting a nested
+    /// conditional declaration leak into the Object-level compatibility view.
+    /// If an authored base WeaponSet explicitly says `PRIMARY None`, that
+    /// remains an empty primary rather than falling back to a lossy raw row.
+    pub fn base_weapon_name(&self, slot: u8) -> Option<&str> {
+        if let Some(set) = self.weapon_sets.iter().find(|set| set.is_unconditional()) {
+            return set.weapon_name(slot);
+        }
+        match slot {
+            0 => self.primary_weapon.as_deref(),
+            1 => self.secondary_weapon.as_deref(),
+            2 => self.tertiary_weapon.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Exact bounded source lookup for the retail mine-clearing detail set.
+    /// Do not treat a multi-condition WeaponSet as this path: the host only
+    /// arms `MINE_CLEARING_DETAIL`, not an approximation of all C++ flags.
+    pub fn mine_clearing_primary_weapon_name(&self) -> Option<&str> {
+        self.weapon_sets
+            .iter()
+            .find(|set| set.is_exact_mine_clearing_detail())
+            .and_then(|set| set.primary_weapon.as_deref())
     }
 
     /// Match the first source-authored model-bearing Draw module using the
@@ -458,6 +563,11 @@ impl IniParser {
         // fields after a nested block (for example DeployStyle's PackTime)
         // leak out of the module and cannot be mapped to gameplay metadata.
         let mut active_behavior_depth = 0usize;
+        // WeaponSet is an outer Object block, not a Behavior. Track it
+        // explicitly so its nested `Weapon = PRIMARY ...` rows cannot be
+        // mistaken for top-level compatibility fields.
+        let mut active_weapon_set: Option<usize> = None;
+        let mut active_weapon_set_depth = 0usize;
         let mut object_count = 0;
         for (index, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
@@ -494,13 +604,18 @@ impl IniParser {
                 active_condition_state = None;
                 active_behavior_module = None;
                 active_behavior_depth = 0;
+                active_weapon_set = None;
+                active_weapon_set_depth = 0;
                 trace!("Found object: {}", current_object.as_ref().unwrap().name);
                 continue;
             }
 
             // End of object definition
             if trimmed.eq_ignore_ascii_case("End") {
-                if current_object.is_some() && Self::is_object_terminator(&lines, index + 1) {
+                if current_object.is_some()
+                    && active_weapon_set.is_none()
+                    && Self::is_object_terminator(&lines, index + 1)
+                {
                     if let Some(obj) = current_object.take() {
                         self.definitions.insert(obj.name.clone(), obj);
                         object_count += 1;
@@ -509,7 +624,16 @@ impl IniParser {
                     active_condition_state = None;
                     active_behavior_module = None;
                     active_behavior_depth = 0;
+                    active_weapon_set = None;
+                    active_weapon_set_depth = 0;
                 } else {
+                    if active_weapon_set.is_some() {
+                        active_weapon_set_depth = active_weapon_set_depth.saturating_sub(1);
+                        if active_weapon_set_depth == 0 {
+                            active_weapon_set = None;
+                        }
+                        continue;
+                    }
                     // Nested block terminator.  A condition-state block closes
                     // before its Draw module; other nested Object blocks do
                     // not affect the currently retained Draw data.
@@ -532,6 +656,15 @@ impl IniParser {
 
             // Parse key = value pairs within an object
             if let Some(obj) = &mut current_object {
+                if Self::is_weapon_set_header(trimmed) {
+                    obj.weapon_sets.push(WeaponSetDefinition::default());
+                    active_weapon_set = obj.weapon_sets.len().checked_sub(1);
+                    active_weapon_set_depth = usize::from(active_weapon_set.is_some());
+                    active_draw_module = None;
+                    active_condition_state = None;
+                    continue;
+                }
+
                 // Object INI nested module headers have no `=`.  The parser
                 // does not need their individual schema here, but it must
                 // count them so an `End` within a Behavior does not close the
@@ -542,6 +675,13 @@ impl IniParser {
                     && !trimmed.eq_ignore_ascii_case("End")
                 {
                     active_behavior_depth = active_behavior_depth.saturating_add(1);
+                }
+                if active_weapon_set.is_some()
+                    && !trimmed.contains('=')
+                    && !Self::is_object_header(trimmed)
+                    && !trimmed.eq_ignore_ascii_case("End")
+                {
+                    active_weapon_set_depth = active_weapon_set_depth.saturating_add(1);
                 }
                 if let Some((condition_state_key, condition_state_value)) =
                     Self::parse_condition_state_declaration(trimmed)
@@ -593,6 +733,25 @@ impl IniParser {
 
                     // Parse specific fields
                     let lower_key = key.to_lowercase();
+
+                    if let Some(set) = active_weapon_set
+                        .and_then(|index| obj.weapon_sets.get_mut(index))
+                    {
+                        match lower_key.as_str() {
+                            "conditions" => {
+                                set.conditions = Self::condition_tokens(value);
+                            }
+                            "weapon" => set.record_weapon(value),
+                            _ => {
+                                set.attributes.insert(key.to_string(), value.to_string());
+                            }
+                        }
+                        // Nested WeaponSet fields are deliberately not copied
+                        // into `ObjectDefinition::attributes`: that lossy map
+                        // would otherwise turn a conditional mine primary into
+                        // a normal Object-level weapon later in loading.
+                        continue;
+                    }
 
                     // Preserve every field under the active Behavior module
                     // before the generic object-level parser potentially
@@ -729,6 +888,14 @@ impl IniParser {
 
     fn is_object_header(line: &str) -> bool {
         Self::parse_object_header(line).is_some()
+    }
+
+    fn is_weapon_set_header(line: &str) -> bool {
+        !line.contains('=')
+            && line
+                .split_whitespace()
+                .next()
+                .is_some_and(|head| head.eq_ignore_ascii_case("WeaponSet"))
     }
 
     fn parse_object_header(line: &str) -> Option<(String, Option<String>)> {

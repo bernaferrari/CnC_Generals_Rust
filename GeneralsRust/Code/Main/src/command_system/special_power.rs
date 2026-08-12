@@ -305,6 +305,7 @@ pub fn special_power_type_from_template_name(name: &str) -> Option<SpecialPowerT
         "superweaponspectregunship" => Power::SpectreGunship,
         "superweaponterrorcell" => Power::TerrorCell,
         "supwcruisemissile" => Power::CruiseMissile,
+        "supwsuperweaponparticleuplinkcannon" => Power::SuperweaponParticleCannon,
         "supwsuperweaponneutronmissile" => Power::SuperweaponNeutronMissile,
         "tanksuperweapontankparadrop" => Power::TankParadrop,
         // These two retail names are represented by target-command variants

@@ -826,75 +826,29 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        use crate::game_logic::host_hacker_disable::{
-            can_activate_hacker_disable_building, is_legal_hacker_disable_target,
-            should_apply_hacker_disable,
-        };
-
-        let (
-            target_team,
-            target_pos,
-            target_alive,
-            target_is_structure,
-            target_under_construction,
-            target_hacked,
-        ) = match self.game_logic.host_object(target_id) {
-            Some(target) => (
-                target.team,
-                target.get_position(),
-                target.is_alive(),
-                target.is_kind_of(KindOf::Structure),
-                target.status.under_construction,
-                target.is_hacked_disabled(),
-            ),
-            None => return CommandResult::InvalidTarget,
-        };
-
-        // is_enemy checked per unit; here require non-neutral structure residual.
-        if !is_legal_hacker_disable_target(
-            target_alive,
-            target_is_structure,
-            target_under_construction,
-            target_team != Team::Neutral,
-            target_hacked,
-        ) {
-            return CommandResult::InvalidTarget;
-        }
-
         let mut any = false;
-        let mut issued_units = Vec::new();
         for &unit_id in units {
-            let can_issue = self
+            // C++ ActionManager authority is module- and readiness-based.
+            // Do not derive HDB from the Hacker basename, nor consume its
+            // reload at click time: the typed channel does so in
+            // SpecialAbilityUpdate::startPreparation.
+            if !self
                 .game_logic
-                .host_object(unit_id)
-                .map(|unit| {
-                    can_activate_hacker_disable_building(
-                        should_apply_hacker_disable(&unit.template_name),
-                        unit.is_alive(),
-                    ) && unit.can_move()
-                        && unit.team != target_team
-                        && unit.team != Team::Neutral
-                })
-                .unwrap_or(false);
-            if !can_issue {
+                .can_unit_hacker_disable_building(unit_id, target_id, true)
+            {
                 continue;
             }
-
-            // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
+            if !self
                 .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
-                issued_units.push(unit_id);
-                any = true;
+                .unit_command_begin_hacker_disable_building(unit_id, target_id)
+            {
+                continue;
             }
-        }
-
-        for unit_id in issued_units {
             self.game_logic.queue_pending_special_ability(
                 unit_id,
                 PendingSpecialAbility::HackerDisableBuilding { target_id },
             );
+            any = true;
         }
 
         if any {

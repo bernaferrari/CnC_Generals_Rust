@@ -112,9 +112,28 @@ impl SnapshotBuilder {
             object.weapon_lock_slot = object.active_weapon_slot;
         }
         object.occupants = snapshot.contained_objects.clone();
+        object.hacker_disable_channel = snapshot.hacker_disable_channel;
 
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;
         self.restore_object_modules(&snapshot.modules, &mut object, game_logic)?;
+
+        // The generic pending-ability map is runtime-only.  Preserve the
+        // source-side state now, but defer rebuilding that map until every
+        // object has been inserted below.  Object snapshots are restored in
+        // ID order, so validating a target here would incorrectly erase a
+        // valid channel whose target happens to be restored later.
+        if let Some(channel) = object.hacker_disable_channel {
+            if object.thing.template.hacker_disable_building.is_some() && object.is_alive() {
+                object.set_ai_state(AIState::SpecialAbility);
+                object.set_order_target(Some(channel.target_id));
+            } else {
+                // A malformed/current save must not revive a guessed hacker
+                // channel.  Clear it before the object becomes live.
+                object.hacker_disable_channel = None;
+                object.set_status_using_ability(false);
+                object.set_target(None);
+            }
+        }
 
         game_logic.objects.insert(snapshot.id, object);
         Ok(())
@@ -335,6 +354,37 @@ impl SnapshotBuilder {
                 }
             }
         }
+
+        // Rebuild the runtime-only pending command only after all object
+        // snapshots exist.  A source-backed HDB channel may survive save/load
+        // while approaching, unpacking, preparing, or packing; an absent or
+        // dead target instead fails closed and cannot leave `IS_USING_ABILITY`
+        // stuck on the restored source.
+        if let Some(channel) = snapshot.hacker_disable_channel {
+            let source_live = game_logic.host_object(snapshot.id).is_some_and(|source| {
+                source.hacker_disable_channel == Some(channel)
+                    && source.thing.template.hacker_disable_building.is_some()
+                    && source.is_alive()
+            });
+            let target_live = game_logic
+                .host_object(channel.target_id)
+                .is_some_and(|target| target.is_alive());
+            if source_live && target_live {
+                game_logic.queue_pending_special_ability(
+                    snapshot.id,
+                    PendingSpecialAbility::HackerDisableBuilding {
+                        target_id: channel.target_id,
+                    },
+                );
+            } else if let Some(source) = game_logic.host_object_mut(snapshot.id) {
+                source.hacker_disable_channel = None;
+                source.set_status_using_ability(false);
+                source.set_target(None);
+                if source.ai_state == AIState::SpecialAbility {
+                    source.set_ai_state(AIState::Idle);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -393,6 +443,10 @@ impl SnapshotBuilder {
                 power_available: snap.resources.power,
                 power_produced: 0,
                 power_consumed: 0,
+                // C++ Energy production is rebuilt after load.  In
+                // particular, an active OverchargeBehavior replays its bonus
+                // for the object's current controller in loadPostProcess.
+                captured_overcharge_power_delta: 0,
                 income_accumulator: 0.0,
                 selected_objects: Vec::new(),
                 unlocked_sciences,

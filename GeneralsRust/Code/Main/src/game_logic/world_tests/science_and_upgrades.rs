@@ -958,6 +958,91 @@ End
 }
 
 #[test]
+fn typed_overcharge_capture_keeps_disabled_bonus_in_cxx_energy_pool() {
+    use crate::game_logic::{KindOf, OverchargeBehaviorMetadata, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::China, "Original owner", true));
+    logic.add_player(Player::new(1, Team::USA, "Capturing owner", false));
+
+    // The behavior metadata—not this fixture's spelling or Structure KindOf—is
+    // the authority for the C++ OverchargeBehavior::onCapture branch.
+    let mut plant_template = ThingTemplate::new("TypedOverchargeCaptureFixture");
+    plant_template
+        .add_kind_of(KindOf::Structure)
+        .set_health(1_000.0);
+    plant_template.energy_bonus = Some(5);
+    plant_template.overcharge_behavior = Some(OverchargeBehaviorMetadata::default());
+    logic.templates.insert(
+        "TypedOverchargeCaptureFixture".to_string(),
+        plant_template,
+    );
+
+    let plant_id = logic
+        .create_object_for_player("TypedOverchargeCaptureFixture", 0, Vec3::ZERO)
+        .expect("typed overcharge plant");
+    {
+        let plant = logic.host_object_mut(plant_id).expect("plant");
+        // Pin the ordinary production apart from the EnergyBonus.  The test
+        // exercises the onCapture ownership seam, not building-type naming.
+        plant.power_provided = 15;
+        plant.power_consumed = 0;
+        plant.set_overcharge_enabled(true);
+    }
+
+    logic.update_player_resources(0.0);
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 15);
+    assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
+
+    // Enabled C++ OverchargeBehavior explicitly removes the old owner's
+    // EnergyBonus and adds it to the new owner; the ordinary ownership scan
+    // already represents that path without a correction.
+    assert!(logic.transfer_object_to_player(plant_id, 1));
+    logic.update_player_resources(0.0);
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 0);
+    assert_eq!(logic.get_player(1).unwrap().power_produced, 15);
+
+    assert!(logic.transfer_object_to_player(plant_id, 0));
+    logic.update_player_resources(0.0);
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 15);
+    assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
+
+    // C++ Object::onCapture dispatches after ownership changes, but
+    // OverchargeBehavior returns early when `isDisabled()`.  The active +5
+    // must therefore stay in the original player's Energy pool rather than
+    // following the host object's new owner.
+    logic
+        .host_object_mut(plant_id)
+        .expect("plant to disable")
+        .set_status_disabled_hacked(true);
+    assert!(logic.host_object(plant_id).unwrap().is_disabled());
+    assert!(logic.transfer_object_to_player(plant_id, 1));
+    logic.update_player_resources(0.0);
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 5);
+    assert_eq!(logic.get_player(1).unwrap().power_produced, 10);
+    assert_eq!(
+        logic.get_player(0).unwrap().captured_overcharge_power_delta,
+        5
+    );
+    assert_eq!(
+        logic.get_player(1).unwrap().captured_overcharge_power_delta,
+        -5
+    );
+
+    // The correction is deliberately not reconciled when the current owner
+    // later disables Overcharge.  C++ enable(FALSE) calls
+    // getControllingPlayer()->removePowerBonus(), so that later subtraction
+    // belongs to player 1 while player 0 retains the earlier disabled-capture
+    // bonus.  This proves the retained delta composes with normal lifecycle
+    // power mutations rather than silently migrating or disappearing.
+    assert!(logic.toggle_overcharge_object(plant_id));
+    logic.update_player_resources(0.0);
+    assert!(!logic.host_object(plant_id).unwrap().overcharge_enabled);
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 5);
+    assert_eq!(logic.get_player(1).unwrap().power_produced, 5);
+}
+
+#[test]
 fn capture_sets_private_captured_and_score() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

@@ -330,6 +330,17 @@ pub struct Player {
     pub power_produced: i32,
     /// Total power consumed by this player's buildings (for energy ratio).
     pub power_consumed: i32,
+    /// C++ `OverchargeBehavior::onCapture` is a fire-and-forget mutation of
+    /// `Energy`, not an ownership-derived object field.  When an active
+    /// Overcharge plant is captured while disabled, its module deliberately
+    /// does not move the template `EnergyBonus` to the new controller.  The
+    /// host normally recomputes power from current object ownership, so this
+    /// signed correction preserves that one historical bonus location.
+    ///
+    /// This is intentionally not part of `PlayerSnapshot`: C++ `Energy::xfer`
+    /// reconstructs production on load and `OverchargeBehavior::loadPostProcess`
+    /// re-adds an active bonus for the object's current controller.
+    pub captured_overcharge_power_delta: i32,
     pub income_accumulator: f32,
     pub selected_objects: Vec<ObjectId>,
     pub unlocked_sciences: HashSet<String>,
@@ -391,6 +402,7 @@ impl Player {
             power_available: 0,
             power_produced: 0,
             power_consumed: 0,
+            captured_overcharge_power_delta: 0,
             income_accumulator: 0.0,
             selected_objects: Vec::new(),
             unlocked_sciences: HashSet::new(),

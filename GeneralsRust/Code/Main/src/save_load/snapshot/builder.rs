@@ -36,7 +36,7 @@ impl SnapshotBuilder {
 
         // Create the world snapshot with actual game state
         let snapshot = WorldSnapshot {
-            version: 1,
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
             timestamp: std::time::SystemTime::now(),
             frame_number: game_logic.get_current_frame(),
             random_seed: 0, // Main crate GameLogic doesn't track random seed explicitly
@@ -171,6 +171,7 @@ impl SnapshotBuilder {
             container_object: None, // Would need to track container
             modules: self.snapshot_object_modules(object)?,
             object_type,
+            hacker_disable_channel: object.hacker_disable_channel,
         })
     }
 

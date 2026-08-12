@@ -187,6 +187,7 @@ pub(super) fn default_object_snapshot() -> ObjectSnapshot {
             group_id: None,
             waypoints: Vec::new(),
         }),
+        hacker_disable_channel: None,
     }
 }
 

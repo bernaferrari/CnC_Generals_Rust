@@ -275,6 +275,7 @@ impl GameLogic {
             let id = self.allocate_object_id();
             // Resolve weapons / locomotor before move into Object.
             let weapon = template.resolve_primary_weapon();
+            let mine_clearing_primary_weapon = template.resolve_mine_clearing_primary_weapon();
             let secondary_weapon = template.resolve_secondary_weapon();
             let tertiary_weapon = template.resolve_tertiary_weapon();
             let movement_stats = template.resolve_movement();
@@ -296,6 +297,9 @@ impl GameLogic {
             // Primary weapon from template when defined; kind-based fallback only as last resort.
             if let Some(weapon) = weapon {
                 object.weapon = Some(weapon);
+            }
+            if let Some(mine_clearing_primary_weapon) = mine_clearing_primary_weapon {
+                object.mine_clearing_primary_weapon = Some(mine_clearing_primary_weapon);
             }
             // Secondary slot: fail-closed (only when template names/stats resolve).
             if let Some(secondary) = secondary_weapon {

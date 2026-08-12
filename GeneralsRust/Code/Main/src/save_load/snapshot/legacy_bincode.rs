@@ -1,0 +1,534 @@
+//! Exact bincode layout used before production frame/exit state was persisted.
+//!
+//! `bincode` encodes structs positionally.  In particular, serde's
+//! `#[serde(default)]` does not make an old three-field production entry safe
+//! to read as the newer seven-field record: the first appended field consumes
+//! bytes belonging to the rest of the enclosing snapshot.  Keep this private
+//! mirror of the pre-production-frame layout so old `.sav` / `.gen` payloads
+//! can be decoded, then explicitly migrate them into the current snapshot.
+
+use super::*;
+use crate::game_logic::*;
+use crate::save_load::{SaveLoadError, SaveLoadResult};
+use bincode::Options;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::SystemTime;
+
+/// `WorldSnapshot::version` was the first positional bincode field before and
+/// after this migration.  Read it with the same fixed-integer bincode options
+/// used by `bincode::serialize`, rather than manually interpreting bytes.
+///
+/// Every known schema is decoded only through its exact historical record:
+/// v1 has float-only production, v2 predates the HDB channel, and v3 is the
+/// current record.  Unknown versions fail closed rather than relying on field
+/// prefixes or serde defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BincodeWorldSnapshotDecodePath {
+    Current,
+    LegacyPreHackerDisableV2,
+    LegacyProductionV1,
+}
+
+pub(crate) fn decode_bincode_world_snapshot(
+    payload: &[u8],
+) -> SaveLoadResult<(WorldSnapshot, BincodeWorldSnapshotDecodePath)> {
+    let version = bincode_prefix::<u32>(payload)
+        .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
+
+    match version {
+        WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
+            .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        2 => bincode_exact::<PreHackerDisableWorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreHackerDisableV2,
+                )
+            })
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        1 => bincode_exact::<LegacyWorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyProductionV1,
+                )
+            })
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        actual => Err(SaveLoadError::VersionMismatch {
+            expected: WORLD_SNAPSHOT_BINCODE_VERSION,
+            actual,
+        }),
+    }
+}
+
+fn bincode_prefix<T: DeserializeOwned>(payload: &[u8]) -> bincode::Result<T> {
+    // These options are exactly the ones behind bincode 1.3's public
+    // `deserialize` helper: fixed-width, little-endian primitives and a
+    // trailing-byte-tolerant prefix read.
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .deserialize(payload)
+}
+
+fn bincode_exact<T: DeserializeOwned>(payload: &[u8]) -> bincode::Result<T> {
+    // Do not let a positional record with an incompatible inner field layout
+    // succeed by silently ignoring the remainder of the payload.
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .reject_trailing_bytes()
+        .deserialize(payload)
+}
+
+/// Full predecessor shape of `WorldSnapshot`.  At production schema v1 the
+/// outer record already contained the three residual registries below; only
+/// `objects -> modules -> Production` used the old nested layout.
+#[derive(Debug, Deserialize, Serialize)]
+struct LegacyWorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, LegacyObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+}
+
+/// Full predecessor shape of `ObjectSnapshot`; every field except `modules`
+/// is deliberately the live type because it was byte-identical at v1.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct LegacyObjectSnapshot {
+    id: ObjectId,
+    template_name: String,
+    team: Team,
+    player_id: u32,
+    geometry: GeometryInfo,
+    status: ObjectStatusSnapshot,
+    health: Health,
+    movement: Movement,
+    experience: Experience,
+    weapons: Vec<Weapon>,
+    contained_objects: Vec<ObjectId>,
+    container_object: Option<ObjectId>,
+    modules: HashMap<String, LegacyModuleSnapshot>,
+    object_type: ObjectTypeSnapshot,
+}
+
+/// Preserve the historical enum discriminants.  Only the second (Production)
+/// variant changed its positional payload.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+enum LegacyModuleSnapshot {
+    AIUpdate(AIUpdateModuleSnapshot),
+    Production(LegacyProductionModuleSnapshot),
+    Weapon(WeaponModuleSnapshot),
+    Body(BodyModuleSnapshot),
+    Locomotor(LocomotorModuleSnapshot),
+    Physics(PhysicsModuleSnapshot),
+    Contain(ContainModuleSnapshot),
+    Upgrade(UpgradeModuleSnapshot),
+}
+
+/// Production module as serialized before QueueProductionExitUpdate state was
+/// added to the bincode snapshot.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct LegacyProductionModuleSnapshot {
+    production_queue: Vec<LegacyProductionQueueEntry>,
+    is_producing: bool,
+    production_progress: f32,
+    rally_point: Option<glam::Vec3>,
+}
+
+/// Production queue entry as serialized before the authoritative frame count,
+/// batch state, and upgrade discriminator were persisted.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct LegacyProductionQueueEntry {
+    template_name: String,
+    progress: f32,
+    cost: u32,
+}
+
+/// Schema v2 was the first tagged production-frame layout.  Its object record
+/// predates the appended Hacker Disable Building channel, so it needs a second
+/// exact mirror once current writes advance to v3.
+///
+/// Keep it separate from [`LegacyWorldSnapshot`]: v1 changes the nested
+/// Production variant as well, while v2 uses the current Production variant
+/// byte-for-byte and differs only at the trailing object field added by HDB.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreHackerDisableWorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, PreHackerDisableObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+}
+
+/// Exact `ObjectSnapshot` v2 positional record.  Do not replace this with the
+/// live type after HDB adds its trailing channel: bincode would otherwise read
+/// the following world fields as that new option discriminator/payload.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PreHackerDisableObjectSnapshot {
+    id: ObjectId,
+    template_name: String,
+    team: Team,
+    player_id: u32,
+    geometry: GeometryInfo,
+    status: ObjectStatusSnapshot,
+    health: Health,
+    movement: Movement,
+    experience: Experience,
+    weapons: Vec<Weapon>,
+    contained_objects: Vec<ObjectId>,
+    container_object: Option<ObjectId>,
+    modules: HashMap<String, ModuleSnapshot>,
+    object_type: ObjectTypeSnapshot,
+}
+
+impl From<LegacyWorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: LegacyWorldSnapshot) -> Self {
+        Self {
+            // The returned in-memory record is now in the current shape.  A
+            // later save is emitted with the tagged current bincode schema.
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+        }
+    }
+}
+
+impl From<LegacyObjectSnapshot> for ObjectSnapshot {
+    fn from(snapshot: LegacyObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot
+                .modules
+                .into_iter()
+                .map(|(name, module)| (name, module.into()))
+                .collect(),
+            object_type: snapshot.object_type,
+            hacker_disable_channel: None,
+        }
+    }
+}
+
+impl From<LegacyModuleSnapshot> for ModuleSnapshot {
+    fn from(snapshot: LegacyModuleSnapshot) -> Self {
+        match snapshot {
+            LegacyModuleSnapshot::AIUpdate(data) => Self::AIUpdate(data),
+            LegacyModuleSnapshot::Production(data) => Self::Production(data.into()),
+            LegacyModuleSnapshot::Weapon(data) => Self::Weapon(data),
+            LegacyModuleSnapshot::Body(data) => Self::Body(data),
+            LegacyModuleSnapshot::Locomotor(data) => Self::Locomotor(data),
+            LegacyModuleSnapshot::Physics(data) => Self::Physics(data),
+            LegacyModuleSnapshot::Contain(data) => Self::Contain(data),
+            LegacyModuleSnapshot::Upgrade(data) => Self::Upgrade(data),
+        }
+    }
+}
+
+impl From<LegacyProductionModuleSnapshot> for ProductionModuleSnapshot {
+    fn from(snapshot: LegacyProductionModuleSnapshot) -> Self {
+        Self {
+            production_queue: snapshot
+                .production_queue
+                .into_iter()
+                .map(ProductionQueueEntry::from)
+                .collect(),
+            is_producing: snapshot.is_producing,
+            production_progress: snapshot.production_progress,
+            rally_point: snapshot.rally_point,
+            exit_delay_remaining: 0.0,
+            exit_delay_remaining_frames: 0,
+            exit_burst_remaining: 0,
+            queue_exit_state_initialized: false,
+        }
+    }
+}
+
+impl From<LegacyProductionQueueEntry> for ProductionQueueEntry {
+    fn from(entry: LegacyProductionQueueEntry) -> Self {
+        Self {
+            template_name: entry.template_name,
+            progress: entry.progress,
+            cost: entry.cost,
+            // `ProductionItem` rebuilds this once from float progress on its
+            // first logic update, using the live template and power factor.
+            construction_frames: 0,
+            quantity_total: 1,
+            quantity_produced: 0,
+            is_upgrade: false,
+        }
+    }
+}
+
+impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreHackerDisableWorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+        }
+    }
+}
+
+impl From<PreHackerDisableObjectSnapshot> for ObjectSnapshot {
+    fn from(snapshot: PreHackerDisableObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+            hacker_disable_channel: None,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_legacy_production_v1_fixture(
+    snapshot: WorldSnapshot,
+) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&LegacyWorldSnapshot::from(snapshot))
+}
+
+#[cfg(test)]
+impl From<WorldSnapshot> for LegacyWorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 1,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ObjectSnapshot> for LegacyObjectSnapshot {
+    fn from(snapshot: ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot
+                .modules
+                .into_iter()
+                .map(|(name, module)| (name, module.into()))
+                .collect(),
+            object_type: snapshot.object_type,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ModuleSnapshot> for LegacyModuleSnapshot {
+    fn from(snapshot: ModuleSnapshot) -> Self {
+        match snapshot {
+            ModuleSnapshot::AIUpdate(data) => Self::AIUpdate(data),
+            ModuleSnapshot::Production(data) => Self::Production(data.into()),
+            ModuleSnapshot::Weapon(data) => Self::Weapon(data),
+            ModuleSnapshot::Body(data) => Self::Body(data),
+            ModuleSnapshot::Locomotor(data) => Self::Locomotor(data),
+            ModuleSnapshot::Physics(data) => Self::Physics(data),
+            ModuleSnapshot::Contain(data) => Self::Contain(data),
+            ModuleSnapshot::Upgrade(data) => Self::Upgrade(data),
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ProductionModuleSnapshot> for LegacyProductionModuleSnapshot {
+    fn from(snapshot: ProductionModuleSnapshot) -> Self {
+        Self {
+            production_queue: snapshot
+                .production_queue
+                .into_iter()
+                .map(LegacyProductionQueueEntry::from)
+                .collect(),
+            is_producing: snapshot.is_producing,
+            production_progress: snapshot.production_progress,
+            rally_point: snapshot.rally_point,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ProductionQueueEntry> for LegacyProductionQueueEntry {
+    fn from(entry: ProductionQueueEntry) -> Self {
+        Self {
+            template_name: entry.template_name,
+            progress: entry.progress,
+            cost: entry.cost,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<WorldSnapshot> for PreHackerDisableWorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 2,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ObjectSnapshot> for PreHackerDisableObjectSnapshot {
+    fn from(snapshot: ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_hacker_disable_v2_fixture(
+    snapshot: WorldSnapshot,
+) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreHackerDisableWorldSnapshot::from(snapshot))
+}

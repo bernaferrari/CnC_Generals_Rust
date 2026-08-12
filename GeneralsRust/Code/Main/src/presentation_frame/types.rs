@@ -320,6 +320,14 @@ pub struct RenderableObject {
     /// Snapshot-time SpecialPower readiness for that same exact module.
     #[serde(default)]
     pub capture_power_ready: bool,
+    /// Exact paired `SpecialAbility` + `SpecialAbilityUpdate` HDB capability.
+    /// This is frozen from host authority; UI must not recognize Hacker by
+    /// display/template spelling.
+    #[serde(default)]
+    pub hacker_disable_building_capable: bool,
+    /// Frozen HDB module readiness for the same presentation frame.
+    #[serde(default)]
+    pub hacker_disable_building_ready: bool,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,

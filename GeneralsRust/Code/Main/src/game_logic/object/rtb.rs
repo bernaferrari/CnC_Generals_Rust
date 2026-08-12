@@ -130,6 +130,15 @@ impl Object {
     }
 
     pub(super) fn primary_weapon_name(&self) -> Option<&str> {
+        if self.weapon_set_mine_clearing_detail
+            && self.mine_clearing_primary_weapon.is_some()
+        {
+            return self
+                .thing
+                .template
+                .mine_clearing_primary_weapon_name
+                .as_deref();
+        }
         self.thing.template.primary_weapon_name.as_deref()
     }
 

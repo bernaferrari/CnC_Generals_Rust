@@ -1307,7 +1307,6 @@ impl PresentationFrame {
                 || (n.contains("hacker") && n.contains("china"))
                 || n.contains("china_hacker")
             {
-                push(&mut cmds, "Command_HackerDisableBuilding", true);
                 push(&mut cmds, "Command_HackInternet", true);
             }
             if n.contains("ambulance") {
@@ -1335,6 +1334,17 @@ impl PresentationFrame {
             {
                 push(&mut cmds, "Command_DemoTertiarySuicide", true);
             }
+        }
+        // C++ HDB is a paired SpecialAbility/SpecialAbilityUpdate channel,
+        // not a China Hacker name.  Keep it outside the legacy hacker block
+        // so a modded or renamed object gets exactly its parsed button, and a
+        // stale/charging module produces a visible but disabled control.
+        if ro.hacker_disable_building_capable {
+            push(
+                &mut cmds,
+                "Command_HackerDisableBuilding",
+                ro.hacker_disable_building_ready,
+            );
         }
         // C++ command availability comes from the concrete behavior module,
         // not a China/power-plant name.  It is intentionally outside the

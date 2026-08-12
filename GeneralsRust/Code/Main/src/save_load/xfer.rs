@@ -219,6 +219,10 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         // full, but `MONEY_HACKER` must survive save/load for exact
         // InternetHackContain admission and HackInternet authority.
         KindOf::MoneyHacker => 51,
+        // Append-only identifier.  SupplySource remains distinct from the
+        // host Resource/Harvestable bridge so C++ build-near-supplies and
+        // dock authority do not depend on a template basename.
+        KindOf::SupplySource => 52,
     }
 }
 
@@ -276,6 +280,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         49 => Ok(KindOf::RepairPad),
         50 => Ok(KindOf::HealPad),
         51 => Ok(KindOf::MoneyHacker),
+        52 => Ok(KindOf::SupplySource),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

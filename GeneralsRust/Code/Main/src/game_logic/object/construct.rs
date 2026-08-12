@@ -74,13 +74,10 @@ impl Object {
             .as_ref()
             .map(|data| (data.power_output, data.power_requirement))
             .unwrap_or((0, 0));
-        // C++ EnergyProduction residual for superweapon buildings (PUC/Nuke -10, Scud 0).
-        // Overrides BuildingType::from_template_name fallback (CommandCenter -3 residual).
-        if let Some(energy) =
-            crate::game_logic::host_superweapon_kindof::superweapon_energy_production_for_template(
-                &template_name,
-            )
-        {
+        // C++ `EnergyProduction` is a parsed Object INI field.  In
+        // particular, do not derive power use from a Particle/Scud/Nuke
+        // basename: a spoofed structure with those words owns no power delta.
+        if let Some(energy) = template.energy_production {
             let (p, c) =
                 crate::game_logic::host_superweapon_kindof::apply_energy_production_to_power(
                     energy,
@@ -501,10 +498,12 @@ impl Object {
             movement: Movement::default(),
             experience: Experience::default(),
             weapon: None,
+            mine_clearing_primary_weapon: None,
             secondary_weapon: None,
             tertiary_weapon: None,
             target: None,
             capture_channel: None,
+            hacker_disable_channel: None,
             construction_percent: 1.0, // Fully constructed by default
             building_data,
             stored_resources: Resources::default(),
@@ -1135,10 +1134,12 @@ impl Object {
             movement: Movement::default(),
             experience: Experience::default(),
             weapon: None,
+            mine_clearing_primary_weapon: None,
             secondary_weapon: None,
             tertiary_weapon: None,
             target: None,
             capture_channel: None,
+            hacker_disable_channel: None,
             construction_percent: 1.0,
             building_data: None,
             stored_resources: Resources::default(),

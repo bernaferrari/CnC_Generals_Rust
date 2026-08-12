@@ -13,6 +13,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
+/// Positional bincode schema used by host `.sav` / legacy `.gen` snapshots.
+///
+/// Version 1 persisted only float production progress.  Version 2 adds the
+/// nested production frame/quantity/exit fields, which cannot be represented
+/// by serde defaults under bincode's positional encoding.  Version 3 appends
+/// the Hacker Disable Building channel to every object snapshot.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 3;
+
 /// Trait for objects that can be included in game snapshots
 pub trait Snapshot {
     /// Perform light CRC check on this data structure
@@ -80,7 +88,7 @@ impl XferData for SerializableVec3 {
 impl Default for WorldSnapshot {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
             timestamp: SystemTime::now(),
             frame_number: 0,
             random_seed: 0,
