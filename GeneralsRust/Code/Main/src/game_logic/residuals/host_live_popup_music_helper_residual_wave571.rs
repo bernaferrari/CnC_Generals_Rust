@@ -1,6 +1,8 @@
 //! Wave 571 residual peels: popup/music residual is centralized through
-//! `apply_presentation_popup_music_residual` (freeze apply + drain) and
-//! `apply_boot_popup_music_residual` (boot take). Never flips shell
+//! `apply_presentation_popup_music_residual` (frozen active-popup apply) and
+//! `apply_boot_popup_music_residual` (boot fail-closed no-op). The typed
+//! popup acknowledgement separately drains Main's active presentation record.
+//! Never flips shell
 //! `playable_claim`.
 //!
 //! Orthogonal to Wave 570 script message helper residual.
@@ -90,6 +92,10 @@ fn pf_source() -> &'static str {
     crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
+fn popup_bridge_source() -> &'static str {
+    include_str!("../../cnc_game_engine/control_bar_bridge.rs")
+}
+
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     let start = src.find(sig)?;
     let after = &src[start..];
@@ -125,6 +131,7 @@ pub fn honesty_popup_music_helper_method_names_residual_wave571() -> bool {
 pub fn honesty_popup_music_helper_source_markers_residual_wave571() -> bool {
     let eng = eng_source();
     let pf = pf_source();
+    let popup_bridge = popup_bridge_source();
     let field_ok = pf.contains("pending_popup_messages") && pf.contains("pending_music_stop");
     let Some(pres) = fn_body(eng, "fn apply_presentation_popup_music_residual(") else {
         residual_action_store(ResidualPopupMusicHelperAction::SourceMarkers);
@@ -135,27 +142,36 @@ pub fn honesty_popup_music_helper_source_markers_residual_wave571() -> bool {
         return false;
     };
     let pres_ok = pres.contains("Wave 571")
-        && pres.contains("pending_popup_messages")
-        && pres.contains("pending_music_stop")
-        && pres.contains("take_popup_message_requests()")
-        && pres.contains("take_music_stop_request()");
+        && pres.contains("pres.pending_popup_messages.last()")
+        && pres.contains("self.host_reconcile_active_popup_pause(Some(popup.pause))")
+        && pres.contains("self.host_reconcile_active_popup_pause(None)")
+        && pres.contains("pres.pending_music_stop")
+        && !pres.contains("take_popup_message_requests()")
+        && !pres.contains("take_music_stop_request()");
     let boot_ok = boot.contains("Wave 571")
-        && boot.contains("take_popup_message_requests()")
-        && boot.contains("take_music_stop_request()");
+        && boot.contains("fail-closed no-op")
+        && !boot.contains("take_popup_message_requests()")
+        && !boot.contains("take_music_stop_request()");
     let call_ok = eng.contains("self.apply_presentation_popup_music_residual(&pres)")
         && eng.contains("self.apply_boot_popup_music_residual()");
-    let raw_p = eng
-        .matches("self.game_logic.take_popup_message_requests()")
-        .count();
-    let raw_m = eng
-        .matches("self.game_logic.take_music_stop_request()")
-        .count();
+    let bridge_ok = popup_bridge
+        .find("fn host_dismiss_in_game_popup_message")
+        .and_then(|start| {
+            let dismiss = &popup_bridge[start..];
+            let guard = dismiss.find("popup_acknowledgement_matches_active_generation")?;
+            let take = dismiss.find("self.game_logic.take_popup_message_requests();")?;
+            Some(
+                guard < take
+                    && dismiss.contains("self.host_clear_active_popup_presentation_residual();")
+                    && dismiss.contains("self.host_reconcile_active_popup_pause(None);"),
+            )
+        })
+        .unwrap_or(false);
     let ok = field_ok
         && pres_ok
         && boot_ok
         && call_ok
-        && raw_p == 2
-        && raw_m == 2
+        && bridge_ok
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualPopupMusicHelperAction::SourceMarkers);
     ok

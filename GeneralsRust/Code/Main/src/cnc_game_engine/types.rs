@@ -802,6 +802,10 @@ pub struct CnCGameEngine {
     /// pause owner.  This is distinct from the legacy Rust PauseMenu state so
     /// a real ButtonReturn can resume only the pause it created.
     pub(crate) quit_menu_host_active: bool,
+    /// Main's one active script popup owns the current pause.  This is kept
+    /// separate from `game_paused`: a popup acknowledgement must never resume
+    /// a PauseMenu, QuitMenu, load, or result pause it did not create.
+    pub(crate) popup_host_pause_owned: bool,
 
     // UI state
     pub(crate) show_debug_info: bool,

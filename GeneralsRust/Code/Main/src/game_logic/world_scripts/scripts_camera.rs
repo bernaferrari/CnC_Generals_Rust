@@ -922,22 +922,29 @@ impl GameLogic {
 
         let popup_messages = self.mission_scripts.drain_popup_message_requests();
         if !popup_messages.is_empty() {
+            // C++ InGameUI owns one popup layout: every new popup replaces the
+            // previously visible one.  Keep only the newest presentation
+            // residual; MissionScriptHooks itself remains the future-event
+            // queue and is already drained above.
+            let active_popup = popup_messages.last().cloned();
             #[cfg(feature = "game_client")]
-            for popup in &popup_messages {
-                game_client::core::script_action_handler::script_popup_message(
+            if let Some(popup) = active_popup.as_ref() {
+                // C++ clears/replaces the single InGameUI popup layout. Send
+                // only its newest request to GameClient and retain its opaque
+                // identity so a delayed ButtonOk/Esc cannot dismiss a later
+                // replacement popup in Main.
+                game_client::core::script_action_handler::script_popup_message_with_host_generation(
                     &popup.message,
                     popup.x_percent,
                     popup.y_percent,
                     popup.width,
                     popup.pause,
                     popup.pause_music,
+                    Some(popup.popup_generation),
                 );
             }
 
             for popup in popup_messages {
-                if popup.pause {
-                    self.set_paused(true);
-                }
                 if popup.pause_music {
                     self.pending_music_stop = true;
                 }
@@ -946,7 +953,11 @@ impl GameLogic {
                     expires_at: self.sim_time_seconds + SCRIPT_BROADCAST_DURATION,
                 });
                 self.new_script_messages.push(popup.message.clone());
-                self.pending_popup_messages.push(popup);
+            }
+
+            self.pending_popup_messages.clear();
+            if let Some(active_popup) = active_popup {
+                self.pending_popup_messages.push(active_popup);
             }
         }
 

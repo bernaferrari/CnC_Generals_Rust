@@ -865,6 +865,9 @@ impl GameLogic {
     }
 
     pub fn queue_pending_popup_message(&mut self, message: impl Into<String>) {
+        // Presentation retains the one currently active C++ popup, never an
+        // historical list of already-replaced dialogs.
+        self.pending_popup_messages.clear();
         self.pending_popup_messages.push(
             crate::game_logic::mission_scripts::ScriptPopupMessageRequest {
                 message: message.into(),
@@ -873,8 +876,20 @@ impl GameLogic {
                 width: 40,
                 pause: false,
                 pause_music: false,
+                // This direct presentation-test helper does not create a
+                // live GameClient popup, so it deliberately has no host ACK
+                // identity. Script hooks assign nonzero identities instead.
+                popup_generation: 0,
             },
         );
+    }
+
+    /// Opaque identity of the one Main-retained popup, if it was emitted by a
+    /// live mission-script hook.  Zero is intentionally not acknowledgeable.
+    pub(crate) fn active_popup_message_generation(&self) -> Option<usize> {
+        self.pending_popup_messages
+            .last()
+            .and_then(|popup| (popup.popup_generation != 0).then_some(popup.popup_generation))
     }
 
     pub fn peek_pending_movie(&self) -> Option<&str> {

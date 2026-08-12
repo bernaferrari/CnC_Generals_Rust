@@ -18,6 +18,91 @@ const COMMAND_OPTION_ONE: u32 = 0x0000_2000;
 const COMMAND_OPTION_TWO: u32 = 0x0000_4000;
 const COMMAND_OPTION_THREE: u32 = 0x0000_8000;
 
+/// Result of reconciling C++'s single active popup with Main's independent
+/// pause owners.  A popup is allowed to release only a pause that Main marked
+/// as its own; a pre-existing pause is deliberately left untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PopupPauseTransition {
+    popup_pause_owned: bool,
+    set_paused: Option<bool>,
+}
+
+#[inline]
+fn resolve_popup_pause_transition(
+    popup_pause_owned: bool,
+    game_paused: bool,
+    active_popup_pauses: bool,
+    independent_pause_owner: bool,
+) -> PopupPauseTransition {
+    if independent_pause_owner {
+        return PopupPauseTransition {
+            popup_pause_owned: false,
+            set_paused: None,
+        };
+    }
+
+    if active_popup_pauses {
+        if popup_pause_owned {
+            return PopupPauseTransition {
+                popup_pause_owned: true,
+                set_paused: (!game_paused).then_some(true),
+            };
+        }
+
+        // A host world that was already paused has an owner Main cannot prove
+        // belongs to this popup.  Preserve it instead of claiming/releasing it
+        // on a later acknowledgement.
+        if game_paused {
+            return PopupPauseTransition {
+                popup_pause_owned: false,
+                set_paused: None,
+            };
+        }
+
+        return PopupPauseTransition {
+            popup_pause_owned: true,
+            set_paused: Some(true),
+        };
+    }
+
+    if popup_pause_owned {
+        return PopupPauseTransition {
+            popup_pause_owned: false,
+            set_paused: Some(false),
+        };
+    }
+
+    PopupPauseTransition {
+        popup_pause_owned: false,
+        set_paused: None,
+    }
+}
+
+#[inline]
+fn host_control_bar_request_allowed_in_state(
+    in_game: bool,
+    paused_popup_ack_only: bool,
+    request: &HostControlBarRequest,
+) -> bool {
+    in_game
+        || (paused_popup_ack_only
+            && matches!(
+                request,
+                HostControlBarRequest::DismissInGamePopupMessage { .. }
+            ))
+}
+
+/// A host popup acknowledgement is meaningful only for the one live retained
+/// popup.  Zero and missing identities fail closed; in particular, a queued
+/// ButtonOk/Esc for old popup A must never consume replacement popup B.
+#[inline]
+fn popup_acknowledgement_matches_active_generation(
+    active_popup_generation: Option<usize>,
+    popup_generation: usize,
+) -> bool {
+    popup_generation != 0 && active_popup_generation == Some(popup_generation)
+}
+
 impl CnCGameEngine {
     /// Drain Control Bar work at the single-authority boundary.
     ///
@@ -31,7 +116,9 @@ impl CnCGameEngine {
             return;
         }
 
-        if !matches!(self.current_state, GameState::InGame) {
+        let in_game = matches!(self.current_state, GameState::InGame);
+        let paused_popup_ack_only = matches!(self.current_state, GameState::Paused);
+        if !in_game && !paused_popup_ack_only {
             debug!(
                 "discarded {} Control Bar requests outside an in-game offline world",
                 requests.len()
@@ -59,6 +146,17 @@ impl CnCGameEngine {
         }
 
         for published in requests {
+            // A popup can own a pause while the runtime is in Paused.  Its
+            // acknowledgement must reach Main, but every world-mutating
+            // ControlBar action remains InGame-only.
+            if !host_control_bar_request_allowed_in_state(
+                in_game,
+                paused_popup_ack_only,
+                &published.request,
+            ) {
+                debug!("discarded non-popup Control Bar request while paused");
+                continue;
+            }
             self.host_apply_control_bar_request(
                 published.request,
                 published.input_provenance.is_physical_window_mouse_input(),
@@ -77,6 +175,9 @@ impl CnCGameEngine {
             }
             HostControlBarRequest::CancelStructurePlacement => {
                 self.cancel_structure_placement_from_ui();
+            }
+            HostControlBarRequest::DismissInGamePopupMessage { popup_generation } => {
+                self.host_dismiss_in_game_popup_message(popup_generation);
             }
             HostControlBarRequest::Production {
                 template_name,
@@ -213,6 +314,91 @@ impl CnCGameEngine {
                 }
             }
         }
+    }
+
+    /// Main owns the only offline world, so consume the single active popup
+    /// residual before clearing the GameClient WND.  The mission-script queue
+    /// was already consumed at its normal evaluator boundary; this is only
+    /// the C++-equivalent presentation mirror.
+    fn host_dismiss_in_game_popup_message(&mut self, popup_generation: usize) {
+        if !popup_acknowledgement_matches_active_generation(
+            self.game_logic.active_popup_message_generation(),
+            popup_generation,
+        ) {
+            debug!(
+                "ignored stale InGamePopupMessage acknowledgement generation {}",
+                popup_generation
+            );
+            return;
+        }
+
+        self.game_logic.take_popup_message_requests();
+        self.host_clear_active_popup_presentation_residual();
+        // The frozen record is a presentation mirror and can have been
+        // replaced/drained by the time its WND callback arrives. Reconcile
+        // unconditionally so a stale popup-owned marker cannot survive an
+        // acknowledgement; the resolver preserves every independent pause.
+        self.host_reconcile_active_popup_pause(None);
+
+        // The host has atomically removed the authoritative record first;
+        // this cleanup only destroys the client-owned WND/presentation data.
+        game_client::helpers::TheInGameUI::clear_popup_message_data();
+    }
+
+    /// A full offline-world boundary invalidates both C++'s visible popup WND
+    /// and Main's mirror before a new map/reset world can accept UI input.
+    /// Keep this narrower than a full Control Bar clear: only popup ACKs are
+    /// invalidated, while unrelated controls retain their own boundary rules.
+    pub(super) fn host_invalidate_active_popup_for_world_boundary(&mut self) {
+        self.game_logic.take_popup_message_requests();
+        self.host_clear_active_popup_presentation_residual();
+        self.host_reconcile_active_popup_pause(None);
+        game_client::gui::control_bar::clear_host_dismiss_in_game_popup_message_requests();
+        game_client::helpers::TheInGameUI::clear_popup_message_data();
+    }
+
+    fn host_clear_active_popup_presentation_residual(&mut self) {
+        if let Some(pres) = self.render_pipeline.presentation_frame_mut() {
+            pres.pending_popup_messages.clear();
+        }
+        if let Some(pres) = self.last_presentation_frame.as_mut() {
+            pres.pending_popup_messages.clear();
+        }
+        if let Some(ui) = self.last_ui_state.as_mut() {
+            ui.pending_popup_messages.clear();
+        }
+    }
+
+    /// Keep one active presentation popup's pause separate from Main's other
+    /// pause owners.  `None` means the active popup was dismissed.
+    pub(crate) fn host_reconcile_active_popup_pause(&mut self, active_popup_pauses: Option<bool>) {
+        let transition = resolve_popup_pause_transition(
+            self.popup_host_pause_owned,
+            self.game_paused,
+            active_popup_pauses.unwrap_or(false),
+            self.host_popup_has_independent_pause_owner(),
+        );
+        self.popup_host_pause_owned = transition.popup_pause_owned;
+        if let Some(paused) = transition.set_paused {
+            self.host_set_paused(paused);
+        }
+    }
+
+    fn host_popup_has_independent_pause_owner(&self) -> bool {
+        self.quit_menu_host_active
+            || self.match_over
+            || matches!(
+                self.current_state,
+                GameState::Menu
+                    | GameState::Loading
+                    | GameState::Victory
+                    | GameState::Defeat
+                    | GameState::Exiting
+            )
+            || matches!(
+                self.ui_manager.current_screen(),
+                Some(Screen::PauseMenu | Screen::Victory)
+            )
     }
 
     fn host_apply_control_bar_direct(
@@ -1060,6 +1246,174 @@ fn host_control_bar_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn popup_pause_ownership_releases_only_the_pause_it_created() {
+        // pause -> nonpause: replacement releases the popup-owned pause.
+        let paused_popup = resolve_popup_pause_transition(false, false, true, false);
+        assert_eq!(
+            paused_popup,
+            PopupPauseTransition {
+                popup_pause_owned: true,
+                set_paused: Some(true),
+            }
+        );
+        assert_eq!(
+            resolve_popup_pause_transition(true, true, false, false),
+            PopupPauseTransition {
+                popup_pause_owned: false,
+                set_paused: Some(false),
+            }
+        );
+
+        // nonpause -> pause: only the newer pause becomes host-owned.
+        assert_eq!(
+            resolve_popup_pause_transition(false, false, false, false),
+            PopupPauseTransition {
+                popup_pause_owned: false,
+                set_paused: None,
+            }
+        );
+        assert_eq!(
+            resolve_popup_pause_transition(false, false, true, false),
+            paused_popup
+        );
+
+        // An acknowledgement/replacement while another owner has paused the
+        // match clears Main's stale popup marker but never resumes that owner.
+        assert_eq!(
+            resolve_popup_pause_transition(true, true, false, true),
+            PopupPauseTransition {
+                popup_pause_owned: false,
+                set_paused: None,
+            }
+        );
+        assert_eq!(
+            resolve_popup_pause_transition(false, true, false, true),
+            PopupPauseTransition {
+                popup_pause_owned: false,
+                set_paused: None,
+            }
+        );
+    }
+
+    #[test]
+    fn paused_bridge_accepts_only_popup_acknowledgement() {
+        assert!(host_control_bar_request_allowed_in_state(
+            false,
+            true,
+            &HostControlBarRequest::DismissInGamePopupMessage {
+                popup_generation: 17,
+            },
+        ));
+        assert!(
+            !host_control_bar_request_allowed_in_state(
+                false,
+                true,
+                &HostControlBarRequest::CancelStructurePlacement,
+            ),
+            "paused state must not admit world-mutating Control Bar work"
+        );
+        assert!(host_control_bar_request_allowed_in_state(
+            true,
+            false,
+            &HostControlBarRequest::CancelStructurePlacement,
+        ));
+    }
+
+    #[test]
+    fn popup_acknowledgements_require_the_current_live_generation() {
+        const POPUP_A: usize = 71;
+        const POPUP_B: usize = 72;
+
+        assert!(popup_acknowledgement_matches_active_generation(
+            Some(POPUP_B),
+            POPUP_B
+        ));
+        assert!(
+            !popup_acknowledgement_matches_active_generation(Some(POPUP_B), POPUP_A),
+            "a delayed acknowledgement for replacement A must not consume B"
+        );
+        assert!(
+            !popup_acknowledgement_matches_active_generation(Some(POPUP_B), 0),
+            "zero is an explicit fail-closed no-popup identity"
+        );
+        assert!(
+            !popup_acknowledgement_matches_active_generation(None, POPUP_B),
+            "a world reset/replacement has no retained popup to dismiss"
+        );
+    }
+
+    #[test]
+    fn popup_dismissal_matches_token_before_clearing_and_reconciles_active_record() {
+        let bridge = include_str!("control_bar_bridge.rs");
+        let start = bridge
+            .find("fn host_dismiss_in_game_popup_message")
+            .expect("popup dismiss handler");
+        let end = bridge[start..]
+            .find("\n    fn host_clear_active_popup_presentation_residual")
+            .map(|offset| start + offset)
+            .expect("popup dismiss handler end");
+        let dismiss = &bridge[start..end];
+        let guard = dismiss
+            .find("popup_acknowledgement_matches_active_generation")
+            .expect("dismissal checks its live popup identity");
+        let take = dismiss
+            .find("self.game_logic.take_popup_message_requests();")
+            .expect("matching dismissal clears Main's active record");
+        assert!(
+            guard < take
+                && dismiss.contains("self.host_clear_active_popup_presentation_residual();")
+                && dismiss.contains("self.host_reconcile_active_popup_pause(None);"),
+            "only a matching acknowledgement may clear Main's active record and pause ownership"
+        );
+        assert!(
+            dismiss.contains("return;"),
+            "zero/missing/mismatched identities must fail closed before WND cleanup"
+        );
+    }
+
+    #[test]
+    fn popup_world_boundaries_invalidate_only_popup_ui_work() {
+        let authority = include_str!("host_authority.rs");
+        let reset = &authority[authority
+            .find("fn host_clear_match_residuals(")
+            .expect("match reset boundary")..];
+        let replace = &authority[authority
+            .find("fn host_replace_game_logic(")
+            .expect("world replace boundary")..];
+        let reset_end = reset
+            .find("fn host_reset_game_logic")
+            .expect("next reset authority method");
+        let replace_end = replace
+            .find("fn host_save_game_authority")
+            .expect("next replacement method");
+        assert!(
+            reset[..reset_end].contains("self.host_invalidate_active_popup_for_world_boundary();")
+                && replace[..replace_end]
+                    .contains("self.host_invalidate_active_popup_for_world_boundary();")
+                && replace[..replace_end]
+                    .find("self.host_invalidate_active_popup_for_world_boundary();")
+                    < replace[..replace_end].find("self.game_logic = logic;")
+        );
+
+        let bridge = include_str!("control_bar_bridge.rs");
+        let start = bridge
+            .find("fn host_invalidate_active_popup_for_world_boundary")
+            .expect("popup world-boundary invalidation helper");
+        let end = bridge[start..]
+            .find("\n    fn host_clear_active_popup_presentation_residual")
+            .map(|offset| start + offset)
+            .expect("popup invalidation helper end");
+        let invalidate = &bridge[start..end];
+        assert!(
+            invalidate.contains("self.game_logic.take_popup_message_requests();")
+                && invalidate.contains("self.host_reconcile_active_popup_pause(None);")
+                && invalidate.contains("clear_host_dismiss_in_game_popup_message_requests")
+                && invalidate.contains("TheInGameUI::clear_popup_message_data();"),
+            "world boundaries clear the authoritative popup, popup-owned pause, stale ACKs, and modal WND only"
+        );
+    }
 
     #[test]
     fn cancel_structure_placement_request_routes_through_the_dual_hud_clear() {

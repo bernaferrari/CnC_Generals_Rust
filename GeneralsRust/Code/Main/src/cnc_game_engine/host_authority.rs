@@ -218,9 +218,17 @@ impl CnCGameEngine {
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
     #[inline]
     pub(super) fn host_clear_match_residuals(&mut self) {
+        // A completed/reset/replaced world must not leave a modal legacy popup
+        // WND or its typed acknowledgement queued over the next match.  The
+        // helper clears only popup-specific bridge work, not arbitrary HUD
+        // commands captured for another authority boundary.
+        #[cfg(feature = "game_client")]
+        self.host_invalidate_active_popup_for_world_boundary();
+
         // Carrier provenance cannot cross reset/load/new-match boundaries: an
         // object ID from an earlier world must never qualify a later deposit.
         self.physical_gather_carrier_ids.clear();
+        self.popup_host_pause_owned = false;
         self.host_match_map_name = None;
         self.host_match_local_player_id = None;
         self.host_match_ai_difficulty = None;
@@ -977,6 +985,13 @@ impl CnCGameEngine {
     /// Wave 935: intentional full GameLogic replace boundary (map-load install).
     #[inline]
     pub(super) fn host_replace_game_logic(&mut self, logic: crate::game_logic::GameLogic) {
+        // Do this before replacing GameLogic so the old world's active token,
+        // frozen residual, modal WND, and popup-owned pause all disappear as
+        // one boundary. Process-lifetime popup tokens then reject any late
+        // callback which arrives after the new world is installed.
+        #[cfg(feature = "game_client")]
+        self.host_invalidate_active_popup_for_world_boundary();
+
         self.game_logic = logic;
         self.invalidate_presentation_terrain_cache();
     }

@@ -22,8 +22,9 @@ use crate::gui::load_screen::{
     LoadScreenInitContext, LoadScreenKind, LoadScreenRequest,
 };
 use crate::gui::{
-    hide_control_bar, queue_shell_hide, queue_shell_operation, show_shell_map_if_available,
-    with_window_manager, HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus,
+    hide_control_bar, queue_shell_hide, queue_shell_operation, queue_window_manager_op,
+    show_shell_map_if_available, with_window_manager, HintData, HintType, MouseCursor, MouseMode,
+    WindowLayout, WindowStatus,
 };
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
@@ -944,6 +945,9 @@ pub struct PopupMessageData {
     pub text_color: u32,
     pub pause: bool,
     pub pause_music: bool,
+    /// Opaque Main-owned identity for a mission-script popup. Standalone C++
+    /// callers leave this `None` and retain their legacy dismissal route.
+    pub host_popup_generation: Option<usize>,
     pub layout: Option<Rc<RefCell<WindowLayout>>>,
 }
 
@@ -1818,7 +1822,41 @@ impl TheInGameUI {
         pause: bool,
         pause_music: bool,
     ) {
-        Self::popup_message_with_color(identifier, x, y, width, 0xFFFFFFFF, pause, pause_music);
+        Self::popup_message_with_color_and_host_generation(
+            identifier,
+            x,
+            y,
+            width,
+            0xFFFFFFFF,
+            pause,
+            pause_music,
+            None,
+        );
+    }
+
+    /// Main's mission-script bridge supplies an opaque instance identity so a
+    /// deferred keyboard acknowledgement cannot dismiss a later C++-style
+    /// replacement popup. This remains crate-visible: standalone callers use
+    /// `popup_message` and preserve the legacy path.
+    pub(crate) fn popup_message_with_host_generation(
+        identifier: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        pause: bool,
+        pause_music: bool,
+        host_popup_generation: Option<usize>,
+    ) {
+        Self::popup_message_with_color_and_host_generation(
+            identifier,
+            x,
+            y,
+            width,
+            0xFFFFFFFF,
+            pause,
+            pause_music,
+            host_popup_generation.filter(|generation| *generation != 0),
+        );
     }
 
     pub fn popup_message_with_color(
@@ -1829,6 +1867,28 @@ impl TheInGameUI {
         text_color: u32,
         pause: bool,
         pause_music: bool,
+    ) {
+        Self::popup_message_with_color_and_host_generation(
+            identifier,
+            x,
+            y,
+            width,
+            text_color,
+            pause,
+            pause_music,
+            None,
+        );
+    }
+
+    fn popup_message_with_color_and_host_generation(
+        identifier: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        text_color: u32,
+        pause: bool,
+        pause_music: bool,
+        host_popup_generation: Option<usize>,
     ) {
         Self::clear_popup_message_data();
 
@@ -1860,6 +1920,7 @@ impl TheInGameUI {
             text_color,
             pause,
             pause_music,
+            host_popup_generation,
             layout: layout.clone(),
         };
 
@@ -1896,7 +1957,11 @@ impl TheInGameUI {
         };
 
         if let Some(layout) = data.layout {
-            with_window_manager(|manager| {
+            // Popup callbacks commonly run inside WindowManager input/system
+            // dispatch. Queue destruction so the modal layout is removed only
+            // after that borrow unwinds, matching the callback-safe path used
+            // by other popup layouts.
+            queue_window_manager_op(move |manager| {
                 manager.destroy_layout(&layout);
             });
         }

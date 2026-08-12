@@ -124,6 +124,18 @@ pub enum HostControlBarRequest {
     /// the mouse.  Main owns that state for an offline host match, so this
     /// must not mutate the standalone GameLogic UI while the bridge is active.
     CancelStructurePlacement,
+    /// Acknowledge the single active in-game script popup.
+    ///
+    /// The offline executable owns the authoritative popup residual and its
+    /// pause lifecycle.  Keep the acknowledgement typed so the callback does
+    /// not clear only GameClient's compatibility GameLogic while Main retains
+    /// the visible popup and pause state.
+    DismissInGamePopupMessage {
+        /// Opaque Main-issued instance id; zero is never publishable. It
+        /// prevents an acknowledgement queued for an older popup from
+        /// dismissing the C++-style replacement currently on screen.
+        popup_generation: usize,
+    },
     /// Queue a unit or structure template at every selected producer.
     Production {
         command_name: String,
@@ -410,6 +422,22 @@ pub fn clear_host_control_bar_requests() {
     state.minimap_interactions.clear();
 }
 
+/// Discard only stale popup acknowledgements at an authoritative world
+/// boundary.  Unlike [`clear_host_control_bar_requests`], this deliberately
+/// preserves unrelated UI work: a reset/load invalidates an old popup WND,
+/// not every Control Bar interaction already captured for the new world.
+pub fn clear_host_dismiss_in_game_popup_message_requests() {
+    let mut state = host_control_bar_bridge_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    state.requests.retain(|published| {
+        !matches!(
+            &published.request,
+            HostControlBarRequest::DismissInGamePopupMessage { .. }
+        )
+    });
+}
+
 /// Build a host request from the exact data attached to a Control Bar button.
 ///
 /// This is crate-visible so the live Control Bar can enrich special-power
@@ -595,6 +623,18 @@ pub(crate) fn publish_host_cancel_structure_placement() -> bool {
     publish_host_control_bar_request(HostControlBarRequest::CancelStructurePlacement)
 }
 
+/// Publish acknowledgement of the active script popup while Main owns the
+/// offline UI authority. Returning `false` deliberately preserves the C++
+/// GameClient direct/message-stream fallback for standalone callers.
+pub(crate) fn publish_host_dismiss_in_game_popup_message(popup_generation: usize) -> bool {
+    if popup_generation == 0 {
+        return false;
+    }
+    publish_host_control_bar_request(HostControlBarRequest::DismissInGamePopupMessage {
+        popup_generation,
+    })
+}
+
 /// Publish a LeftHUD minimap click only while Main owns Control Bar authority.
 ///
 /// The callback supplies geometry and button semantics, but this function
@@ -763,6 +803,44 @@ mod tests {
         assert!(matches!(
             take_host_control_bar_requests().as_slice(),
             [HostControlBarRequest::CancelStructurePlacement]
+        ));
+    }
+
+    #[test]
+    fn bridge_routes_popup_acknowledgement_only_when_enabled() {
+        let _guard = acquire();
+        assert!(
+            !publish_host_dismiss_in_game_popup_message(17),
+            "standalone GameClient must retain its legacy popup-dismiss route"
+        );
+
+        set_host_control_bar_bridge_enabled(true);
+        assert!(publish_host_dismiss_in_game_popup_message(17));
+        assert!(matches!(
+            take_host_control_bar_requests().as_slice(),
+            [HostControlBarRequest::DismissInGamePopupMessage {
+                popup_generation: 17
+            }]
+        ));
+
+        assert!(
+            !publish_host_dismiss_in_game_popup_message(0),
+            "zero means no Main-owned popup identity and must keep legacy fallback"
+        );
+        assert!(take_host_control_bar_requests().is_empty());
+    }
+
+    #[test]
+    fn popup_boundary_clear_discards_only_popup_acknowledgements() {
+        let _guard = acquire();
+        set_host_control_bar_bridge_enabled(true);
+        assert!(publish_host_dismiss_in_game_popup_message(23));
+        assert!(publish_host_select_next_idle_worker());
+
+        clear_host_dismiss_in_game_popup_message_requests();
+        assert!(matches!(
+            take_host_control_bar_requests().as_slice(),
+            [HostControlBarRequest::SelectNextIdleWorker]
         ));
     }
 
