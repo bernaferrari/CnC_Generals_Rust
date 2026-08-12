@@ -673,6 +673,13 @@ pub struct Object {
     /// Primary weapon
     pub weapon: Option<Weapon>,
 
+    /// Exact `MINE_CLEARING_DETAIL` replacement for the PRIMARY slot.
+    /// Separate storage preserves the ordinary primary's reload/ammo state
+    /// while the C++ detail flag is active. Older snapshots deserialize this
+    /// absent field as unavailable rather than inventing a mine-clear weapon.
+    #[serde(default)]
+    pub mine_clearing_primary_weapon: Option<Weapon>,
+
     /// Secondary weapon slot (C++ WeaponSet SECONDARY). Optional residual bind.
     pub secondary_weapon: Option<Weapon>,
 
@@ -691,6 +698,12 @@ pub struct Object {
     /// so save/load cannot collapse a live channel into an instant transfer.
     #[serde(default)]
     pub capture_channel: Option<CaptureChannelState>,
+    /// Persistent C++ `SpecialAbilityUpdate` channel for
+    /// `SPECIAL_HACKER_DISABLE_BUILDING`.  This is separate from capture and
+    /// generic pending abilities because HDB repeatedly refreshes its target
+    /// through `PersistentPrepTime` and starts its recharge at preparation.
+    #[serde(default)]
+    pub hacker_disable_channel: Option<HackerDisableChannelState>,
 
     /// Construction progress (0.0 to 1.0)
     pub construction_percent: f32,
@@ -2243,6 +2256,42 @@ pub struct CaptureChannelState {
 impl CaptureChannelState {
     pub fn new(phase: CaptureChannelPhase, duration_ms: u32) -> Self {
         Self {
+            phase,
+            remaining_seconds: duration_ms as f32 / 1_000.0,
+        }
+    }
+}
+
+/// C++ `SpecialAbilityUpdate::PackingState` subset for Hacker Disable
+/// Building.  It deliberately does not reuse `CaptureChannelPhase`: the two
+/// special powers have distinct authority and HDB's preparation can persist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HackerDisableChannelPhase {
+    #[default]
+    Unpacking,
+    Preparing,
+    Packing,
+    /// The click has passed C++ ActionManager authority, but the update has
+    /// not reached its authored `StartAbilityRange` yet.  Keep this explicit
+    /// so a save cannot turn a still-approaching Hacker into an instant
+    /// unpack/preparation channel on restore.
+    Approaching,
+}
+
+/// Save-safe source/target state for one active Hacker Disable Building
+/// SpecialAbilityUpdate.  Durations are integrated in seconds, while source
+/// INI metadata remains in milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct HackerDisableChannelState {
+    pub target_id: ObjectId,
+    pub phase: HackerDisableChannelPhase,
+    pub remaining_seconds: f32,
+}
+
+impl HackerDisableChannelState {
+    pub fn new(target_id: ObjectId, phase: HackerDisableChannelPhase, duration_ms: u32) -> Self {
+        Self {
+            target_id,
             phase,
             remaining_seconds: duration_ms as f32 / 1_000.0,
         }

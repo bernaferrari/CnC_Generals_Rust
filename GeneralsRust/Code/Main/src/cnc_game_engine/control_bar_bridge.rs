@@ -327,6 +327,14 @@ impl CnCGameEngine {
             if let Some(power_type) =
                 crate::command_system::special_power_type_from_template_name(special_power_name)
             {
+                if power_type == crate::command_system::SpecialPowerType::HackerDisableBuilding
+                    && !self.host_control_bar_selection_has_ready_hacker_disable(&selected)
+                {
+                    self.host_reject_control_bar_request(
+                        "Hacker Disable Building requires a ready paired module",
+                    );
+                    return;
+                }
                 self.host_control_bar_queue_command(
                     player_id,
                     selected,
@@ -457,7 +465,11 @@ impl CnCGameEngine {
         }
         let selected_has_dozer = selected.iter().any(|id| self.ui_object_is_dozer(*id));
         if !selected.is_empty() {
-            self.host_set_selection(player_id, selected);
+            // The frozen HDB readiness gate below must inspect the exact same
+            // vetted selection after this UI-side selection update.  Preserve
+            // the small object-id vector rather than recomputing it from live
+            // input (which could admit a changed selection).
+            self.host_set_selection(player_id, selected.clone());
         }
 
         match target {
@@ -497,6 +509,14 @@ impl CnCGameEngine {
                     );
                     return;
                 };
+                if power_type == crate::command_system::SpecialPowerType::HackerDisableBuilding
+                    && !self.host_control_bar_selection_has_ready_hacker_disable(&selected)
+                {
+                    self.host_reject_control_bar_request(
+                        "Hacker Disable Building requires a ready paired module",
+                    );
+                    return;
+                }
                 let cursor = Self::radius_cursor_type_for_special_power(&power_type);
                 self.pending_map_command = Some(PendingMapCommand::SpecialPower(power_type));
                 self.pending_structure_placement = None;
@@ -504,9 +524,26 @@ impl CnCGameEngine {
             }
             HostControlBarTarget::Generic => match generic_action {
                 Some(HostControlBarGenericTargetAction::Weapon(weapon)) => {
+                    // C++ ControlBarCommandProcessing sends
+                    // MSG_SET_MINE_CLEARING_DETAIL while the *retail option*
+                    // is armed, before its normal MSG_DO_WEAPON_AT_LOCATION.
+                    // Keep the detail state on the exact vetted selection;
+                    // neither a command-button name nor a unit template is
+                    // authority for this behavior.
+                    let uses_mine_clearing_weapon_set = weapon.uses_mine_clearing_weapon_set();
+                    if uses_mine_clearing_weapon_set {
+                        let logic = self.host_game_logic_mut();
+                        for &unit_id in &selected {
+                            let _ = logic.unit_command_set_mine_clearing_detail(unit_id, true);
+                        }
+                    }
                     self.pending_map_command = Some(PendingMapCommand::Weapon(weapon));
                     self.pending_structure_placement = None;
-                    self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
+                    self.arm_radius_cursor_for_pending(if uses_mine_clearing_weapon_set {
+                        "CLEARMINES"
+                    } else {
+                        "OFFENSIVE_SPECIALPOWER"
+                    });
                 }
                 Some(HostControlBarGenericTargetAction::UnitAbility(ability)) => {
                     self.arm_pending_unit_ability(
@@ -621,6 +658,31 @@ impl CnCGameEngine {
             }
         }
         selected
+    }
+
+    /// HDB targeting is armed from the frozen presentation frame.  The live
+    /// executor repeats C++ ActionManager authority later; this preflight only
+    /// prevents a stale control-bar click from manufacturing a cursor for a
+    /// name-matched Hacker whose paired module is missing, paused, or cooling
+    /// down.
+    pub(super) fn host_control_bar_selection_has_ready_hacker_disable(
+        &self,
+        selected: &[crate::game_logic::ObjectId],
+    ) -> bool {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        selected.iter().any(|id| {
+            frame.objects.iter().any(|object| {
+                object.id == *id
+                    && frame.is_owned_by_local(object)
+                    && !object.destroyed
+                    && !object.sold
+                    && !object.disabled
+                    && object.hacker_disable_building_capable
+                    && object.hacker_disable_building_ready
+            })
+        })
     }
 
     fn host_control_bar_is_local_player(&self, player_id: u32) -> bool {

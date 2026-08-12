@@ -265,6 +265,12 @@ impl PresentationFrame {
                     .capture_power
                     .special_power_type()
                     .is_some_and(|power| logic.is_special_power_ready_for(obj.id, &power)),
+                hacker_disable_building_capable: obj
+                    .thing
+                    .template
+                    .hacker_disable_building
+                    .is_some(),
+                hacker_disable_building_ready: logic.is_hacker_disable_building_ready(obj.id),
                 health_current: auth_health,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,

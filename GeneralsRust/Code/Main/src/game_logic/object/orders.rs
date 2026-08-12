@@ -183,6 +183,29 @@ impl Object {
         self.refresh_special_power_aggregate_cooldown();
     }
 
+    /// Start one authored SpecialPower timer with its parsed C++ ReloadTime.
+    ///
+    /// The legacy helper above still services broad residual powers whose
+    /// timings live in a handwritten table.  Paired Object INI abilities must
+    /// never borrow that table (or `ThingTemplate::special_power_cooldown`)
+    /// merely because they share a command enum.
+    pub fn start_power_recharge_with_frames(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        reload_time_frames: u32,
+    ) {
+        let seconds = reload_time_frames as f32 / 30.0;
+        if seconds > 0.0 {
+            self.special_power_cooldowns.insert(power.clone(), seconds);
+            self.special_power_cooldown = seconds;
+            self.special_power_cooldown_remaining = seconds;
+            self.set_special_power_ready(false);
+        } else {
+            self.special_power_cooldowns.remove(power);
+        }
+        self.refresh_special_power_aggregate_cooldown();
+    }
+
     /// Consume a charge for the special power and start per-power cooldown.
     pub fn consume_special_power_charge(&mut self, power: &SpecialPowerType) {
         if !self.is_special_power_ready(power) {

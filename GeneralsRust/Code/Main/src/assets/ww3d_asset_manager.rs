@@ -260,6 +260,15 @@ impl WW3DAssetManager {
             parent.tertiary_weapon = child.tertiary_weapon;
         }
 
+        // C++ ThingTemplate::parseWeaponTemplateSet clears every inherited
+        // WeaponSet on the first child-authored WeaponSet
+        // (`m_weaponsCopiedFromDefault`).  Retain the child's complete source
+        // order rather than hybrid-merging condition rows: an omitted mine
+        // row in a ChildObject must not leak through from its parent.
+        if !child.weapon_sets.is_empty() {
+            parent.weapon_sets = child.weapon_sets;
+        }
+
         // A ChildObject/ObjectReskin overrides the parent set it names, but
         // every row authored by the child stays in source order.  In
         // particular, a custom child with duplicate SET_NORMAL declarations

@@ -629,6 +629,481 @@ impl GameLogic {
         true
     }
 
+    /// Clear a completed Hacker Disable Building channel.  Unlike a generic
+    /// `PendingSpecialAbility`, HDB has an authored PackTime, so this is only
+    /// called after the packing timer has completed (or when the source itself
+    /// is no longer able to pack).  Keep the order, channel and visible
+    /// `IS_USING_ABILITY` state in one place so a later command cannot inherit
+    /// an old physical channel.
+    fn finish_hacker_disable_building_channel(&mut self, object_id: ObjectId) {
+        self.pending_special_abilities.remove(&object_id);
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.stop_moving();
+            object.hacker_disable_channel = None;
+            object.set_status_using_ability(false);
+            object.set_target(None);
+            object.set_ai_state(AIState::Idle);
+        }
+    }
+
+    /// Begin the parsed HDB `PackTime` after an interrupted or completed
+    /// channel.  C++ packs on target death, alliance/relation loss, range
+    /// abort, and after a non-persistent trigger; it does not instantly turn
+    /// the hacker idle in any of those cases.
+    fn begin_hacker_disable_building_packing(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        pack_time_ms: u32,
+    ) {
+        let mut finish_now = false;
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            if !object.is_alive() {
+                finish_now = true;
+            } else {
+                object.stop_moving();
+                object.hacker_disable_channel =
+                    Some(crate::game_logic::HackerDisableChannelState::new(
+                        target_id,
+                        crate::game_logic::HackerDisableChannelPhase::Packing,
+                        pack_time_ms,
+                    ));
+                object.set_status_using_ability(false);
+                object.set_ai_state(AIState::SpecialAbility);
+            }
+        } else {
+            finish_now = true;
+        }
+        if finish_now || pack_time_ms == 0 {
+            self.finish_hacker_disable_building_channel(object_id);
+        }
+    }
+
+    /// Resolve the live ownership relationship for a channel already in
+    /// flight.  Exact player ownership is authoritative; the old team path is
+    /// retained only for wholly ownerless synthetic worlds so same-faction
+    /// different-player objects never become accidental HDB targets.
+    fn hacker_disable_building_channel_has_enemy_relation(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        let relation = match (source.owner_player_id, target.owner_player_id) {
+            (Some(source_owner), Some(target_owner))
+                if self.player_owner_for_host_object(source) == Some(source_owner)
+                    && self.player_owner_for_host_object(target) == Some(target_owner) =>
+            {
+                self.player_relationship(source_owner, target_owner)
+            }
+            (None, None) if self.uses_legacy_team_ownership_fallback() => {
+                if source.team == target.team {
+                    Relationship::Allies
+                } else if source.team == Team::Neutral || target.team == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            }
+            _ => Relationship::Neutral,
+        };
+        relation == Relationship::Enemies
+    }
+
+    /// C++ `SpecialAbilityUpdate::isWithinStartAbilityRange` uses a 2D
+    /// bounding-sphere envelope and shaves one quarter of a pathfinding cell
+    /// from the approach threshold.  It is deliberately not the old fixed
+    /// 150-unit HDB residual.
+    fn hacker_disable_building_within_start_range(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+        metadata: &crate::game_logic::HackerDisableBuildingMetadata,
+    ) -> bool {
+        const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        let source_position = source.get_position();
+        let target_position = target.get_position();
+        let dx = source_position.x - target_position.x;
+        let dz = source_position.z - target_position.z;
+        let edge_distance = ((dx * dx + dz * dz).sqrt()
+            - source.selection_radius.max(0.0)
+            - target.selection_radius.max(0.0))
+        .max(0.0);
+        let start_range = (metadata.start_ability_range - PATHFIND_CELL_SIZE_F * 0.25).max(0.0);
+        if edge_distance > start_range {
+            return false;
+        }
+        if !metadata.approach_requires_los {
+            return true;
+        }
+        let source_eye = glam::Vec3::new(
+            source_position.x,
+            source_position.y + source.selection_radius.max(5.0) * 0.5,
+            source_position.z,
+        );
+        let target_eye = glam::Vec3::new(
+            target_position.x,
+            target_position.y + target.selection_radius.max(5.0) * 0.5,
+            target_position.z,
+        );
+        self.is_clear_line_of_sight_terrain(source_eye, target_eye)
+    }
+
+    /// C++ `SpecialAbilityUpdate::isWithinAbilityAbortRange` has no start
+    /// range undersize.  The source module default is effectively infinite,
+    /// so only a finite authored abort range can interrupt preparation.
+    fn hacker_disable_building_within_abort_range(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+        metadata: &crate::game_logic::HackerDisableBuildingMetadata,
+    ) -> bool {
+        const DEFAULT_ABILITY_RANGE: f32 = 10_000_000.0;
+
+        if metadata.ability_abort_range >= DEFAULT_ABILITY_RANGE {
+            return true;
+        }
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        let source_position = source.get_position();
+        let target_position = target.get_position();
+        let dx = source_position.x - target_position.x;
+        let dz = source_position.z - target_position.z;
+        let edge_distance = ((dx * dx + dz * dz).sqrt()
+            - source.selection_radius.max(0.0)
+            - target.selection_radius.max(0.0))
+        .max(0.0);
+        edge_distance <= metadata.ability_abort_range
+    }
+
+    /// Enter HDB preparation and begin the exact parsed SpecialPower reload.
+    /// The executor freezes click-time readiness, but this repeats the C++
+    /// start-preparation authority after physical approach/unpack so a changed
+    /// target or consumed shared timer cannot produce a false success.
+    fn start_hacker_disable_building_preparation(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        metadata: &crate::game_logic::HackerDisableBuildingMetadata,
+    ) -> bool {
+        if !self.can_unit_hacker_disable_building(object_id, target_id, false)
+            || !self.consume_hacker_disable_building_charge(object_id)
+        {
+            return false;
+        }
+        let Some(object) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !object.is_alive() {
+            return false;
+        }
+        object.stop_moving();
+        object.hacker_disable_channel = Some(crate::game_logic::HackerDisableChannelState::new(
+            target_id,
+            crate::game_logic::HackerDisableChannelPhase::Preparing,
+            metadata.preparation_time_ms,
+        ));
+        object.set_status_using_ability(true);
+        object.set_ai_state(AIState::SpecialAbility);
+        true
+    }
+
+    /// Trigger the HDB effect at the authored preparation boundary.  A target
+    /// that is already DISABLED_HACKED remains legal; C++ refreshes its
+    /// `EffectDuration` and continues the persistent channel.
+    fn trigger_hacker_disable_building(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        metadata: &crate::game_logic::HackerDisableBuildingMetadata,
+    ) {
+        let duration_frames =
+            ((metadata.effect_duration_ms as u64 * 30 + 999) / 1_000).min(u32::MAX as u64) as u32;
+        let until = self.frame.saturating_add(duration_frames);
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            target.apply_disabled_hacked(until);
+        } else {
+            self.begin_hacker_disable_building_packing(object_id, target_id, metadata.pack_time_ms);
+            return;
+        }
+        self.hacker_disable_building_count = self.hacker_disable_building_count.saturating_add(1);
+
+        if metadata.persistent_prep_time_ms > 0 {
+            // `PersistenceRequiresRecharge` is the only persistent path that
+            // starts/gates another reload.  Ordinary HDB uses its authored
+            // PersistentPrepTime continuously while the target remains legal.
+            if metadata.persistence_requires_recharge
+                && !self.consume_hacker_disable_building_charge(object_id)
+            {
+                self.begin_hacker_disable_building_packing(
+                    object_id,
+                    target_id,
+                    metadata.pack_time_ms,
+                );
+                return;
+            }
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                object.hacker_disable_channel =
+                    Some(crate::game_logic::HackerDisableChannelState::new(
+                        target_id,
+                        crate::game_logic::HackerDisableChannelPhase::Preparing,
+                        metadata.persistent_prep_time_ms,
+                    ));
+                object.set_status_using_ability(true);
+                object.set_ai_state(AIState::SpecialAbility);
+            }
+        } else {
+            self.begin_hacker_disable_building_packing(object_id, target_id, metadata.pack_time_ms);
+        }
+    }
+
+    /// Dedicated C++ `SpecialAbilityUpdate` HDB state machine.  This lives
+    /// ahead of generic PendingSpecialAbility handling so the old fixed range,
+    /// instant effect, and "already hacked" rejection cannot accidentally
+    /// re-enter the player-facing command path.
+    fn update_hacker_disable_building_channel(
+        &mut self,
+        object_id: ObjectId,
+        pending_target_id: ObjectId,
+        dt: f32,
+    ) {
+        const COMPLETE_EPSILON: f32 = 0.000_1;
+
+        let Some((metadata, channel)) = self.objects.get(&object_id).and_then(|object| {
+            object
+                .thing
+                .template
+                .hacker_disable_building
+                .clone()
+                .map(|metadata| (metadata, object.hacker_disable_channel))
+        }) else {
+            self.finish_hacker_disable_building_channel(object_id);
+            return;
+        };
+        let Some(channel) = channel else {
+            self.finish_hacker_disable_building_channel(object_id);
+            return;
+        };
+        if channel.target_id != pending_target_id {
+            self.begin_hacker_disable_building_packing(
+                object_id,
+                channel.target_id,
+                metadata.pack_time_ms,
+            );
+            return;
+        }
+
+        // Packing remains meaningful after its target dies, defects, or
+        // leaves visibility.  It is the only phase that intentionally does
+        // not ask the live target authority again.
+        if channel.phase == crate::game_logic::HackerDisableChannelPhase::Packing {
+            let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+            if remaining > COMPLETE_EPSILON {
+                if let Some(object) = self.objects.get_mut(&object_id) {
+                    object.hacker_disable_channel =
+                        Some(crate::game_logic::HackerDisableChannelState {
+                            target_id: channel.target_id,
+                            phase: crate::game_logic::HackerDisableChannelPhase::Packing,
+                            remaining_seconds: remaining,
+                        });
+                }
+            } else {
+                self.finish_hacker_disable_building_channel(object_id);
+            }
+            return;
+        }
+
+        let source_valid = self.objects.get(&object_id).is_some_and(|source| {
+            source.is_alive()
+                && !source.is_disabled()
+                && metadata.update_module_starts_attack
+                && !metadata.scripted_special_power_only
+        });
+        if !source_valid {
+            self.finish_hacker_disable_building_channel(object_id);
+            return;
+        }
+        let target_alive = self
+            .objects
+            .get(&channel.target_id)
+            .is_some_and(|target| target.is_alive());
+        if !target_alive
+            || !self
+                .hacker_disable_building_channel_has_enemy_relation(object_id, channel.target_id)
+        {
+            self.begin_hacker_disable_building_packing(
+                object_id,
+                channel.target_id,
+                metadata.pack_time_ms,
+            );
+            return;
+        }
+
+        match channel.phase {
+            crate::game_logic::HackerDisableChannelPhase::Approaching => {
+                // Revalidate typed click authority after physical movement but
+                // never re-demand the cooldown that is intentionally spent
+                // only once preparation begins.
+                if !self.can_unit_hacker_disable_building(object_id, channel.target_id, false) {
+                    self.begin_hacker_disable_building_packing(
+                        object_id,
+                        channel.target_id,
+                        metadata.pack_time_ms,
+                    );
+                    return;
+                }
+                if self.hacker_disable_building_within_start_range(
+                    object_id,
+                    channel.target_id,
+                    &metadata,
+                ) {
+                    if metadata.unpack_time_ms == 0 {
+                        if self.start_hacker_disable_building_preparation(
+                            object_id,
+                            channel.target_id,
+                            &metadata,
+                        ) && metadata.preparation_time_ms == 0
+                        {
+                            self.trigger_hacker_disable_building(
+                                object_id,
+                                channel.target_id,
+                                &metadata,
+                            );
+                        } else if self
+                            .objects
+                            .get(&object_id)
+                            .is_some_and(|object| object.hacker_disable_channel.is_none())
+                        {
+                            self.begin_hacker_disable_building_packing(
+                                object_id,
+                                channel.target_id,
+                                metadata.pack_time_ms,
+                            );
+                        }
+                    } else if let Some(object) = self.objects.get_mut(&object_id) {
+                        object.stop_moving();
+                        object.hacker_disable_channel =
+                            Some(crate::game_logic::HackerDisableChannelState::new(
+                                channel.target_id,
+                                crate::game_logic::HackerDisableChannelPhase::Unpacking,
+                                metadata.unpack_time_ms,
+                            ));
+                        object.set_status_using_ability(false);
+                        object.set_ai_state(AIState::SpecialAbility);
+                    }
+                } else if self.objects.get(&object_id).is_some_and(Object::can_move) {
+                    let target_position = self
+                        .objects
+                        .get(&channel.target_id)
+                        .map(Object::get_position)
+                        .unwrap_or_default();
+                    self.path_approach_with_state(
+                        object_id,
+                        target_position,
+                        AIState::SpecialAbility,
+                    );
+                } else {
+                    self.begin_hacker_disable_building_packing(
+                        object_id,
+                        channel.target_id,
+                        metadata.pack_time_ms,
+                    );
+                }
+            }
+            crate::game_logic::HackerDisableChannelPhase::Unpacking => {
+                let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                if remaining > COMPLETE_EPSILON {
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        object.hacker_disable_channel =
+                            Some(crate::game_logic::HackerDisableChannelState {
+                                target_id: channel.target_id,
+                                phase: crate::game_logic::HackerDisableChannelPhase::Unpacking,
+                                remaining_seconds: remaining,
+                            });
+                    }
+                } else if self.start_hacker_disable_building_preparation(
+                    object_id,
+                    channel.target_id,
+                    &metadata,
+                ) && metadata.preparation_time_ms == 0
+                {
+                    self.trigger_hacker_disable_building(object_id, channel.target_id, &metadata);
+                } else if self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|object| object.hacker_disable_channel.is_none())
+                {
+                    self.begin_hacker_disable_building_packing(
+                        object_id,
+                        channel.target_id,
+                        metadata.pack_time_ms,
+                    );
+                }
+            }
+            crate::game_logic::HackerDisableChannelPhase::Preparing => {
+                let target_is_pure_stealth = self
+                    .objects
+                    .get(&channel.target_id)
+                    .is_some_and(Object::is_effectively_stealthed);
+                if target_is_pure_stealth
+                    || !self.hacker_disable_building_within_abort_range(
+                        object_id,
+                        channel.target_id,
+                        &metadata,
+                    )
+                {
+                    self.begin_hacker_disable_building_packing(
+                        object_id,
+                        channel.target_id,
+                        metadata.pack_time_ms,
+                    );
+                    return;
+                }
+                // Source C++ waits at the persistent preparation boundary
+                // only when this exact module opted into recharge gating.
+                if metadata.persistence_requires_recharge
+                    && !self.is_hacker_disable_building_ready(object_id)
+                {
+                    return;
+                }
+                let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                if remaining > COMPLETE_EPSILON {
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        object.hacker_disable_channel =
+                            Some(crate::game_logic::HackerDisableChannelState {
+                                target_id: channel.target_id,
+                                phase: crate::game_logic::HackerDisableChannelPhase::Preparing,
+                                remaining_seconds: remaining,
+                            });
+                    }
+                } else {
+                    self.trigger_hacker_disable_building(object_id, channel.target_id, &metadata);
+                }
+            }
+            crate::game_logic::HackerDisableChannelPhase::Packing => {
+                unreachable!("packing is handled before HDB participant validation")
+            }
+        }
+    }
+
     pub(in super::super) fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
         const GUARD_MIN_RADIUS: f32 = 80.0;
         const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
@@ -692,6 +1167,16 @@ impl GameLogic {
 
             if ai_state != AIState::SpecialAbility {
                 self.pending_special_abilities.remove(&object_id);
+                // An explicit replacement order must cancel an in-flight HDB
+                // channel without overwriting that new order's target/state.
+                // The normal packed completion path below remains responsible
+                // for putting a completed channel back to Idle.
+                if let Some(object) = self.objects.get_mut(&object_id) {
+                    if object.hacker_disable_channel.is_some() {
+                        object.hacker_disable_channel = None;
+                        object.set_status_using_ability(false);
+                    }
+                }
             }
 
             match ai_state {
@@ -1201,9 +1686,10 @@ impl GameLogic {
                                 o.can_move(),
                             )
                         });
-                        let vehicle_snapshot = self.objects.get(&container_id).map(|v| {
-                            (v.get_position(), v.selection_radius)
-                        });
+                        let vehicle_snapshot = self
+                            .objects
+                            .get(&container_id)
+                            .map(|v| (v.get_position(), v.selection_radius));
                         if let (
                             Some((
                                 pilot_team,
@@ -1933,11 +2419,27 @@ impl GameLogic {
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
+                            obj.hacker_disable_channel = None;
+                            obj.set_status_using_ability(false);
                             obj.set_target(None);
                         }
                         continue;
                     };
                     let special_target_id = ability.target_id();
+
+                    // HDB is an authored, persistent SpecialAbilityUpdate
+                    // channel.  Keep it wholly outside the legacy generic
+                    // special branch: that branch uses a fixed range and used
+                    // to apply the disable instantly (and reject an already
+                    // disabled target), none of which matches C++.
+                    if matches!(ability, PendingSpecialAbility::HackerDisableBuilding { .. }) {
+                        self.update_hacker_disable_building_channel(
+                            object_id,
+                            special_target_id,
+                            dt,
+                        );
+                        continue;
+                    }
 
                     let Some((
                         target_position,
@@ -2110,17 +2612,6 @@ impl GameLogic {
                         }
                     }
 
-                    // China Hacker DisableBuilding: enemy structures only; skip already-hacked.
-                    if matches!(ability, PendingSpecialAbility::HackerDisableBuilding { .. }) {
-                        if !target_is_structure || target_is_hacked {
-                            self.pending_special_abilities.remove(&object_id);
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
-                            }
-                            continue;
-                        }
-                    }
-
                     // GLA Rebel BoobyTrap: structures only (enemy/neutral residual).
                     if matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. }) {
                         if !target_is_structure {
@@ -2136,9 +2627,6 @@ impl GameLogic {
                     // residual: complete without approach walk.
                     let disguise_instant =
                         matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. });
-                    // Hacker DisableBuilding residual: StartAbilityRange 150 (not melee pad).
-                    let hacker_disable_range =
-                        matches!(ability, PendingSpecialAbility::HackerDisableBuilding { .. });
                     // Black Lotus residual specials: StartAbilityRange 150.
                     let black_lotus_range = matches!(
                         ability,
@@ -2147,9 +2635,7 @@ impl GameLogic {
                     );
                     let booby_trap_range =
                         matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. });
-                    let interact_range = if hacker_disable_range {
-                        crate::game_logic::host_hacker_disable::HACKER_DISABLE_START_ABILITY_RANGE
-                    } else if black_lotus_range {
+                    let interact_range = if black_lotus_range {
                         crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
                     } else if booby_trap_range {
                         crate::game_logic::host_booby_trap::BOOBY_START_ABILITY_RANGE
@@ -2691,32 +3177,7 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::HackerDisableBuilding { .. } => {
-                            // C++ SpecialAbilityUpdate SPECIAL_HACKER_DISABLE_BUILDING:
-                            // setDisabledUntil(DISABLED_HACKED, now + EffectDuration 2000ms).
-                            use crate::game_logic::host_hacker_disable::{
-                                hacker_disable_until_frame, HACKER_DISABLE_BUILDING_AUDIO,
-                            };
-                            let until = hacker_disable_until_frame(self.frame);
-                            if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_disabled_hacked(until);
-                            }
-                            self.hacker_disable_building_count =
-                                self.hacker_disable_building_count.saturating_add(1);
-                            self.queue_audio_event(
-                                AudioEventRequest::new(HACKER_DISABLE_BUILDING_AUDIO)
-                                    .with_object(special_target_id)
-                                    .with_position(target_position)
-                                    .with_priority(170),
-                            );
-                            let msg = localization::localize(
-                                "hud.hacker.building_disabled",
-                                "Building disabled",
-                            );
-                            self.queue_radar_message_for_team(team, msg);
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.stop_moving();
-                                obj.set_target(None);
-                            }
+                            unreachable!("HDB is intercepted by its typed persistent channel")
                         }
                         PendingSpecialAbility::DisguiseAsVehicle { .. } => {
                             // C++ StealthUpdate::disguiseAsObject residual:

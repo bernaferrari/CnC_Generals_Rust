@@ -43,7 +43,7 @@ impl GameLogic {
         // or supply-center income.
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         for player_id in player_ids {
-            let (power_produced, power_consumed, supply_centers) = self
+            let (object_power_produced, power_consumed, supply_centers) = self
                 .objects
                 .values()
                 .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
@@ -55,6 +55,20 @@ impl GameLogic {
                         centers.saturating_add(u32::from(object.is_kind_of(KindOf::SupplyCenter))),
                     )
                 });
+
+            // `OverchargeBehavior::onCapture` normally moves its
+            // ThingTemplate EnergyBonus explicitly.  Its disabled branch
+            // intentionally does neither removal nor addition, while this
+            // host's ordinary object scan follows the new owner.  Retain the
+            // resulting per-player delta separately so later disable/delete
+            // calls still subtract the bonus from the then-current owner,
+            // exactly like C++ `Energy::removePowerBonus`.
+            let power_produced = object_power_produced.saturating_add(
+                self.players
+                    .get(&player_id)
+                    .map(|player| player.captured_overcharge_power_delta)
+                    .unwrap_or(0),
+            );
 
             let Some(player) = self.players.get_mut(&player_id) else {
                 continue;

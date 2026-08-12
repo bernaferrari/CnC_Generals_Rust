@@ -171,6 +171,15 @@ pub enum KindOf {
     /// This is gameplay-only metadata.  It intentionally has no presentation
     /// bit assignment because that packed 32-bit order is already full.
     MoneyHacker,
+    /// C++ `KINDOF_SUPPLY_SOURCE`.  Retail SupplyDock/SupplyPile objects
+    /// advertise this explicitly; a template spelling containing "supply"
+    /// must not create a gather target or construction-exclusion source.
+    ///
+    /// This stays outside the compact presentation KindOf bank.  Parsed
+    /// supply sources also retain the existing Resource/Harvestable bridge
+    /// bits used by the host gather UI, while this bit preserves the exact
+    /// C++ distinction for supply-source-only authority.
+    SupplySource,
 }
 
 /// Object status flags

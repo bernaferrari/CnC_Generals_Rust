@@ -47,10 +47,13 @@ impl Object {
         // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks countdown;
         // host only refreshes ready aggregate after writeback (Wave 618 ready-log).
         let sole_sp = crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled();
-        if dt > 0.0 && !freeze_special_power && !sole_sp && !self.special_power_cooldowns.is_empty()
-        {
-            for rem in self.special_power_cooldowns.values_mut() {
-                *rem = (*rem - dt).max(0.0);
+        if dt > 0.0 && !freeze_special_power && !sole_sp && !self.special_power_cooldowns.is_empty() {
+            for (power, rem) in &mut self.special_power_cooldowns {
+                // C++ pauseCountdown freezes that module's ready frame; a
+                // paused HDB must not silently finish its authored reload.
+                if !self.special_power_paused.contains(power) {
+                    *rem = (*rem - dt).max(0.0);
+                }
             }
         }
         // Legacy single-timer residual (older paths / saves).

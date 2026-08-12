@@ -60,7 +60,7 @@ impl Object {
         // C++ WeaponSet declaration and must not make a hand-authored
         // secondary inherit PRIMARY's AntiMask.
         let authored_weapon_name = |slot| match slot {
-            0 => self.thing.template.primary_weapon_name.as_deref(),
+            0 => self.primary_weapon_name(),
             1 => self.thing.template.secondary_weapon_name.as_deref(),
             2 => self.thing.template.tertiary_weapon_name.as_deref(),
             _ => None,
@@ -534,6 +534,10 @@ impl Object {
 
     pub fn weapon_slot(&self, slot: u8) -> Option<&Weapon> {
         match slot {
+            0 if self.weapon_set_mine_clearing_detail => self
+                .mine_clearing_primary_weapon
+                .as_ref()
+                .or(self.weapon.as_ref()),
             0 => self.weapon.as_ref(),
             1 => self.secondary_weapon.as_ref(),
             2 => self.tertiary_weapon.as_ref(),
@@ -543,6 +547,11 @@ impl Object {
 
     pub fn weapon_slot_mut(&mut self, slot: u8) -> Option<&mut Weapon> {
         match slot {
+            0 if self.weapon_set_mine_clearing_detail
+                && self.mine_clearing_primary_weapon.is_some() =>
+            {
+                self.mine_clearing_primary_weapon.as_mut()
+            }
             0 => self.weapon.as_mut(),
             1 => self.secondary_weapon.as_mut(),
             2 => self.tertiary_weapon.as_mut(),

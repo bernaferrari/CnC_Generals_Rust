@@ -34,6 +34,13 @@ pub struct ObjectSnapshot {
 
     // Special object-specific data
     pub object_type: ObjectTypeSnapshot,
+
+    /// Live C++ `SpecialAbilityUpdate` state for a parsed Hacker Disable
+    /// Building channel.  This is deliberately trailing: bincode snapshots
+    /// written before the channel have a distinct predecessor mirror, while
+    /// the current schema preserves a source/target channel across save/load.
+    #[serde(default)]
+    pub hacker_disable_channel: Option<HackerDisableChannelState>,
 }
 
 /// Object status snapshot
@@ -399,6 +406,52 @@ impl XferData for ObjectSnapshot {
         xfer.xfer_marker_label("ObjectType")?;
         self.object_type.xfer(xfer)?;
 
+        xfer.xfer_marker_label("HackerDisableChannel")?;
+        xfer_option(
+            xfer,
+            &mut self.hacker_disable_channel,
+            HackerDisableChannelState::new(
+                ObjectId(0),
+                HackerDisableChannelPhase::Unpacking,
+                0,
+            ),
+        )?;
+
+        Ok(())
+    }
+}
+
+impl XferData for HackerDisableChannelState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HackerDisableChannelState")?;
+        xfer.xfer_marker_label("TargetId")?;
+        self.target_id.xfer(xfer)?;
+        let mut phase = match self.phase {
+            HackerDisableChannelPhase::Unpacking => 0,
+            HackerDisableChannelPhase::Preparing => 1,
+            HackerDisableChannelPhase::Packing => 2,
+            HackerDisableChannelPhase::Approaching => 3,
+        };
+        xfer.xfer_marker_label("Phase")?;
+        xfer.xfer_u8(&mut phase)?;
+        self.phase = match phase {
+            0 => HackerDisableChannelPhase::Unpacking,
+            1 => HackerDisableChannelPhase::Preparing,
+            2 => HackerDisableChannelPhase::Packing,
+            3 => HackerDisableChannelPhase::Approaching,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid HackerDisableChannelPhase value in object snapshot: {other}"
+                )));
+            }
+        };
+        xfer.xfer_marker_label("RemainingSeconds")?;
+        xfer.xfer_f32(&mut self.remaining_seconds)?;
+        if !self.remaining_seconds.is_finite() || self.remaining_seconds < 0.0 {
+            return Err(SaveLoadError::Corrupted(
+                "Invalid HackerDisableChannelState remaining seconds".to_string(),
+            ));
+        }
         Ok(())
     }
 }

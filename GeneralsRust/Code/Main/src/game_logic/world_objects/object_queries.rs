@@ -204,10 +204,50 @@ impl GameLogic {
         else {
             return false;
         };
+
+        // C++ Object::setTeam changes membership before it dispatches
+        // BehaviorModule::onCapture.  Base power follows that membership, but
+        // `OverchargeBehavior::onCapture` deliberately leaves its
+        // ThingTemplate EnergyBonus with the old Energy pool when the active
+        // plant is disabled.  Capture the typed module state before changing
+        // the owner so the ownership-derived power scan can retain that one
+        // fire-and-forget delta afterwards.  This is not a name/KindOf
+        // fallback: only the parsed behavior authorizes it.
+        let (old_owner_player_id, retained_overcharge_bonus) = self
+            .objects
+            .get(&object_id)
+            .map(|object| {
+                let old_owner_player_id = self.player_owner_for_host_object(object);
+                let retained_overcharge_bonus = (old_owner_player_id != Some(player_id)
+                    && object.is_alive()
+                    && object.is_constructed()
+                    && object.overcharge_enabled
+                    && object.is_disabled()
+                    && object.thing.template.supports_overcharge())
+                .then(|| object.thing.template.energy_bonus.unwrap_or(0));
+                (old_owner_player_id, retained_overcharge_bonus)
+            })
+            .unwrap_or((None, None));
+
         let Some(object) = self.objects.get_mut(&object_id) else {
             return false;
         };
         object.set_team_and_owner(team, Some(player_id));
+
+        if let Some(bonus) = retained_overcharge_bonus {
+            if let Some(old_player_id) = old_owner_player_id {
+                if let Some(old_player) = self.players.get_mut(&old_player_id) {
+                    old_player.captured_overcharge_power_delta = old_player
+                        .captured_overcharge_power_delta
+                        .saturating_add(bonus);
+                }
+            }
+            if let Some(new_player) = self.players.get_mut(&player_id) {
+                new_player.captured_overcharge_power_delta = new_player
+                    .captured_overcharge_power_delta
+                    .saturating_sub(bonus);
+            }
+        }
         true
     }
 
@@ -1310,6 +1350,219 @@ impl GameLogic {
                 Relationship::Neutral
             } else {
                 Relationship::Enemies
+            };
+            if contained_relation == Relationship::Allies {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Exact readiness gate for a parsed Hacker Disable Building
+    /// `SpecialAbility` module.  This deliberately bypasses the old global
+    /// command-enum residual table: C++ owns HDB reload/science/shared state
+    /// in the loaded SpecialPowerTemplate paired with this object.
+    pub fn is_hacker_disable_building_ready(&self, source_id: ObjectId) -> bool {
+        use crate::command_system::SpecialPowerType;
+
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(metadata) = source.thing.template.hacker_disable_building.as_ref() else {
+            return false;
+        };
+        if !metadata.update_module_starts_attack
+            || metadata.scripted_special_power_only
+            || !source.is_alive()
+            || source.is_disabled()
+            || source.special_power_paused.contains(&SpecialPowerType::HackerDisableBuilding)
+        {
+            return false;
+        }
+
+        let owner_id = self.player_owner_for_host_object(source);
+        if let Some(required_science) = metadata.required_science.as_deref() {
+            let Some(owner_id) = owner_id else {
+                return false;
+            };
+            if !self
+                .players
+                .get(&owner_id)
+                .is_some_and(|player| player.has_unlocked_science(required_science))
+            {
+                return false;
+            }
+        }
+        if metadata.shared_n_sync {
+            let Some(owner_id) = owner_id else {
+                return false;
+            };
+            return self
+                .players
+                .get(&owner_id)
+                .is_some_and(|player| {
+                    player.is_shared_special_power_ready(&SpecialPowerType::HackerDisableBuilding)
+                });
+        }
+        source.is_special_power_ready(&SpecialPowerType::HackerDisableBuilding)
+    }
+
+    /// Start the exact parsed HDB reload at C++
+    /// `SpecialAbilityUpdate::startPreparation`, not at click time.
+    pub fn consume_hacker_disable_building_charge(&mut self, source_id: ObjectId) -> bool {
+        use crate::command_system::SpecialPowerType;
+
+        if !self.is_hacker_disable_building_ready(source_id) {
+            return false;
+        }
+        let Some((metadata, owner_id)) = self.objects.get(&source_id).and_then(|source| {
+            source
+                .thing
+                .template
+                .hacker_disable_building
+                .clone()
+                .map(|metadata| (metadata, self.player_owner_for_host_object(source)))
+        }) else {
+            return false;
+        };
+        if metadata.shared_n_sync {
+            let Some(owner_id) = owner_id else {
+                return false;
+            };
+            let Some(player) = self.players.get_mut(&owner_id) else {
+                return false;
+            };
+            player.reset_shared_special_power_timer(
+                &SpecialPowerType::HackerDisableBuilding,
+                metadata.reload_time_frames as f32 / 30.0,
+            );
+        } else if let Some(source) = self.objects.get_mut(&source_id) {
+            source.start_power_recharge_with_frames(
+                &SpecialPowerType::HackerDisableBuilding,
+                metadata.reload_time_frames,
+            );
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// C++ `ActionManager::canDisableBuildingViaHacking` authority slice.
+    ///
+    /// Both executor and the in-progress HDB channel call this typed path.
+    /// `require_power_ready=false` preserves a channel that has already begun
+    /// its authored recharge; it still revalidates all live source/target
+    /// semantics without treating an expired cooldown as a cancellation.
+    pub fn can_unit_hacker_disable_building(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+        require_power_ready: bool,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+
+        if source_id == target_id {
+            return false;
+        }
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        let Some(metadata) = source.thing.template.hacker_disable_building.as_ref() else {
+            return false;
+        };
+        if !metadata.update_module_starts_attack
+            || metadata.scripted_special_power_only
+            || !source.is_alive()
+            || source.is_disabled()
+            || !target.is_alive()
+            || !target.is_kind_of(KindOf::Structure)
+            || target.is_rebuild_hole
+            || target.status.under_construction
+            || target.is_effectively_stealthed()
+        {
+            return false;
+        }
+        if require_power_ready && !self.is_hacker_disable_building_ready(source_id) {
+            return false;
+        }
+
+        // `isObjectShroudedForAction` applies to human click authority, not
+        // an already running update.  Main's local player is the exact host
+        // representation of C++ PLAYER_HUMAN; stale/poisoned visibility fails
+        // closed rather than turning an unseen enemy into a valid target.
+        if require_power_ready {
+            if let Some(owner_id) = self.player_owner_for_host_object(source) {
+                if self.players.get(&owner_id).is_some_and(|player| player.is_local) {
+                    let visible = gamelogic::system::shroud_manager::get_shroud_manager()
+                        .lock()
+                        .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
+                        .unwrap_or(false);
+                    if !visible {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        let relation = match (source.owner_player_id, target.owner_player_id) {
+            (Some(source_owner), Some(target_owner))
+                if self.player_owner_for_host_object(source) == Some(source_owner)
+                    && self.player_owner_for_host_object(target) == Some(target_owner) =>
+            {
+                self.player_relationship(source_owner, target_owner)
+            }
+            (None, None) if self.uses_legacy_team_ownership_fallback() => {
+                if source.team == target.team {
+                    Relationship::Allies
+                } else if source.team == Team::Neutral || target.team == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            }
+            _ => Relationship::Neutral,
+        };
+        if relation != Relationship::Enemies {
+            return false;
+        }
+
+        // C++ permits either a normal capturable building or its FSTechnology
+        // exception.  The exception has to remain separate: a technology
+        // structure is legal even if it lacks CAPTURABLE, but not if immune.
+        let capturable = target.thing.template.capturable && !target.is_rebuild_hole;
+        let technology_exception = target.is_kind_of(KindOf::FSTechnology)
+            && !target.thing.template.immune_to_capture;
+        if !(capturable || technology_exception) {
+            return false;
+        }
+
+        // `appearsToContainFriendlies` is independent of GarrisonContain.
+        // A stale contained id is unknown to C++; fail closed rather than
+        // making malformed containment look empty and hackable.
+        for contained_id in target.contained_units() {
+            let Some(contained) = self.objects.get(&contained_id) else {
+                return false;
+            };
+            let contained_relation = match (source.owner_player_id, contained.owner_player_id) {
+                (Some(source_owner), Some(contained_owner))
+                    if self.player_owner_for_host_object(source) == Some(source_owner)
+                        && self.player_owner_for_host_object(contained) == Some(contained_owner) =>
+                {
+                    self.player_relationship(source_owner, contained_owner)
+                }
+                (None, None) if self.uses_legacy_team_ownership_fallback() => {
+                    if source.team == contained.team {
+                        Relationship::Allies
+                    } else if source.team == Team::Neutral || contained.team == Team::Neutral {
+                        Relationship::Neutral
+                    } else {
+                        Relationship::Enemies
+                    }
+                }
+                _ => Relationship::Neutral,
             };
             if contained_relation == Relationship::Allies {
                 return false;

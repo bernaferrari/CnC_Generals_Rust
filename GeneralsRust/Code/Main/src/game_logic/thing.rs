@@ -746,6 +746,137 @@ impl HackInternetAIUpdateMetadata {
     }
 }
 
+/// Exact paired `SpecialAbility` + `SpecialAbilityUpdate` data for C++
+/// `SPECIAL_HACKER_DISABLE_BUILDING`.
+///
+/// The parser exposes this only after both modules name the same, loaded
+/// SpecialPower template.  This is intentionally not inferred from Hacker,
+/// China, Infantry, or a CommandButton name: C++ ActionManager asks the
+/// source object's SpecialPowerModule and its matching update module.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HackerDisableBuildingMetadata {
+    /// Source `SpecialAbility::SpecialPowerTemplate`, retained so snapshots
+    /// describe the exact paired source rather than a generic enum alone.
+    pub special_power_template: String,
+    /// `SpecialAbility::UpdateModuleStartsAttack`; HDB's physical channel is
+    /// unsupported unless the source explicitly delegates to the update.
+    pub update_module_starts_attack: bool,
+    /// `SpecialAbility::StartsPaused` participates in readiness just like a
+    /// C++ SpecialPowerModule pause count.
+    pub starts_paused: bool,
+    /// Script-only abilities cannot be armed through the player command path.
+    pub scripted_special_power_only: bool,
+    /// `SpecialPowerTemplate::ReloadTime`, already converted to logic frames
+    /// by the Common SpecialPower parser.
+    pub reload_time_frames: u32,
+    /// Resolved `SpecialPowerTemplate::RequiredScience`; `None` means the
+    /// C++ `SCIENCE_INVALID` default, not an inferred faction prerequisite.
+    pub required_science: Option<String>,
+    /// `SpecialPowerTemplate::SharedSyncedTimer`.
+    pub shared_n_sync: bool,
+    /// `SpecialAbilityUpdate::StartAbilityRange`.
+    pub start_ability_range: f32,
+    /// `SpecialAbilityUpdate::AbilityAbortRange`.
+    pub ability_abort_range: f32,
+    /// `SpecialAbilityUpdate::ApproachRequiresLOS`; omitted modules retain
+    /// the C++ module-data default of `Yes`.
+    pub approach_requires_los: bool,
+    /// C++ timing fields are retained in milliseconds because host channels
+    /// integrate in seconds and must not round a source duration at parse.
+    pub unpack_time_ms: u32,
+    pub preparation_time_ms: u32,
+    pub persistent_prep_time_ms: u32,
+    pub effect_duration_ms: u32,
+    pub pack_time_ms: u32,
+    /// `SpecialAbilityUpdate::PersistenceRequiresRecharge`.
+    pub persistence_requires_recharge: bool,
+}
+
+/// The concrete C++ `SpecialPowerModule` subclass that owns a parsed
+/// `SpecialPowerTemplate`.  The module identity stays distinct from the
+/// template's Common enum: retail templates such as Hacker Disable and
+/// Microwave deliberately share enum values while their module behavior is
+/// different.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpecialPowerModuleKind {
+    SpecialAbility = 0,
+    OclSpecialPower = 1,
+    BaikonurLaunchPower = 2,
+    CashBountyPower = 3,
+    CashHackSpecialPower = 4,
+    CleanupAreaPower = 5,
+    DefectorSpecialPower = 6,
+    DemoralizeSpecialPower = 7,
+    FireWeaponPower = 8,
+    SpyVisionSpecialPower = 9,
+}
+
+impl SpecialPowerModuleKind {
+    /// C++ subclasses that implement the `SpecialPowerModuleInterface`.
+    /// Completion/update modules are intentionally absent: a
+    /// `SpecialPowerCompletionDie` naming the same template must never grant
+    /// player ability authority.
+    pub fn from_behavior_class_name(class_name: &str) -> Option<Self> {
+        if class_name.eq_ignore_ascii_case("SpecialAbility") {
+            Some(Self::SpecialAbility)
+        } else if class_name.eq_ignore_ascii_case("OCLSpecialPower") {
+            Some(Self::OclSpecialPower)
+        } else if class_name.eq_ignore_ascii_case("BaikonurLaunchPower") {
+            Some(Self::BaikonurLaunchPower)
+        } else if class_name.eq_ignore_ascii_case("CashBountyPower") {
+            Some(Self::CashBountyPower)
+        } else if class_name.eq_ignore_ascii_case("CashHackSpecialPower") {
+            Some(Self::CashHackSpecialPower)
+        } else if class_name.eq_ignore_ascii_case("CleanupAreaPower") {
+            Some(Self::CleanupAreaPower)
+        } else if class_name.eq_ignore_ascii_case("DefectorSpecialPower") {
+            Some(Self::DefectorSpecialPower)
+        } else if class_name.eq_ignore_ascii_case("DemoralizeSpecialPower") {
+            Some(Self::DemoralizeSpecialPower)
+        } else if class_name.eq_ignore_ascii_case("FireWeaponPower") {
+            Some(Self::FireWeaponPower)
+        } else if class_name.eq_ignore_ascii_case("SpyVisionSpecialPower") {
+            Some(Self::SpyVisionSpecialPower)
+        } else {
+            None
+        }
+    }
+}
+
+/// One source-ordered C++ `SpecialPowerModule` interface.
+///
+/// `Object::getSpecialPowerModule` compares a loaded `SpecialPowerTemplate`
+/// pointer while walking behavior modules.  Retaining both the canonical name
+/// and parsed ID prevents a host command enum or an object basename from
+/// becoming the authority boundary.  More than one module is legal; callers
+/// preserve this order and select the first exact match like C++.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpecialPowerModuleMetadata {
+    /// Declaration-order index in the Object INI Behavior list.
+    pub source_index: u32,
+    /// Optional `ModuleTag_*` source identity.
+    pub module_tag: Option<String>,
+    pub module_kind: SpecialPowerModuleKind,
+    /// Canonical loaded `SpecialPowerTemplate::m_name`.
+    pub special_power_template: String,
+    /// Stable loaded `SpecialPowerTemplate::m_id`.
+    pub special_power_template_id: u32,
+    /// Main command adapter only.  `None` remains a valid parsed module but
+    /// cannot be driven by an unported command implementation.
+    pub command_power: Option<crate::command_system::SpecialPowerType>,
+    pub reload_time_frames: u32,
+    /// Canonical `RequiredScience`; `None` is C++ `SCIENCE_INVALID`.
+    pub required_science: Option<String>,
+    pub public_timer: bool,
+    pub shared_n_sync: bool,
+    pub shortcut_power: bool,
+    /// `SpecialAbility` flags.  Other subclasses retain C++ defaults.
+    pub update_module_starts_attack: bool,
+    pub starts_paused: bool,
+    pub scripted_special_power_only: bool,
+}
+
 /// Exact capture special carried by an Object INI `SpecialAbility` module.
 ///
 /// This remains separate from `KindOf::Infantry` and template spelling: C++
@@ -891,6 +1022,28 @@ pub struct ThingTemplate {
     /// authority require this typed behavior.
     #[serde(default)]
     pub hack_internet_ai_update: Option<HackInternetAIUpdateMetadata>,
+    /// Exact paired `SpecialAbility` + `SpecialAbilityUpdate` data for the
+    /// Hacker Disable Building channel.  No generic Hacker/template-name
+    /// fallback may populate this capability.
+    #[serde(default)]
+    pub hacker_disable_building: Option<HackerDisableBuildingMetadata>,
+    /// Source-ordered SpecialPowerModule interfaces.  This is generic module
+    /// identity, not a replacement for the HDB paired-channel metadata above.
+    #[serde(default)]
+    pub special_power_modules: Vec<SpecialPowerModuleMetadata>,
+    /// C++ Object INI `EnergyProduction`.  It is an Object field, not a
+    /// SpecialPowerModule property: Scud/Particle/Nuke must not borrow a
+    /// template-name fallback to affect team power.
+    #[serde(default)]
+    pub energy_production: Option<i32>,
+    /// C++ Object INI `MaxSimultaneousLinkKey`; kept independently because a
+    /// link-key object need not expose a player SpecialPowerModule.
+    #[serde(default)]
+    pub max_simultaneous_link_key: Option<String>,
+    /// Exact `MaxSimultaneousOfType=DeterminedBySuperweaponRestriction`
+    /// policy associated with this object template.
+    #[serde(default)]
+    pub max_simultaneous_determined_by_superweapon_restriction: bool,
     /// C++ Object INI `EnergyBonus`.  `None` is its constructor default of
     /// zero; a valid OverchargeBehavior therefore remains player-toggleable
     /// with no power delta.  The parser rejects a malformed *present* field
@@ -963,6 +1116,20 @@ pub struct ThingTemplate {
     pub primary_weapon: Option<Weapon>,
     /// Weapon.ini / Object INI primary weapon template name (resolved via WeaponStore).
     pub primary_weapon_name: Option<String>,
+    /// An authored no-flag `WeaponSet` explicitly contained `PRIMARY None`.
+    /// This is distinct from a template with no retained WeaponSet at all:
+    /// the latter may use legacy host fallback while the former must remain
+    /// unarmed until a supported conditional set is selected.
+    #[serde(default)]
+    pub primary_weapon_explicitly_none: bool,
+    /// Exact `WeaponSet Conditions = MINE_CLEARING_DETAIL` PRIMARY instance.
+    /// It is separate from the ordinary primary so toggling the C++ detail bit
+    /// cannot overwrite cooldown/ammo state of a normal combat weapon.
+    #[serde(default)]
+    pub mine_clearing_primary_weapon: Option<Weapon>,
+    /// Source Weapon.ini name for the bounded mine-clearing conditional slot.
+    #[serde(default)]
+    pub mine_clearing_primary_weapon_name: Option<String>,
     /// Host secondary weapon stats (Weapon = SECONDARY Name). Optional; no kind fallback.
     pub secondary_weapon: Option<Weapon>,
     /// Weapon.ini / Object INI secondary weapon template name (resolved via WeaponStore).
@@ -1011,6 +1178,11 @@ impl ThingTemplate {
             veterancy_crate_collide: None,
             eject_pilot_die: None,
             hack_internet_ai_update: None,
+            hacker_disable_building: None,
+            special_power_modules: Vec::new(),
+            energy_production: None,
+            max_simultaneous_link_key: None,
+            max_simultaneous_determined_by_superweapon_restriction: false,
             energy_bonus: None,
             overcharge_behavior: None,
             power_plant_update: None,
@@ -1030,6 +1202,9 @@ impl ThingTemplate {
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
             primary_weapon: None,
             primary_weapon_name: None,
+            primary_weapon_explicitly_none: false,
+            mine_clearing_primary_weapon: None,
+            mine_clearing_primary_weapon_name: None,
             secondary_weapon: None,
             secondary_weapon_name: None,
             tertiary_weapon: None,
@@ -1059,6 +1234,31 @@ impl ThingTemplate {
         self.overcharge_behavior.is_some()
     }
 
+    /// C++ `Object::getSpecialPowerModule`-style lookup by the host command
+    /// adapter.  The stored module record remains keyed by exact loaded
+    /// template name/id; the enum comparison merely routes an already parsed
+    /// command to the first matching source module in declaration order.
+    #[inline]
+    pub fn special_power_module_for_command(
+        &self,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> Option<&SpecialPowerModuleMetadata> {
+        self.special_power_modules
+            .iter()
+            .find(|module| module.command_power.as_ref() == Some(power))
+    }
+
+    /// Whether this exact Object INI template participates in the C++
+    /// `DeterminedBySuperweaponRestriction` link-key quota.
+    #[inline]
+    pub fn has_superweapon_restriction_link_key(&self) -> bool {
+        self.max_simultaneous_determined_by_superweapon_restriction
+            && self
+                .max_simultaneous_link_key
+                .as_deref()
+                .is_some_and(|key| !key.trim().is_empty())
+    }
+
     /// Attach host primary weapon stats (damage/range/reload) to this template.
     /// C++ CreateCrateDie CrateData residual append.
     pub fn add_create_crate_data(&mut self, crate_data_name: &str) -> &mut Self {
@@ -1071,6 +1271,7 @@ impl ThingTemplate {
 
     pub fn set_primary_weapon(&mut self, weapon: Weapon) -> &mut Self {
         self.primary_weapon = Some(weapon);
+        self.primary_weapon_explicitly_none = false;
         self
     }
 
@@ -1079,6 +1280,35 @@ impl ThingTemplate {
         let n = name.trim();
         if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
             self.primary_weapon_name = Some(n.to_string());
+            self.primary_weapon_explicitly_none = false;
+        }
+        self
+    }
+
+    /// Preserve `WeaponSet Conditions = None` / `Weapon = PRIMARY None`.
+    /// This must suppress generic kind/name fallback so a dozer or worker
+    /// cannot gain an invented ordinary primary before its authored mine-clear
+    /// detail set is selected.
+    pub fn set_primary_weapon_none(&mut self) -> &mut Self {
+        self.primary_weapon = None;
+        self.primary_weapon_name = None;
+        self.primary_weapon_explicitly_none = true;
+        self
+    }
+
+    /// Attach exact host stats for a supported mine-clearing conditional
+    /// primary. This has no relation to a generic `Worker`/`Dozer` identity.
+    pub fn set_mine_clearing_primary_weapon(&mut self, weapon: Weapon) -> &mut Self {
+        self.mine_clearing_primary_weapon = Some(weapon);
+        self
+    }
+
+    /// Record the exact Weapon.ini name used by `MINE_CLEARING_DETAIL`.
+    /// Empty/`None` rows remain absent and therefore fail closed at arm time.
+    pub fn set_mine_clearing_primary_weapon_name(&mut self, name: &str) -> &mut Self {
+        let name = name.trim();
+        if !name.is_empty() && !name.eq_ignore_ascii_case("none") {
+            self.mine_clearing_primary_weapon_name = Some(name.to_string());
         }
         self
     }
@@ -1155,6 +1385,9 @@ impl ThingTemplate {
                 return Some(w);
             }
         }
+        if self.primary_weapon_explicitly_none {
+            return None;
+        }
         // Host residual map: templates often omit primary_weapon_name (units.rs /
         // setup_templates gaps) but have a known retail weapon for the unit name.
         // Prefer store residual over kind-based Weapon::default().
@@ -1214,6 +1447,18 @@ impl ThingTemplate {
             return Self::weapon_from_store(name);
         }
         None
+    }
+
+    /// Resolve the exact supported `MINE_CLEARING_DETAIL` primary. Unlike the
+    /// ordinary primary there is intentionally no template-name or KindOf
+    /// fallback: an untyped unit may not acquire mine-clearing authority.
+    pub fn resolve_mine_clearing_primary_weapon(&self) -> Option<Weapon> {
+        if let Some(weapon) = &self.mine_clearing_primary_weapon {
+            return Some(weapon.clone());
+        }
+        let name = self.mine_clearing_primary_weapon_name.as_deref()?;
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+        Self::weapon_from_store(name)
     }
 
     /// Convert a gamelogic WeaponStore template into Main host Weapon stats.

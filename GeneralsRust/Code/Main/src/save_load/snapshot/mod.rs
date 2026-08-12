@@ -62,6 +62,7 @@
 mod ai;
 mod builder;
 mod game_state;
+mod legacy_bincode;
 mod load_post_process;
 mod object;
 mod player;
@@ -77,6 +78,7 @@ mod tests;
 pub use ai::*;
 pub use builder::*;
 pub use game_state::*;
+pub(crate) use legacy_bincode::*;
 pub use object::*;
 pub use player::*;
 pub use special_powers::*;

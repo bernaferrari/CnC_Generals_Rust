@@ -310,6 +310,13 @@ impl GameWorldShadow {
                         .capture_power
                         .special_power_type()
                         .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
+                    e.hacker_disable_building_capable = obj
+                        .thing
+                        .template
+                        .hacker_disable_building
+                        .is_some();
+                    e.hacker_disable_building_ready =
+                        logic.is_hacker_disable_building_ready(oid);
                     e.disguised = obj.status.disguised;
                     e.disabled_subdued = obj.status.disabled_subdued;
                     e.subdual_damage = obj.subdual_damage;
@@ -1778,6 +1785,12 @@ impl GameWorldShadow {
                     .capture_power
                     .special_power_type()
                     .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
+                e.hacker_disable_building_capable = obj
+                    .thing
+                    .template
+                    .hacker_disable_building
+                    .is_some();
+                e.hacker_disable_building_ready = logic.is_hacker_disable_building_ready(oid);
                 e.disguised = obj.status.disguised;
                 e.disabled_subdued = obj.status.disabled_subdued;
                 e.subdual_damage = obj.subdual_damage;

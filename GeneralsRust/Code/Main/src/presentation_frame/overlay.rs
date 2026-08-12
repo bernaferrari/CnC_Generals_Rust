@@ -1140,6 +1140,14 @@ impl PresentationFrame {
                     obj.capture_power_ready = ent.capture_power_ready;
                     dirty = true;
                 }
+                if obj.hacker_disable_building_capable != ent.hacker_disable_building_capable {
+                    obj.hacker_disable_building_capable = ent.hacker_disable_building_capable;
+                    dirty = true;
+                }
+                if obj.hacker_disable_building_ready != ent.hacker_disable_building_ready {
+                    obj.hacker_disable_building_ready = ent.hacker_disable_building_ready;
+                    dirty = true;
+                }
             }
             // Applied upgrade names residual.
             if obj.applied_upgrades != ent.applied_upgrade_names {
@@ -1412,6 +1420,8 @@ impl PresentationFrame {
             capture_garrisonable: ent.capture_garrisonable,
             capture_power: crate::game_logic::CapturePowerKind::from_ordinal(ent.capture_power),
             capture_power_ready: ent.capture_power_ready,
+            hacker_disable_building_capable: ent.hacker_disable_building_capable,
+            hacker_disable_building_ready: ent.hacker_disable_building_ready,
             health_current: ent.health.max(0.0),
             health_max,
             selected: ent.selected,

@@ -808,6 +808,36 @@ impl GameLogic {
         true
     }
 
+    /// Begin a parsed Hacker Disable Building `SpecialAbilityUpdate` intent.
+    ///
+    /// Like capture, this records only the player-authorized target and
+    /// resets an interrupted channel.  It deliberately does not spend the
+    /// paired SpecialPower charge: C++ starts that reload in
+    /// `startPreparation`, after the hacker reaches its authored range and
+    /// finishes unpacking.
+    pub fn unit_command_begin_hacker_disable_building(
+        &mut self,
+        id: ObjectId,
+        target: ObjectId,
+    ) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        unit.stop_moving();
+        unit.set_order_target(Some(target));
+        unit.hacker_disable_channel = Some(crate::game_logic::HackerDisableChannelState::new(
+            target,
+            crate::game_logic::HackerDisableChannelPhase::Approaching,
+            0,
+        ));
+        unit.set_status_using_ability(false);
+        unit.set_ai_state(AIState::SpecialAbility);
+        true
+    }
+
     /// Wave 233: set AI attitude residual.
     pub fn unit_command_set_ai_attitude(
         &mut self,
@@ -1045,12 +1075,7 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
-        let has_requested_slot = match slot {
-            0 => unit.weapon.is_some(),
-            1 => unit.secondary_weapon.is_some(),
-            2 => unit.tertiary_weapon.is_some(),
-            _ => return false,
-        };
+        let has_requested_slot = matches!(slot, 0..=2) && unit.weapon_slot(slot).is_some();
         if !has_requested_slot {
             return false;
         }

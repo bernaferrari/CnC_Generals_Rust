@@ -1088,6 +1088,45 @@ impl GameLogic {
     pub(in super::super) fn init_starts_paused_special_powers(&mut self, object_id: ObjectId) {
         use crate::command_system::SpecialPowerType as P;
         use crate::game_logic::host_upgrade_module_residuals::power_starts_paused;
+        // C++ SpecialPowerModule starts the authored ReloadTime on creation
+        // before applying StartsPaused.  HDB is not covered by the old
+        // handwritten special-power table, so retain the paired Object INI
+        // metadata here rather than falling through to a Hacker name.
+        let hacker_disable = self
+            .objects
+            .get(&object_id)
+            .and_then(|obj| obj.thing.template.hacker_disable_building.clone());
+        if let Some(metadata) = hacker_disable {
+            let owner_id = self
+                .objects
+                .get(&object_id)
+                .and_then(|obj| self.player_owner_for_host_object(obj));
+            if metadata.shared_n_sync {
+                // SharedNSync belongs to the exact controller, never the
+                // first player selected by faction.  Missing/stale ownership
+                // remains unavailable through the typed readiness gate.
+                if let Some(owner_id) = owner_id {
+                    if let Some(player) = self.get_player_mut(owner_id) {
+                        player.reset_shared_special_power_timer(
+                            &P::HackerDisableBuilding,
+                            metadata.reload_time_frames as f32 / 30.0,
+                        );
+                    }
+                }
+            } else if let Some(object) = self.objects.get_mut(&object_id) {
+                if !object.status.under_construction {
+                    object.start_power_recharge_with_frames(
+                        &P::HackerDisableBuilding,
+                        metadata.reload_time_frames,
+                    );
+                }
+            }
+            if metadata.starts_paused {
+                if let Some(object) = self.objects.get_mut(&object_id) {
+                    object.pause_special_power_countdown(&P::HackerDisableBuilding, true);
+                }
+            }
+        }
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };

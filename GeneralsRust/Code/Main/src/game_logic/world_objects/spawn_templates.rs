@@ -210,6 +210,8 @@ impl GameLogic {
         Self::apply_authored_pilot_veterancy_metadata(&mut template, definition);
         Self::apply_authored_eject_pilot_die_metadata(&mut template, definition);
         Self::apply_authored_hack_internet_metadata(&mut template, definition);
+        Self::apply_authored_special_power_module_metadata(&mut template, definition);
+        Self::apply_authored_hacker_disable_building_metadata(&mut template, definition);
         Self::apply_authored_overcharge_metadata(&mut template, definition);
         Self::apply_authored_power_plant_update_metadata(&mut template, definition);
 
@@ -222,8 +224,9 @@ impl GameLogic {
         }
 
         // Retail SupplyDock/SupplyPile carry SUPPLY_SOURCE (not "resource")
-        // KindOf bits.  These are token comparisons: `HARVESTER` denotes a
-        // collector unit and must never turn that unit into a supply source.
+        // KindOf bits.  These are exact token comparisons: `HARVESTER`
+        // denotes a collector unit and a template basename containing
+        // "Supply" must never turn either object into a supply source.
         let has_kind = |token: &str| {
             kind_of
                 .split(|character: char| {
@@ -231,14 +234,12 @@ impl GameLogic {
                 })
                 .any(|candidate| candidate.eq_ignore_ascii_case(token))
         };
-        let kind_compact = kind_of.replace('_', "");
-        let is_resource = lower.contains("supplypile")
-            || lower.contains("supplydock")
-            || lower.contains("tempsupplydock")
-            || lower.contains("crate")
-            || has_kind("resource")
-            || has_kind("harvestable")
-            || kind_compact.contains("supplysource");
+        let is_supply_source = has_kind("supply_source");
+        // Resource/Harvestable are existing host bridge kinds.  They remain
+        // valid only when explicitly authored as a token; the retail
+        // SUPPLY_SOURCE capability feeds both so the frozen Gather path does
+        // not need a second template-name rule.
+        let is_resource = is_supply_source || has_kind("resource") || has_kind("harvestable");
         // An authored Object INI is authoritative for object classification.
         // `should_spawn_fallback_template` is only a policy for unresolved map
         // objects; applying its broad name filter here turned movable retail
@@ -353,33 +354,34 @@ impl GameLogic {
             template.build_time = build_time;
         }
 
-        // Primary weapon name from Object INI (Weapon = PRIMARY Foo) for WeaponStore bind.
-        if let Some(wname) = definition.primary_weapon.as_deref() {
+        // C++ `Weapon = ...` lives inside an outer WeaponSet block.  Resolve
+        // only its no-flag row for normal combat; a conditional row must not
+        // overwrite PRIMARY just because it appeared later in the INI.
+        let has_base_weapon_set = definition
+            .weapon_sets
+            .iter()
+            .any(|set| set.is_unconditional());
+        if let Some(wname) = definition.base_weapon_name(0) {
             template.set_primary_weapon_name(wname);
-        } else if let Some(raw) = Self::object_definition_attr(definition, "weapon") {
-            // Fallback: scan attribute "PRIMARY Name" (last Weapon= line may be secondary)
-            let mut parts = raw.split_whitespace();
-            if parts
-                .next()
-                .map(|s| s.eq_ignore_ascii_case("PRIMARY"))
-                .unwrap_or(false)
-            {
-                if let Some(wname) = parts.next() {
-                    template.set_primary_weapon_name(wname);
-                }
-            }
+        } else if has_base_weapon_set {
+            template.set_primary_weapon_none();
         }
 
-        // Secondary weapon name from Object INI (Weapon = SECONDARY Foo). Fail-closed residual.
-        if let Some(wname) = definition.secondary_weapon.as_deref() {
+        // Secondary and tertiary names come from the same selected no-flag
+        // WeaponSet.  No raw-attribute scan is allowed here because it loses
+        // both the slot and the condition owning a repeated `Weapon` field.
+        if let Some(wname) = definition.base_weapon_name(1) {
             template.set_secondary_weapon_name(wname);
         }
-
-        // Tertiary weapon name from Object INI (Weapon = TERTIARY Foo).
-        // Keep the declaration distinct from SECONDARY; condition-gated slots
-        // are enabled by the relevant gameplay upgrade path at object creation.
-        if let Some(wname) = definition.tertiary_weapon.as_deref() {
+        if let Some(wname) = definition.base_weapon_name(2) {
             template.set_tertiary_weapon_name(wname);
+        }
+
+        // Bounded C++ `USES_MINE_CLEARING_WEAPONSET` support: retain only an
+        // exact single-condition MINE_CLEARING_DETAIL primary.  It remains a
+        // separate object weapon instance until the parsed button arms it.
+        if let Some(wname) = definition.mine_clearing_primary_weapon_name() {
+            template.set_mine_clearing_primary_weapon_name(wname);
         }
 
         // SET_NORMAL Locomotor name from Object INI when present; else known host map.
@@ -477,6 +479,13 @@ impl GameLogic {
         // infantry and not an identity inferred from a Hacker-ish basename.
         if has_kind("money_hacker") {
             template.add_kind_of(KindOf::MoneyHacker);
+        }
+        // C++ SupplyDock/SupplyPile authority.  This must remain distinct
+        // from Resource/Harvestable: crates and host test fixtures may carry
+        // those bridge kinds without becoming construction-exclusion or dock
+        // supply sources.
+        if has_kind("supply_source") {
+            template.add_kind_of(KindOf::SupplySource);
         }
         if has_kind("unattackable") {
             template.add_kind_of(KindOf::Unattackable);
@@ -1579,6 +1588,313 @@ impl GameLogic {
         template.hack_internet_ai_update = parse();
     }
 
+    /// Retain generic C++ `SpecialPowerModule` interfaces in Object INI
+    /// declaration order.  C++ does not infer this ability from a structure
+    /// name or KindOf bit: `Object::getSpecialPowerModule` walks the actual
+    /// behavior-module list and compares the resolved SpecialPower template.
+    ///
+    /// Hacker Disable keeps its paired `SpecialAbilityUpdate` record in the
+    /// dedicated parser below.  This generic record only preserves the source
+    /// module interface and must not alter that channel's timing/target rules.
+    fn apply_authored_special_power_module_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::command_system::special_power_type_from_template_name;
+        use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+        use game_engine::common::ini::ini_science::{get_science_store, ScienceType};
+        use game_engine::common::rts::special_power::{
+            get_special_power_store, SCIENCE_INVALID,
+        };
+
+        fn stripped_value(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+
+        // C++ `INI::parseInt` accepts a signed numeric prefix.  A malformed
+        // authored EnergyProduction remains unavailable rather than silently
+        // borrowing the historical Particle/Nuke name table.
+        fn parse_cxx_int(value: &str) -> Option<i32> {
+            let value = stripped_value(value).trim_start();
+            let sign_len = if value.starts_with('+') || value.starts_with('-') {
+                1
+            } else {
+                0
+            };
+            let digits_len = value[sign_len..]
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .count();
+            (digits_len > 0)
+                .then(|| &value[..sign_len + digits_len])
+                .and_then(|integer| integer.parse::<i32>().ok())
+        }
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match stripped_value(value).to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        template.energy_production = Self::object_definition_attr(definition, "energyproduction")
+            .and_then(|value| parse_cxx_int(&value));
+        template.max_simultaneous_link_key =
+            Self::object_definition_attr(definition, "maxsimultaneouslinkkey")
+                .map(|value| stripped_value(&value).to_string())
+                .filter(|value| !value.is_empty());
+        template.max_simultaneous_determined_by_superweapon_restriction = Self::object_definition_attr(
+            definition,
+            "maxsimultaneousoftype",
+        )
+        .is_some_and(|value| {
+            stripped_value(&value)
+                .eq_ignore_ascii_case("DeterminedBySuperweaponRestriction")
+        });
+
+        template.special_power_modules.clear();
+        let power_store = get_special_power_store();
+        for (source_index, module) in definition.behavior_modules.iter().enumerate() {
+            let Some(module_kind) =
+                SpecialPowerModuleKind::from_behavior_class_name(&module.class_name)
+            else {
+                continue;
+            };
+            let Some(raw_template_name) = module.attribute("SpecialPowerTemplate") else {
+                // A SpecialPowerModule subclass without the exact source
+                // template cannot authorize an arbitrary host enum.
+                continue;
+            };
+            let Some(power) = power_store.find_template(stripped_value(raw_template_name)) else {
+                continue;
+            };
+            let required_science = if power.required_science == SCIENCE_INVALID {
+                Some(None)
+            } else {
+                get_science_store()
+                    .get_internal_name_for_science(ScienceType(power.required_science))
+                    .map(|science| Some(science.as_str().to_string()))
+            };
+            let Some(required_science) = required_science else {
+                // The C++ module points at a live ScienceTemplate.  Do not
+                // weaken an unresolved science prerequisite into `None`.
+                continue;
+            };
+
+            let parsed = (|| -> Option<SpecialPowerModuleMetadata> {
+                Some(SpecialPowerModuleMetadata {
+                    source_index: source_index.min(u32::MAX as usize) as u32,
+                    module_tag: module.module_tag.clone(),
+                    module_kind,
+                    special_power_template: power.name.clone(),
+                    special_power_template_id: power.id,
+                    command_power: special_power_type_from_template_name(&power.name),
+                    reload_time_frames: power.reload_time,
+                    required_science,
+                    public_timer: power.public_timer,
+                    shared_n_sync: power.shared_n_sync,
+                    shortcut_power: power.shortcut_power,
+                    update_module_starts_attack: match module
+                        .attribute("UpdateModuleStartsAttack")
+                    {
+                        Some(value) => parse_bool(value)?,
+                        None => false,
+                    },
+                    starts_paused: match module.attribute("StartsPaused") {
+                        Some(value) => parse_bool(value)?,
+                        None => false,
+                    },
+                    scripted_special_power_only: match module
+                        .attribute("ScriptedSpecialPowerOnly")
+                    {
+                        Some(value) => parse_bool(value)?,
+                        None => false,
+                    },
+                })
+            })();
+            if let Some(parsed) = parsed {
+                template.special_power_modules.push(parsed);
+            }
+        }
+    }
+
+    /// Retain a complete, exact `SPECIAL_HACKER_DISABLE_BUILDING` module pair.
+    ///
+    /// C++ `ActionManager::canDisableBuildingViaHacking` queries the source
+    /// `SpecialAbility` module, while the actual target channel belongs to a
+    /// matching `SpecialAbilityUpdate`.  An HDB enum by itself is therefore
+    /// insufficient.  Parse only a unique pair pointing at the *same loaded*
+    /// SpecialPower template; a partial, duplicate, or malformed pair remains
+    /// unavailable rather than inheriting retail Hacker timings by name.
+    fn apply_authored_hacker_disable_building_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::HackerDisableBuildingMetadata;
+        use crate::command_system::{
+            special_power_type_from_template_name,
+            SpecialPowerType as HostSpecialPowerType,
+        };
+        use game_engine::common::ini::ini_science::{get_science_store, ScienceType};
+        use game_engine::common::rts::special_power::{
+            get_special_power_store, SpecialPowerType, SCIENCE_INVALID,
+        };
+
+        const DEFAULT_ABILITY_RANGE: f32 = 10_000_000.0;
+
+        fn stripped_value(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+
+        // `INI::parseDurationUnsignedInt`: retain a numeric millisecond
+        // prefix but reject a malformed *present* field.  The channel itself
+        // integrates these source milliseconds without a retail constant.
+        fn parse_duration_ms(value: &str) -> Option<u32> {
+            let digits: String = stripped_value(value)
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            digits.parse::<u32>().ok()
+        }
+
+        fn parse_nonnegative_real(value: &str) -> Option<f32> {
+            stripped_value(value)
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite() && *value >= 0.0)
+        }
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match stripped_value(value).to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        template.hacker_disable_building = None;
+        let power_store = get_special_power_store();
+        let abilities: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter_map(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("SpecialAbility")
+                    .then_some(module)
+                    .and_then(|module| {
+                        let raw = module.attribute("SpecialPowerTemplate")?.trim();
+                        let power = power_store.find_template(raw)?;
+                        // Common's enum deliberately aliases the retail
+                        // Microwave template to SPECIAL_HACKER_DISABLE_BUILDING.
+                        // HDB's player channel belongs only to the exact
+                        // `SpecialAbilityHackerDisableBuilding` identity in
+                        // CommandButton/SpecialPower data, not every source
+                        // template with that shared C++ enum value.
+                        (power.power_type == SpecialPowerType::HackerDisableBuilding
+                            && special_power_type_from_template_name(&power.name)
+                                == Some(HostSpecialPowerType::HackerDisableBuilding))
+                            .then_some((module, power))
+                    })
+            })
+            .collect();
+        let [(ability, power)] = abilities.as_slice() else {
+            return;
+        };
+
+        // The update must name this exact SpecialPowerTemplate, not merely a
+        // second template that happens to use the HDB enum.
+        let updates: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("SpecialAbilityUpdate"))
+            .filter(|module| {
+                module
+                    .attribute("SpecialPowerTemplate")
+                    .and_then(|raw| power_store.find_template(raw.trim()))
+                    .is_some_and(|candidate| candidate.id == power.id)
+            })
+            .collect();
+        let [update] = updates.as_slice() else {
+            return;
+        };
+
+        let required_science = if power.required_science == SCIENCE_INVALID {
+            Some(None)
+        } else {
+            get_science_store()
+                .get_internal_name_for_science(ScienceType(power.required_science))
+                .map(|science| Some(science.as_str().to_string()))
+        };
+        let Some(required_science) = required_science else {
+            return;
+        };
+
+        let parse = || -> Option<HackerDisableBuildingMetadata> {
+            Some(HackerDisableBuildingMetadata {
+                special_power_template: power.name.clone(),
+                update_module_starts_attack: match ability.attribute("UpdateModuleStartsAttack") {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+                starts_paused: match ability.attribute("StartsPaused") {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+                scripted_special_power_only: match ability.attribute("ScriptedSpecialPowerOnly") {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+                reload_time_frames: power.reload_time,
+                required_science,
+                shared_n_sync: power.shared_n_sync,
+                start_ability_range: match update.attribute("StartAbilityRange") {
+                    Some(value) => parse_nonnegative_real(value)?,
+                    None => DEFAULT_ABILITY_RANGE,
+                },
+                ability_abort_range: match update.attribute("AbilityAbortRange") {
+                    Some(value) => parse_nonnegative_real(value)?,
+                    None => DEFAULT_ABILITY_RANGE,
+                },
+                approach_requires_los: match update.attribute("ApproachRequiresLOS") {
+                    Some(value) => parse_bool(value)?,
+                    // `SpecialAbilityUpdateModuleData` defaults this to Yes.
+                    None => true,
+                },
+                unpack_time_ms: match update.attribute("UnpackTime") {
+                    Some(value) => parse_duration_ms(value)?,
+                    None => 0,
+                },
+                preparation_time_ms: match update.attribute("PreparationTime") {
+                    Some(value) => parse_duration_ms(value)?,
+                    None => 0,
+                },
+                persistent_prep_time_ms: match update.attribute("PersistentPrepTime") {
+                    Some(value) => parse_duration_ms(value)?,
+                    None => 0,
+                },
+                effect_duration_ms: match update.attribute("EffectDuration") {
+                    Some(value) => parse_duration_ms(value)?,
+                    None => 0,
+                },
+                pack_time_ms: match update.attribute("PackTime") {
+                    Some(value) => parse_duration_ms(value)?,
+                    None => 0,
+                },
+                persistence_requires_recharge: match update
+                    .attribute("PersistenceRequiresRecharge")
+                {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+            })
+        };
+        template.hacker_disable_building = parse();
+    }
+
     /// Retain the exact Object INI data C++ `OverchargeBehavior` consumes.
     ///
     /// This is intentionally neither a China-faction nor a `PowerPlant`
@@ -1957,8 +2273,18 @@ impl GameLogic {
                 Self::apply_authored_production_exit_metadata(template, &definition);
                 Self::apply_authored_eject_pilot_die_metadata(template, &definition);
                 Self::apply_authored_hack_internet_metadata(template, &definition);
+                Self::apply_authored_special_power_module_metadata(template, &definition);
+                Self::apply_authored_hacker_disable_building_metadata(template, &definition);
                 Self::apply_authored_overcharge_metadata(template, &definition);
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
+                // Existing curated starters keep their broader host combat
+                // bindings, but a mine-clear conditional primary is source
+                // authority only. Clear any stale value when a resolved
+                // ChildObject replaced its parent's WeaponSet collection.
+                template.mine_clearing_primary_weapon = None;
+                template.mine_clearing_primary_weapon_name = definition
+                    .mine_clearing_primary_weapon_name()
+                    .map(str::to_string);
                 if definition.scale_was_specified {
                     template.set_asset_scale(definition.scale);
                 }
@@ -2171,17 +2497,13 @@ impl GameLogic {
             }
         }
 
-        let is_resource = lower.contains("supplypile")
-            || lower.contains("supplydock")
-            || lower.contains("tempsupplydock")
-            || lower.contains("crate");
-        let is_structure = Self::should_spawn_fallback_template(template_name) && !is_resource;
+        // This path is visual-only: no parsed Object definition means no
+        // gameplay evidence for KINDOF_SUPPLY_SOURCE.  Keep the existing
+        // mesh fallback policy, but never manufacture a Gather target from a
+        // basename such as "SupplyDock" or "Crate".
+        let is_structure = Self::should_spawn_fallback_template(template_name);
 
-        if is_resource {
-            template
-                .add_kind_of(KindOf::Resource)
-                .add_kind_of(KindOf::Harvestable);
-        } else if is_structure {
+        if is_structure {
             template
                 .add_kind_of(KindOf::Structure)
                 .add_kind_of(KindOf::Attackable);
@@ -2194,7 +2516,6 @@ impl GameLogic {
         }
         // Faction drop-off buildings only — not map SupplyDock/SupplyPile sources.
         if is_structure
-            && !is_resource
             && (lower.contains("supplycenter")
                 || lower.contains("supplystash")
                 || lower.contains("supplydropzone")

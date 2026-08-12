@@ -357,6 +357,12 @@ pub struct Entity {
     pub capture_power: u8,
     /// Snapshot/authority readiness for that exact capture power.
     pub capture_power_ready: bool,
+    /// Exact paired Object INI Hacker Disable Building capability.  Kept
+    /// separate from capture and the compact KindOf bank so GameWorld cannot
+    /// infer it from an infantry/template name.
+    pub hacker_disable_building_capable: bool,
+    /// Frozen source readiness for the paired Hacker Disable Building module.
+    pub hacker_disable_building_ready: bool,
     /// Host Object::status.disguised residual.
     pub disguised: bool,
     /// Host Object::status.disabled_subdued residual.
@@ -1570,6 +1576,8 @@ impl EntityStore {
             capture_garrisonable: false,
             capture_power: 0,
             capture_power_ready: false,
+            hacker_disable_building_capable: false,
+            hacker_disable_building_ready: false,
             disguised: false,
             disabled_subdued: false,
             subdual_damage: 0.0,
