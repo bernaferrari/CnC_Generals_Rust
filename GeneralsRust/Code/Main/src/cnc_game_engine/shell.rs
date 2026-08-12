@@ -1370,6 +1370,87 @@ impl CnCGameEngine {
                         }
                     }
 
+                    // C++ ControlBar data is a paired catalog: CommandSet entries
+                    // refer to CommandButton entries, whose UNIT_BUILD `Object =`
+                    // field is the authoritative producible template identity.
+                    // Load it after Object INI so the GameLogic bridge can retain
+                    // typed thing-template references instead of name heuristics.
+                    let mut command_buttons_parsed = false;
+                    for button_path in [
+                        "Data/INI/Default/CommandButton.ini",
+                        "Data/INI/CommandButton.ini",
+                    ] {
+                        if let Some(content) = extract_ini_text_from_archives(button_path) {
+                            let mut ini = game_engine::common::ini::INI::new();
+                            match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
+                                Ok(()) => {
+                                    command_buttons_parsed = true;
+                                    info!("Loaded command button definitions from {}", button_path);
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "Failed parsing CommandButton.ini '{}': {}",
+                                        button_path, err
+                                    );
+                                    command_buttons_parsed = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    let mut command_sets_parsed = false;
+                    if command_buttons_parsed {
+                        for set_path in ["Data/INI/Default/CommandSet.ini", "Data/INI/CommandSet.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(set_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
+                                    Ok(()) => {
+                                        command_sets_parsed = true;
+                                        info!("Loaded command set definitions from {}", set_path);
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            "Failed parsing CommandSet.ini '{}': {}",
+                                            set_path, err
+                                        );
+                                        command_sets_parsed = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let parsed_button_count = game_engine::common::ini::ini_command_button::get_control_bar()
+                        .map(|bar| bar.count())
+                        .unwrap_or(0);
+                    let parsed_set_count = game_engine::common::ini::ini_command_set::get_command_set_manager()
+                        .map(|sets| sets.count())
+                        .unwrap_or(0);
+                    if command_buttons_parsed
+                        && command_sets_parsed
+                        && parsed_button_count > 0
+                        && parsed_set_count > 0
+                    {
+                        // GameClient reads this bridge for the same live
+                        // CommandSet buttons shown to the player; Main's
+                        // production authorization reads its typed UNIT_BUILD
+                        // identities through the bridge as well.
+                        if let Err(err) = gamelogic::control_bar::refresh_control_bar_bridge_from_common() {
+                            warn!(
+                                "Failed to refresh parsed ControlBar bridge; production catalog unavailable: {}",
+                                err
+                            );
+                        }
+                    } else {
+                        warn!(
+                            "CommandButton/CommandSet catalog unavailable (buttons={}, sets={}); retaining fail-closed compatibility production fallback",
+                            parsed_button_count,
+                            parsed_set_count
+                        );
+                    }
+
                     // C++ parity: GameEngine.cpp:500-501 — load CommandMap.ini (language-specific + fallback).
                     // C++ loads "Data\{language}\CommandMap.ini" then "Data\INI\CommandMap.ini".
                     game_engine::common::ini::ini_command_map::init_meta_map();

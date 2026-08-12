@@ -350,13 +350,11 @@ pub fn construct_button_thing_template(button: &str) -> Option<&str> {
 pub fn factory_command_set_for_producer(
     producer_template: &str,
 ) -> Option<&'static FactoryCommandSet> {
-    let p = producer_template.to_ascii_lowercase();
-    if p.starts_with("test") {
-        return None;
-    }
     FACTORY_COMMAND_SET_PACKS.iter().find(|pack| {
-        p == pack.object_template.to_ascii_lowercase()
-            || p.ends_with(&pack.object_template.to_ascii_lowercase())
+        // This is only the startup-data-unavailable compatibility table.
+        // Keep its identities exact: retail general variants are resolved by
+        // the parsed Object -> CommandSet catalog, never by suffix guessing.
+        pack.object_template == producer_template
     })
 }
 
@@ -365,8 +363,7 @@ pub fn factory_command_set_for_producer(
 pub fn command_set_allows_unit(producer_template: &str, unit_template: &str) -> Option<bool> {
     let pack = factory_command_set_for_producer(producer_template)?;
     let allowed = pack.slots.iter().any(|(_, button)| {
-        construct_button_thing_template(button)
-            .is_some_and(|thing| thing.eq_ignore_ascii_case(unit_template))
+        construct_button_thing_template(button).is_some_and(|thing| thing == unit_template)
     });
     Some(allowed)
 }

@@ -72,6 +72,9 @@ pub(super) struct RuntimeHostSnapshot {
     /// Physical Control Bar DozerConstruct arm followed by a physical, valid
     /// production queue request in this visible offline session.
     pub(super) physical_build_and_produce: bool,
+    /// Physical confirmed PopupSaveLoad save followed by a physical confirmed
+    /// load which both succeeded through Main's snapshot authority.
+    pub(super) physical_save_load_continue: bool,
     /// Host requested capture this frame (bridge should force screenshot).
     pub(super) pending_capture: bool,
     /// Last unit-pass collect honesty (presentation residual).
@@ -269,6 +272,7 @@ impl RuntimeHostBridge {
             wnd_widget_tree_nav: false,
             interactive_gameplay: false,
             physical_build_and_produce: false,
+            physical_save_load_continue: false,
             pending_capture: false,
             render_alive_objects: 0,
             render_fow_filtered: 0,
@@ -400,6 +404,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "physical_build_and_produce={}\n",
             snapshot.physical_build_and_produce
+        ));
+        payload.push_str(&format!(
+            "physical_save_load_continue={}\n",
+            snapshot.physical_save_load_continue
         ));
         payload.push_str(&format!(
             "retail_sit_through_missing={sit_through_missing}\n"

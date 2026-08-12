@@ -360,6 +360,14 @@ pub(super) struct InteractivePlayabilityEvidence {
     /// construct arm in the same session.  This is the narrow build-and-
     /// produce acceptance condition, not a broad runtime-host command flag.
     pub(crate) physical_build_and_produce: bool,
+    /// An explicit PopupSaveLoad save confirmation completed through Main's
+    /// snapshot authority after a real physical WND mouse event in a visible
+    /// offline match.
+    pub(crate) physical_popup_save_confirmation_succeeded: bool,
+    /// A physical PopupSaveLoad load confirmation completed after the physical
+    /// save confirmation above.  This proves a player can save, load, and
+    /// continue through the real Rust-owned popup/authority path.
+    pub(crate) physical_save_load_continue: bool,
 }
 
 impl InteractivePlayabilityEvidence {
@@ -429,6 +437,30 @@ impl InteractivePlayabilityEvidence {
     /// build-and-produce proof.
     pub(super) fn build_and_produce_complete(self) -> bool {
         self.physical_build_and_produce
+    }
+
+    /// Record a Main-authority save success that already passed the physical
+    /// Popup confirmation and visible-offline-match checks.
+    pub(super) fn note_popup_save_confirmation_succeeded(&mut self, physical: bool) {
+        if physical {
+            self.physical_popup_save_confirmation_succeeded = true;
+        }
+    }
+
+    /// Record a Main-authority load success after a physical Popup confirmation.
+    ///
+    /// Ordering is intentional: a physical load alone, or one following a
+    /// runtime-host/injected save, cannot claim save/load continuation.
+    pub(super) fn note_popup_load_confirmation_succeeded(&mut self, physical: bool) {
+        if physical && self.physical_popup_save_confirmation_succeeded {
+            self.physical_save_load_continue = true;
+        }
+    }
+
+    /// Whether this session has completed physical PopupSaveLoad save → load
+    /// continuation through Main's snapshot authority.
+    pub(super) fn save_load_continue_complete(self) -> bool {
+        self.physical_save_load_continue
     }
 
     /// The WND-navigation component of the retail claim requires the complete

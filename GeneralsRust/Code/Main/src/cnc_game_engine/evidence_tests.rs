@@ -115,13 +115,90 @@ fn control_bar_physical_proof_is_carried_by_request_provenance_not_from_user() {
         "only validated physical Control Bar actions may advance the build-and-produce proof"
     );
     assert!(
-        src.contains("ui_object_is_dozer")
-            && src.contains("local live dozer or worker"),
+        src.contains("ui_object_is_dozer") && src.contains("local live dozer or worker"),
         "a stale generic selection must not count as a DozerConstruct arm"
     );
     assert!(
         src.contains("self.runtime_host_window_visible()"),
         "physical Control Bar evidence requires a real visible window, not merely a non-headless host"
+    );
+}
+
+#[test]
+fn physical_popup_save_load_requires_confirmed_physical_successes_in_order() {
+    let mut evidence = InteractivePlayabilityEvidence::default();
+
+    // A load alone cannot claim continuation, even if it is physical.
+    evidence.note_popup_load_confirmation_succeeded(true);
+    assert!(!evidence.save_load_continue_complete());
+
+    // Runtime-host/injected actions fail closed and cannot supply either half.
+    evidence.note_popup_save_confirmation_succeeded(false);
+    evidence.note_popup_load_confirmation_succeeded(false);
+    assert!(!evidence.save_load_continue_complete());
+
+    evidence.note_popup_save_confirmation_succeeded(true);
+    assert!(!evidence.save_load_continue_complete());
+
+    // The load must also be a validated physical confirmation success.
+    evidence.note_popup_load_confirmation_succeeded(false);
+    assert!(!evidence.save_load_continue_complete());
+    evidence.note_popup_load_confirmation_succeeded(true);
+    assert!(evidence.save_load_continue_complete());
+}
+
+#[test]
+fn popup_save_load_physical_proof_uses_published_confirmation_provenance_and_success() {
+    let src = include_str!("runtime_host/gameplay.rs");
+    assert!(
+        src.contains("take_host_popup_save_load_published_requests")
+            && src.contains("is_physical_window_mouse_input"),
+        "Main must consume PopupSaveLoad's captured request provenance rather than infer physical input"
+    );
+    assert!(
+        src.contains("host_popup_save_load_evidence_eligible(physical_os_input)")
+            && src.contains("note_popup_save_confirmation_succeeded")
+            && src.contains("note_popup_load_confirmation_succeeded"),
+        "only validated physical Popup confirmations may advance save/load evidence"
+    );
+    assert!(
+        src.contains("self.runtime_host_window_visible()")
+            && src.contains("GameState::InGame | GameState::Paused")
+            && src.contains("GameMode::SinglePlayer")
+            && src.contains("GameMode::Skirmish"),
+        "PopupSaveLoad evidence requires a visible offline match, including a real paused match"
+    );
+
+    let save_authority = src
+        .find("match self.host_save_game_authority")
+        .expect("Popup save authority branch");
+    let save_ok = src[save_authority..]
+        .find("Ok(()) =>")
+        .map(|offset| save_authority + offset)
+        .expect("Popup save success branch");
+    let save_note = src[save_authority..]
+        .find("note_popup_save_confirmation_succeeded")
+        .map(|offset| save_authority + offset)
+        .expect("Popup save evidence note");
+    assert!(
+        save_ok < save_note,
+        "save evidence must be latched only after snapshot authority returns Ok"
+    );
+
+    let load_authority = src
+        .find("match self.load_game_from_ui")
+        .expect("Popup load authority branch");
+    let load_ok = src[load_authority..]
+        .find("Ok(()) =>")
+        .map(|offset| load_authority + offset)
+        .expect("Popup load success branch");
+    let load_note = src[load_authority..]
+        .find("note_popup_load_confirmation_succeeded")
+        .map(|offset| load_authority + offset)
+        .expect("Popup load evidence note");
+    assert!(
+        load_ok < load_note,
+        "load evidence must be latched only after snapshot authority returns Ok"
     );
 }
 

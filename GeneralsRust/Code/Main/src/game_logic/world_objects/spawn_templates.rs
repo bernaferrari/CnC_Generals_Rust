@@ -255,6 +255,16 @@ impl GameLogic {
             template.build_cost.supplies = cost;
         }
 
+        // C++ Object INI BuildTime is expressed in logic seconds.  Preserve
+        // the authored value instead of letting catalogue-seeded units use
+        // ThingTemplate's one-second constructor default.
+        if let Some(build_time) = Self::object_definition_attr(definition, "buildtime")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|value| value.is_finite() && *value > 0.0)
+        {
+            template.build_time = build_time;
+        }
+
         // Primary weapon name from Object INI (Weapon = PRIMARY Foo) for WeaponStore bind.
         if let Some(wname) = definition.primary_weapon.as_deref() {
             template.set_primary_weapon_name(wname);
@@ -484,191 +494,6 @@ impl GameLogic {
             .attributes
             .iter()
             .find_map(|(attr, value)| attr.eq_ignore_ascii_case(key).then(|| value.clone()))
-    }
-
-    pub(in super::super) fn remap_known_model_alias(model_name: &str) -> String {
-        let model_name_lower = model_name.to_ascii_lowercase();
-        if let Some(alias) = Self::remap_pt_vegetation_alias(&model_name_lower) {
-            return alias.to_string();
-        }
-
-        match model_name_lower.as_str() {
-            // Defcon6 / neutral civilian model aliases that do not exist under their INI base id
-            // in the mounted archive set, but have shipped equivalents.
-            "cbnukebunk2" => "CBNukeBunk".to_string(),
-            "pmcrates01" => "PMWldCrate".to_string(),
-            "pmcrates03" => "PMWldCrate".to_string(),
-            "pmcrat01" => "PMWldCrate".to_string(),
-            "pmcrat02" => "PMWldCrate".to_string(),
-            "zbsmalpile" => "ZBSmalPile_S".to_string(),
-            "cbbunker01" => "CBBunker01_SN".to_string(),
-            "cbtower2" => "CBTower2_SN".to_string(),
-            "cbtower" => "CBTower01".to_string(),
-            "cbtower02" => "CBTower02_SN".to_string(),
-            "cbtower03" => "CBTower03_SN".to_string(),
-            "cbtower04" => "CBTower03_SN".to_string(),
-            "cbtower05" => "CBTower05_N".to_string(),
-            "cbtaltower" => "CBTalTower_N".to_string(),
-            "cbtaltower_tr" => "CBTalTower_N".to_string(),
-            "cbtower01_tr" => "CBTower02_TR".to_string(),
-            "cbtower04_tr" => "CBTower03_SN".to_string(),
-            "cbtower05_tr" => "CBTower05_N".to_string(),
-            "cbtoildepo" => "CBOilRefny".to_string(),
-            "cbtoiltnk1" => "CBOilRefny".to_string(),
-            "cbtoiltnk2" => "CBOilRefny".to_string(),
-            "cboilrfny" => "CBOilRfny_SN".to_string(),
-            "cbchembunk" => "CBChemBunk_SN".to_string(),
-            "pmwtrtwr" => "PMTower".to_string(),
-            "pmwtrtwr02" => "PMTower2".to_string(),
-            "pmctrslpy" => "PMDock08".to_string(),
-            "absupdrop" => "PMWldCrate".to_string(),
-            "uvtechjeep" => "UVTechJeep_d4".to_string(),
-            "uvtechvan" => "UVTechVan_d1".to_string(),
-            "uvtechtrck" => "UVTechTrck_D4".to_string(),
-            "nvssupplytk" => "NVSSupplyTk_B".to_string(),
-            "nbptower" => "NBPwrPti".to_string(),
-            "nbbunker" => "NBBunkerI".to_string(),
-            "zbhospibib" => "ZBHospibib_S".to_string(),
-            "cbnfcitych" => "CBCityBlok".to_string(),
-            "salvagecrate" => "PMWldCrate".to_string(),
-            "smalllevelupcrate" => "PMWldCrate".to_string(),
-            "mediumlevelupcrate" => "PMWldCrate".to_string(),
-            "2freecrusaderscrate" => "PMWldCrate".to_string(),
-            "100dollarcrate" => "PMWldCrate".to_string(),
-            "200dollarcrate" => "PMWldCrate".to_string(),
-            "1000dollarcrate" => "PMWldCrate".to_string(),
-            "1500dollarcrate" => "PMWldCrate".to_string(),
-            "2500dollarcrate" => "PMWldCrate".to_string(),
-            "zzsupplydock" => "PMWldCrate".to_string(),
-            "zbsupplydk" => "PMWldCrate".to_string(),
-            // Decorative map-object aliases observed in challenge/skirmish maps.
-            "pmboulders" => "PMBoulders_D".to_string(),
-            "pmlclusters" => "PMLClusters_D".to_string(),
-            "pmmcluster" => "PMMCluster_D".to_string(),
-            "pmcluster" => "PMCluster_D".to_string(),
-            "pmrocks02" | "pmrocks03" | "pmrocks05" | "pmrocks06" | "pmrocks07" => {
-                "PMBoulders_D".to_string()
-            }
-            "pmrocks01b" | "pmrocks02b" => "PMBoulders_D".to_string(),
-            // Zero Hour INIs reference a few decorative props whose exact W3D ids are absent from
-            // the mounted archive set in this workspace. Route them to the closest shipped props
-            // so challenge/shell maps keep their background dressing instead of dropping objects.
-            "ptcypress01" => "PTXARBVT01".to_string(),
-            "ptxpine03" => "PTXFIR07".to_string(),
-            "pmswing" => "PMBikeRack".to_string(),
-            "pmplygdst" => "PMPavilion".to_string(),
-            // AVChinook_A2 is an animation-root file; route model fallback to renderable mesh.
-            "avamphib" | "avamphib_a" | "avamphib_a1" => "AVChinook".to_string(),
-            "avchinook_a2" => "AVChinook_A2MSH".to_string(),
-            "avpaladin" => "AVCrusader_A".to_string(),
-            "avpaladin_d" => "avcrusader_d".to_string(),
-            "avpaladin_d1" | "avpaladin_d2" | "avpaladin_d3" => "avcrusader_d1".to_string(),
-            "pmtrshpp03" | "pmtrshpl02" => "PMBrnTrshPl_D".to_string(),
-            "pmpump" => "PMWldCrate".to_string(),
-            "pmcrates" => "PMWldCrate".to_string(),
-            "cbsandbw2" => "CBSandBWY1".to_string(),
-            "cbsandbw4c" => "CBSandBWX".to_string(),
-            "cvtruck" => "CVTruck_D1".to_string(),
-            "cbnshack" => "CBNShack_S".to_string(),
-            "cbtraintnl" => "UIRTunnel".to_string(),
-            _ => model_name.to_string(),
-        }
-    }
-
-    pub(in super::super) fn pt_vegetation_alias_mode() -> &'static str {
-        static MODE: OnceLock<String> = OnceLock::new();
-        MODE.get_or_init(|| {
-            std::env::var("GENERALS_PT_VEGETATION_ALIAS_MODE")
-                .unwrap_or_else(|_| "all_fir".to_string())
-                .to_ascii_lowercase()
-        })
-        .as_str()
-    }
-
-    pub(in super::super) fn remap_pt_vegetation_alias(
-        model_name_lower: &str,
-    ) -> Option<&'static str> {
-        let tree_target = match Self::pt_vegetation_alias_mode() {
-            "trees_birch" | "all_birch" => Some("PTXBirch06"),
-            "trees_oak" | "all_oak" => Some("PTXOak06"),
-            "trees_palm" | "all_palm" => Some("PTPalm01"),
-            "trees_maple" | "all_maple" => Some("PTMaple02"),
-            "trees" | "trees_fir" | "all" | "all_fir" | "tree_pine1" | "tree_pine2"
-            | "tree_spruce2" | "tree_spruce05" | "trees_pines" | "trees_spruces"
-            | "trees_three" | "bushes_pines" | "bushes_spruces" => Some("PTXFir07"),
-            _ => None,
-        };
-
-        match Self::pt_vegetation_alias_mode() {
-            "bushes" => match model_name_lower {
-                "ptbush02" => Some("PTBush17"),
-                "ptbush03" => Some("PTBush18"),
-                "ptbush08" => Some("PTBush20"),
-                "ptbush11" => Some("PTBush21"),
-                _ => None,
-            },
-            "trees" | "trees_fir" | "trees_birch" | "trees_oak" | "trees_palm" | "trees_maple" => {
-                match model_name_lower {
-                    "ptpine01" | "ptpine02" | "ptspruce01_hi" | "ptxpine05" => tree_target,
-                    _ => None,
-                }
-            }
-            "tree_pine1" => match model_name_lower {
-                "ptpine01" => tree_target,
-                _ => None,
-            },
-            "tree_pine2" => match model_name_lower {
-                "ptpine02" => tree_target,
-                _ => None,
-            },
-            "tree_spruce2" => match model_name_lower {
-                "ptspruce01_hi" => tree_target,
-                _ => None,
-            },
-            "tree_spruce05" => match model_name_lower {
-                "ptxpine05" => tree_target,
-                _ => None,
-            },
-            "trees_pines" => match model_name_lower {
-                "ptpine01" | "ptpine02" => tree_target,
-                _ => None,
-            },
-            "trees_spruces" => match model_name_lower {
-                "ptspruce01_hi" | "ptxpine05" => tree_target,
-                _ => None,
-            },
-            "trees_three" => match model_name_lower {
-                "ptpine01" | "ptpine02" | "ptspruce01_hi" => tree_target,
-                _ => None,
-            },
-            "bushes_pines" => match model_name_lower {
-                "ptbush02" => Some("PTBush17"),
-                "ptbush03" => Some("PTBush18"),
-                "ptbush08" => Some("PTBush20"),
-                "ptbush11" => Some("PTBush21"),
-                "ptpine01" | "ptpine02" => tree_target,
-                _ => None,
-            },
-            "bushes_spruces" => match model_name_lower {
-                "ptbush02" => Some("PTBush17"),
-                "ptbush03" => Some("PTBush18"),
-                "ptbush08" => Some("PTBush20"),
-                "ptbush11" => Some("PTBush21"),
-                "ptspruce01_hi" | "ptxpine05" => tree_target,
-                _ => None,
-            },
-            "all" | "all_fir" | "all_birch" | "all_oak" | "all_palm" | "all_maple" => {
-                match model_name_lower {
-                    "ptbush02" => Some("PTBush17"),
-                    "ptbush03" => Some("PTBush18"),
-                    "ptbush08" => Some("PTBush20"),
-                    "ptbush11" => Some("PTBush21"),
-                    "ptpine01" | "ptpine02" | "ptspruce01_hi" | "ptxpine05" => tree_target,
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
     }
 
     pub(in super::super) fn is_model_asset_available(model_name: &str) -> bool {
@@ -1752,11 +1577,6 @@ mod tests {
         ];
 
         for (pristine, wrong_variant) in pairs {
-            assert_eq!(
-                GameLogic::remap_known_model_alias(pristine),
-                pristine,
-                "{pristine} must not be remapped to a different retail state"
-            );
             assert_eq!(
                 GameLogic::find_exact_available_model_name(
                     pristine,

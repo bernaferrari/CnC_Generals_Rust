@@ -3,6 +3,9 @@
 use crate::game_text::GameText;
 use crate::gui::callbacks::quit_menu::destroy_quit_menu;
 use crate::gui::campaign_manager::get_campaign_manager;
+use crate::gui::control_bar::{
+    host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
+};
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::menu_flags::{
     get_dont_show_main_menu, get_replay_was_pressed, set_replay_was_pressed,
@@ -60,11 +63,25 @@ pub enum PopupSaveLoadRequest {
     },
 }
 
+/// A host PopupSaveLoad request plus provenance captured at its origin.
+///
+/// Popup callbacks run in the same synchronous WND dispatch as the Control
+/// Bar, so they share Main's safe, stack-scoped input context.  Only the three
+/// explicit confirmation callbacks sample that context.  Other legitimate
+/// Popup paths (such as the retail shell's immediate load) intentionally use
+/// [`HostControlBarInputProvenance::InjectedOrUnknown`] so they cannot be
+/// mistaken for a physical confirmation by the authoritative host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostPopupSaveLoadPublishedRequest {
+    pub request: PopupSaveLoadRequest,
+    pub input_provenance: HostControlBarInputProvenance,
+}
+
 #[derive(Default)]
 struct HostPopupSaveLoadBridge {
     installed: bool,
     entries: Vec<PopupSaveLoadEntry>,
-    requests: Vec<PopupSaveLoadRequest>,
+    requests: Vec<HostPopupSaveLoadPublishedRequest>,
 }
 
 static HOST_POPUP_SAVE_LOAD_BRIDGE: OnceLock<Mutex<HostPopupSaveLoadBridge>> = OnceLock::new();
@@ -76,8 +93,10 @@ fn host_popup_save_load_bridge() -> &'static Mutex<HostPopupSaveLoadBridge> {
 /// Publish the active host's save rows for the next PopupSaveLoad initialization.
 ///
 /// Calling this also installs the host action bridge: later confirmed Save/Load
-/// actions are queued for [`take_host_popup_save_load_requests`] instead of
-/// being sent to Common's unrelated `TheGameState` snapshot implementation.
+/// actions are queued for [`take_host_popup_save_load_published_requests`]
+/// instead of being sent to Common's unrelated `TheGameState` snapshot
+/// implementation.  [`take_host_popup_save_load_requests`] remains available
+/// for standalone callers that need only the legacy request payload.
 /// An empty inventory is still authoritative: it renders only the retail
 /// `New Save Game` pseudo-row.  This prevents incompatible/stale Common saves
 /// from leaking into a host-owned snapshot menu.
@@ -88,12 +107,23 @@ pub fn publish_host_popup_save_load_entries(entries: Vec<PopupSaveLoadEntry>) {
     }
 }
 
-/// Drain confirmed PopupSaveLoad actions for the active runtime host.
-pub fn take_host_popup_save_load_requests() -> Vec<PopupSaveLoadRequest> {
+/// Drain confirmed PopupSaveLoad actions with their captured input provenance.
+///
+/// Main must use this detailed drain at its authority boundary.  The legacy
+/// request-only drain below intentionally discards provenance.
+pub fn take_host_popup_save_load_published_requests() -> Vec<HostPopupSaveLoadPublishedRequest> {
     host_popup_save_load_bridge()
         .lock()
         .map(|mut bridge| std::mem::take(&mut bridge.requests))
         .unwrap_or_default()
+}
+
+/// Drain confirmed PopupSaveLoad actions for legacy standalone callers.
+pub fn take_host_popup_save_load_requests() -> Vec<PopupSaveLoadRequest> {
+    take_host_popup_save_load_published_requests()
+        .into_iter()
+        .map(|published| published.request)
+        .collect()
 }
 
 /// Disable the host bridge and discard its published rows/undrained requests.
@@ -118,14 +148,20 @@ fn host_popup_save_load_bridge_installed() -> bool {
         .unwrap_or(false)
 }
 
-fn queue_host_popup_save_load_request(request: PopupSaveLoadRequest) -> bool {
+fn queue_host_popup_save_load_request(
+    request: PopupSaveLoadRequest,
+    input_provenance: HostControlBarInputProvenance,
+) -> bool {
     let Ok(mut bridge) = host_popup_save_load_bridge().lock() else {
         return false;
     };
     if !bridge.installed {
         return false;
     }
-    bridge.requests.push(request);
+    bridge.requests.push(HostPopupSaveLoadPublishedRequest {
+        request,
+        input_provenance,
+    });
     true
 }
 
@@ -446,6 +482,14 @@ fn populate_save_game_listbox(state: &mut SaveLoadMenuState) {
 mod tests {
     use super::*;
 
+    static HOST_POPUP_SAVE_LOAD_BRIDGE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn acquire_host_popup_save_load_bridge_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        HOST_POPUP_SAVE_LOAD_BRIDGE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn default_save_description_uses_cpp_backslash_only_path_strip() {
         assert_eq!(
@@ -542,6 +586,7 @@ mod tests {
 
     #[test]
     fn host_bridge_emits_only_confirmed_typed_requests() {
+        let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
         clear_host_popup_save_load_bridge();
         publish_host_popup_save_load_entries(vec![PopupSaveLoadEntry {
             filename: "wnd_pause".into(),
@@ -552,12 +597,12 @@ mod tests {
         assert_eq!(host_popup_save_load_entries().len(), 1);
         assert!(take_host_popup_save_load_requests().is_empty());
 
-        dispatch_confirmed_save(
+        dispatch_save_from_popup_confirmation(
             "wnd_pause".into(),
             "Windowed pause save".into(),
             SaveFileType::Normal,
         );
-        dispatch_confirmed_load(SaveLoadSelection::Host(PopupSaveLoadEntry {
+        dispatch_load_from_popup_confirmation(SaveLoadSelection::Host(PopupSaveLoadEntry {
             filename: "wnd_pause".into(),
             description: "Windowed pause save".into(),
         }));
@@ -580,6 +625,7 @@ mod tests {
 
     #[test]
     fn installed_empty_host_inventory_never_falls_back_to_common_rows() {
+        let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
         clear_host_popup_save_load_bridge();
         publish_host_popup_save_load_entries(Vec::new());
 
@@ -612,6 +658,7 @@ mod tests {
 
     #[test]
     fn named_live_load_confirms_the_exact_host_row() {
+        let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
         clear_host_popup_save_load_bridge();
         with_window_manager(|manager| manager.reset());
         // QuitMenu opens this popup while a game is running.  The retail
@@ -649,6 +696,7 @@ mod tests {
 
     #[test]
     fn live_save_description_confirm_emits_the_host_request() {
+        let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
         clear_host_popup_save_load_bridge();
         with_window_manager(|manager| manager.reset());
         let previous_shell_active = crate::gui::shell::get_shell().is_shell_active();
@@ -692,6 +740,76 @@ mod tests {
         clear_host_popup_save_load_bridge();
         with_window_manager(|manager| manager.reset());
         crate::gui::shell::get_shell().set_shell_active(previous_shell_active);
+    }
+
+    #[test]
+    fn popup_confirmation_provenance_is_snapshotted_and_other_paths_fail_closed() {
+        let _bridge_guard = acquire_host_popup_save_load_bridge_test_guard();
+        clear_host_popup_save_load_bridge();
+        publish_host_popup_save_load_entries(vec![PopupSaveLoadEntry {
+            filename: "wnd_pause".into(),
+            description: "Windowed pause save".into(),
+        }]);
+
+        // No synchronous WND scope: even an explicit confirmation is unknown.
+        dispatch_save_from_popup_confirmation(
+            "wnd_pause".into(),
+            "Windowed pause save".into(),
+            SaveFileType::Normal,
+        );
+        crate::gui::control_bar::with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::InjectedOrUnknown,
+            || {
+                dispatch_load_from_popup_confirmation(SaveLoadSelection::Host(
+                    PopupSaveLoadEntry {
+                        filename: "wnd_pause".into(),
+                        description: "Windowed pause save".into(),
+                    },
+                ));
+            },
+        );
+        crate::gui::control_bar::with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::PhysicalWindowMouseInput,
+            || {
+                // Shell/double-click behavior remains valid, but has no
+                // explicit confirmation provenance even under a real WND scope.
+                dispatch_load_without_popup_confirmation(SaveLoadSelection::Host(
+                    PopupSaveLoadEntry {
+                        filename: "wnd_pause".into(),
+                        description: "Windowed pause save".into(),
+                    },
+                ));
+                dispatch_save_from_popup_confirmation(
+                    "wnd_pause".into(),
+                    "Windowed pause save".into(),
+                    SaveFileType::Normal,
+                );
+                dispatch_load_from_popup_confirmation(SaveLoadSelection::Host(
+                    PopupSaveLoadEntry {
+                        filename: "wnd_pause".into(),
+                        description: "Windowed pause save".into(),
+                    },
+                ));
+            },
+        );
+
+        let provenance: Vec<_> = take_host_popup_save_load_published_requests()
+            .into_iter()
+            .map(|published| published.input_provenance)
+            .collect();
+        assert_eq!(
+            provenance,
+            vec![
+                HostControlBarInputProvenance::InjectedOrUnknown,
+                HostControlBarInputProvenance::InjectedOrUnknown,
+                HostControlBarInputProvenance::InjectedOrUnknown,
+                HostControlBarInputProvenance::PhysicalWindowMouseInput,
+                HostControlBarInputProvenance::PhysicalWindowMouseInput,
+            ],
+            "only explicit physical Popup confirmation callbacks may carry physical evidence"
+        );
+
+        clear_host_popup_save_load_bridge();
     }
 }
 
@@ -909,14 +1027,25 @@ fn save_file_type_for_layout(layout_type: SaveLoadLayoutType) -> SaveFileType {
     }
 }
 
-/// Dispatch a confirmed Save through the active host bridge when present.
-/// Returning false means standalone Common `TheGameState` remains authoritative.
-fn dispatch_confirmed_save(filename: String, description: String, save_file_type: SaveFileType) {
-    if queue_host_popup_save_load_request(PopupSaveLoadRequest::Save {
-        filename: filename.clone(),
-        description: description.clone(),
-        save_file_type,
-    }) {
+/// Dispatch a Save through the active host bridge when present.
+///
+/// `input_provenance` is physical only when the caller is one of the retail
+/// confirmation callbacks below.  The fallback to Common keeps the original
+/// save semantics regardless of the evidence provenance.
+fn dispatch_save_request(
+    filename: String,
+    description: String,
+    save_file_type: SaveFileType,
+    input_provenance: HostControlBarInputProvenance,
+) {
+    if queue_host_popup_save_load_request(
+        PopupSaveLoadRequest::Save {
+            filename: filename.clone(),
+            description: description.clone(),
+            save_file_type,
+        },
+        input_provenance,
+    ) {
         return;
     }
 
@@ -929,18 +1058,57 @@ fn dispatch_confirmed_save(filename: String, description: String, save_file_type
     );
 }
 
-/// Dispatch a confirmed Load through the active host bridge when present.
+/// Dispatch a Load through the active host bridge when present.
 /// Common `TheGameState` is only used when no host bridge is installed.
-fn dispatch_confirmed_load(selected: SaveLoadSelection) {
-    if queue_host_popup_save_load_request(PopupSaveLoadRequest::Load {
-        filename: selected.filename().to_string(),
-    }) {
+fn dispatch_load_request(
+    selected: SaveLoadSelection,
+    input_provenance: HostControlBarInputProvenance,
+) {
+    if queue_host_popup_save_load_request(
+        PopupSaveLoadRequest::Load {
+            filename: selected.filename().to_string(),
+        },
+        input_provenance,
+    ) {
         return;
     }
 
     if let Some(common) = selected.into_common() {
         do_load_game(common);
     }
+}
+
+/// Dispatch work from `ButtonOverwriteConfirm` or `ButtonSaveDescConfirm`.
+///
+/// Sampling provenance here, rather than at Main's delayed bridge tick,
+/// preserves whether this exact confirmation originated in a physical WND
+/// mouse event.  An unscoped caller fails closed as injected/unknown.
+fn dispatch_save_from_popup_confirmation(
+    filename: String,
+    description: String,
+    save_file_type: SaveFileType,
+) {
+    dispatch_save_request(
+        filename,
+        description,
+        save_file_type,
+        host_control_bar_input_provenance_for_current_dispatch(),
+    );
+}
+
+/// Dispatch work from `ButtonLoadConfirm`, retaining its exact WND provenance.
+fn dispatch_load_from_popup_confirmation(selected: SaveLoadSelection) {
+    dispatch_load_request(
+        selected,
+        host_control_bar_input_provenance_for_current_dispatch(),
+    );
+}
+
+/// Dispatch a legitimate Popup load path which did not pass through
+/// `ButtonLoadConfirm` (the retail shell's immediate load or list double-click).
+/// It must retain normal load behavior, but cannot serve as confirmation proof.
+fn dispatch_load_without_popup_confirmation(selected: SaveLoadSelection) {
+    dispatch_load_request(selected, HostControlBarInputProvenance::InjectedOrUnknown);
 }
 
 /// Apply the C++ Load-button UI transition.  A shell load completes immediately
@@ -1275,7 +1443,7 @@ pub fn save_load_menu_system(
                         process_load_double_click_after_dispatch(&mut state, row_selected);
                     drop(state);
                     if let Some(selected) = selected {
-                        dispatch_confirmed_load(selected);
+                        dispatch_load_without_popup_confirmation(selected);
                     }
                 });
                 return WindowMsgHandled::Handled;
@@ -1297,7 +1465,7 @@ pub fn save_load_menu_system(
             if control_id == state.button_load {
                 if let Some(selected) = process_load_button_press(&mut state, window) {
                     drop(state);
-                    dispatch_confirmed_load(selected);
+                    dispatch_load_without_popup_confirmation(selected);
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -1397,7 +1565,7 @@ pub fn save_load_menu_system(
                     // real save so nested UI/engine work cannot deadlock the
                     // menu mutex during a button dispatch.
                     drop(state);
-                    dispatch_confirmed_save(filename, desc, file_type);
+                    dispatch_save_from_popup_confirmation(filename, desc, file_type);
                     return WindowMsgHandled::Handled;
                 } else {
                     if let Some(frame) = state.button_frame.as_ref() {
@@ -1439,7 +1607,7 @@ pub fn save_load_menu_system(
                 // See overwrite-confirm above: serialize only after dropping
                 // the callback's menu-state lock.
                 drop(state);
-                dispatch_confirmed_save(filename, desc, file_type);
+                dispatch_save_from_popup_confirmation(filename, desc, file_type);
                 return WindowMsgHandled::Handled;
             }
 
@@ -1477,7 +1645,7 @@ pub fn save_load_menu_system(
                     // Loading destroys/rebuilds game state. It must not hold
                     // the UI menu mutex while it tears down QuitMenu/layouts.
                     drop(state);
-                    dispatch_confirmed_load(selected);
+                    dispatch_load_from_popup_confirmation(selected);
                 }
                 return WindowMsgHandled::Handled;
             }
