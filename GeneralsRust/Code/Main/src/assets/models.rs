@@ -322,7 +322,7 @@ impl W3dAnimation {
 /// `.w3d`; the portion before that dot remains the exact hierarchy identity.
 /// Do not accept a path here: Draw `Animation` is an HAnim identity, not an
 /// archive filename escape hatch.
-fn split_w3d_draw_animation_identity(identity: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_w3d_draw_animation_identity(identity: &str) -> Option<(&str, &str)> {
     let identity = identity.trim();
     let (hierarchy, animation) = identity.split_once('.')?;
     let hierarchy = hierarchy.trim();
@@ -1026,6 +1026,8 @@ impl W3DModel {
         };
         if animation.hierarchy_name.trim().is_empty()
             || animation.name.trim().is_empty()
+            || animation.num_frames == 0
+            || animation.frame_rate == 0
             || !animation
                 .hierarchy_name
                 .eq_ignore_ascii_case(hierarchy.name.as_str())
@@ -1379,6 +1381,53 @@ pub fn w3d_archive_path_variants(model_name: &str) -> Vec<String> {
     out
 }
 
+/// Exact C++ companion-file spelling for a raw HAnim selected by
+/// `W3DModelDraw`.
+///
+/// `WW3DAssetManager::Get_HAnim` resolves an HAnim by name first and, on a
+/// miss, takes the substring after the first dot in `Hierarchy.Animation`,
+/// then loads `Animation.w3d`. This intentionally does not use any model-key
+/// alias or filename-family table.
+pub fn w3d_companion_animation_filename(identity: &str) -> Option<String> {
+    let (_, animation) = split_w3d_draw_animation_identity(identity)?;
+    Some(format!("{animation}.w3d"))
+}
+
+/// Case-only archive/extract variants for one exact companion HAnim file.
+///
+/// BIG lookups are case-insensitive, while retail extracted trees may not be.
+/// These paths vary only storage/path casing; they never remap a Draw identity
+/// to a different model or scan an archive for similarly named motions.
+pub fn w3d_companion_animation_archive_path_variants(identity: &str) -> Option<Vec<String>> {
+    let (_, animation) = split_w3d_draw_animation_identity(identity)?;
+    let mut stems = Vec::new();
+    for stem in [
+        animation.to_string(),
+        animation.to_ascii_lowercase(),
+        animation.to_ascii_uppercase(),
+    ] {
+        if !stems.iter().any(|existing: &String| existing == &stem) {
+            stems.push(stem);
+        }
+    }
+
+    let mut paths = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut push = |path: String| {
+        if seen.insert(path.clone()) {
+            paths.push(path);
+        }
+    };
+    for stem in stems {
+        push(format!("art/w3d/{stem}.w3d"));
+        push(format!("{stem}.w3d"));
+        push(format!("Art/W3D/{stem}.w3d"));
+        push(format!("Art/W3D/{stem}.W3D"));
+        push(format!("art/w3d/{stem}.W3D"));
+    }
+    Some(paths)
+}
+
 impl W3DLoader {
     /// Create new W3D loader
     pub fn new() -> Self {
@@ -1422,9 +1471,54 @@ impl W3DLoader {
         ))
     }
 
+    /// Load one exact raw-animation companion according to the C++ HAnim
+    /// fallback rule. The returned clip remains separate from a geometry
+    /// model; callers must still validate its hierarchy before binding it.
+    pub async fn load_companion_animation(
+        &self,
+        archive_system: &mut ArchiveFileSystem,
+        identity: &str,
+    ) -> Result<W3dAnimation> {
+        let filename = w3d_companion_animation_filename(identity)
+            .ok_or_else(|| anyhow!("invalid W3D Draw animation identity '{identity}'"))?;
+        let candidates = w3d_companion_animation_archive_path_variants(identity)
+            .expect("validated companion identity must yield paths");
+        let mut last_error = None;
+
+        for candidate in candidates {
+            match archive_system.open_file(&candidate).await {
+                Ok(data) => match self.load_companion_animation_from_bytes(&data, identity) {
+                    Ok(animation) => return Ok(animation),
+                    Err(error) => {
+                        last_error = Some(error);
+                        debug!(
+                            "W3D companion '{}' at '{}' did not contain its exact HAnim: {}",
+                            identity, candidate, last_error.as_ref().expect("just assigned error")
+                        );
+                    }
+                },
+                Err(error) => last_error = Some(error),
+            }
+        }
+
+        Err(anyhow!(
+            "failed to load exact W3D companion '{}' for Draw animation '{}': {}",
+            filename,
+            identity,
+            last_error.unwrap_or_else(|| anyhow!("file not found"))
+        ))
+    }
+
     /// Parse W3D binary data using the legacy chunk parser path for strict C++ parity.
     fn parse_w3d_data(&self, data: &[u8], model_name: String) -> Result<W3DModel> {
-        self.parse_w3d_data_legacy(data, model_name)
+        self.parse_w3d_data_legacy(data, model_name, false)
+    }
+
+    /// Parse an HAnim companion stream. Retail raw-animation W3Ds commonly
+    /// contain no mesh chunks at all, unlike a geometry model, so the normal
+    /// model parser's no-mesh rejection is not applicable here.
+    fn parse_w3d_animation_data(&self, data: &[u8], model_name: String) -> Result<W3DModel> {
+        self.parse_w3d_data_legacy(data, model_name, true)
     }
 
     /// Parse a W3D model from already-loaded bytes (filesystem / archive residual path).
@@ -1443,6 +1537,32 @@ impl W3DLoader {
             return Err(anyhow!("empty W3D payload for '{}'", base_name));
         }
         self.parse_w3d_data(data, base_name.to_string())
+    }
+
+    /// Parse a raw-animation W3D payload and select only the exact full
+    /// `Hierarchy.Animation` record requested by the frozen Draw state.
+    pub fn load_companion_animation_from_bytes(
+        &self,
+        data: &[u8],
+        identity: &str,
+    ) -> Result<W3dAnimation> {
+        let filename = w3d_companion_animation_filename(identity)
+            .ok_or_else(|| anyhow!("invalid W3D Draw animation identity '{identity}'"))?;
+        if data.is_empty() {
+            return Err(anyhow!("empty W3D companion payload for '{filename}'"));
+        }
+        let model = self.parse_w3d_animation_data(data, filename.clone())?;
+        model
+            .animations
+            .into_iter()
+            .find(|animation| animation.matches_draw_identity(identity))
+            .ok_or_else(|| {
+                anyhow!(
+                    "W3D companion '{}' contains no exact HAnim '{}'",
+                    filename,
+                    identity
+                )
+            })
     }
 
     /// Load a W3D model from a filesystem path when present (tests / residual resolve).
@@ -1544,7 +1664,12 @@ impl W3DLoader {
     }
 
     /// Parse W3D binary data using the legacy chunk parser (fallback path)
-    fn parse_w3d_data_legacy(&self, data: &[u8], model_name: String) -> Result<W3DModel> {
+    fn parse_w3d_data_legacy(
+        &self,
+        data: &[u8],
+        model_name: String,
+        allow_animation_only: bool,
+    ) -> Result<W3DModel> {
         if data.len() < 8 {
             return Err(anyhow!("W3D file too small: {} bytes", data.len()));
         }
@@ -1740,7 +1865,7 @@ impl W3DLoader {
             );
         }
 
-        if model.meshes.is_empty() {
+        if model.meshes.is_empty() && !allow_animation_only {
             return Err(anyhow!(
                 "legacy parser: no valid meshes found in '{}'",
                 model.name
@@ -4986,6 +5111,43 @@ mod tests {
         [hierarchy, mesh, animation, hlod].concat()
     }
 
+    /// An animation-only companion W3D, shaped like the raw HAnim files C++
+    /// loads on a `Get_HAnim(Hierarchy.Animation)` miss.
+    fn companion_animation_fixture(
+        hierarchy_name: &str,
+        animation_name: &str,
+        first_x: f32,
+        last_x: f32,
+    ) -> Vec<u8> {
+        let mut animation_header = Vec::with_capacity(44);
+        animation_header.extend_from_slice(&1u32.to_le_bytes());
+        animation_header.extend_from_slice(&fixed_name(animation_name, W3D_NAME_LEN));
+        animation_header.extend_from_slice(&fixed_name(hierarchy_name, W3D_NAME_LEN));
+        animation_header.extend_from_slice(&2u32.to_le_bytes());
+        animation_header.extend_from_slice(&30u32.to_le_bytes());
+
+        // X translation, pivot 1, frames [0, 1]. The companion contains no
+        // geometry or hierarchy chunk; the geometry W3D supplies the HTree.
+        let mut channel = Vec::with_capacity(20);
+        channel.extend_from_slice(&0u16.to_le_bytes());
+        channel.extend_from_slice(&1u16.to_le_bytes());
+        channel.extend_from_slice(&1u16.to_le_bytes());
+        channel.extend_from_slice(&0u16.to_le_bytes());
+        channel.extend_from_slice(&1u16.to_le_bytes());
+        channel.extend_from_slice(&0u16.to_le_bytes());
+        channel.extend_from_slice(&first_x.to_le_bytes());
+        channel.extend_from_slice(&last_x.to_le_bytes());
+        chunk(
+            W3D_CHUNK_ANIMATION,
+            [
+                chunk(W3D_CHUNK_ANIMATION_HEADER, animation_header, false),
+                chunk(W3D_CHUNK_ANIMATION_CHANNEL, channel, false),
+            ]
+            .concat(),
+            true,
+        )
+    }
+
     #[test]
     fn deduplicate_stage_uv_layers_merges_duplicate_channels() {
         let stage0 = vec![[0.0, 0.0], [1.0, 0.0]];
@@ -5156,6 +5318,85 @@ mod tests {
                 .is_none(),
             "a compressed visibility source must not be rendered using a guessed value"
         );
+    }
+
+    #[test]
+    fn w3d_companion_animation_external_binding_wins_over_local_clip() {
+        let loader = W3DLoader::new();
+        let geometry = loader
+            .load_model_from_bytes(&visibility_hlod_fixture(), "geometry")
+            .expect("source-shaped geometry fixture should parse");
+        let companion = loader
+            .load_companion_animation_from_bytes(
+                &companion_animation_fixture("VIS_HIER", "EXTERNAL", 4.0, 12.0),
+                "VIS_HIER.EXTERNAL",
+            )
+            .expect("animation-only companion should parse through HAnim path");
+        assert!(companion.matches_draw_identity("vis_hier.external"));
+        assert_eq!(
+            w3d_companion_animation_filename("VIS_HIER.EXTERNAL"),
+            Some("EXTERNAL.w3d".to_string())
+        );
+
+        let binding = W3dAnimationBinding::companion(
+            "VIS_HIER.EXTERNAL",
+            Arc::new(companion),
+        );
+        assert!(geometry.animation_binding_is_compatible(&binding));
+
+        let local_x = geometry
+            .sample_animation(0, 1.0)
+            .expect("local source clip should sample")[1][12];
+        let external_x = geometry
+            .sample_animation_binding(&binding, 1.0)
+            .expect("exact external binding should sample")[1][12];
+        assert_eq!(local_x, 3.0, "fixture local clip is only the bind pose");
+        assert_eq!(external_x, 12.0, "companion motion must override local clip");
+
+        let (transform, visible) = geometry
+            .mesh_local_transform_and_visibility_for_binding(0, Some(&binding), 1.0)
+            .expect("external companion must carry through the exact HLOD record");
+        assert!(visible, "companion with no bit channel defaults to visible");
+        assert!(
+            (transform.w_axis.x - 12.0).abs() < 0.0001,
+            "HLOD transform must use the external companion, got {transform:?}"
+        );
+
+        // A missing external binding becomes the source bind pose at the
+        // collector boundary, not the geometry file's local animation zero.
+        let bind_pose = geometry
+            .mesh_local_transform_and_visibility_for_binding(0, None, 1.0)
+            .expect("absent selected HAnim is a bind-pose request");
+        assert!((bind_pose.0.w_axis.x - 3.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn w3d_companion_animation_retail_china_agent_asset_identity_when_available() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let candidates = [
+            root.join("windows_game/extracted_big_files/W3DZH/Art/W3D/AIRNGR_ATB.W3D"),
+            root.join("windows_game/extracted_big_files/W3DZH/art/w3d/AIRNGR_ATB.W3D"),
+        ];
+        let Some(path) = candidates.into_iter().find(|path| path.is_file()) else {
+            eprintln!("skip: retail AIRNGR_ATB.W3D companion is not available on disk");
+            return;
+        };
+        let paths = w3d_companion_animation_archive_path_variants("AIRngr_SKL.AIRngr_ATB")
+            .expect("qualified retail Draw identity must yield exact companion paths");
+        assert_eq!(
+            w3d_companion_animation_filename("AIRngr_SKL.AIRngr_ATB"),
+            Some("AIRngr_ATB.w3d".to_string())
+        );
+        assert!(
+            paths.iter().any(|path| path == "Art/W3D/AIRNGR_ATB.W3D"),
+            "case-only exact companion candidates must retain retail archive spelling: {paths:?}"
+        );
+
+        let bytes = std::fs::read(&path).expect("retail companion W3D bytes");
+        let animation = W3DLoader::new()
+            .load_companion_animation_from_bytes(&bytes, "AIRngr_SKL.AIRngr_ATB")
+            .expect("retail China Agent companion must contain its exact HAnim");
+        assert!(animation.matches_draw_identity("airngr_skl.airngr_atb"));
     }
 
     #[test]

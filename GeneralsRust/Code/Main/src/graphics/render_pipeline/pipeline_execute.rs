@@ -118,6 +118,7 @@ impl RenderPipeline {
                     );
                 }
                 self.prewarm_startup_models(graphics_system, allow_sync_model_loads);
+                self.prewarm_frozen_draw_animation_bindings();
                 if self.frame_number <= 5 {
                     info!(
                         "RenderPipeline::execute frame {} prewarm_done",

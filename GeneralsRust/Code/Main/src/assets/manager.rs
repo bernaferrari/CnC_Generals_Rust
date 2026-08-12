@@ -10,7 +10,10 @@ use crate::assets::ini_parser::{AuthoredConditionModelSelection, AuthoredDrawMod
 use crate::assets::{
     archive::{ArchiveFileSystem, ArchiveStatistics},
     audio::AudioManager,
-    models::{get_common_cnc_units, W3DLoader, W3DModel},
+    models::{
+        get_common_cnc_units, split_w3d_draw_animation_identity, W3DLoader, W3DModel,
+        W3dAnimation, W3dAnimationBinding,
+    },
     textures::{GPUTexture, RawTexture, TextureManager},
     ww3d_asset_manager::WW3DAssetManager,
 };
@@ -43,6 +46,11 @@ pub struct AssetManager {
     ww3d_manager: WW3DAssetManager,
     /// Cache of loaded models
     model_cache: HashMap<String, W3DModel>,
+    /// Exact raw-animation companions keyed by the full frozen Draw identity
+    /// and the compatible source hierarchy. `None` memoizes a failed exact
+    /// prewarm so render collection neither retries archive I/O nor selects a
+    /// local clip by ordinal.
+    companion_animation_cache: HashMap<CompanionAnimationCacheKey, Option<Arc<W3dAnimation>>>,
     /// Known-missing model keys to keep repeated lookups O(1) like C++ hash misses.
     missing_model_keys: HashSet<String>,
     /// Initialization status
@@ -53,6 +61,33 @@ pub struct AssetManager {
     active_mod_path: Option<PathBuf>,
     /// Explicit BIG files to mount after core init
     manual_big_files: Vec<PathBuf>,
+}
+
+/// C++ HAnim assets are shared by their fully-qualified `Hierarchy.Animation`
+/// identity, but a geometry HTree is only allowed to bind a motion authored
+/// for that exact hierarchy. A model basename is deliberately not part of the
+/// cache contract: two source models may share a hierarchy, while one basename
+/// can appear under several draw modules.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CompanionAnimationCacheKey {
+    hierarchy_name: String,
+    draw_identity: String,
+}
+
+impl CompanionAnimationCacheKey {
+    fn for_geometry_model(model: &W3DModel, identity: &str) -> Option<Self> {
+        let hierarchy_name = model.hierarchy.as_ref()?.name.trim();
+        let (requested_hierarchy, _) = split_w3d_draw_animation_identity(identity)?;
+        if hierarchy_name.is_empty()
+            || !hierarchy_name.eq_ignore_ascii_case(requested_hierarchy)
+        {
+            return None;
+        }
+        Some(Self {
+            hierarchy_name: hierarchy_name.to_ascii_lowercase(),
+            draw_identity: identity.trim().to_ascii_lowercase(),
+        })
+    }
 }
 
 /// Summary of a model warmup pass.
@@ -158,6 +193,7 @@ impl AssetManager {
             texture_manager: TextureManager::new(),
             ww3d_manager: WW3DAssetManager::new(),
             model_cache: HashMap::new(),
+            companion_animation_cache: HashMap::new(),
             missing_model_keys: HashSet::new(),
             initialized: false,
             language,
@@ -1127,6 +1163,117 @@ impl AssetManager {
             .and_then(|m| m.sample_animation(anim_index, frame))
     }
 
+    /// Return an already-prewarmed exact Draw animation binding for this
+    /// geometry model. This is intentionally cache-only: it is called during
+    /// frozen-frame collection and must never open an archive, wait on Tokio,
+    /// or try a model-name alias.
+    pub fn cached_w3d_draw_animation_binding(
+        &self,
+        geometry_model: &W3DModel,
+        identity: &str,
+    ) -> Option<W3dAnimationBinding> {
+        if let Some(local) = geometry_model.local_animation_binding_for_draw_identity(identity) {
+            return Some(local);
+        }
+
+        let key = CompanionAnimationCacheKey::for_geometry_model(geometry_model, identity)?;
+        let animation = self.companion_animation_cache.get(&key)?.as_ref()?.clone();
+        let binding = W3dAnimationBinding::companion(identity.trim(), animation);
+        geometry_model
+            .animation_binding_is_compatible(&binding)
+            .then_some(binding)
+    }
+
+    /// Prewarm exactly one frozen `Hierarchy.Animation` request before render
+    /// collection. The geometry model is loaded through its existing exact
+    /// model path; a companion clip is loaded only through C++'s deterministic
+    /// `Animation.w3d` rule and memoized (including misses) by full identity
+    /// plus the compatible hierarchy, never by a model basename.
+    pub fn prewarm_w3d_draw_animation_binding(
+        &mut self,
+        model_name: &str,
+        identity: &str,
+    ) -> bool {
+        let geometry_model = match self.load_w3d_model(model_name) {
+            Ok(model) => model,
+            Err(error) => {
+                warn!(
+                    "W3D Draw animation prewarm skipped: geometry '{}' for '{}' failed: {}",
+                    model_name, identity, error
+                );
+                return false;
+            }
+        };
+
+        if geometry_model
+            .local_animation_binding_for_draw_identity(identity)
+            .is_some()
+        {
+            return true;
+        }
+
+        let Some(cache_key) = CompanionAnimationCacheKey::for_geometry_model(&geometry_model, identity)
+        else {
+            // The frozen identity cannot bind this model's HTree. There is no
+            // compatible cache key and no reason to touch archive storage.
+            return false;
+        };
+
+        if let Some(cached) = self.companion_animation_cache.get(&cache_key) {
+            return cached.is_some();
+        }
+
+        let animation = match self.load_companion_animation_blocking(identity) {
+            Ok(animation) => {
+                let animation = Arc::new(animation);
+                let binding = W3dAnimationBinding::companion(identity.trim(), Arc::clone(&animation));
+                if geometry_model.animation_binding_is_compatible(&binding) {
+                    Some(animation)
+                } else {
+                    warn!(
+                        "W3D Draw companion '{}' is incompatible with geometry hierarchy for '{}'",
+                        identity, model_name
+                    );
+                    None
+                }
+            }
+            Err(error) => {
+                warn!(
+                    "W3D Draw companion prewarm failed for '{}': {}",
+                    identity, error
+                );
+                None
+            }
+        };
+        let resolved = animation.is_some();
+        self.companion_animation_cache.insert(cache_key, animation);
+        resolved
+    }
+
+    fn load_companion_animation_blocking(&mut self, identity: &str) -> Result<W3dAnimation> {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+                return tokio::task::block_in_place(|| {
+                    handle.block_on(
+                        self.model_loader
+                            .load_companion_animation(&mut self.archive_system, identity),
+                    )
+                });
+            }
+            return Err(anyhow!(
+                "synchronous W3D companion loading not supported on current-thread runtime"
+            ));
+        }
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        runtime.block_on(
+            self.model_loader
+                .load_companion_animation(&mut self.archive_system, identity),
+        )
+    }
+
     /// Load a model asynchronously by cloning from cache or loading fresh
     pub async fn load_w3d_model_async(&mut self, model_name: &str) -> Result<W3DModel> {
         let resolved_name = self.resolve_available_model_name(model_name);
@@ -1321,6 +1468,7 @@ impl AssetManager {
     pub fn clear_caches(&mut self) {
         info!("Clearing asset caches");
         self.model_cache.clear();
+        self.companion_animation_cache.clear();
         self.missing_model_keys.clear();
         self.texture_manager.clear_cache();
     }
