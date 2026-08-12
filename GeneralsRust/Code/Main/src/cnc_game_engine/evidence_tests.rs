@@ -499,6 +499,96 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
 }
 
 #[test]
+fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
+    // The UI-owned start is synchronous, so the authored load-screen prelude
+    // must complete after the Loading transition and before any session/map
+    // mutation can make InGame visible.
+    let start_game = include_str!("start_game.rs");
+    let start = start_game
+        .find("pub(super) fn host_start_game_from_ui")
+        .expect("host start-game authority");
+    let after_start = &start_game[start..];
+    let end = after_start[1..]
+        .find("\n    pub(super) fn ")
+        .map(|offset| offset + 1)
+        .unwrap_or(after_start.len());
+    let body = &after_start[..end];
+    let loading = body
+        .find("transition_to_state(GameState::Loading)")
+        .expect("Loading transition");
+    let prelude = body
+        .find("self.run_cpp_load_screen_prelude()")
+        .expect("campaign prelude pump");
+    let clear_residuals = body
+        .find("self.host_clear_match_residuals()")
+        .expect("session clear boundary");
+    let map_load = body
+        .find("self.host_load_map_or_default(&map_name)")
+        .expect("map-load authority");
+    assert!(
+        loading < prelude && prelude < clear_residuals && clear_residuals < map_load,
+        "UI start must consume the prelude before session/map work"
+    );
+
+    let shell = include_str!("shell.rs");
+    let shell_start = shell
+        .find("pub(super) fn run_cpp_load_screen_prelude")
+        .expect("safe Main prelude wrapper");
+    let shell_after_start = &shell[shell_start..];
+    let shell_end = shell_after_start[1..]
+        .find("\n    pub(super) fn ")
+        .map(|offset| offset + 1)
+        .unwrap_or(shell_after_start.len());
+    let shell_body = &shell_after_start[..shell_end];
+    assert!(
+        shell_body.contains("game_client::gui::load_screen::run_load_screen_prelude(kind)"),
+        "Main must delegate to the shared render-pump-only prelude driver"
+    );
+    assert!(
+        !shell_body.contains("service_windows_os")
+            && !shell_body.contains("serviceWindowsOS")
+            && !shell_body.contains("dispatch_event"),
+        "the synchronous wrapper must not re-enter the platform event loop"
+    );
+
+    // GameLogic's independent initialization path calls the same hook before
+    // `GameInitializer`, so campaign starts outside Main's host UI retain the
+    // C++ ordering too.
+    let client_hooks = include_str!("../../../GameEngine/GameClient/src/helpers.rs");
+    let hooks_start = client_hooks
+        .find("fn begin_load_screen(&self")
+        .expect("GameClient load-screen hook");
+    let hooks_after_start = &client_hooks[hooks_start..];
+    let hooks_end = hooks_after_start
+        .find("\n    fn update_load_screen(&self")
+        .unwrap_or(hooks_after_start.len());
+    let hooks_body = &hooks_after_start[..hooks_end];
+    let init = hooks_body
+        .find("init_load_screen(kind")
+        .expect("load-screen init");
+    let logic_prelude = hooks_body
+        .find("run_load_screen_prelude(kind)")
+        .expect("logic-owned prelude");
+    assert!(
+        init < logic_prelude,
+        "logic hook must initialize the authored screen before it pumps it"
+    );
+
+    let game_logic = include_str!("../../../GameEngine/GameLogic/src/helpers/game_logic.rs");
+    let start_new_game = game_logic
+        .find("Self::begin_load_screen(Self::get_game_mode(), is_load_game)")
+        .expect("logic load-screen begin");
+    let initializer = game_logic[start_new_game..]
+        .find("GameInitializer::initialize_game(params)")
+        .map(|offset| start_new_game + offset)
+        .expect("logic map initializer");
+    assert!(
+        start_new_game < initializer,
+        "logic-owned load-screen hook must run before the map initializer"
+    );
+}
+
+#[test]
 fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evidence() {
     // The full CnCGameEngine constructor owns a live WGPU window, so this
     // regression locks the production authority sequence itself.  It must

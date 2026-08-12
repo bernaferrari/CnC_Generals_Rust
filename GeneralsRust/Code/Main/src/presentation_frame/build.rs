@@ -8,6 +8,16 @@ impl PresentationFrame {
     /// Cell-grid FOW is also frozen into `fow_grid` for terrain overlay / minimap.
     /// Fail-closed claim: unit FOW + compact local grid; not full SAGE shroud parity.
     pub fn build_from_logic(logic: &GameLogic, local_player_id: u32) -> Self {
+        Self::build_from_logic_with_runtime_heightmap(logic, local_player_id, None)
+    }
+
+    /// Engine-only variant which carries the map-lifetime full terrain payload
+    /// instead of cloning it again while freezing a presentation frame.
+    pub(crate) fn build_from_logic_with_runtime_heightmap(
+        logic: &GameLogic,
+        local_player_id: u32,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
         // Shell maps render fully visible background scenes (C++ parity).
         let fow_shell_bypass = logic.isInShellGame();
         // Local force residual: always present own-team objects fully visible.
@@ -127,6 +137,7 @@ impl PresentationFrame {
                 (!base_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
                     module_index: 0,
                     model_key: base_model_key.clone(),
+                    ..Default::default()
                 });
             let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
                 &obj.template_name,
@@ -717,9 +728,9 @@ impl PresentationFrame {
         if let Some(p) = local {
             use crate::command_system::SpecialPowerType as P;
             use crate::game_logic::host_special_power_enum_residual::{
-                special_power_has_public_timer, special_power_public_timer_display_name,
-                special_power_public_timer_icon, special_power_reload_seconds,
-                special_power_required_science, special_power_is_structure_bound_public_timer,
+                special_power_has_public_timer, special_power_is_structure_bound_public_timer,
+                special_power_public_timer_display_name, special_power_public_timer_icon,
+                special_power_reload_seconds, special_power_required_science,
             };
             const PUBLIC_POWERS: &[P] = &[
                 P::ParticleCannon,
@@ -1410,7 +1421,10 @@ impl PresentationFrame {
             floating_texts,
             world_anims,
             dual_tick,
-            world_env: PresentationWorldEnv::from_logic(logic),
+            world_env: PresentationWorldEnv::from_logic_with_runtime_heightmap(
+                logic,
+                runtime_heightmap,
+            ),
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
             gameworld_rebuilt: 0,
@@ -1423,7 +1437,20 @@ impl PresentationFrame {
 
     /// Build after evaluating victory (mutates victory subsystem once).
     pub fn build_with_victory(logic: &mut GameLogic, local_player_id: u32) -> Self {
-        let mut frame = Self::build_from_logic(logic, local_player_id);
+        Self::build_with_victory_with_runtime_heightmap(logic, local_player_id, None)
+    }
+
+    /// Engine-only victory build which retains the cached full terrain payload.
+    pub(crate) fn build_with_victory_with_runtime_heightmap(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
+        let mut frame = Self::build_from_logic_with_runtime_heightmap(
+            logic,
+            local_player_id,
+            runtime_heightmap,
+        );
         if let Some(v) = logic.evaluate_victory_condition() {
             frame.match_over = true;
             frame.victory_label = Some(format!("{v:?}"));

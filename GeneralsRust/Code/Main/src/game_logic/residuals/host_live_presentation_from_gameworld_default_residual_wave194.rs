@@ -99,7 +99,10 @@ pub fn honesty_engine_default_rebuild_source() -> bool {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 195: engine uses build_for_engine / build_with_victory_for_engine;
     // rebuild lives inside those helpers when presentation_from_gameworld_enabled.
-    (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
+    (src.contains("build_for_engine(")
+        || src.contains("build_with_victory_for_engine(")
+        || src.contains("build_for_engine_with_runtime_heightmap(")
+        || src.contains("build_with_victory_for_engine_with_runtime_heightmap("))
         && crate::presentation_frame::PRESENTATION_FRAME_SRC
             .contains("presentation_from_gameworld_enabled")
         && crate::presentation_frame::PRESENTATION_FRAME_SRC

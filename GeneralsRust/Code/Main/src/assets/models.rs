@@ -67,7 +67,13 @@ const W3D_CHUNK_HIERARCHY: u32 = 0x00000100;
 const W3D_CHUNK_ANIMATION: u32 = 0x00000200;
 const W3D_CHUNK_HMODEL: u32 = 0x00000300;
 const W3D_CHUNK_LODMODEL: u32 = 0x00000400;
-const W3D_CHUNK_HLOD: u32 = 0x00000700; // NEW: Hierarchical LOD model
+const W3D_CHUNK_HLOD: u32 = 0x00000700;
+const W3D_CHUNK_HLOD_HEADER: u32 = 0x00000701;
+const W3D_CHUNK_HLOD_LOD_ARRAY: u32 = 0x00000702;
+const W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER: u32 = 0x00000703;
+const W3D_CHUNK_HLOD_SUB_OBJECT: u32 = 0x00000704;
+const W3D_CHUNK_HLOD_AGGREGATE_ARRAY: u32 = 0x00000705;
+const W3D_CHUNK_HLOD_PROXY_ARRAY: u32 = 0x00000706;
 
 // Hierarchy sub-chunk types
 const W3D_CHUNK_HIERARCHY_HEADER: u32 = 0x00000101;
@@ -110,6 +116,95 @@ pub struct W3dHierarchy {
     pub pivot_fixups: Vec<[[f32; 3]; 4]>,
 }
 
+/// One source-authored rigid child reference from a W3D HLOD LOD array.
+///
+/// C++ `W3dHLodSubObjectStruct` stores the render-object identity and the HTree
+/// pivot that owns it.  The pivot is authoritative; the mesh name alone is not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct W3dHlodSubObject {
+    pub name: String,
+    pub bone_index: u32,
+}
+
+/// A single source-authored HLOD level.
+///
+/// `max_screen_size` is retained verbatim for a future C++ `HLodClass::Prepare_LOD`
+/// port.  The active Main renderer deliberately does not choose among multiple
+/// levels until that selection path exists.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3dHlodLod {
+    pub max_screen_size: f32,
+    pub subobjects: Vec<W3dHlodSubObject>,
+}
+
+/// Parsed W3D HLOD metadata.
+///
+/// This is intentionally only the rigid-child portion needed by the active Main
+/// WGPU path.  Aggregate/proxy records are retained as unsupported source content
+/// rather than guessed or flattened into ordinary meshes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3dHlod {
+    pub version: u32,
+    pub name: String,
+    pub hierarchy_name: String,
+    pub lods: Vec<W3dHlodLod>,
+    pub has_unsupported_attachments: bool,
+}
+
+#[derive(Debug)]
+struct W3dChunkRef<'a> {
+    chunk_type: u32,
+    is_container: bool,
+    data: &'a [u8],
+}
+
+/// Read one chunk from a known-bounded W3D container.
+///
+/// The generic legacy parser tolerates malformed data to preserve its historical
+/// diagnostics.  HLOD binding is authority for rigid transforms, so malformed
+/// child boundaries must instead fail closed and suppress that HLOD's render path.
+fn next_w3d_chunk<'a>(
+    data: &'a [u8],
+    offset: &mut usize,
+    context: &str,
+) -> Result<Option<W3dChunkRef<'a>>> {
+    if *offset == data.len() {
+        return Ok(None);
+    }
+    if *offset + 8 > data.len() {
+        return Err(anyhow!(
+            "{} has {} trailing bytes without a chunk header",
+            context,
+            data.len().saturating_sub(*offset)
+        ));
+    }
+
+    let chunk_type = u32::from_le_bytes(data[*offset..*offset + 4].try_into().unwrap());
+    let raw_size = u32::from_le_bytes(data[*offset + 4..*offset + 8].try_into().unwrap());
+    let is_container = (raw_size & 0x8000_0000) != 0;
+    let size = (raw_size & 0x7FFF_FFFF) as usize;
+    let payload_start = *offset + 8;
+    let payload_end = payload_start
+        .checked_add(size)
+        .ok_or_else(|| anyhow!("{} chunk size overflow", context))?;
+    if payload_end > data.len() {
+        return Err(anyhow!(
+            "{} chunk 0x{:08X} extends past its container: {} > {}",
+            context,
+            chunk_type,
+            payload_end,
+            data.len()
+        ));
+    }
+
+    *offset = payload_end;
+    Ok(Some(W3dChunkRef {
+        chunk_type,
+        is_container,
+        data: &data[payload_start..payload_end],
+    }))
+}
+
 /// Animation channel targeting a specific bone. C++ parity: animation channel data
 #[derive(Debug, Clone)]
 pub struct W3dAnimChannel {
@@ -121,6 +216,42 @@ pub struct W3dAnimChannel {
     pub data: Vec<f32>,
 }
 
+/// A raw `W3dBitChannelStruct` that drives an HTree pivot's visibility.
+///
+/// C++ `BitChannelClass::Get_Bit` uses the packed source bytes in LSB-first
+/// order and returns `default_visible` outside the authored frame range.  The
+/// type flag is retained because only `BIT_CHANNEL_VIS` (`0`) is installed by
+/// `HRawAnimClass::add_bit_channel`; other raw bit-channel kinds are not a
+/// visibility authority for an HLOD child.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct W3dRawVisibilityChannel {
+    pub first_frame: u16,
+    pub last_frame: u16,
+    pub flags: u16,
+    pub pivot: u16,
+    pub default_visible: bool,
+    pub bits: Vec<u8>,
+}
+
+impl W3dRawVisibilityChannel {
+    /// Match `BitChannelClass::Get_Bit` exactly: the frame is truncated by
+    /// `HRawAnimClass::Get_Visibility`, then bit zero is the low bit of the
+    /// first source byte.
+    fn visible_at(&self, frame: f32) -> bool {
+        let frame = frame as i32;
+        let first_frame = i32::from(self.first_frame);
+        let last_frame = i32::from(self.last_frame);
+        if frame < first_frame || frame > last_frame {
+            return self.default_visible;
+        }
+
+        let bit =
+            usize::try_from(frame - first_frame).expect("frame within a u16 W3D bit-channel range");
+        let byte = self.bits.get(bit / 8).copied().unwrap_or_default();
+        (byte & (1 << (bit % 8))) != 0
+    }
+}
+
 /// W3D animation data. C++ parity: W3dAnimHeaderStruct + channels
 #[derive(Debug, Clone)]
 pub struct W3dAnimation {
@@ -129,6 +260,47 @@ pub struct W3dAnimation {
     pub num_frames: u32,
     pub frame_rate: u32,
     pub channels: Vec<W3dAnimChannel>,
+    /// Raw `BIT_CHANNEL_VIS` channels, in source chunk order.  If duplicate
+    /// pivots occur, C++ overwrites the prior channel, so sampling walks this
+    /// vector from the end.
+    pub raw_visibility_channels: Vec<W3dRawVisibilityChannel>,
+    /// A compressed/time-coded source visibility channel is intentionally not
+    /// decoded yet.  `Some(pivot)` identifies a target which must not be
+    /// rendered through a guessed visibility value; `None` means malformed
+    /// channel metadata made the affected pivot unknowable, so every HLOD
+    /// child in this animation fails closed.
+    pub unsupported_visibility_pivots: Vec<Option<u16>>,
+}
+
+impl W3dAnimation {
+    /// Return the source HTree visibility for one pivot, or `None` when a
+    /// compressed/malformed `BIT_CHANNEL_VIS` means Main cannot safely decide
+    /// whether that child should be drawn.
+    fn visibility_for_pivot(&self, pivot: usize, frame: f32) -> Option<bool> {
+        if !frame.is_finite() {
+            return None;
+        }
+        let pivot = u16::try_from(pivot).ok()?;
+        if self
+            .unsupported_visibility_pivots
+            .iter()
+            .any(|unsupported| match unsupported {
+                Some(value) => *value == pivot,
+                None => true,
+            })
+        {
+            return None;
+        }
+
+        self.raw_visibility_channels
+            .iter()
+            .rev()
+            .find(|channel| channel.pivot == pivot && channel.flags == 0)
+            .map(|channel| channel.visible_at(frame))
+            // `HRawAnimClass::Get_Visibility` defaults to visible when this
+            // animation has no visibility channel for the requested pivot.
+            .or(Some(true))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -387,6 +559,9 @@ impl Default for TextureStageMapping {
 #[derive(Debug, Clone)]
 pub struct W3DMesh {
     pub name: String,
+    /// Exact source `W3dMeshHeader3Struct::ContainerName`.  HLOD child binding
+    /// requires this authored identity; `name` alone is not authority.
+    pub container_name: String,
     pub vertices: Vec<W3DVertex>,
     pub indices: Vec<u32>,
     pub material: W3DMaterial,
@@ -416,6 +591,7 @@ impl W3DMesh {
     pub fn new(name: String) -> Self {
         Self {
             name,
+            container_name: String::new(),
             vertices: Vec::new(),
             indices: Vec::new(),
             material: W3DMaterial::default(),
@@ -481,6 +657,13 @@ pub struct W3DModel {
     pub bounding_box_min: Vec3,
     pub bounding_box_max: Vec3,
     pub hierarchy: Option<W3dHierarchy>,
+    /// Source-authored HLOD records.  A model with unsupported multi-LOD or
+    /// aggregate/proxy data remains non-rendering rather than flattening every
+    /// group into one visible model.
+    pub hlods: Vec<W3dHlod>,
+    /// A malformed HLOD must not silently fall back to generic mesh rendering:
+    /// that would falsely claim a usable hierarchy/binding relationship.
+    pub hlod_parse_failed: bool,
     pub animations: Vec<W3dAnimation>,
 }
 
@@ -495,6 +678,8 @@ impl W3DModel {
             bounding_box_min: Vec3::splat(f32::MAX),
             bounding_box_max: Vec3::splat(f32::MIN),
             hierarchy: None,
+            hlods: Vec::new(),
+            hlod_parse_failed: false,
             animations: Vec::new(),
         }
     }
@@ -503,13 +688,187 @@ impl W3DModel {
         self.bounding_box_min = Vec3::splat(f32::MAX);
         self.bounding_box_max = Vec3::splat(f32::MIN);
 
-        for mesh in &self.meshes {
+        // W3D vertices are converted to the active Main render basis at import.
+        // Rigid HLOD child transforms must therefore be applied exactly once here,
+        // just as they are when creating a RenderItem.  Computing the transforms
+        // before mutating bounds avoids borrowing `self.meshes` through both paths.
+        let mesh_transforms: Vec<Option<Mat4>> = (0..self.meshes.len())
+            .map(|mesh_index| self.mesh_bind_pose_local_transform(mesh_index))
+            .collect();
+
+        for (mesh, local_transform) in self.meshes.iter().zip(mesh_transforms) {
+            let Some(local_transform) = local_transform else {
+                continue;
+            };
             for vertex in &mesh.vertices {
-                let pos = Vec3::from_array(vertex.position);
+                let pos = local_transform.transform_point3(Vec3::from_array(vertex.position));
                 self.bounding_box_min = self.bounding_box_min.min(pos);
                 self.bounding_box_max = self.bounding_box_max.max(pos);
             }
         }
+
+        // Unsupported HLODs intentionally emit no render items.  Keep their
+        // bounds finite too, so downstream culling/debug paths cannot receive
+        // sentinel infinities while that source feature remains fail-closed.
+        if self.bounding_box_min == Vec3::splat(f32::MAX) {
+            self.bounding_box_min = Vec3::ZERO;
+            self.bounding_box_max = Vec3::ZERO;
+        }
+    }
+
+    /// Return the render-basis local transform *and* source HTree visibility
+    /// for one mesh at the requested animation frame.
+    ///
+    /// `None` means the mesh is not renderable through the source HLOD data:
+    /// malformed HLOD, multiple HLODs/LODs without a selector, aggregates/proxies,
+    /// an unresolved child identity, an invalid bone, or an unsupported
+    /// compressed visibility channel all fail closed. Models without HLOD
+    /// metadata preserve their existing local mesh transform and remain visible.
+    ///
+    /// An absent `animation_index` is deliberately a bind-pose request, not a
+    /// request for animation zero. C++ W3DModelDraw only installs an animation
+    /// explicitly selected by its current Draw state.
+    pub fn mesh_local_transform_and_visibility_for_animation(
+        &self,
+        mesh_index: usize,
+        animation_index: Option<usize>,
+        animation_frame: f32,
+    ) -> Option<(Mat4, bool)> {
+        let mesh = self.meshes.get(mesh_index)?;
+
+        if self.hlod_parse_failed {
+            return None;
+        }
+        if self.hlods.is_empty() {
+            return Some((mesh.transform, true));
+        }
+
+        let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
+        let hierarchy = self.hierarchy.as_ref()?;
+        let (source_transform, visible) = if let Some(animation_index) = animation_index {
+            let animation = self.animations.get(animation_index)?;
+            // An HTree can only apply a motion authored for its exact source
+            // hierarchy.  Do not reinterpret a same-named clip from a
+            // different hierarchy as visibility for this HLOD child.
+            if animation.hierarchy_name.trim().is_empty()
+                || !animation
+                    .hierarchy_name
+                    .eq_ignore_ascii_case(hierarchy.name.as_str())
+            {
+                return None;
+            }
+            let source_transform = self
+                .sample_animation(animation_index, animation_frame)
+                .and_then(|transforms| transforms.get(bone_index).copied())?;
+            let visible = animation.visibility_for_pivot(bone_index, animation_frame)?;
+            (source_transform, visible)
+        } else {
+            let source_transform = compute_bind_pose_global_transforms(hierarchy)
+                .get(bone_index)
+                .copied()?;
+            (source_transform, true)
+        };
+
+        Some((
+            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            visible,
+        ))
+    }
+
+    /// Backwards-compatible transform-only facade for callers that have not
+    /// yet retained a source Draw-state animation identity.  An out-of-range
+    /// legacy index preserves the old bind-pose fallback rather than silently
+    /// selecting another W3D animation.
+    pub fn mesh_local_transform_for_animation(
+        &self,
+        mesh_index: usize,
+        animation_index: usize,
+        animation_frame: f32,
+    ) -> Option<Mat4> {
+        self.mesh_local_transform_and_visibility_for_animation(
+            mesh_index,
+            (animation_index < self.animations.len()).then_some(animation_index),
+            animation_frame,
+        )
+        .map(|(transform, _visible)| transform)
+    }
+
+    /// Return the rigid mesh transform in its HTree bind pose.  This is used for
+    /// model culling/bounds and has the same fail-closed identity checks as the
+    /// animated render path above.
+    fn mesh_bind_pose_local_transform(&self, mesh_index: usize) -> Option<Mat4> {
+        let mesh = self.meshes.get(mesh_index)?;
+
+        if self.hlod_parse_failed {
+            return None;
+        }
+        if self.hlods.is_empty() {
+            return Some(mesh.transform);
+        }
+
+        let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
+        let hierarchy = self.hierarchy.as_ref()?;
+        let source_transform = compute_bind_pose_global_transforms(hierarchy)
+            .get(bone_index)
+            .copied()?;
+        Some(Self::w3d_transform_to_render_basis(Mat4::from_cols_array(
+            &source_transform,
+        )))
+    }
+
+    /// Resolve a flattened Main mesh back to the precise source HLOD record.
+    ///
+    /// C++ asks its asset manager for the exact `HLOD.Name.MeshName` render object
+    /// and then assigns that object the source `BoneIndex`.  In Main, meshes reside
+    /// in the same loaded W3D stream, so require the mesh header's own
+    /// `ContainerName` plus that exact composed source identity.  Do not use a
+    /// suffix, pivot-name, or template-name fallback here.
+    fn rigid_hlod_bone_index_for_mesh(&self, mesh_index: usize) -> Option<usize> {
+        if self.hlods.len() != 1 {
+            return None;
+        }
+        let hlod = self.hlods.first()?;
+        if hlod.lods.len() != 1 || hlod.has_unsupported_attachments {
+            return None;
+        }
+
+        let hierarchy = self.hierarchy.as_ref()?;
+        if hlod.name.is_empty()
+            || hlod.hierarchy_name.is_empty()
+            || !hlod
+                .hierarchy_name
+                .eq_ignore_ascii_case(hierarchy.name.as_str())
+        {
+            return None;
+        }
+
+        let mesh = self.meshes.get(mesh_index)?;
+        if mesh.container_name.is_empty()
+            || !mesh.container_name.eq_ignore_ascii_case(hlod.name.as_str())
+        {
+            return None;
+        }
+        let source_identity = format!("{}.{}", mesh.container_name, mesh.name);
+        let subobject = hlod.lods.first()?.subobjects.iter().find(|subobject| {
+            subobject
+                .name
+                .eq_ignore_ascii_case(source_identity.as_str())
+        })?;
+
+        let bone_index = subobject.bone_index as usize;
+        (bone_index < hierarchy.pivots.len()).then_some(bone_index)
+    }
+
+    /// Convert a source W3D Z-up matrix to the render basis used by imported
+    /// `W3DVertex` payloads.  The axis swap is its own inverse.
+    fn w3d_transform_to_render_basis(transform: Mat4) -> Mat4 {
+        let axis = Mat4::from_cols_array(&[
+            1.0, 0.0, 0.0, 0.0, // X stays X
+            0.0, 0.0, 1.0, 0.0, // source Y becomes render Z
+            0.0, 1.0, 0.0, 0.0, // source Z becomes render Y
+            0.0, 0.0, 0.0, 1.0,
+        ]);
+        axis * transform * axis
     }
 
     /// Get the list of animation names available on this model.
@@ -523,6 +882,29 @@ impl W3DModel {
         self.animations
             .iter()
             .position(|a| a.name.to_ascii_lowercase() == lower)
+    }
+
+    /// Resolve a C++ `W3DModelDraw` animation identity against this exact W3D
+    /// file.  Retail Object INIs commonly use the canonical
+    /// `Hierarchy.Animation` spelling while a raw W3D animation header stores
+    /// those two source records separately.  This is an exact qualified-record
+    /// comparison, not a basename/suffix heuristic.
+    pub fn find_animation_index_for_draw_identity(&self, identity: &str) -> Option<usize> {
+        let identity = identity.trim();
+        if identity.is_empty() || identity.eq_ignore_ascii_case("none") {
+            return None;
+        }
+
+        self.animations.iter().position(|animation| {
+            if animation.name.eq_ignore_ascii_case(identity) {
+                return true;
+            }
+            if animation.hierarchy_name.trim().is_empty() || animation.name.trim().is_empty() {
+                return false;
+            }
+            let canonical = format!("{}.{}", animation.hierarchy_name, animation.name);
+            canonical.eq_ignore_ascii_case(identity)
+        })
     }
 
     /// Get animation metadata: (num_frames, frame_rate) for the given animation.
@@ -738,6 +1120,16 @@ fn compute_global_transforms_from_locals(
         globals[i] = g;
     }
     globals
+}
+
+/// Compute the HTree bind-pose globals from source W3D pivot data.
+///
+/// Both static rigid HLOD children and animation sampling use the same hierarchy
+/// convention.  Keeping this outside `W3DLoader` prevents a render-time HLOD
+/// binding from accidentally depending on loader-only state.
+fn compute_bind_pose_global_transforms(hierarchy: &W3dHierarchy) -> Vec<[f32; 16]> {
+    let locals: Vec<[f32; 16]> = hierarchy.pivots.iter().map(mat4_from_pivot).collect();
+    compute_global_transforms_from_locals(hierarchy, &locals)
 }
 
 /// W3D model loader
@@ -1142,11 +1534,16 @@ impl W3DLoader {
                         "Found W3D HLOD (Hierarchical LOD) chunk, size: {}",
                         chunk_size
                     );
-                    // HLOD is a container chunk with hierarchical models and LOD info
-                    // Recursively parse to find mesh data
-                    if is_container_chunk {
-                        if let Err(e) = self.parse_container_chunk(chunk_data, &mut model) {
-                            warn!("Failed to parse HLOD container: {}", e);
+                    if !is_container_chunk {
+                        model.hlod_parse_failed = true;
+                        warn!("HLOD chunk is not marked as a container; suppressing unsafe mesh fallback");
+                    } else {
+                        match self.parse_hlod_chunk(chunk_data) {
+                            Ok(hlod) => model.hlods.push(hlod),
+                            Err(e) => {
+                                model.hlod_parse_failed = true;
+                                warn!("Failed to parse HLOD container: {}", e);
+                            }
                         }
                     }
                 }
@@ -1187,34 +1584,27 @@ impl W3DLoader {
         // that need to be resolved against the texture_names array
         self.resolve_texture_indices(&mut model);
 
-        // Apply hierarchy transforms to mesh vertices.
-        // Vertices were already converted to Y-up in build_mesh_from_data, so we undo that,
-        // apply hierarchy transform in W3D Z-up space, then re-convert to Y-up.
-        if let Some(ref hierarchy) = model.hierarchy {
-            if !hierarchy.pivots.is_empty() {
-                let globals = Self::compute_global_transforms(hierarchy);
-                for mesh in &mut model.meshes {
-                    if mesh.transform != Mat4::IDENTITY {
-                        continue;
-                    }
-                    if let Some(pivot_idx) =
-                        hierarchy.pivots.iter().position(|p| p.name == mesh.name)
-                    {
-                        let global = &globals[pivot_idx];
-                        let mat = Mat4::from_cols_array(global);
-                        mesh.transform = mat;
-                        for vertex in &mut mesh.vertices {
-                            // Undo Y-up → Z-up, apply hierarchy, convert Z-up → Y-up
-                            let zup_pos =
-                                [vertex.position[0], vertex.position[2], vertex.position[1]];
-                            let pos = mat.transform_point3(Vec3::from_array(zup_pos));
-                            vertex.position = [pos.x, pos.z, pos.y]; // Z-up → Y-up
-                            let zup_norm = [vertex.normal[0], vertex.normal[2], vertex.normal[1]];
-                            let nrm = mat.transform_point3(Vec3::from_array(zup_norm));
-                            let len = nrm.length();
-                            if len > 1e-10 {
-                                vertex.normal = [nrm.x / len, nrm.z / len, nrm.y / len];
-                            }
+        // HMODEL has separate source binding metadata that is not part of this HLOD
+        // correction.  Preserve its existing narrow pivot-name residual, but apply
+        // the resulting matrix only at render time.  In particular, never bake it
+        // into already converted vertices and then retain it for a second render
+        // transform.  HLOD uses its own exact `HLOD.Name.MeshName -> BoneIndex`
+        // records below and must never take this generic name path.
+        if model.hlods.is_empty() && !model.hlod_parse_failed {
+            if let Some(ref hierarchy) = model.hierarchy {
+                if !hierarchy.pivots.is_empty() {
+                    let globals = Self::compute_global_transforms(hierarchy);
+                    for mesh in &mut model.meshes {
+                        if mesh.transform != Mat4::IDENTITY {
+                            continue;
+                        }
+                        if let Some(pivot_idx) =
+                            hierarchy.pivots.iter().position(|p| p.name == mesh.name)
+                        {
+                            let global = &globals[pivot_idx];
+                            mesh.transform = W3DModel::w3d_transform_to_render_basis(
+                                Mat4::from_cols_array(global),
+                            );
                         }
                     }
                 }
@@ -1354,6 +1744,177 @@ impl W3DLoader {
         }
 
         Ok(())
+    }
+
+    /// Parse the exact rigid-child metadata from a `W3D_CHUNK_HLOD` container.
+    ///
+    /// C++ `HLodDefClass::Load_W3D` reads the HLOD header, then exactly
+    /// `LodCount` `W3D_CHUNK_HLOD_LOD_ARRAY` records.  Each array contains an
+    /// array header followed by exact `W3dHLodSubObjectStruct` records.  Keep that
+    /// structure instead of recursively flattening it into anonymous meshes.
+    fn parse_hlod_chunk(&self, data: &[u8]) -> Result<W3dHlod> {
+        const HLOD_HEADER_SIZE: usize = 40;
+        const HLOD_ARRAY_HEADER_SIZE: usize = 8;
+        const HLOD_SUBOBJECT_SIZE: usize = 36;
+        const MAX_HLOD_LODS: usize = 64;
+        const MAX_HLOD_SUBOBJECTS: usize = 4096;
+
+        let mut offset = 0usize;
+        let header = next_w3d_chunk(data, &mut offset, "HLOD header")?
+            .ok_or_else(|| anyhow!("HLOD has no header"))?;
+        if header.chunk_type != W3D_CHUNK_HLOD_HEADER {
+            return Err(anyhow!(
+                "HLOD expected header 0x{W3D_CHUNK_HLOD_HEADER:08X}, got 0x{:08X}",
+                header.chunk_type
+            ));
+        }
+        if header.data.len() < HLOD_HEADER_SIZE {
+            return Err(anyhow!(
+                "HLOD header too small: {} < {}",
+                header.data.len(),
+                HLOD_HEADER_SIZE
+            ));
+        }
+
+        let version = u32::from_le_bytes(header.data[0..4].try_into().unwrap());
+        let lod_count = u32::from_le_bytes(header.data[4..8].try_into().unwrap()) as usize;
+        if lod_count > MAX_HLOD_LODS {
+            return Err(anyhow!(
+                "HLOD declares {} LODs, exceeding safe limit {}",
+                lod_count,
+                MAX_HLOD_LODS
+            ));
+        }
+        let name = w3d_string_from_bytes(&header.data[8..8 + W3D_NAME_LEN]);
+        let hierarchy_name =
+            w3d_string_from_bytes(&header.data[8 + W3D_NAME_LEN..HLOD_HEADER_SIZE]);
+
+        let mut lods = Vec::with_capacity(lod_count);
+        for lod_index in 0..lod_count {
+            let lod_chunk = next_w3d_chunk(data, &mut offset, "HLOD LOD array")?
+                .ok_or_else(|| anyhow!("HLOD '{}' is missing LOD {}", name, lod_index))?;
+            if lod_chunk.chunk_type != W3D_CHUNK_HLOD_LOD_ARRAY || !lod_chunk.is_container {
+                return Err(anyhow!(
+                    "HLOD '{}' expected container LOD array 0x{W3D_CHUNK_HLOD_LOD_ARRAY:08X}, got type 0x{:08X}, container={}",
+                    name,
+                    lod_chunk.chunk_type,
+                    lod_chunk.is_container
+                ));
+            }
+
+            let mut lod_offset = 0usize;
+            let array_header = next_w3d_chunk(
+                lod_chunk.data,
+                &mut lod_offset,
+                "HLOD subobject array header",
+            )?
+            .ok_or_else(|| {
+                anyhow!(
+                    "HLOD '{}' LOD {} has no subobject array header",
+                    name,
+                    lod_index
+                )
+            })?;
+            if array_header.chunk_type != W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER {
+                return Err(anyhow!(
+                    "HLOD '{}' LOD {} expected subobject array header 0x{W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER:08X}, got 0x{:08X}",
+                    name,
+                    lod_index,
+                    array_header.chunk_type
+                ));
+            }
+            if array_header.data.len() < HLOD_ARRAY_HEADER_SIZE {
+                return Err(anyhow!(
+                    "HLOD '{}' LOD {} array header too small: {} < {}",
+                    name,
+                    lod_index,
+                    array_header.data.len(),
+                    HLOD_ARRAY_HEADER_SIZE
+                ));
+            }
+
+            let model_count =
+                u32::from_le_bytes(array_header.data[0..4].try_into().unwrap()) as usize;
+            if model_count > MAX_HLOD_SUBOBJECTS {
+                return Err(anyhow!(
+                    "HLOD '{}' LOD {} declares {} subobjects, exceeding safe limit {}",
+                    name,
+                    lod_index,
+                    model_count,
+                    MAX_HLOD_SUBOBJECTS
+                ));
+            }
+            let max_screen_size = f32::from_le_bytes(array_header.data[4..8].try_into().unwrap());
+
+            let mut subobjects = Vec::with_capacity(model_count);
+            for subobject_index in 0..model_count {
+                let subobject = next_w3d_chunk(lod_chunk.data, &mut lod_offset, "HLOD subobject")?
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "HLOD '{}' LOD {} is missing subobject {}",
+                            name,
+                            lod_index,
+                            subobject_index
+                        )
+                    })?;
+                if subobject.chunk_type != W3D_CHUNK_HLOD_SUB_OBJECT {
+                    return Err(anyhow!(
+                        "HLOD '{}' LOD {} expected subobject 0x{W3D_CHUNK_HLOD_SUB_OBJECT:08X}, got 0x{:08X}",
+                        name,
+                        lod_index,
+                        subobject.chunk_type
+                    ));
+                }
+                if subobject.data.len() < HLOD_SUBOBJECT_SIZE {
+                    return Err(anyhow!(
+                        "HLOD '{}' LOD {} subobject {} too small: {} < {}",
+                        name,
+                        lod_index,
+                        subobject_index,
+                        subobject.data.len(),
+                        HLOD_SUBOBJECT_SIZE
+                    ));
+                }
+                let bone_index = u32::from_le_bytes(subobject.data[0..4].try_into().unwrap());
+                let subobject_name = w3d_string_from_bytes(&subobject.data[4..HLOD_SUBOBJECT_SIZE]);
+                subobjects.push(W3dHlodSubObject {
+                    name: subobject_name,
+                    bone_index,
+                });
+            }
+
+            lods.push(W3dHlodLod {
+                max_screen_size,
+                subobjects,
+            });
+        }
+
+        // The Main render path has no C++-equivalent aggregate/proxy runtime.
+        // Retain the fact that the source asked for one and make the complete HLOD
+        // non-rendering instead of drawing a partial or guessed hierarchy.
+        let mut has_unsupported_attachments = false;
+        while let Some(remaining) = next_w3d_chunk(data, &mut offset, "HLOD trailing record")? {
+            match remaining.chunk_type {
+                W3D_CHUNK_HLOD_AGGREGATE_ARRAY | W3D_CHUNK_HLOD_PROXY_ARRAY => {
+                    has_unsupported_attachments = true;
+                }
+                unknown => {
+                    has_unsupported_attachments = true;
+                    warn!(
+                        "HLOD '{}' has unsupported trailing chunk 0x{:08X}; suppressing incomplete render",
+                        name, unknown
+                    );
+                }
+            }
+        }
+
+        Ok(W3dHlod {
+            version,
+            name,
+            hierarchy_name,
+            lods,
+            has_unsupported_attachments,
+        })
     }
 
     /// Parse W3D hierarchy chunk (0x100) — ported from standalone parser's parse_hierarchy_chunk
@@ -1509,6 +2070,8 @@ impl W3DLoader {
         let mut num_frames: u32 = 0;
         let mut frame_rate: u32 = 0;
         let mut channels: Vec<W3dAnimChannel> = Vec::new();
+        let mut raw_visibility_channels: Vec<W3dRawVisibilityChannel> = Vec::new();
+        let mut unsupported_visibility_pivots: Vec<Option<u16>> = Vec::new();
         let mut offset = 0usize;
 
         while offset + 8 <= data.len() {
@@ -1609,8 +2172,59 @@ impl W3DLoader {
                     });
                 }
                 W3D_CHUNK_BIT_CHANNEL => {
-                    // Skip bit channels for now — just consume the bytes
-                    debug!("Skipping bit channel chunk, size: {}", chunk_size);
+                    // W3dBitChannelStruct has nine fixed bytes before the
+                    // packed bit stream: first/last/flags/pivot/default. C++
+                    // accepts this channel only for BIT_CHANNEL_VIS (0).
+                    if chunk_data.len() < 9 {
+                        unsupported_visibility_pivots.push(None);
+                        debug!(
+                            "Malformed raw W3D bit channel has no recoverable pivot, size: {}",
+                            chunk_size
+                        );
+                        offset += 8 + chunk_size;
+                        continue;
+                    }
+                    let first_frame = u16::from_le_bytes([chunk_data[0], chunk_data[1]]);
+                    let last_frame = u16::from_le_bytes([chunk_data[2], chunk_data[3]]);
+                    let flags = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
+                    let pivot = u16::from_le_bytes([chunk_data[6], chunk_data[7]]);
+                    if flags != 0 {
+                        // `HRawAnimClass::add_bit_channel` ignores types other
+                        // than BIT_CHANNEL_VIS, so they are not an HLOD
+                        // visibility fallback to guess at.
+                        debug!(
+                            "Ignoring non-visibility raw W3D bit channel type {} for pivot {}",
+                            flags, pivot
+                        );
+                    } else if last_frame < first_frame {
+                        unsupported_visibility_pivots.push(Some(pivot));
+                        debug!(
+                            "Malformed raw W3D visibility channel has inverted range {}..{} for pivot {}",
+                            first_frame, last_frame, pivot
+                        );
+                    } else {
+                        let bit_count = usize::from(last_frame - first_frame) + 1;
+                        let byte_count = (bit_count + 7) / 8;
+                        let expected_len = 9 + byte_count;
+                        if chunk_data.len() != expected_len {
+                            unsupported_visibility_pivots.push(Some(pivot));
+                            debug!(
+                                "Malformed raw W3D visibility channel for pivot {}: expected {} bytes, got {}",
+                                pivot,
+                                expected_len,
+                                chunk_data.len()
+                            );
+                        } else {
+                            raw_visibility_channels.push(W3dRawVisibilityChannel {
+                                first_frame,
+                                last_frame,
+                                flags,
+                                pivot,
+                                default_visible: chunk_data[8] != 0,
+                                bits: chunk_data[9..].to_vec(),
+                            });
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -1624,6 +2238,8 @@ impl W3DLoader {
             num_frames,
             frame_rate,
             channels,
+            raw_visibility_channels,
+            unsupported_visibility_pivots,
         })
     }
 
@@ -1638,6 +2254,8 @@ impl W3DLoader {
         let mut frame_rate: u32 = 0;
         let mut flavor: u16 = ANIM_FLAVOR_TIMECODED;
         let mut channels: Vec<W3dAnimChannel> = Vec::new();
+        let raw_visibility_channels: Vec<W3dRawVisibilityChannel> = Vec::new();
+        let mut unsupported_visibility_pivots: Vec<Option<u16>> = Vec::new();
         let mut offset = 0usize;
 
         while offset + 8 <= data.len() {
@@ -1713,10 +2331,28 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_COMPRESSED_BIT_CHANNEL => {
-                    debug!(
-                        "Skipping compressed bit channel in compressed animation, size: {}",
-                        chunk_size
-                    );
+                    // W3dTimeCodedBitChannelStruct starts with
+                    // NumTimeCodes(u32), Pivot(u16), Flags(u8), Default(u8).
+                    // The C++ HCompressedAnim class installs flags==0 as an
+                    // HTree visibility source. Keep its pivot and make that
+                    // child non-rendering until time-coded sampling is ported.
+                    if chunk_data.len() < 8 {
+                        unsupported_visibility_pivots.push(None);
+                        debug!(
+                            "Malformed compressed W3D bit channel has no recoverable pivot, size: {}",
+                            chunk_size
+                        );
+                    } else {
+                        let pivot = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
+                        let flags = chunk_data[6];
+                        if flags == 0 {
+                            unsupported_visibility_pivots.push(Some(pivot));
+                            debug!(
+                                "Compressed W3D visibility channel for pivot {} retained as unsupported",
+                                pivot
+                            );
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -1730,6 +2366,8 @@ impl W3DLoader {
             num_frames,
             frame_rate,
             channels,
+            raw_visibility_channels,
+            unsupported_visibility_pivots,
         })
     }
 
@@ -2672,6 +3310,7 @@ impl W3DLoader {
                         .map_err(|e| anyhow!("invalid mesh header in '{}': {}", mesh.name, e))?;
                     has_valid_mesh_header = true;
                     mesh.name = header.mesh_name;
+                    mesh.container_name = header.container_name;
                     expected_vertex_count = Some(header.num_vertices);
                     debug!(
                         "Mesh name: '{}', expecting {} vertices, {} triangles",
@@ -2988,6 +3627,7 @@ impl W3DLoader {
             } else {
                 mesh_name
             },
+            container_name,
         })
     }
 
@@ -3873,6 +4513,7 @@ struct MeshHeader {
     pub num_triangles: u32,
     pub num_vertices: u32,
     pub mesh_name: String,
+    pub container_name: String,
 }
 
 /// Get common C&C unit models - updated with actual units found in archives
@@ -3949,6 +4590,233 @@ fn deduplicate_stage_uv_layers(layers: Vec<Vec<[f32; 2]>>) -> (Vec<Vec<[f32; 2]>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn chunk(chunk_type: u32, payload: Vec<u8>, container: bool) -> Vec<u8> {
+        let mut out = Vec::with_capacity(8 + payload.len());
+        out.extend_from_slice(&chunk_type.to_le_bytes());
+        let raw_size = (payload.len() as u32) | if container { 0x8000_0000 } else { 0 };
+        out.extend_from_slice(&raw_size.to_le_bytes());
+        out.extend_from_slice(&payload);
+        out
+    }
+
+    fn fixed_name(name: &str, len: usize) -> Vec<u8> {
+        let mut out = vec![0; len];
+        let bytes = name.as_bytes();
+        let copy_len = bytes.len().min(len);
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        out
+    }
+
+    fn pivot(name: &str, parent: u32, translation: [f32; 3]) -> Vec<u8> {
+        let mut out = fixed_name(name, W3D_NAME_LEN);
+        out.extend_from_slice(&parent.to_le_bytes());
+        for value in translation {
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+        // Euler angles.
+        out.extend_from_slice(&[0u8; 12]);
+        // Identity quaternion [x, y, z, w].
+        out.extend_from_slice(&0.0f32.to_le_bytes());
+        out.extend_from_slice(&0.0f32.to_le_bytes());
+        out.extend_from_slice(&0.0f32.to_le_bytes());
+        out.extend_from_slice(&1.0f32.to_le_bytes());
+        assert_eq!(out.len(), 60);
+        out
+    }
+
+    fn rigid_hlod_fixture(lod_count: usize, has_aggregate: bool) -> Vec<u8> {
+        let mut hierarchy_header = Vec::with_capacity(36);
+        hierarchy_header.extend_from_slice(&1u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&fixed_name("RIG_HIER", W3D_NAME_LEN));
+        hierarchy_header.extend_from_slice(&2u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&[0u8; 12]);
+        let mut pivots = pivot("ROOT", u32::MAX, [0.0, 0.0, 0.0]);
+        // Deliberately does not match the mesh name.  HLOD BoneIndex, not a
+        // pivot-name heuristic, must produce this child transform.
+        pivots.extend_from_slice(&pivot("AUTHORED_BONE", 0, [10.0, 20.0, 30.0]));
+        let hierarchy = chunk(
+            W3D_CHUNK_HIERARCHY,
+            [
+                chunk(W3D_CHUNK_HIERARCHY_HEADER, hierarchy_header, false),
+                chunk(W3D_CHUNK_PIVOTS, pivots, false),
+            ]
+            .concat(),
+            true,
+        );
+
+        let mut mesh_header = vec![0; 116];
+        mesh_header[0..4].copy_from_slice(&1u32.to_le_bytes());
+        mesh_header[8..24].copy_from_slice(&fixed_name("RIGID", W3D_NAME_LEN));
+        mesh_header[24..40].copy_from_slice(&fixed_name("HLODROOT", W3D_NAME_LEN));
+        mesh_header[40..44].copy_from_slice(&1u32.to_le_bytes());
+        mesh_header[44..48].copy_from_slice(&3u32.to_le_bytes());
+        let mut vertices = Vec::new();
+        for vertex in [[1.0f32, 2.0, 3.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+            for value in vertex {
+                vertices.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let mut normals = Vec::new();
+        for _ in 0..3 {
+            normals.extend_from_slice(&0.0f32.to_le_bytes());
+            normals.extend_from_slice(&0.0f32.to_le_bytes());
+            normals.extend_from_slice(&1.0f32.to_le_bytes());
+        }
+        let mut triangle = Vec::with_capacity(32);
+        triangle.extend_from_slice(&0u32.to_le_bytes());
+        triangle.extend_from_slice(&1u32.to_le_bytes());
+        triangle.extend_from_slice(&2u32.to_le_bytes());
+        triangle.extend_from_slice(&[0u8; 20]);
+        let mesh = chunk(
+            W3D_CHUNK_MESH,
+            [
+                chunk(W3D_CHUNK_MESH_HEADER, mesh_header, false),
+                chunk(W3D_CHUNK_VERTICES, vertices, false),
+                chunk(W3D_CHUNK_VERTEX_NORMALS, normals, false),
+                chunk(W3D_CHUNK_TRIANGLES, triangle, false),
+            ]
+            .concat(),
+            true,
+        );
+
+        let mut hlod_header = Vec::with_capacity(40);
+        hlod_header.extend_from_slice(&0x0001_0000u32.to_le_bytes());
+        hlod_header.extend_from_slice(&(lod_count as u32).to_le_bytes());
+        hlod_header.extend_from_slice(&fixed_name("HLODROOT", W3D_NAME_LEN));
+        hlod_header.extend_from_slice(&fixed_name("RIG_HIER", W3D_NAME_LEN));
+        let mut hlod_payload = chunk(W3D_CHUNK_HLOD_HEADER, hlod_header, false);
+        for _ in 0..lod_count {
+            let mut array_header = Vec::with_capacity(8);
+            array_header.extend_from_slice(&1u32.to_le_bytes());
+            array_header.extend_from_slice(&f32::MAX.to_le_bytes());
+            let mut subobject = Vec::with_capacity(36);
+            subobject.extend_from_slice(&1u32.to_le_bytes());
+            subobject.extend_from_slice(&fixed_name("HLODROOT.RIGID", 32));
+            let lod_payload = [
+                chunk(W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER, array_header, false),
+                chunk(W3D_CHUNK_HLOD_SUB_OBJECT, subobject, false),
+            ]
+            .concat();
+            hlod_payload.extend_from_slice(&chunk(W3D_CHUNK_HLOD_LOD_ARRAY, lod_payload, true));
+        }
+        if has_aggregate {
+            hlod_payload.extend_from_slice(&chunk(
+                W3D_CHUNK_HLOD_AGGREGATE_ARRAY,
+                Vec::new(),
+                true,
+            ));
+        }
+
+        [hierarchy, mesh, chunk(W3D_CHUNK_HLOD, hlod_payload, true)].concat()
+    }
+
+    fn visibility_hlod_fixture() -> Vec<u8> {
+        let mut hierarchy_header = Vec::with_capacity(36);
+        hierarchy_header.extend_from_slice(&1u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&fixed_name("VIS_HIER", W3D_NAME_LEN));
+        hierarchy_header.extend_from_slice(&2u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&[0u8; 12]);
+        let mut pivots = pivot("ROOT", u32::MAX, [0.0, 0.0, 0.0]);
+        pivots.extend_from_slice(&pivot("NOT_A_MESH_NAME", 0, [3.0, 4.0, 5.0]));
+        let hierarchy = chunk(
+            W3D_CHUNK_HIERARCHY,
+            [
+                chunk(W3D_CHUNK_HIERARCHY_HEADER, hierarchy_header, false),
+                chunk(W3D_CHUNK_PIVOTS, pivots, false),
+            ]
+            .concat(),
+            true,
+        );
+
+        let mut mesh_header = vec![0; 116];
+        mesh_header[0..4].copy_from_slice(&1u32.to_le_bytes());
+        mesh_header[8..24].copy_from_slice(&fixed_name("body_d", W3D_NAME_LEN));
+        mesh_header[24..40].copy_from_slice(&fixed_name("VIS_HLOD", W3D_NAME_LEN));
+        mesh_header[40..44].copy_from_slice(&1u32.to_le_bytes());
+        mesh_header[44..48].copy_from_slice(&3u32.to_le_bytes());
+        let mut vertices = Vec::new();
+        for vertex in [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+            for value in vertex {
+                vertices.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let mut normals = Vec::new();
+        for _ in 0..3 {
+            normals.extend_from_slice(&0.0f32.to_le_bytes());
+            normals.extend_from_slice(&0.0f32.to_le_bytes());
+            normals.extend_from_slice(&1.0f32.to_le_bytes());
+        }
+        let mut triangle = Vec::with_capacity(32);
+        triangle.extend_from_slice(&0u32.to_le_bytes());
+        triangle.extend_from_slice(&1u32.to_le_bytes());
+        triangle.extend_from_slice(&2u32.to_le_bytes());
+        triangle.extend_from_slice(&[0u8; 20]);
+        let mesh = chunk(
+            W3D_CHUNK_MESH,
+            [
+                chunk(W3D_CHUNK_MESH_HEADER, mesh_header, false),
+                chunk(W3D_CHUNK_VERTICES, vertices, false),
+                chunk(W3D_CHUNK_VERTEX_NORMALS, normals, false),
+                chunk(W3D_CHUNK_TRIANGLES, triangle, false),
+            ]
+            .concat(),
+            true,
+        );
+
+        let mut animation_header = Vec::with_capacity(44);
+        animation_header.extend_from_slice(&1u32.to_le_bytes());
+        animation_header.extend_from_slice(&fixed_name("VIS_CLIP", W3D_NAME_LEN));
+        animation_header.extend_from_slice(&fixed_name("VIS_HIER", W3D_NAME_LEN));
+        animation_header.extend_from_slice(&4u32.to_le_bytes());
+        animation_header.extend_from_slice(&30u32.to_le_bytes());
+        // first=2, last=4, flags=BIT_CHANNEL_VIS, pivot=1, default=visible;
+        // bits 0b0000_0101 make frames [2, 3, 4] => [true, false, true].
+        let mut raw_bit_channel = Vec::new();
+        raw_bit_channel.extend_from_slice(&2u16.to_le_bytes());
+        raw_bit_channel.extend_from_slice(&4u16.to_le_bytes());
+        raw_bit_channel.extend_from_slice(&0u16.to_le_bytes());
+        raw_bit_channel.extend_from_slice(&1u16.to_le_bytes());
+        raw_bit_channel.push(1);
+        raw_bit_channel.push(0b0000_0101);
+        let animation = chunk(
+            W3D_CHUNK_ANIMATION,
+            [
+                chunk(W3D_CHUNK_ANIMATION_HEADER, animation_header, false),
+                chunk(W3D_CHUNK_BIT_CHANNEL, raw_bit_channel, false),
+            ]
+            .concat(),
+            true,
+        );
+
+        let mut hlod_header = Vec::with_capacity(40);
+        hlod_header.extend_from_slice(&0x0001_0000u32.to_le_bytes());
+        hlod_header.extend_from_slice(&1u32.to_le_bytes());
+        hlod_header.extend_from_slice(&fixed_name("VIS_HLOD", W3D_NAME_LEN));
+        hlod_header.extend_from_slice(&fixed_name("VIS_HIER", W3D_NAME_LEN));
+        let mut array_header = Vec::with_capacity(8);
+        array_header.extend_from_slice(&1u32.to_le_bytes());
+        array_header.extend_from_slice(&f32::MAX.to_le_bytes());
+        let mut subobject = Vec::with_capacity(36);
+        subobject.extend_from_slice(&1u32.to_le_bytes());
+        subobject.extend_from_slice(&fixed_name("VIS_HLOD.body_d", 32));
+        let lod_payload = [
+            chunk(W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER, array_header, false),
+            chunk(W3D_CHUNK_HLOD_SUB_OBJECT, subobject, false),
+        ]
+        .concat();
+        let hlod = chunk(
+            W3D_CHUNK_HLOD,
+            [
+                chunk(W3D_CHUNK_HLOD_HEADER, hlod_header, false),
+                chunk(W3D_CHUNK_HLOD_LOD_ARRAY, lod_payload, true),
+            ]
+            .concat(),
+            true,
+        );
+
+        [hierarchy, mesh, animation, hlod].concat()
+    }
 
     #[test]
     fn deduplicate_stage_uv_layers_merges_duplicate_channels() {
@@ -4035,6 +4903,202 @@ mod tests {
         assert!(loader
             .load_model_from_bytes(&[], "AmericaCommandCenter")
             .is_err());
+    }
+
+    #[test]
+    fn hlod_rigid_binding_uses_authored_bone_once_without_name_heuristics() {
+        let model = W3DLoader::new()
+            .load_model_from_bytes(&rigid_hlod_fixture(1, false), "rigid_hlod")
+            .expect("source-shaped HLOD fixture should parse");
+
+        assert_eq!(model.hlods.len(), 1);
+        assert_eq!(model.hlods[0].name, "HLODROOT");
+        assert_eq!(model.hlods[0].hierarchy_name, "RIG_HIER");
+        assert_eq!(model.hlods[0].lods.len(), 1);
+        assert_eq!(model.hlods[0].lods[0].subobjects[0].name, "HLODROOT.RIGID");
+        assert_eq!(model.hlods[0].lods[0].subobjects[0].bone_index, 1);
+        assert_eq!(model.meshes[0].name, "RIGID");
+        assert_eq!(model.meshes[0].container_name, "HLODROOT");
+        assert_ne!(model.meshes[0].name, "AUTHORED_BONE");
+
+        // Import converts source [1, 2, 3] to Main render [1, 3, 2], but it
+        // must remain unbaked.  The HLOD local matrix applies source translation
+        // [10, 20, 30] exactly once, becoming Main render [10, 30, 20].
+        assert_eq!(model.meshes[0].vertices[0].position, [1.0, 3.0, 2.0]);
+        let local = model
+            .mesh_local_transform_for_animation(0, 0, 0.0)
+            .expect("authored HLOD child should resolve through BoneIndex");
+        let transformed =
+            local.transform_point3(Vec3::from_array(model.meshes[0].vertices[0].position));
+        assert!(
+            (transformed - Vec3::new(11.0, 33.0, 22.0)).length() < 0.0001,
+            "single HLOD transform produced {transformed:?}"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_visibility_raw_bit_channel_uses_lsb_frames_and_default_outside_range() {
+        let model = W3DLoader::new()
+            .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
+            .expect("source-shaped raw visibility HLOD should parse");
+        assert_eq!(model.animations.len(), 1);
+        let animation = &model.animations[0];
+        assert_eq!(animation.raw_visibility_channels.len(), 1);
+        assert_eq!(animation.raw_visibility_channels[0].pivot, 1);
+        assert!(animation.raw_visibility_channels[0].visible_at(0.0));
+        assert!(animation.raw_visibility_channels[0].visible_at(2.0));
+        assert!(
+            !animation.raw_visibility_channels[0].visible_at(3.0),
+            "bit one is the second low-order bit, not MSB-first"
+        );
+        assert!(animation.raw_visibility_channels[0].visible_at(4.0));
+        assert!(
+            animation.raw_visibility_channels[0].visible_at(5.0),
+            "frames outside [FirstFrame, LastFrame] use DefaultVal"
+        );
+
+        let at_default = model
+            .mesh_local_transform_and_visibility_for_animation(0, Some(0), 0.0)
+            .expect("exact HLOD child should resolve at default frame");
+        assert!(at_default.1);
+        let at_hidden = model
+            .mesh_local_transform_and_visibility_for_animation(0, Some(0), 3.0)
+            .expect("exact HLOD child should resolve at authored hidden frame");
+        assert!(
+            !at_hidden.1,
+            "visibility follows the source BoneIndex, even though mesh name has _d"
+        );
+        let at_visible = model
+            .mesh_local_transform_and_visibility_for_animation(0, Some(0), 4.0)
+            .expect("exact HLOD child should resolve at authored visible frame");
+        assert!(at_visible.1);
+    }
+
+    #[test]
+    fn w3d_hlod_visibility_compressed_channel_fails_closed_for_its_authored_pivot() {
+        let mut model = W3DLoader::new()
+            .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
+            .expect("source-shaped raw visibility HLOD should parse");
+        model.animations[0]
+            .unsupported_visibility_pivots
+            .push(Some(1));
+        assert!(
+            model
+                .mesh_local_transform_and_visibility_for_animation(0, Some(0), 0.0)
+                .is_none(),
+            "a compressed visibility source must not be rendered using a guessed value"
+        );
+    }
+
+    #[test]
+    fn multi_lod_and_aggregate_hlods_fail_closed_until_selection_is_ported() {
+        let multi_lod = W3DLoader::new()
+            .load_model_from_bytes(&rigid_hlod_fixture(2, false), "multi_lod")
+            .expect("multi-LOD source fixture should parse and retain metadata");
+        assert_eq!(multi_lod.hlods[0].lods.len(), 2);
+        assert!(
+            multi_lod
+                .mesh_local_transform_for_animation(0, 0, 0.0)
+                .is_none(),
+            "multi-LOD HLOD must not draw all source groups before selector parity"
+        );
+
+        let aggregate = W3DLoader::new()
+            .load_model_from_bytes(&rigid_hlod_fixture(1, true), "aggregate_hlod")
+            .expect("aggregate source fixture should retain its unsupported marker");
+        assert!(aggregate.hlods[0].has_unsupported_attachments);
+        assert!(
+            aggregate
+                .mesh_local_transform_for_animation(0, 0, 0.0)
+                .is_none(),
+            "aggregate HLOD must remain non-rendering until aggregate attachment parity exists"
+        );
+    }
+
+    #[test]
+    fn retail_america_command_center_hlod_retains_rigid_bone_records_when_available() {
+        let Some(path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("ABBtCmdHQ") else {
+            eprintln!("skip: retail ABBtCmdHQ.W3D is not available on disk");
+            return;
+        };
+        let model = W3DLoader::new()
+            .load_model_from_path(&path)
+            .expect("retail AmericaCommandCenter W3D should parse");
+        let hlod = model
+            .hlods
+            .iter()
+            .find(|hlod| hlod.name.eq_ignore_ascii_case("ABBTCMDHQ"))
+            .expect("ABBtCmdHQ must retain its HLOD header");
+        let fan = hlod.lods[0]
+            .subobjects
+            .iter()
+            .find(|subobject| subobject.name.eq_ignore_ascii_case("ABBTCMDHQ.FAN03"))
+            .expect("retail Command Center HLOD must retain FAN03 source identity");
+        assert_eq!(fan.bone_index, 2);
+
+        let fan_mesh_index = model
+            .meshes
+            .iter()
+            .position(|mesh| {
+                mesh.name.eq_ignore_ascii_case("FAN03")
+                    && mesh.container_name.eq_ignore_ascii_case("ABBTCMDHQ")
+            })
+            .expect("retail Command Center must include FAN03 mesh with source ContainerName");
+        assert!(
+            model
+                .mesh_local_transform_for_animation(fan_mesh_index, 0, 0.0)
+                .is_some(),
+            "retail FAN03 must bind through the authored HLOD record"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_visibility_retail_boss_airfield_binds_redlight_bone() {
+        let Some(path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("NBAirfield_DS")
+        else {
+            eprintln!("skip: retail NBAirfield_DS.W3D is not available on disk");
+            return;
+        };
+        let model = W3DLoader::new()
+            .load_model_from_path(&path)
+            .expect("retail Boss airfield W3D should parse");
+        let animation_index = model
+            .find_animation_index_for_draw_identity("nbairfield_ds.nbairfield_ds")
+            .expect("retail Draw Animation identity must resolve exactly");
+        let animation = &model.animations[animation_index];
+        assert!(
+            animation
+                .raw_visibility_channels
+                .iter()
+                .any(|channel| channel.pivot == 15
+                    && channel.first_frame == 20
+                    && channel.last_frame == 79),
+            "retail airfield retains raw pivot-15 visibility source"
+        );
+        let mesh_index = model
+            .meshes
+            .iter()
+            .position(|mesh| {
+                mesh.name.eq_ignore_ascii_case("REDLIGHT06")
+                    && mesh.container_name.eq_ignore_ascii_case("NBAIRFIELD_DS")
+            })
+            .expect("retail airfield red light retains exact source mesh identity");
+        let before = model
+            .mesh_local_transform_and_visibility_for_animation(
+                mesh_index,
+                Some(animation_index),
+                0.0,
+            )
+            .expect("retail red light should resolve through source HLOD bone");
+        let hidden = model
+            .mesh_local_transform_and_visibility_for_animation(
+                mesh_index,
+                Some(animation_index),
+                20.0,
+            )
+            .expect("retail red light should sample authored bit channel");
+        assert!(before.1, "before FirstFrame, DefaultVal is visible");
+        assert!(!hidden.1, "retail frame 20 is authored hidden for pivot 15");
     }
 
     #[test]

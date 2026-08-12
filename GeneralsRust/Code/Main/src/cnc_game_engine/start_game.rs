@@ -114,6 +114,11 @@ impl CnCGameEngine {
         info!("host_start_game_from_ui: load screen prepared");
         self.transition_to_state(GameState::Loading);
         info!("host_start_game_from_ui: state=Loading");
+        // C++ SinglePlayerLoadScreen/ChallengeLoadScreen consume their
+        // authored prelude before session and map work.  This is a direct
+        // WindowManager/display pump, not a re-entrant host event dispatch.
+        #[cfg(feature = "game_client")]
+        self.run_cpp_load_screen_prelude();
         // Wave 842: retain the selected host-owned match mode through map load
         // / presentation seed.
         // The load boundary deliberately clears every old-world residual, so

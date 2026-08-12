@@ -6,7 +6,9 @@ fn initialize_progress_windows(wm: &mut WindowManager, descriptor: LoadScreenDes
         if descriptor.kind == LoadScreenKind::ShellGame {
             hide_window(wm, descriptor.primary_progress, true);
         }
-        hide_window(wm, descriptor.primary_progress, false);
+        if descriptor.kind != LoadScreenKind::ShellGame {
+            hide_window(wm, descriptor.primary_progress, false);
+        }
         return;
     }
 
@@ -25,8 +27,14 @@ fn initialize_kind_windows(
         LoadScreenKind::ShellGame => {
             initialize_shell_game_windows(wm, context.shell_game_did_mem_pass)
         }
-        LoadScreenKind::SinglePlayer => initialize_single_player_windows(wm),
-        LoadScreenKind::Challenge => initialize_challenge_windows(wm),
+        // C++ uses the same GameLODManager::didMemPass gate for campaign and
+        // Challenge movie preludes as it does for the first shell screen.
+        LoadScreenKind::SinglePlayer => {
+            initialize_single_player_windows(wm, context.shell_game_did_mem_pass)
+        }
+        LoadScreenKind::Challenge => {
+            initialize_challenge_windows(wm, context.shell_game_did_mem_pass)
+        }
         LoadScreenKind::Multiplayer => {
             initialize_multiplayer_windows(wm, "MultiplayerLoadScreen.wnd", context)
         }
@@ -95,6 +103,9 @@ fn reset_map_transfer_load_screen_state() {
 fn reset_single_player_load_screen_audio_state() {
     let ambient_handle = with_single_player_load_screen_state(|state| {
         let handle = state.ambient_loop_handle;
+        state.prelude_state = LoadScreenPreludeState::NotRequired;
+        state.prelude_deadline = None;
+        state.prelude_duration = Duration::ZERO;
         state.movie_prelude_active = false;
         state.movie_label.clear();
         state.briefing_voice_played = false;
@@ -124,6 +135,7 @@ fn run_shell_game_legal_hold(wm: &mut WindowManager) {
     if hold_duration.is_zero() {
         wm.update();
         pump_load_screen_presentation();
+        gamelogic::system::game_logic::set_fp_mode();
         return;
     }
 
@@ -131,6 +143,7 @@ fn run_shell_game_legal_hold(wm: &mut WindowManager) {
     while show_start.elapsed() < hold_duration {
         wm.update();
         pump_load_screen_presentation();
+        gamelogic::system::game_logic::set_fp_mode();
         std::thread::sleep(SHELL_GAME_LEGAL_UPDATE_INTERVAL);
     }
 }

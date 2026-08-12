@@ -288,6 +288,7 @@ impl PresentationFrame {
                                 .then(|| crate::assets::AuthoredDrawModel {
                                     module_index: 0,
                                     model_key: fallback_model_key,
+                                    ..Default::default()
                                 });
                             input.draw_models =
                                 crate::assets::resolve_presentation_draw_models_for_conditions(

@@ -145,18 +145,23 @@ impl CnCGameEngine {
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     #[inline]
-    pub(super) fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
+    pub(super) fn host_update_logic_frame(
+        &mut self,
+        dt: f32,
+        budget: Option<usize>,
+    ) -> crate::game_logic::SimTimingSnapshot {
         // Wave 584/870/908/919/923/929: single tick_logic_frame authority boundary + stamp snapshot.
         // Skip authority tick dual-write when host residual is paused (GameLogic also
         // no-ops is_paused; avoid the call entirely).
         if self.game_paused {
             let _ = (dt, budget);
-            return;
+            return crate::game_logic::SimTimingSnapshot::default();
         }
         let snap = self
             .game_logic
             .tick_logic_frame(dt, self.last_frame_timing.as_ref(), budget);
         self.host_stamp_sim_timing_from_snapshot(snap);
+        snap
     }
 
     /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.
@@ -348,6 +353,7 @@ impl CnCGameEngine {
         // Wave 584/871/933: host reset residual via session-control authority.
         self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
+        self.invalidate_presentation_terrain_cache();
         self.host_clear_match_residuals();
         self.selected_objects.clear();
         self.last_presentation_frame = None;
@@ -972,6 +978,7 @@ impl CnCGameEngine {
     #[inline]
     pub(super) fn host_replace_game_logic(&mut self, logic: crate::game_logic::GameLogic) {
         self.game_logic = logic;
+        self.invalidate_presentation_terrain_cache();
     }
 
     pub(super) fn host_save_game_authority(

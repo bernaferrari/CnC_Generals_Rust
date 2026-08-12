@@ -166,6 +166,25 @@ pub fn seed_presentation_env_frame_from_host_and_shadow(
     crate::presentation_frame::PresentationFrame::build_for_engine(logic, local_player_id, shadow)
 }
 
+/// Engine-cache variant of the env seed. The payload is immutable and owned by
+/// the presentation frame, so this preserves the no-live-GameLogic renderer
+/// boundary while avoiding a full height/blend clone for every seed.
+pub fn seed_presentation_env_frame_from_host_and_shadow_with_runtime_heightmap(
+    logic: &crate::game_logic::GameLogic,
+    local_player_id: u32,
+    shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+    runtime_heightmap: Option<
+        std::sync::Arc<crate::presentation_frame::PresentationRuntimeHeightmap>,
+    >,
+) -> crate::presentation_frame::PresentationFrame {
+    crate::presentation_frame::PresentationFrame::build_for_engine_with_runtime_heightmap(
+        logic,
+        local_player_id,
+        shadow,
+        runtime_heightmap,
+    )
+}
+
 pub fn simulate_presentation_env_seed_gameworld_source() -> bool {
     let src = cnc_source();
     let helper = include_str!("host_live_presentation_env_seed_gameworld_residual_wave466.rs");

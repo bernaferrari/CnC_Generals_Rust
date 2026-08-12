@@ -8,6 +8,8 @@ mod tests {
     use crate::gui::game_window::WindowWidget;
     use game_engine::common::ini::ini_map_cache::{Coord3D, Region3D};
     use game_engine::common::language::Language;
+    use std::cell::Cell;
+    use std::rc::Rc;
     use std::sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
@@ -1489,7 +1491,7 @@ mod tests {
         named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
         named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
 
-        initialize_single_player_windows(&mut wm);
+        initialize_single_player_windows(&mut wm, true);
 
         assert_eq!(
             *movie_requests.lock().unwrap(),
@@ -1526,8 +1528,16 @@ mod tests {
             None
         );
 
+        with_window_manager(|global_wm| *global_wm = wm);
+        assert_eq!(
+            run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 1),
+            LoadScreenPreludeOutcome::Failed,
+            "a failed movie open must not turn into a synthetic prelude or audio path"
+        );
+
         clear_single_player_movie_play_hook();
         clear_single_player_movie_playing_hook();
+        reset_single_player_load_screen_audio_state();
     }
 
     #[test]
@@ -1565,7 +1575,7 @@ mod tests {
         named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
         named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
 
-        initialize_single_player_windows(&mut wm);
+        initialize_single_player_windows(&mut wm, true);
 
         assert_eq!(
             *movie_requests.lock().unwrap(),
@@ -1640,6 +1650,121 @@ mod tests {
         reset_single_player_load_screen_audio_state();
         clear_single_player_movie_play_hook();
         clear_single_player_movie_playing_hook();
+    }
+
+    #[test]
+    fn single_player_prelude_driver_pumps_until_movie_completion_before_map_work() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_single_player_load_screen_audio_state();
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
+        clear_load_screen_presentation_pump();
+
+        register_single_player_movie_play_hook(|movie_name| movie_name == "EA_LOGO.BIK");
+        let checks = Arc::new(AtomicUsize::new(0));
+        let hook_checks = Arc::clone(&checks);
+        register_single_player_movie_playing_hook(move |movie_name| {
+            assert_eq!(movie_name, "EA_LOGO.BIK");
+            hook_checks.fetch_add(1, Ordering::SeqCst) < 2
+        });
+
+        {
+            let mut manager = get_campaign_manager();
+            let campaign = manager.new_campaign("USA".to_string());
+            let mission = campaign.new_mission("MissionPrelude".to_string());
+            mission.movie_label = "EA_LOGO.BIK".to_string();
+            manager.set_campaign_and_mission("USA", "MissionPrelude");
+        }
+
+        let mut wm = WindowManager::new();
+        named_test_window(
+            &mut wm,
+            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+        );
+        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
+        initialize_single_player_windows(&mut wm, true);
+        with_window_manager(|global_wm| *global_wm = wm);
+
+        let presentation_pumps = Rc::new(Cell::new(0));
+        let hook_pumps = Rc::clone(&presentation_pumps);
+        register_load_screen_presentation_pump(move || {
+            hook_pumps.set(hook_pumps.get() + 1);
+        });
+
+        assert_eq!(
+            run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 8),
+            LoadScreenPreludeOutcome::Complete
+        );
+        assert_eq!(checks.load(Ordering::SeqCst), 3);
+        assert_eq!(presentation_pumps.get(), 3);
+        let (prelude_state, briefing_played, ambient_handle) =
+            with_single_player_load_screen_state(|state| {
+                (
+                    state.prelude_state,
+                    state.briefing_voice_played,
+                    state.ambient_loop_handle,
+                )
+            });
+        assert_eq!(prelude_state, LoadScreenPreludeState::Complete);
+        assert!(briefing_played);
+        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+
+        clear_load_screen_presentation_pump();
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
+        reset_single_player_load_screen_audio_state();
+    }
+
+    #[test]
+    fn single_player_prelude_driver_forces_terminal_skip_when_movie_never_finishes() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_single_player_load_screen_audio_state();
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
+        clear_load_screen_presentation_pump();
+
+        register_single_player_movie_play_hook(|movie_name| movie_name == "StuckMovie.bik");
+        register_single_player_movie_playing_hook(|movie_name| movie_name == "StuckMovie.bik");
+        {
+            let mut manager = get_campaign_manager();
+            let campaign = manager.new_campaign("GLA".to_string());
+            let mission = campaign.new_mission("MissionStuck".to_string());
+            mission.movie_label = "StuckMovie.bik".to_string();
+            manager.set_campaign_and_mission("GLA", "MissionStuck");
+        }
+
+        let mut wm = WindowManager::new();
+        named_test_window(
+            &mut wm,
+            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+        );
+        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
+        initialize_single_player_windows(&mut wm, true);
+        with_window_manager(|global_wm| *global_wm = wm);
+
+        let presentation_pumps = Rc::new(Cell::new(0));
+        let hook_pumps = Rc::clone(&presentation_pumps);
+        register_load_screen_presentation_pump(move || {
+            hook_pumps.set(hook_pumps.get() + 1);
+        });
+
+        assert_eq!(
+            run_load_screen_prelude_with_limit(LoadScreenKind::SinglePlayer, 2),
+            LoadScreenPreludeOutcome::Skipped
+        );
+        assert_eq!(presentation_pumps.get(), 2);
+        let (prelude_state, ambient_handle) = with_single_player_load_screen_state(|state| {
+            (state.prelude_state, state.ambient_loop_handle)
+        });
+        assert_eq!(prelude_state, LoadScreenPreludeState::Skipped);
+        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+
+        clear_load_screen_presentation_pump();
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
+        reset_single_player_load_screen_audio_state();
     }
 
     #[test]
@@ -2227,12 +2352,26 @@ mod tests {
 
     #[test]
     fn challenge_init_with_movie_waits_for_frame_activation_like_cpp_high_spec() {
+        let _state_guard = lock_test_load_screen_state();
         let _language_guard = lock_test_language();
+        clear_challenge_movie_play_hook();
+        clear_challenge_movie_advance_hook();
+        register_challenge_movie_play_hook(|movie_name| movie_name == "ChallengeIntro");
+        let frame = Arc::new(AtomicUsize::new(0));
+        let hook_frame = Arc::clone(&frame);
+        register_challenge_movie_advance_hook(move |movie_name| {
+            assert_eq!(movie_name, "ChallengeIntro");
+            Some(LoadScreenMovieAdvance {
+                frame_index: hook_frame.fetch_add(1, Ordering::SeqCst) as i32 + 1,
+                frame_count: 200,
+                completed: false,
+            })
+        });
         setup_current_challenge_for_tests("ChallengeIntro");
         let mut wm = WindowManager::new();
         challenge_test_windows(&mut wm);
 
-        initialize_challenge_windows(&mut wm);
+        initialize_challenge_windows(&mut wm, true);
 
         for name in CHALLENGE_BIO_LABEL_WINDOWS
             .iter()
@@ -2244,7 +2383,7 @@ mod tests {
         }
 
         for _ in 0..FRAME_TITLES_START {
-            update_challenge_load_screen_prelude(&mut wm);
+            let _ = advance_challenge_load_screen_prelude(&mut wm);
         }
 
         for name in CHALLENGE_BIO_LABEL_WINDOWS {
@@ -2252,47 +2391,159 @@ mod tests {
             assert!(!window.borrow().is_hidden(), "{name}");
         }
 
+        clear_challenge_movie_play_hook();
+        clear_challenge_movie_advance_hook();
         Language::clear_localized_strings();
     }
 
     #[test]
     fn challenge_init_resets_window_video_manager_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
         let _language_guard = lock_test_language();
+        clear_challenge_movie_play_hook();
+        clear_challenge_movie_advance_hook();
+        register_challenge_movie_play_hook(|_| false);
         setup_current_challenge_for_tests("ChallengeIntro");
         let mut wm = WindowManager::new();
         challenge_test_windows(&mut wm);
         with_window_video_manager(|manager| manager.set_global_flags_for_tests(true, true));
 
-        initialize_challenge_windows(&mut wm);
+        initialize_challenge_windows(&mut wm, true);
 
         let flags = with_window_video_manager(|manager| manager.global_flags_for_tests());
         assert_eq!(flags, (false, false));
+        assert_eq!(
+            with_challenge_load_screen_state(|state| state.prelude_state),
+            LoadScreenPreludeState::Failed
+        );
+        with_window_manager(|global_wm| *global_wm = wm);
+        assert_eq!(
+            run_load_screen_prelude_with_limit(LoadScreenKind::Challenge, 1),
+            LoadScreenPreludeOutcome::Failed
+        );
+        update_load_screen(LoadScreenKind::Challenge, 100.0);
+        let (postlude_audio_played, ambient_handle) = with_challenge_load_screen_state(|state| {
+            (state.postlude_audio_played, state.ambient_loop_handle)
+        });
+        assert!(!postlude_audio_played);
+        assert_eq!(ambient_handle, 0);
+        clear_challenge_movie_play_hook();
+        clear_challenge_movie_advance_hook();
+        reset_challenge_load_screen_audio_state();
         Language::clear_localized_strings();
     }
 
     #[test]
-    fn challenge_init_without_movie_uses_cpp_min_spec_final_reveal() {
+    fn challenge_init_without_movie_returns_without_synthetic_reveal_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
         let _language_guard = lock_test_language();
+        clear_challenge_movie_play_hook();
+        clear_challenge_movie_advance_hook();
         setup_current_challenge_for_tests("");
         let mut wm = WindowManager::new();
         challenge_test_windows(&mut wm);
 
-        initialize_challenge_windows(&mut wm);
+        initialize_challenge_windows(&mut wm, true);
 
         for name in CHALLENGE_BIO_LABEL_WINDOWS {
             let window = wm.find_window_by_name(name).expect(name);
-            assert!(!window.borrow().is_hidden(), "{name}");
+            assert!(window.borrow().is_hidden(), "{name}");
         }
-        assert_eq!(
-            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioStrategyEntryRight")
-                .expect("right strategy")
-                .borrow()
-                .get_text(),
-            "Ambush"
-        );
-        let postlude_played = with_challenge_load_screen_state(|state| state.postlude_audio_played);
-        assert!(postlude_played);
+        assert!(wm
+            .find_window_by_name("ChallengeLoadScreen.wnd:BioStrategyEntryRight")
+            .expect("right strategy")
+            .borrow()
+            .get_text()
+            .is_empty());
+        let (prelude_state, postlude_played, ambient_handle) =
+            with_challenge_load_screen_state(|state| {
+                (
+                    state.prelude_state,
+                    state.postlude_audio_played,
+                    state.ambient_loop_handle,
+                )
+            });
+        assert_eq!(prelude_state, LoadScreenPreludeState::Failed);
+        assert!(!postlude_played);
+        assert_eq!(ambient_handle, 0);
 
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn challenge_prelude_driver_pumps_authored_frames_before_completion() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        reset_challenge_load_screen_audio_state();
+        clear_challenge_movie_play_hook();
+        clear_challenge_movie_advance_hook();
+        clear_load_screen_presentation_pump();
+        Language::clear_localized_strings();
+
+        register_challenge_movie_play_hook(|movie_name| movie_name == "ChallengeIntro");
+        let advances = Arc::new(AtomicUsize::new(0));
+        let hook_advances = Arc::clone(&advances);
+        register_challenge_movie_advance_hook(move |movie_name| {
+            assert_eq!(movie_name, "ChallengeIntro");
+            let advance = hook_advances.fetch_add(1, Ordering::SeqCst);
+            Some(if advance == 0 {
+                LoadScreenMovieAdvance {
+                    frame_index: FRAME_TITLES_START,
+                    frame_count: 200,
+                    completed: false,
+                }
+            } else {
+                LoadScreenMovieAdvance {
+                    frame_index: FRAME_RIGHT_VOICE,
+                    frame_count: 200,
+                    completed: true,
+                }
+            })
+        });
+        setup_current_challenge_for_tests("ChallengeIntro");
+
+        let mut wm = WindowManager::new();
+        challenge_test_windows(&mut wm);
+        initialize_challenge_windows(&mut wm, true);
+        with_window_manager(|global_wm| *global_wm = wm);
+
+        let presentation_pumps = Rc::new(Cell::new(0));
+        let hook_pumps = Rc::clone(&presentation_pumps);
+        register_load_screen_presentation_pump(move || {
+            hook_pumps.set(hook_pumps.get() + 1);
+        });
+
+        assert_eq!(
+            run_load_screen_prelude_with_limit(LoadScreenKind::Challenge, 8),
+            LoadScreenPreludeOutcome::Complete
+        );
+        assert_eq!(advances.load(Ordering::SeqCst), 2);
+        assert_eq!(presentation_pumps.get(), 2);
+        with_window_manager(|wm| {
+            for name in CHALLENGE_BIO_LABEL_WINDOWS {
+                assert!(!window_hidden(wm, name), "{name}");
+            }
+        });
+        let (prelude_state, current_frame, high_spec_active, postlude_audio_played, ambient_handle) =
+            with_challenge_load_screen_state(|state| {
+                (
+                    state.prelude_state,
+                    state.current_frame,
+                    state.high_spec_prelude_active,
+                    state.postlude_audio_played,
+                    state.ambient_loop_handle,
+                )
+            });
+        assert_eq!(prelude_state, LoadScreenPreludeState::Complete);
+        assert_eq!(current_frame, FRAME_RIGHT_VOICE);
+        assert!(!high_spec_active);
+        assert!(postlude_audio_played);
+        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+
+        clear_load_screen_presentation_pump();
+        clear_challenge_movie_play_hook();
+        clear_challenge_movie_advance_hook();
+        reset_challenge_load_screen_audio_state();
         Language::clear_localized_strings();
     }
 

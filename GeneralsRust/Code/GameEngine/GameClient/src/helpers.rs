@@ -17,9 +17,9 @@ use crate::gui::control_bar::{
     host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
 };
 use crate::gui::load_screen::{
-    init_load_screen, pump_load_screen_presentation, reset_load_screen, select_load_screen,
-    update_load_screen as update_game_load_screen, LoadScreenGameMode, LoadScreenInitContext,
-    LoadScreenKind, LoadScreenRequest,
+    init_load_screen, pump_load_screen_presentation, reset_load_screen, run_load_screen_prelude,
+    select_load_screen, update_load_screen as update_game_load_screen, LoadScreenGameMode,
+    LoadScreenInitContext, LoadScreenKind, LoadScreenRequest,
 };
 use crate::gui::{
     hide_control_bar, queue_shell_hide, queue_shell_operation, show_shell_map_if_available,
@@ -626,6 +626,10 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
 
         if init_load_screen(kind, &load_screen_init_context_from_globals()) {
             self.set_active_load_screen(kind, game_mode);
+            // C++ LoadScreen subclasses consume their campaign/Challenge
+            // prelude before GameInitializer begins map work.  The driver is
+            // render-pump-only and never re-enters platform dispatch.
+            let _ = run_load_screen_prelude(kind);
         }
     }
 

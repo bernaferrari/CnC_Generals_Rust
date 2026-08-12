@@ -28,7 +28,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     // For additive blending, we premultiply by alpha
     // The blend state will add this to the framebuffer
-    final_color.rgb *= final_color.a;
+    final_color = vec4<f32>(final_color.rgb * final_color.a, final_color.a);
 
     return final_color;
 }

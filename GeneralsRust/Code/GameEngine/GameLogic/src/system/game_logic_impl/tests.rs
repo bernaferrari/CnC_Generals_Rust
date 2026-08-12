@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::snapshot::Snapshotable;
     use game_engine::{XferLoad, XferSave};
-    use std::sync::{Mutex, OnceLock};
+    use std::fs;
+    use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
     fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
         static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -10,6 +12,268 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .expect("test state lock poisoned")
+    }
+
+    fn player_runtime_fixture_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "generals_player_runtime_{tag}_{}_{}.bin",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ))
+    }
+
+    fn reset_player_runtime_fixture(player: Player) {
+        let players = player_list();
+        let mut players = players.write().expect("player list lock");
+        players.clear();
+        players.add_player(Arc::new(RwLock::new(player)));
+    }
+
+    fn save_player_runtime_fixture(path: &std::path::Path) {
+        let mut xfer = XferSave::new();
+        xfer.open(path.to_string_lossy().into_owned())
+            .expect("open player runtime save");
+        xfer_player_list_runtime_state(&mut xfer).expect("save player runtime state");
+        xfer.close().expect("close player runtime save");
+    }
+
+    fn write_legacy_v1_player_runtime_fixture(path: &std::path::Path) {
+        let players = player_list();
+        let players = players.read().expect("player list lock");
+        let mut xfer = XferSave::new();
+        xfer.open(path.to_string_lossy().into_owned())
+            .expect("open legacy player runtime fixture");
+
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .expect("legacy v1 version");
+        let mut player_count = players.get_player_count() as i32;
+        xfer.xfer_int(&mut player_count)
+            .expect("legacy player count");
+        for player_arc in players.iter() {
+            let player = player_arc.read().expect("player lock");
+            let mut money = player.get_money().get_money();
+            xfer.xfer_int(&mut money).expect("legacy money");
+            let mut power_production = player.get_energy().production();
+            xfer.xfer_int(&mut power_production)
+                .expect("legacy power production");
+            let mut power_consumption = player.get_energy().consumption();
+            xfer.xfer_int(&mut power_consumption)
+                .expect("legacy power consumption");
+            let mut power_sabotaged = player.get_energy().get_power_sabotaged_till_frame();
+            xfer.xfer_unsigned_int(&mut power_sabotaged)
+                .expect("legacy power sabotage frame");
+            let mut defeated = player.is_defeated();
+            xfer.xfer_bool(&mut defeated).expect("legacy defeated");
+            let mut observer = player.is_player_observer();
+            xfer.xfer_bool(&mut observer).expect("legacy observer");
+            let mut rank_level = player.get_rank_level();
+            xfer.xfer_int(&mut rank_level).expect("legacy rank");
+            let mut science_points = player.get_science_purchase_points();
+            xfer.xfer_int(&mut science_points)
+                .expect("legacy science points");
+        }
+        xfer.close().expect("close legacy player runtime fixture");
+    }
+
+    fn load_player_runtime_fixture(path: &std::path::Path) -> Result<(), XferStatus> {
+        let mut xfer = XferLoad::new();
+        xfer.open(path.to_string_lossy().into_owned())?;
+        let result = xfer_player_list_runtime_state(&mut xfer);
+        let close_result = xfer.close();
+        result.and(close_result)
+    }
+
+    #[test]
+    fn player_runtime_v2_preserves_auxiliary_resource_and_tunnel_state() {
+        let _lock = test_state_lock();
+        let path = player_runtime_fixture_path("v2_auxiliary");
+        crate::ai::integration::initialize_ai_integration().expect("reset source AI integration");
+
+        let mut source = Player::new(0);
+        source.init_from_dict_defaults();
+        {
+            let resources = source
+                .get_resource_manager_mut()
+                .expect("map-created resource manager");
+            resources.add_supply_warehouse(101);
+            resources.add_supply_center(202);
+        }
+        {
+            let tunnels = source
+                .get_tunnel_system_mut()
+                .expect("map-created tunnel tracker");
+            tunnels.on_tunnel_created_id(301).expect("tunnel one");
+            tunnels.on_tunnel_created_id(302).expect("tunnel two");
+            tunnels.add_to_contain_list_id(401).expect("contained unit");
+        }
+        reset_player_runtime_fixture(source);
+        crate::ai::integration::with_ai_integration_mut(|manager| {
+            manager.ensure_ai_player(0, false);
+            manager
+                .with_ai_player_mut(0, |ai| match ai {
+                    crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
+                        ai.set_team_delay_frames(77);
+                        ai.set_team_timer_frames(33);
+                    }
+                    crate::ai::integration::IntegratedAiPlayer::Skirmish(_) => {
+                        panic!("fixture must keep the non-skirmish AI variant")
+                    }
+                })
+                .expect("source AI player");
+        })
+        .expect("source AI integration manager");
+        save_player_runtime_fixture(&path);
+
+        let mut destination = Player::new(0);
+        destination.init_from_dict_defaults();
+        reset_player_runtime_fixture(destination);
+        crate::ai::integration::initialize_ai_integration()
+            .expect("reset destination AI integration");
+        crate::ai::integration::with_ai_integration_mut(|manager| {
+            manager.ensure_ai_player(0, false);
+        })
+        .expect("destination AI integration manager");
+        load_player_runtime_fixture(&path).expect("v2 player runtime load");
+
+        let contained_object = Arc::new(RwLock::new(Object::new_test(401, 100.0)));
+        get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .register_object(contained_object)
+            .expect("register contained object");
+        let mut player_snapshot = PlayerListSnapshotBridge;
+        XferSnapshotTrait::load_post_process(&mut player_snapshot)
+            .expect("Player post-process after object blocks resolve");
+
+        let players = player_list();
+        let players = players.read().expect("player list lock");
+        let loaded = players
+            .get_player(0)
+            .expect("loaded player")
+            .read()
+            .expect("loaded player lock");
+        let resources = loaded
+            .get_resource_manager()
+            .expect("loaded resource manager");
+        assert_eq!(resources.get_supply_warehouses(), &[101]);
+        assert_eq!(resources.get_supply_centers(), &[202]);
+        let tunnels = loaded.get_tunnel_system().expect("loaded tunnel tracker");
+        assert_eq!(
+            tunnels.get_container_list().expect("tunnel list"),
+            vec![301, 302]
+        );
+        assert_eq!(tunnels.get_tunnel_count(), 2);
+        assert_eq!(tunnels.get_contained_item_ids(), &[401]);
+
+        let (team_delay, team_timer) = crate::ai::integration::with_ai_integration(|manager| {
+            manager.with_ai_player(0, |ai| match ai {
+                crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
+                    (ai.get_team_delay(), ai.get_team_timer())
+                }
+                crate::ai::integration::IntegratedAiPlayer::Skirmish(_) => {
+                    panic!("fixture must keep the non-skirmish AI variant")
+                }
+            })
+        })
+        .flatten()
+        .expect("loaded AI player");
+        assert_eq!((team_delay, team_timer), (77, 33));
+
+        drop(loaded);
+        drop(players);
+        // Do not destroy this minimal fixture object here: its normal destroy
+        // path performs a pathfinder registry read while holding the object's
+        // write lock.  It is isolated by this test's unique ID and does not
+        // affect the following Player fixtures.
+        crate::ai::integration::initialize_ai_integration().expect("clear AI integration");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn player_runtime_v1_fixture_loads_without_consuming_v2_tail() {
+        let _lock = test_state_lock();
+        let path = player_runtime_fixture_path("legacy_v1");
+        crate::ai::integration::initialize_ai_integration().expect("reset AI integration");
+
+        let mut source = Player::new(0);
+        source.get_money_mut().set_money(7_654);
+        assert!(source.set_rank_level(4), "source rank");
+        source.add_science_purchase_points(9);
+        reset_player_runtime_fixture(source);
+        write_legacy_v1_player_runtime_fixture(&path);
+
+        let mut destination = Player::new(0);
+        destination.init_from_dict_defaults();
+        reset_player_runtime_fixture(destination);
+        load_player_runtime_fixture(&path).expect("v1 player runtime load");
+
+        let players = player_list();
+        let players = players.read().expect("player list lock");
+        let loaded = players
+            .get_player(0)
+            .expect("loaded player")
+            .read()
+            .expect("loaded player lock");
+        assert_eq!(loaded.get_money().get_money(), 7_654);
+        assert_eq!(loaded.get_rank_level(), 4);
+        assert_eq!(loaded.get_science_purchase_points(), 9);
+        assert!(loaded.get_resource_manager().is_some());
+        assert!(loaded.get_tunnel_system().is_some());
+
+        drop(loaded);
+        drop(players);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn player_runtime_v2_rejects_map_component_presence_mismatch() {
+        let _lock = test_state_lock();
+        let path = player_runtime_fixture_path("presence_mismatch");
+        crate::ai::integration::initialize_ai_integration().expect("reset AI integration");
+
+        let mut source = Player::new(0);
+        source.init_from_dict_defaults();
+        reset_player_runtime_fixture(source);
+        save_player_runtime_fixture(&path);
+
+        reset_player_runtime_fixture(Player::new(0));
+        assert_eq!(
+            load_player_runtime_fixture(&path),
+            Err(XferStatus::InvalidData),
+            "v2 component presence must agree with the map-created Player"
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn direct_player_xfer_rejects_presence_mismatch_without_constructing_state() {
+        let _lock = test_state_lock();
+        use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
+        use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
+        use std::io::Cursor;
+
+        crate::ai::integration::initialize_ai_integration().expect("reset AI integration");
+
+        let mut source = Player::new(0);
+        source.init_from_dict_defaults();
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut xfer = CommonXferSave::new(cursor, 1);
+            Snapshotable::xfer(&mut source, &mut xfer).expect("save direct Player payload");
+        }
+
+        let mut destination = Player::new(0);
+        {
+            let cursor = Cursor::new(bytes.as_slice());
+            let mut xfer = CommonXferLoad::new(cursor, 1);
+            let error = Snapshotable::xfer(&mut destination, &mut xfer)
+                .expect_err("presence mismatch must fail before constructing managers");
+            assert!(error.contains("resource gathering manager presence mismatch"));
+        }
+        assert!(destination.get_resource_manager().is_none());
+        assert!(destination.get_tunnel_system().is_none());
     }
 
     #[test]
@@ -48,9 +312,7 @@ mod tests {
             0,
             "empty-noop must not advance C++ m_frame"
         );
-        logic
-            .update(1)
-            .expect("second empty tick still Ok");
+        logic.update(1).expect("second empty tick still Ok");
         assert!(logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 2);
         logic.reset();
@@ -83,9 +345,7 @@ mod tests {
         let _lock = test_state_lock();
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
-        logic
-            .update(0)
-            .expect("empty world still returns Ok");
+        logic.update(0).expect("empty world still returns Ok");
         assert!(logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 1);
 
@@ -95,9 +355,7 @@ mod tests {
         let dummy = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
         logic.objects.insert(42, dummy);
         logic.set_game_paused(true, false);
-        logic
-            .update(1)
-            .expect("non-empty update still Ok");
+        logic.update(1).expect("non-empty update still Ok");
         assert!(
             !logic.last_update_was_empty_noop(),
             "a subsequent non-empty update must clear the empty-noop flag"
@@ -215,8 +473,12 @@ mod tests {
         let expected = game_engine::common::system::xfer_crc::fold_crc_bytes(0, &leftover).to_be();
         let mut system_left = LogicXferCrc::new();
         unsafe {
-            Xfer::xfer_implementation(&mut system_left, leftover.as_ptr() as *mut u8, leftover.len())
-                .expect("system leftover");
+            Xfer::xfer_implementation(
+                &mut system_left,
+                leftover.as_ptr() as *mut u8,
+                leftover.len(),
+            )
+            .expect("system leftover");
         }
         let mut common_left = LogicXferCrc::new();
         unsafe {
@@ -232,7 +494,10 @@ mod tests {
 
         let mut logic = GameLogic::new();
         let empty_crc = logic.get_crc(CrcMode::Recalc);
-        assert_ne!(empty_crc, 0, "empty world CRC includes MARKER:Objects bytes");
+        assert_ne!(
+            empty_crc, 0,
+            "empty world CRC includes MARKER:Objects bytes"
+        );
         assert_ne!(
             empty_crc,
             common_xfer.get_crc(),
@@ -256,12 +521,10 @@ mod tests {
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
         let object = Arc::new(RwLock::new(Object::new_test(9001, 100.0)));
-        logic.register_object(Arc::clone(&object)).expect("register");
-        let bound = object
-            .read()
-            .expect("object")
-            .get_drawable()
-            .is_some();
+        logic
+            .register_object(Arc::clone(&object))
+            .expect("register");
+        let bound = object.read().expect("object").get_drawable().is_some();
         assert!(
             bound,
             "C++ sendObjectCreated binds a drawable onto the logic object"
@@ -386,9 +649,7 @@ mod tests {
         OBJECT_REGISTRY.clear();
         let obj = Arc::new(RwLock::new(Object::new_test(4242, 10.0)));
         {
-            let mut logic = get_game_logic()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
             logic.objects.insert(4242, Arc::clone(&obj));
             logic.all_objects.push(4242);
         }
@@ -400,9 +661,7 @@ mod tests {
         assert!(ids.contains(&4242), "get_all_object_ids={ids:?}");
         assert!(OBJECT_REGISTRY.get_object(4242).is_some());
         {
-            let mut logic = get_game_logic()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
             logic.objects.remove(&4242);
             logic.all_objects.retain(|id| *id != 4242);
         }
@@ -568,14 +827,16 @@ mod tests {
         ));
         {
             let mut xfer = XferSave::new();
-            xfer.open(path.to_string_lossy().into_owned()).expect("open save");
+            xfer.open(path.to_string_lossy().into_owned())
+                .expect("open save");
             xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
             xfer.close().expect("close save");
         }
         let mut load_logic = GameLogic::new();
         {
             let mut xfer = XferLoad::new();
-            xfer.open(path.to_string_lossy().into_owned()).expect("open load");
+            xfer.open(path.to_string_lossy().into_owned())
+                .expect("open load");
             xfer_game_logic_state(&mut load_logic, &mut xfer).expect("load");
             xfer.close().expect("close load");
         }
@@ -585,7 +846,9 @@ mod tests {
             load_logic.find_toc_entry_by_name("TestObject").is_some(),
             "C++ xferObjectTOC must survive roundtrip"
         );
-        let loaded = load_logic.find_object_by_id(11).expect("object from TOC block");
+        let loaded = load_logic
+            .find_object_by_id(11)
+            .expect("object from TOC block");
         let guard = loaded.read().unwrap();
         assert_eq!(guard.get_position().x, 1.0);
         assert_eq!(guard.get_position().y, 2.0);
@@ -630,13 +893,12 @@ mod tests {
         save_logic.set_rank_level_limit(8);
         save_logic.next_object_id = 99;
 
-        let path = std::env::temp_dir().join(format!(
-            "generals_xfer_v10_sell_{}.bin",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("generals_xfer_v10_sell_{}.bin", std::process::id()));
         {
             let mut xfer = XferSave::new();
-            xfer.open(path.to_string_lossy().into_owned()).expect("open save");
+            xfer.open(path.to_string_lossy().into_owned())
+                .expect("open save");
             xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
             xfer.close().expect("close save");
         }
@@ -645,7 +907,8 @@ mod tests {
         load_logic.next_object_id = 1;
         {
             let mut xfer = XferLoad::new();
-            xfer.open(path.to_string_lossy().into_owned()).expect("open load");
+            xfer.open(path.to_string_lossy().into_owned())
+                .expect("open load");
             xfer_game_logic_state(&mut load_logic, &mut xfer).expect("load");
             xfer.close().expect("close load");
         }

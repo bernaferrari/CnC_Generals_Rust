@@ -50,6 +50,42 @@ fn resolve_pending_combat_drop_command(
     )
 }
 
+/// Whether a shared ControlBar superweapon button can arm this exact parsed
+/// module power.
+///
+/// Retail faction variants intentionally share a Particle Uplink or Nuclear
+/// Missile button/cursor family, but the module's `SpecialPowerTemplate`
+/// remains the execution authority.  This only joins the three documented
+/// variants in each family; it must never turn a template/object name into a
+/// special-power capability.
+fn parsed_structure_superweapon_matches_button(
+    requested: &crate::command_system::SpecialPowerType,
+    parsed: &crate::command_system::SpecialPowerType,
+) -> bool {
+    use crate::command_system::SpecialPowerType as Power;
+
+    matches!(
+        (requested, parsed),
+        (
+            Power::ParticleCannon | Power::SuperweaponParticleCannon | Power::LaserCannon,
+            Power::ParticleCannon | Power::SuperweaponParticleCannon | Power::LaserCannon,
+        ) | (
+            Power::NuclearMissile | Power::NukeNeutronMissile | Power::SuperweaponNeutronMissile,
+            Power::NuclearMissile | Power::NukeNeutronMissile | Power::SuperweaponNeutronMissile,
+        )
+    ) || requested == parsed
+}
+
+/// Return the exact parsed module power after the presentation-only button
+/// family check.  The returned value, rather than the generic button's
+/// baseline enum, is placed in the pending map command.
+fn exact_parsed_structure_power_for_button(
+    requested: &crate::command_system::SpecialPowerType,
+    parsed: crate::command_system::SpecialPowerType,
+) -> Option<crate::command_system::SpecialPowerType> {
+    parsed_structure_superweapon_matches_button(requested, &parsed).then_some(parsed)
+}
+
 impl CnCGameEngine {
     pub(super) fn commit_pending_map_command(
         &mut self,
@@ -190,8 +226,12 @@ impl CnCGameEngine {
     ) -> &'static str {
         use crate::command_system::SpecialPowerType as P;
         match power {
-            P::ParticleCannon => "PARTICLECANNON",
-            P::NuclearMissile | P::BlackMarketNuke | P::DetonateDirtyNuke => "NUCLEARMISSILE",
+            P::ParticleCannon | P::SuperweaponParticleCannon | P::LaserCannon => "PARTICLECANNON",
+            P::NuclearMissile
+            | P::NukeNeutronMissile
+            | P::SuperweaponNeutronMissile
+            | P::BlackMarketNuke
+            | P::DetonateDirtyNuke => "NUCLEARMISSILE",
             P::ScudStorm => "SCUDSTORM",
             P::Airstrike => "A10STRIKE",
             P::CarpetBomb | P::EarlyChinaCarpetBomb | P::AirForceCarpetBomb => "CARPETBOMB",
@@ -500,9 +540,64 @@ impl CnCGameEngine {
         }
         // Clear stale match residuals before map identity changes.
         self.host_clear_match_residuals();
-        let loaded = self
-            .game_logic
-            .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP);
+        #[cfg(feature = "game_client")]
+        let active_load_screen = if self.loading_overlay_active {
+            self.active_load_screen
+        } else {
+            None
+        };
+        #[cfg(feature = "game_client")]
+        let mut last_load_screen_progress = None::<(f32, String)>;
+
+        let loaded = {
+            #[cfg(feature = "game_client")]
+            {
+                if let Some(kind) = active_load_screen {
+                    self.game_logic.load_map_or_fallback_with_progress(
+                        map_name,
+                        DEFAULT_SKIRMISH_MAP,
+                        |progress, phase| {
+                            let progress = progress.clamp(0.0, 1.0);
+                            Self::pump_cpp_load_screen_progress(kind, progress, phase);
+                            last_load_screen_progress = Some((progress, phase.to_string()));
+                        },
+                    )
+                } else {
+                    self.game_logic
+                        .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP)
+                }
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                self.game_logic
+                    .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP)
+            }
+        };
+
+        #[cfg(feature = "game_client")]
+        if loaded.is_some() {
+            if let Some(kind) = active_load_screen {
+                // C++ `GameLogic::startNewGame` emits LOAD_PROGRESS_END after
+                // its map work. The direct host path has no later loading-loop
+                // callback, so finish the visible sequence before presentation
+                // seeding can move the engine to InGame.
+                Self::pump_cpp_load_screen_progress(kind, 1.0, "Map load complete");
+                last_load_screen_progress = Some((1.0, "Map load complete".to_string()));
+            }
+        }
+
+        #[cfg(feature = "game_client")]
+        if let Some((progress, phase)) = last_load_screen_progress {
+            // The map callback has already updated and drawn the .wnd screen.
+            // Only synchronize host-owned status after releasing the mutable
+            // GameLogic borrow; calling update_shell_loading_progress here
+            // would issue a duplicate final frame pump.
+            self.startup_last_reported_progress = progress;
+            if !phase.trim().is_empty() {
+                self.startup_loading_phase = phase;
+            }
+        }
+
         let Some(loaded) = loaded else {
             warn!(
                 "Failed to load requested map '{}' and fallback '{}'",
@@ -510,6 +605,10 @@ impl CnCGameEngine {
             );
             return None;
         };
+        // A successful requested or fallback load installed a new terrain
+        // payload. Rebuild the presentation-owned Arc only when that new world
+        // is ready; failed attempts leave no renderable match to seed.
+        self.invalidate_presentation_terrain_cache();
         if loaded != map_name {
             warn!(
                 "Failed to load requested map '{}'; loaded fallback '{}'",
@@ -1363,8 +1462,13 @@ impl CnCGameEngine {
                 for id in &selected {
                     if self.ui_special_power_ready(*id) {
                         if let Some(p) = self.ui_special_power_type_if_ready(*id) {
-                            if std::mem::discriminant(&p) == std::mem::discriminant(&requested) {
-                                resolved = Some(requested.clone());
+                            if let Some(parsed) =
+                                exact_parsed_structure_power_for_button(&requested, p)
+                            {
+                                // Keep the exact parsed module identity.  The shared
+                                // UI button family is presentation-only; execution
+                                // must charge and fire the selected retail variant.
+                                resolved = Some(parsed);
                                 break;
                             }
                         }
@@ -1394,20 +1498,10 @@ impl CnCGameEngine {
                     self.ui_manager.game_hud_mut().push_info_message(msg);
                     return;
                 };
-                let cursor = {
-                    // Map before move into pending.
-                    let c = match &power {
-                        crate::command_system::SpecialPowerType::ParticleCannon => "PARTICLECANNON",
-                        crate::command_system::SpecialPowerType::NuclearMissile
-                        | crate::command_system::SpecialPowerType::BlackMarketNuke
-                        | crate::command_system::SpecialPowerType::DetonateDirtyNuke => {
-                            "NUCLEARMISSILE"
-                        }
-                        crate::command_system::SpecialPowerType::ScudStorm => "SCUDSTORM",
-                        _ => "OFFENSIVE_SPECIALPOWER",
-                    };
-                    c
-                };
+                // Map before move into pending.  The same table also serves
+                // native ControlBar special-power requests, so faction module
+                // variants retain their authored radius cursor.
+                let cursor = Self::radius_cursor_type_for_special_power(&power);
                 self.pending_map_command = Some(PendingMapCommand::SpecialPower(power));
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending(cursor);
@@ -1644,6 +1738,64 @@ mod tests {
                 Some(crate::game_logic::ObjectId(77)),
             ),
             None
+        );
+    }
+
+    #[test]
+    fn retail_superweapon_button_family_keeps_exact_parsed_variant_and_cursor() {
+        use crate::command_system::{
+            special_power_type_from_template_name, SpecialPowerType as Power,
+        };
+
+        let supw_particle =
+            special_power_type_from_template_name("SupW_SuperweaponParticleUplinkCannon")
+                .expect("retail SupW particle power");
+        let laser_particle = special_power_type_from_template_name("Lazr_LaserCannon")
+            .expect("retail Lazr particle power");
+        let supw_neutron = special_power_type_from_template_name("SupW_SuperweaponNeutronMissile")
+            .expect("retail SupW neutron power");
+
+        // The shared visual button must return the exact selected module enum,
+        // not its baseline representative.  That is what the command executor
+        // uses to locate and spend the matching parsed module timer.
+        assert_eq!(
+            exact_parsed_structure_power_for_button(&Power::ParticleCannon, supw_particle.clone()),
+            Some(supw_particle.clone())
+        );
+        assert_eq!(
+            exact_parsed_structure_power_for_button(&Power::NuclearMissile, supw_neutron.clone()),
+            Some(supw_neutron.clone())
+        );
+
+        assert!(parsed_structure_superweapon_matches_button(
+            &Power::ParticleCannon,
+            &laser_particle
+        ));
+        assert!(parsed_structure_superweapon_matches_button(
+            &Power::NuclearMissile,
+            &supw_neutron
+        ));
+        assert!(
+            !parsed_structure_superweapon_matches_button(&Power::ParticleCannon, &supw_neutron),
+            "a ready neutron missile must not satisfy a Particle Uplink button"
+        );
+        assert_eq!(
+            exact_parsed_structure_power_for_button(&Power::ParticleCannon, supw_neutron.clone()),
+            None,
+            "a named Particle button must not fall through to an unrelated ready neutron module"
+        );
+
+        assert_eq!(
+            CnCGameEngine::radius_cursor_type_for_special_power(&supw_particle),
+            "PARTICLECANNON"
+        );
+        assert_eq!(
+            CnCGameEngine::radius_cursor_type_for_special_power(&laser_particle),
+            "PARTICLECANNON"
+        );
+        assert_eq!(
+            CnCGameEngine::radius_cursor_type_for_special_power(&supw_neutron),
+            "NUCLEARMISSILE"
         );
     }
 }

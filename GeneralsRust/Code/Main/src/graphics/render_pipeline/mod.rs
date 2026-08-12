@@ -303,10 +303,13 @@ pub(super) const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
 ];
 
 pub(super) struct ObjectAnimationState {
-    animation_index: usize,
+    /// Exact selected W3D animation from the frozen source Draw state. `None`
+    /// deliberately means bind pose; it must not silently become W3D clip 0.
+    animation_index: Option<usize>,
     current_frame: f32,
     frame_rate: f32,
     num_frames: u32,
+    mode: crate::assets::AuthoredDrawAnimationMode,
 }
 
 /// Forward rendering pass powered by the WW3D renderer backend.

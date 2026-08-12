@@ -560,16 +560,20 @@ impl Snapshotable for TunnelTracker {
                     )
                 })?;
 
-            {
+            let pos = {
                 let mut guard = object
                     .write()
                     .map_err(|_| "TunnelTracker::loadPostProcess object lock poisoned")?;
                 guard.leave_group();
-                let pos = *guard.get_position();
-                let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
-                    manager.remove_pathfinding_obstacle(object_id, &[pos])
-                });
-            }
+                *guard.get_position()
+            };
+
+            // The pathfinder derives the object's footprint through
+            // OBJECT_REGISTRY.  It must run after the object write guard is
+            // released or that read re-entry deadlocks during save restore.
+            let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+                manager.remove_pathfinding_obstacle(object_id, &[pos])
+            });
 
             if let Ok(guard) = object.read() {
                 if let Some(drawable) = guard.get_drawable() {

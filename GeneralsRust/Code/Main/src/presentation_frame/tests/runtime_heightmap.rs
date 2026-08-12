@@ -111,6 +111,58 @@ fn runtime_heightmap_old_serialized_frames_default_new_blend_metadata() {
 }
 
 #[test]
+fn runtime_heightmap_arc_world_env_json_roundtrip_keeps_full_payload() {
+    use std::sync::Arc;
+
+    let payload = PresentationRuntimeHeightmap {
+        width: 2,
+        height: 2,
+        heights: vec![0.0, 0.25, 0.5, 1.0],
+        max_height: 100.0,
+        scale: 10.0,
+        min_height: -5.0,
+        height_range: 105.0,
+        border_size: 1,
+        tile_ndxes: vec![1, 2, 3, 4],
+        blend_tile_ndxes: vec![5, 6, 7, 8],
+        extra_blend_tile_ndxes: vec![9, 10, 11, 12],
+        blended_tiles: vec![PresentationBlendTileInfo {
+            blend_ndx: 13,
+            horiz: 1,
+            vert: 2,
+            right_diagonal: 3,
+            left_diagonal: 4,
+            inverted: 5,
+            long_diagonal: 6,
+            custom_blend_edge_class: 7,
+        }],
+        extra_blended_tiles: vec![PresentationBlendTileInfo {
+            blend_ndx: 14,
+            horiz: 8,
+            vert: 9,
+            right_diagonal: 10,
+            left_diagonal: 11,
+            inverted: 12,
+            long_diagonal: 13,
+            custom_blend_edge_class: 14,
+        }],
+        draw_origin_x: 3,
+        draw_origin_y: 4,
+        draw_width: 5,
+        draw_height: 6,
+    };
+    let env = PresentationWorldEnv {
+        runtime_heightmap: Some(Arc::new(payload.clone())),
+        ..Default::default()
+    };
+
+    let decoded: PresentationWorldEnv =
+        serde_json::from_value(serde_json::to_value(&env).expect("serialize world env"))
+            .expect("deserialize world env");
+    assert_eq!(decoded.runtime_heightmap.as_deref(), Some(&payload));
+}
+
+#[test]
 fn map_load_heightmap_bake_passes_none_game_logic() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     // Runtime terrain bake is presentation-owned: device/queue only, no GameLogic arg.

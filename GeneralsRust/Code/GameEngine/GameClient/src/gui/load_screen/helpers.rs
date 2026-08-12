@@ -228,3 +228,11 @@ fn current_challenge_movie_label() -> Option<String> {
     let movie_label = mission.movie_label.trim();
     (!movie_label.is_empty()).then(|| movie_label.to_string())
 }
+
+fn current_challenge_voice_length() -> i32 {
+    let campaign_manager = get_campaign_manager();
+    campaign_manager
+        .get_current_mission()
+        .map(|mission| mission.voice_length)
+        .unwrap_or(0)
+}

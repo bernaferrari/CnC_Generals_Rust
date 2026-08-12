@@ -275,10 +275,12 @@ fn unit_render_inputs_keep_distinct_source_draw_modules() {
         AuthoredDrawModel {
             module_index: 0,
             model_key: "ProbeBody".to_string(),
+            ..Default::default()
         },
         AuthoredDrawModel {
             module_index: 2,
             model_key: "ProbeDoor".to_string(),
+            ..Default::default()
         },
     ];
 
@@ -294,10 +296,12 @@ fn unit_render_inputs_keep_distinct_source_draw_modules() {
             AuthoredDrawModel {
                 module_index: 0,
                 model_key: "ProbeBody".to_string(),
+                ..Default::default()
             },
             AuthoredDrawModel {
                 module_index: 2,
                 model_key: "ProbeDoor".to_string(),
+                ..Default::default()
             },
         ],
         "snapshot hand-off must preserve module order and independent identity"

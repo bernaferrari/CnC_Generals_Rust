@@ -10,6 +10,153 @@
 use super::*;
 
 impl RenderPipeline {
+    /// Advance one exact source-selected W3DModelDraw state. The C++ draw
+    /// module chooses its first entry only when it has a single animation;
+    /// random idle/multiple-entry selection has not been ported, so that case
+    /// retains the entries but deliberately remains bind-pose rather than
+    /// guessing a client-side random clip.
+    fn advance_authored_draw_animation(
+        &mut self,
+        object_id: crate::game_logic::ObjectId,
+        draw_module_index: u32,
+        model: &crate::assets::W3DModel,
+        authored_animations: &[crate::assets::AuthoredDrawAnimation],
+        authored_mode: &crate::assets::AuthoredDrawAnimationMode,
+        delta_time: f32,
+    ) -> (Option<usize>, f32) {
+        let requested_index = match authored_animations {
+            [] => Some(None),
+            [animation] => model
+                .find_animation_index_for_draw_identity(&animation.name)
+                .map(Some),
+            // C++ uses GameClientRandomValue for multiple state animations.
+            // Until that exact stateful selector is ported, fail closed to
+            // bind pose rather than choosing an arbitrary W3D index.
+            _ => None,
+        };
+        let Some(requested_index) = requested_index else {
+            return (None, 0.0);
+        };
+        let mode_is_supported = matches!(
+            authored_mode,
+            crate::assets::AuthoredDrawAnimationMode::Manual
+                | crate::assets::AuthoredDrawAnimationMode::Loop
+                | crate::assets::AuthoredDrawAnimationMode::Once
+                | crate::assets::AuthoredDrawAnimationMode::LoopBackwards
+                | crate::assets::AuthoredDrawAnimationMode::OnceBackwards
+        );
+        if !mode_is_supported {
+            return (None, 0.0);
+        }
+
+        let Some(animation_index) = requested_index else {
+            return (None, 0.0);
+        };
+        if model.hierarchy.is_none() {
+            return (None, 0.0);
+        }
+
+        let (num_frames, frame_rate) = model.animation_metadata(animation_index).unwrap_or((1, 30));
+        let obj_key = (object_id.0, draw_module_index);
+        let state = self.animation_states.entry(obj_key).or_insert_with(|| {
+            let start_frame = match authored_mode {
+                crate::assets::AuthoredDrawAnimationMode::LoopBackwards
+                | crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
+                    num_frames.saturating_sub(1) as f32
+                }
+                _ => 0.0,
+            };
+            ObjectAnimationState {
+                animation_index: Some(animation_index),
+                current_frame: start_frame,
+                frame_rate: frame_rate as f32,
+                num_frames,
+                mode: authored_mode.clone(),
+            }
+        });
+        if state.animation_index != Some(animation_index) || state.mode != authored_mode.clone() {
+            state.animation_index = Some(animation_index);
+            state.current_frame = match authored_mode {
+                crate::assets::AuthoredDrawAnimationMode::LoopBackwards
+                | crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
+                    num_frames.saturating_sub(1) as f32
+                }
+                _ => 0.0,
+            };
+            state.frame_rate = frame_rate as f32;
+            state.num_frames = num_frames;
+            state.mode = authored_mode.clone();
+        }
+
+        if delta_time > 0.0 && delta_time < 1.0 && state.num_frames > 1 {
+            let terminal = (state.num_frames - 1) as f32;
+            let delta = delta_time * state.frame_rate;
+            state.current_frame = match &state.mode {
+                crate::assets::AuthoredDrawAnimationMode::Manual => state.current_frame,
+                crate::assets::AuthoredDrawAnimationMode::Once => {
+                    (state.current_frame + delta).min(terminal)
+                }
+                crate::assets::AuthoredDrawAnimationMode::Loop => {
+                    let period = terminal;
+                    if period > 0.0 {
+                        (state.current_frame + delta) % period
+                    } else {
+                        0.0
+                    }
+                }
+                crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
+                    (state.current_frame - delta).max(0.0)
+                }
+                crate::assets::AuthoredDrawAnimationMode::LoopBackwards => {
+                    let period = terminal;
+                    if period > 0.0 {
+                        (state.current_frame - delta).rem_euclid(period)
+                    } else {
+                        0.0
+                    }
+                }
+                crate::assets::AuthoredDrawAnimationMode::LoopPingPong => {
+                    // This mode requires a direction bit in the state. Keep
+                    // the current source frame stable until that complete
+                    // playback state is ported instead of pretending it loops.
+                    state.current_frame
+                }
+                crate::assets::AuthoredDrawAnimationMode::Unsupported(_) => state.current_frame,
+            };
+        }
+        (Some(animation_index), state.current_frame)
+    }
+
+    /// Translate the frozen GameClient W3DModelDraw animation record into the
+    /// exact W3D frame used by the bridge collector. `ModelDrawState` carries
+    /// a normalized 0..=1 progress fraction, so it is the authority here; do
+    /// not infer a clip from RenderConditionFlags or a mesh basename.
+    ///
+    /// An absent animation is a deliberate bind-pose request. A named source
+    /// animation which is not present in this exact W3D asset stays bind-pose
+    /// too: choosing animation zero would invent visible bone state.
+    fn bridge_draw_animation(
+        model: &crate::assets::W3DModel,
+        animation_name: Option<&str>,
+        animation_time: f32,
+    ) -> (Option<usize>, f32) {
+        let Some(animation_name) = animation_name else {
+            return (None, 0.0);
+        };
+        let Some(animation_index) = model.find_animation_index_for_draw_identity(animation_name)
+        else {
+            return (None, 0.0);
+        };
+        let Some((num_frames, _)) = model.animation_metadata(animation_index) else {
+            return (None, 0.0);
+        };
+        if !animation_time.is_finite() {
+            return (None, 0.0);
+        }
+        let frame = animation_time.clamp(0.0, 1.0) * num_frames.saturating_sub(1) as f32;
+        (Some(animation_index), frame)
+    }
+
     /// Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
     /// Integrates FOW visibility filtering.
     ///
@@ -108,10 +255,10 @@ impl RenderPipeline {
             // non-1.0 object scale quadratically in the live WGPU pass.
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
             // Presentation has already selected the exact source-authored
-            // models from every ConditionState Draw module. Keep the frozen bit bank for
-            // animation selection, but never run a second suffix-based mesh
-            // selection here: doing so can turn an exact damaged/construction
-            // W3D key back into a guessed variant.
+            // models *and animation state* from every ConditionState Draw
+            // module. Never reconstruct either from combat bits or mesh-name
+            // suffixes here: doing so can turn an exact damaged/construction
+            // W3D key into guessed art or a guessed visibility channel.
             // Wave 501: deployed + radar dish bits included in stamp helper.
             // Wave 503: construction scaffold bits included in stamp helper.
             // Wave 504: GARRISONED bit included in stamp helper.
@@ -125,8 +272,6 @@ impl RenderPipeline {
             // Wave 512: CONTINUOUS_FIRE / PRONE / PREATTACK / TURRET_ROTATE bits included in stamp helper.
             // Wave 513: JAMMED / DYING / RELOADING / PACKING / UNPACKING bits included in stamp helper.
             // Wave 515: RAISING_FLAG (surrendered) bit included in stamp helper.
-            let model_bits = u.model_condition_bits_with_combat_flags();
-            let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let template_name_owned = u.template_name.clone();
             let selection_radius = u.selection_radius;
             let snapshot_fow = Some(u.fow_visibility);
@@ -141,6 +286,7 @@ impl RenderPipeline {
                     .then(|| crate::assets::AuthoredDrawModel {
                         module_index: 0,
                         model_key: u.model_key.clone(),
+                        ..Default::default()
                     })
                     .into_iter()
                     .collect::<Vec<_>>()
@@ -180,6 +326,8 @@ impl RenderPipeline {
 
             for draw_model in draw_models {
                 let draw_module_index = draw_model.module_index;
+                let authored_animations = draw_model.animations;
+                let authored_animation_mode = draw_model.animation_mode;
                 let model_name_owned = draw_model.model_key;
                 if model_name_owned.trim().is_empty() {
                     // An empty key cannot be an exact Draw submission.
@@ -228,55 +376,17 @@ impl RenderPipeline {
                         } else {
                             let visibility = fow_visibility;
 
-                            let anim_frame = if !w3d_model.animations.is_empty()
-                                && w3d_model.hierarchy.is_some()
-                            {
-                                let obj_key = (object_id.0, draw_module_index);
-                                let want_index = animation_index_for_model_condition(
-                                    model_bits,
-                                    w3d_model.animations.len(),
+                            let (animation_index, anim_frame) = self
+                                .advance_authored_draw_animation(
+                                    object_id,
+                                    draw_module_index,
+                                    &w3d_model,
+                                    &authored_animations,
+                                    &authored_animation_mode,
+                                    delta_time,
                                 );
-                                let state =
-                                    self.animation_states.entry(obj_key).or_insert_with(|| {
-                                        let (num_frames, frame_rate) = w3d_model
-                                            .animation_metadata(want_index)
-                                            .unwrap_or((1, 30));
-                                        ObjectAnimationState {
-                                            animation_index: want_index,
-                                            current_frame: 0.0,
-                                            frame_rate: frame_rate as f32,
-                                            num_frames,
-                                        }
-                                    });
-                                if state.animation_index != want_index {
-                                    let (num_frames, frame_rate) =
-                                        w3d_model.animation_metadata(want_index).unwrap_or((1, 30));
-                                    state.animation_index = want_index;
-                                    state.current_frame = 0.0;
-                                    state.frame_rate = frame_rate as f32;
-                                    state.num_frames = num_frames;
-                                }
-                                if delta_time > 0.0 && delta_time < 1.0 {
-                                    state.current_frame += delta_time * state.frame_rate;
-                                    if state.num_frames > 1
-                                        && state.current_frame >= state.num_frames as f32
-                                    {
-                                        state.current_frame %= (state.num_frames - 1) as f32;
-                                    }
-                                }
-                                state.current_frame
-                            } else {
-                                0.0
-                            };
 
                             for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
-                                if !hlod_subobject_visible(
-                                    &mesh.name,
-                                    u.body_damage_state,
-                                    u.destroyed,
-                                ) {
-                                    continue;
-                                }
                                 let mut material = mesh.material.clone();
 
                                 if material.texture_name.is_none() {
@@ -327,15 +437,22 @@ impl RenderPipeline {
                                     }
                                 }
 
-                                // Mesh local transforms coming from WW3D hierarchy/HLOD data are in
-                                // source gameplay basis. If we axis-convert vertex payload at mesh build
-                                // time, local transforms must be converted into the same render basis.
-                                let mesh_local_transform = if mesh.vertices_in_render_space {
-                                    mesh.transform
-                                } else {
-                                    let axis = gameplay_to_render_axis_matrix();
-                                    axis * mesh.transform * axis.inverse()
+                                // HLOD rigid children resolve through the source-authored
+                                // `HLOD.Name.MeshName -> BoneIndex` record.  Unsupported
+                                // multi-LOD/aggregate content returns None and remains
+                                // intentionally non-rendering rather than drawing every group.
+                                let Some((mesh_local_transform, mesh_visible)) = w3d_model
+                                    .mesh_local_transform_and_visibility_for_animation(
+                                        mesh_idx,
+                                        animation_index,
+                                        anim_frame,
+                                    )
+                                else {
+                                    continue;
                                 };
+                                if !mesh_visible {
+                                    continue;
+                                }
                                 let mesh_local_transform = if transform_is_reasonable_for_mesh(
                                     mesh_local_transform,
                                 ) {
@@ -515,11 +632,10 @@ impl RenderPipeline {
                         }
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let material = mesh.material.clone();
-                            let mesh_local_transform = if mesh.vertices_in_render_space {
-                                mesh.transform
-                            } else {
-                                let axis = gameplay_to_render_axis_matrix();
-                                axis * mesh.transform * axis.inverse()
+                            let Some(mesh_local_transform) =
+                                w3d_model.mesh_local_transform_for_animation(mesh_idx, 0, 0.0)
+                            else {
+                                continue;
                             };
                             let mesh_local_transform =
                                 if transform_is_reasonable_for_mesh(mesh_local_transform) {
@@ -536,8 +652,7 @@ impl RenderPipeline {
                                 &material,
                                 Self::render_pass_for_material(&material),
                             );
-                            // Apply local mesh transform residual like unit path when needed.
-                            let _ = mesh_local_transform;
+                            render_item.set_mesh_local_transform(mesh_local_transform);
                             self.render_items.push(render_item);
                         }
                         alive_objects += 1;
@@ -937,28 +1052,6 @@ impl RenderPipeline {
                 deferred_model_load_budget,
             );
 
-            let flags = submission.condition_flags;
-            let body_damage = if flags
-                .contains(game_client::render_bridge::RenderConditionFlags::RUBBLE)
-            {
-                3
-            } else if flags
-                .contains(game_client::render_bridge::RenderConditionFlags::REALLY_DAMAGED)
-            {
-                2
-            } else if flags.contains(game_client::render_bridge::RenderConditionFlags::DAMAGED) {
-                1
-            } else {
-                0
-            };
-            let dying = flags.contains(game_client::render_bridge::RenderConditionFlags::RUBBLE);
-            let model_bits =
-                if flags.contains(game_client::render_bridge::RenderConditionFlags::MOVING) {
-                    1u128 << crate::game_logic::host_enum_table_residual::moving_model_bit()
-                } else {
-                    0
-                };
-
             match load_result {
                 RenderModelLoadResult::Ready(w3d_model) => {
                     if w3d_model.meshes.is_empty() {
@@ -987,41 +1080,35 @@ impl RenderPipeline {
                             }
                         }
                     } else {
-                        let anim_frame = if !w3d_model.animations.is_empty()
-                            && w3d_model.hierarchy.is_some()
-                        {
-                            let obj_key = (object_id.0, 0);
-                            let want_index = animation_index_for_model_condition(
-                                model_bits,
-                                w3d_model.animations.len(),
-                            );
-                            let state = self.animation_states.entry(obj_key).or_insert_with(|| {
-                                let (num_frames, frame_rate) =
-                                    w3d_model.animation_metadata(want_index).unwrap_or((1, 30));
-                                ObjectAnimationState {
-                                    animation_index: want_index,
-                                    current_frame: 0.0,
-                                    frame_rate: frame_rate as f32,
-                                    num_frames,
-                                }
-                            });
-                            if state.animation_index != want_index {
-                                let (num_frames, frame_rate) =
-                                    w3d_model.animation_metadata(want_index).unwrap_or((1, 30));
-                                state.animation_index = want_index;
-                                state.current_frame = 0.0;
-                                state.frame_rate = frame_rate as f32;
-                                state.num_frames = num_frames;
-                            }
-                            state.current_frame
-                        } else {
-                            0.0
-                        };
+                        // GameClient freezes its selected W3DModelDraw clip
+                        // and normalized frame fraction into the bridge
+                        // submission. Apply that exact state so raw W3D bit
+                        // channels govern HLOD children here too.
+                        let (animation_index, anim_frame) = Self::bridge_draw_animation(
+                            &w3d_model,
+                            submission.animation_name.as_deref(),
+                            submission.animation_time,
+                        );
 
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
-                            if !hlod_subobject_visible(&mesh.name, body_damage, dying) {
+                            let Some((mesh_local_transform, mesh_visible)) = w3d_model
+                                .mesh_local_transform_and_visibility_for_animation(
+                                    mesh_idx,
+                                    animation_index,
+                                    anim_frame,
+                                )
+                            else {
+                                continue;
+                            };
+                            if !mesh_visible {
                                 continue;
                             }
+                            let mesh_local_transform =
+                                if transform_is_reasonable_for_mesh(mesh_local_transform) {
+                                    mesh_local_transform
+                                } else {
+                                    Mat4::IDENTITY
+                                };
                             let mut item = RenderItem::new(
                                 object_id,
                                 model_name.clone(),
@@ -1034,6 +1121,7 @@ impl RenderPipeline {
                             item.distance = world_position.distance(camera_position);
                             item.set_fow_visibility(fow_vis);
                             item.animation_frame = anim_frame;
+                            item.set_mesh_local_transform(mesh_local_transform);
                             item.uv_offset_override =
                                 Self::mesh_uv_override_for_submission(&submission, &mesh.name);
                             self.render_items.push(item);
@@ -1199,58 +1287,6 @@ impl RenderPipeline {
     }
 }
 
-/// Pick W3D/HLOD clip from model-condition bits (not always clip 0).
-///
-/// Retail W3DModelDraw residual order: rubble/die → really-damaged → damaged
-/// → attacking → moving → idle. Extra clips are only selected when the model
-/// actually has them. Granny `.gr2` clips are **not** used
-/// ([`crate::graphics::granny_honesty::granny_decoder_available`] is false).
-fn animation_index_for_model_condition(model_bits: u128, anim_count: usize) -> usize {
-    if anim_count == 0 {
-        return 0;
-    }
-    use crate::game_logic::host_enum_table_residual::{
-        attacking_model_bit, damaged_model_bit, host_model_condition_has, moving_model_bit,
-        reallydamaged_model_bit, rubble_model_bit,
-    };
-    let has = |bit| host_model_condition_has(model_bits, bit);
-    if has(rubble_model_bit()) && anim_count > 4 {
-        return 4;
-    }
-    if has(reallydamaged_model_bit()) && anim_count > 3 {
-        return 3;
-    }
-    if has(damaged_model_bit()) && anim_count > 2 {
-        return 2;
-    }
-    if has(attacking_model_bit()) && anim_count > 2 {
-        return 2.min(anim_count - 1);
-    }
-    if has(moving_model_bit()) && anim_count > 1 {
-        return 1;
-    }
-    0
-}
-
-/// HLOD / W3DModelDraw hide-show: skip damaged/rubble subobjects unless that state is active.
-fn hlod_subobject_visible(mesh_name: &str, body_damage_state: u8, dying: bool) -> bool {
-    let n = mesh_name.to_ascii_lowercase();
-    let want_rubble = dying || body_damage_state >= 3;
-    let want_rd = body_damage_state == 2;
-    let want_d = body_damage_state == 1;
-    // Retail W3DModelDraw suffixes only — do not match _door / _default / forward.
-    if n.contains("rubble") || n.ends_with("_die") {
-        return want_rubble;
-    }
-    if n.ends_with("_rd") {
-        return want_rd || want_rubble;
-    }
-    if n.ends_with("_d") {
-        return want_d || want_rd || want_rubble;
-    }
-    true
-}
-
 /// True when the requested model is a real W3D key (not the diagnostic cube).
 fn real_w3d_name_resolved(model_name: &str) -> bool {
     let t = model_name.trim();
@@ -1262,17 +1298,47 @@ mod w3d_live_path_tests {
     use super::*;
 
     #[test]
-    fn moving_condition_selects_non_zero_clip_when_present() {
-        let moving_bit = crate::game_logic::host_enum_table_residual::moving_model_bit();
-        let bits = 1u128 << moving_bit;
-        assert_eq!(animation_index_for_model_condition(0, 2), 0);
-        assert_eq!(animation_index_for_model_condition(bits, 2), 1);
-        assert_eq!(animation_index_for_model_condition(bits, 1), 0);
-        let damaged = 1u128 << crate::game_logic::host_enum_table_residual::damaged_model_bit();
-        assert_eq!(animation_index_for_model_condition(damaged, 3), 2);
+    fn w3d_hlod_visibility_has_no_mesh_suffix_authority() {
+        let src = include_str!("pipeline_collect.rs");
+        // Assemble legacy identifiers so this source-level regression does
+        // not make its own negative assertion fail.
+        let suffix_visibility_helper = ["hlod", "subobject", "visible"].join("_");
+        let condition_clip_helper = ["animation", "index", "for", "model", "condition"].join("_");
         assert!(
-            !crate::graphics::granny_honesty::granny_decoder_available(),
-            "live mesh path is W3D/HLOD, not Granny SDK"
+            !src.contains(&format!("fn {suffix_visibility_helper}")),
+            "HLOD child visibility must come from source bit channels, never a mesh suffix"
+        );
+        assert!(
+            !src.contains(&format!("fn {condition_clip_helper}")),
+            "selected Draw-state animation identity must replace combat-bit clip guesses"
+        );
+        assert!(src.contains("mesh_local_transform_and_visibility_for_animation"));
+        assert!(src.contains("submission.animation_name.as_deref()"));
+        assert!(src.contains("submission.animation_time"));
+    }
+
+    #[test]
+    fn w3d_hlod_visibility_bridge_uses_frozen_animation_identity_and_fraction() {
+        let mut model = crate::assets::W3DModel::new("bridge_probe".to_string());
+        model.animations.push(crate::assets::W3dAnimation {
+            name: "BridgeClip".to_string(),
+            hierarchy_name: "BridgeHier".to_string(),
+            num_frames: 10,
+            frame_rate: 30,
+            channels: Vec::new(),
+            raw_visibility_channels: Vec::new(),
+            unsupported_visibility_pivots: Vec::new(),
+        });
+
+        assert_eq!(
+            RenderPipeline::bridge_draw_animation(&model, Some("bridgehier.bridgeclip"), 0.5,),
+            (Some(0), 4.5),
+            "the bridge fraction maps to the selected clip's source frame range"
+        );
+        assert_eq!(
+            RenderPipeline::bridge_draw_animation(&model, Some("different.clip"), 0.5),
+            (None, 0.0),
+            "an unresolved named clip must not substitute animation zero"
         );
     }
 
@@ -1283,27 +1349,5 @@ mod w3d_live_path_tests {
         assert!(!real_w3d_name_resolved(""));
         let src = include_str!("pipeline_collect.rs");
         assert!(src.contains("!real_w3d_name_resolved(model_name)"));
-        assert!(src.contains("animation_index_for_model_condition"));
-        assert!(src.contains("hlod_subobject_visible"));
-    }
-
-    #[test]
-    fn hlod_hides_damaged_subobject_when_pristine() {
-        assert!(hlod_subobject_visible("body", 0, false));
-        assert!(!hlod_subobject_visible("body_d", 0, false));
-        assert!(hlod_subobject_visible("body_d", 1, false));
-        assert!(!hlod_subobject_visible("body_rubble", 0, false));
-        assert!(hlod_subobject_visible("body_rubble", 3, false));
-        assert!(
-            hlod_subobject_visible("AmericaBarracks_Door", 0, false),
-            "_door must stay visible when pristine"
-        );
-        assert!(
-            hlod_subobject_visible("forward", 0, false),
-            "forward must stay visible when pristine"
-        );
-        assert!(hlod_subobject_visible("standard", 0, false));
-        assert!(hlod_subobject_visible("body_default", 0, false));
-        assert!(hlod_subobject_visible("body_deploy", 0, false));
     }
 }

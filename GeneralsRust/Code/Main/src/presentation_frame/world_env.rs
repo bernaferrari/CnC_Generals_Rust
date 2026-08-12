@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 /// Compact road segment for presentation-side road mesh bake.
 /// Coordinates match `RuntimeRoadSegment` world space (from/to as [x,y,z]).
@@ -263,13 +264,23 @@ pub struct PresentationWorldEnv {
     /// Bridge segments frozen for terrain-road bake.
     pub bridge_segments: Vec<PresentationBridgeSegment>,
     /// Full runtime heightmap freeze for terrain-visual bake (no live GameLogic).
-    pub runtime_heightmap: Option<PresentationRuntimeHeightmap>,
+    pub runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
     /// Terrain texture classes freeze for source-tile bake without live GameLogic.
     pub terrain_texture_classes: Vec<PresentationTerrainTextureClass>,
 }
 
 impl PresentationWorldEnv {
     pub fn from_logic(logic: &GameLogic) -> Self {
+        Self::from_logic_with_runtime_heightmap(logic, None)
+    }
+
+    /// Build a frame environment using an engine-owned full terrain freeze when
+    /// one is available. Direct builders retain the old one-shot fallback for
+    /// tests and tools which do not have an engine cache.
+    pub(crate) fn from_logic_with_runtime_heightmap(
+        logic: &GameLogic,
+        runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
         let (wmin, wmax) = logic.world_bounds();
         let meta = logic.last_parsed_map_settings();
         let heightmap_hint = logic
@@ -349,11 +360,16 @@ impl PresentationWorldEnv {
             .unwrap_or_default();
 
         #[cfg(feature = "game_client")]
-        let runtime_heightmap = logic
-            .terrain_heightmap_snapshot()
-            .map(|hm| PresentationRuntimeHeightmap::from_height_map(&hm));
+        let runtime_heightmap = runtime_heightmap.or_else(|| {
+            logic.terrain_heightmap_snapshot().map(|heightmap| {
+                Arc::new(PresentationRuntimeHeightmap::from_height_map(&heightmap))
+            })
+        });
         #[cfg(not(feature = "game_client"))]
-        let runtime_heightmap = None;
+        let runtime_heightmap = {
+            let _ = runtime_heightmap;
+            None
+        };
         let terrain_texture_classes: Vec<PresentationTerrainTextureClass> = logic
             .terrain_texture_classes_snapshot()
             .into_iter()

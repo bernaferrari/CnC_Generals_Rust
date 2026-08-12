@@ -620,6 +620,12 @@ pub struct CnCGameEngine {
 
     // Game state
     pub(crate) game_logic: GameLogic,
+    /// Map-lifetime immutable terrain payload shared by presentation frames.
+    ///
+    /// C++ keeps its `WorldHeightMap` alive in `W3DTerrainVisual` for the map
+    /// lifetime. This host cache mirrors that ownership boundary so handing a
+    /// frame to the render pipeline does not clone the full height/blend data.
+    pub(crate) presentation_terrain_cache: PresentationTerrainCache,
     /// Immutable presentation feed for client/render after last logic step.
     pub(crate) last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
     /// Wave 842: host-owned match mode residual set after a successful match

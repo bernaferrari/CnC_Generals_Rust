@@ -1123,6 +1123,7 @@ pub use super::host_live_presentation_env_seed_gameworld_residual_wave466::{
     residual_presentation_env_seed_gameworld_last_action,
     residual_presentation_env_seed_gameworld_ok,
     seed_presentation_env_frame_from_host_and_shadow,
+    seed_presentation_env_frame_from_host_and_shadow_with_runtime_heightmap,
     simulate_live_presentation_env_seed_gameworld_honesty,
     simulate_presentation_env_seed_gameworld_callsites,
     simulate_presentation_env_seed_gameworld_source, ResidualPresentationEnvSeedGameworldAction,

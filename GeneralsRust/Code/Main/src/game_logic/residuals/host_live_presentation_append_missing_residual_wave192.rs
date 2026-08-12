@@ -95,7 +95,10 @@ pub fn honesty_append_missing_api_source() -> bool {
 pub fn honesty_engine_append_after_overlay_source() -> bool {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 195: append/rebuild folded into build_for_engine helpers.
-    (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
+    (src.contains("build_for_engine(")
+        || src.contains("build_with_victory_for_engine(")
+        || src.contains("build_for_engine_with_runtime_heightmap(")
+        || src.contains("build_with_victory_for_engine_with_runtime_heightmap("))
         && src.contains("gameworld_appended")
         && crate::presentation_frame::PRESENTATION_FRAME_SRC
             .contains("append_missing_from_gameworld")

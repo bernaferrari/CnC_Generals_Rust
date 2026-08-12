@@ -24,6 +24,60 @@ pub enum AuthoredConditionModel {
     Named(String),
 }
 
+/// The exact `RenderObjClass::AnimMode` token retained from a source
+/// `W3DModelDraw` condition state.  `ModelConditionInfo::clear` defaults to
+/// `ONCE`; an unknown source token remains explicit so the renderer cannot
+/// substitute a guessed looping clip.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AuthoredDrawAnimationMode {
+    Manual,
+    Loop,
+    Once,
+    LoopPingPong,
+    LoopBackwards,
+    OnceBackwards,
+    Unsupported(String),
+}
+
+impl Default for AuthoredDrawAnimationMode {
+    fn default() -> Self {
+        Self::Once
+    }
+}
+
+impl AuthoredDrawAnimationMode {
+    fn parse(value: &str) -> Self {
+        let token = value
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        match token.as_str() {
+            "MANUAL" => Self::Manual,
+            "LOOP" => Self::Loop,
+            "ONCE" | "" => Self::Once,
+            "LOOP_PINGPONG" => Self::LoopPingPong,
+            "LOOP_BACKWARDS" => Self::LoopBackwards,
+            "ONCE_BACKWARDS" => Self::OnceBackwards,
+            _ => Self::Unsupported(token),
+        }
+    }
+}
+
+/// One source-authored `Animation` or `IdleAnimation` entry. C++ lowercases
+/// the animation identity before resolving its W3D asset and expands the same
+/// entry once per `timesToRepeat` value, so the vector retains source order and
+/// deliberate repeats.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawAnimation {
+    pub name: String,
+    pub is_idle: bool,
+    /// The second Animation token is used by C++ locomotion duration logic.
+    /// Keep it source-authored even though this bounded W3D visibility slice
+    /// does not yet drive locomotor timing from it.
+    pub distance_covered_token: Option<String>,
+}
+
 /// A single source-authored `DefaultConditionState`, `ConditionState`, or
 /// `TransitionState` block.  `condition_sets` retains the initial token list
 /// and each following `AliasConditionState` in source order.
@@ -33,6 +87,12 @@ pub struct DrawConditionStateDefinition {
     pub is_transition: bool,
     pub condition_sets: Vec<Vec<String>>,
     pub model: AuthoredConditionModel,
+    pub animations: Vec<AuthoredDrawAnimation>,
+    pub animation_mode: AuthoredDrawAnimationMode,
+    /// Parser-only counterpart of C++ `ANIMS_COPIED_FROM_DEFAULT_STATE`.
+    /// A state starts with Default's animations but its first Animation or
+    /// IdleAnimation field replaces that inherited list rather than appending.
+    animations_copied_from_default: bool,
 }
 
 impl DrawConditionStateDefinition {
@@ -42,6 +102,9 @@ impl DrawConditionStateDefinition {
             is_transition: false,
             condition_sets: vec![Vec::new()],
             model: AuthoredConditionModel::Unspecified,
+            animations: Vec::new(),
+            animation_mode: AuthoredDrawAnimationMode::Once,
+            animations_copied_from_default: false,
         }
     }
 
@@ -51,6 +114,9 @@ impl DrawConditionStateDefinition {
             is_transition: false,
             condition_sets: vec![condition_tokens],
             model: AuthoredConditionModel::Unspecified,
+            animations: Vec::new(),
+            animation_mode: AuthoredDrawAnimationMode::Once,
+            animations_copied_from_default: false,
         }
     }
 
@@ -60,6 +126,9 @@ impl DrawConditionStateDefinition {
             is_transition: true,
             condition_sets: vec![transition_tokens],
             model: AuthoredConditionModel::Unspecified,
+            animations: Vec::new(),
+            animation_mode: AuthoredDrawAnimationMode::Once,
+            animations_copied_from_default: false,
         }
     }
 
@@ -124,13 +193,21 @@ pub enum AuthoredConditionModelSelection {
 /// separate modules with independent animation state.  The vector returned by
 /// [`ObjectDefinition::select_draw_models_for_conditions`] remains in Object
 /// INI declaration order and deliberately retains duplicate model names.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuthoredDrawModel {
     /// Fixed-width snapshot identity for the source Draw module. This is not
     /// a process-local `usize`, so saved presentation frames remain portable
     /// across supported 32- and 64-bit Rust targets.
     pub module_index: u32,
     pub model_key: String,
+    /// The exact selected state's animation entries, including deliberate
+    /// repeated entries. Empty means C++ selected no state animation and the
+    /// HLOD must stay in its bind pose rather than borrow animation zero.
+    #[serde(default)]
+    pub animations: Vec<AuthoredDrawAnimation>,
+    /// Defaults to source `ANIM_MODE_ONCE` for legacy presentation frames.
+    #[serde(default)]
+    pub animation_mode: AuthoredDrawAnimationMode,
 }
 
 /// One source-authored `Behavior = ...` module, retained with its own block
@@ -287,10 +364,14 @@ pub struct WeaponSetDefinition {
 
 impl WeaponSetDefinition {
     fn active_conditions(&self) -> impl Iterator<Item = &str> {
-        self.conditions.iter().map(String::as_str).filter_map(|condition| {
-            let condition = condition.trim().trim_matches(',');
-            (!condition.is_empty() && !condition.eq_ignore_ascii_case("none")).then_some(condition)
-        })
+        self.conditions
+            .iter()
+            .map(String::as_str)
+            .filter_map(|condition| {
+                let condition = condition.trim().trim_matches(',');
+                (!condition.is_empty() && !condition.eq_ignore_ascii_case("none"))
+                    .then_some(condition)
+            })
     }
 
     /// C++'s normal no-flag WeaponSet row.
@@ -449,14 +530,21 @@ impl ObjectDefinition {
                 // valid retail data; fail closed instead of wrapping/aliasing.
                 Err(_) => return Some(Vec::new()),
             };
-            if let AuthoredConditionModelSelection::Model(model_key) =
-                module.select_model_for_conditions(condition_bits)
-            {
-                selected.push(AuthoredDrawModel {
-                    module_index,
-                    model_key,
-                });
-            }
+            let state = match module.selected_condition_state_for_conditions(condition_bits) {
+                Ok(Some(state)) => state,
+                // A source module exists but Main cannot faithfully select it.
+                // Do not partially render its siblings as a substitute state.
+                Ok(None) | Err(()) => return Some(Vec::new()),
+            };
+            let AuthoredConditionModel::Named(model_key) = &state.model else {
+                continue;
+            };
+            selected.push(AuthoredDrawModel {
+                module_index,
+                model_key: model_key.clone(),
+                animations: state.animations.clone(),
+                animation_mode: state.animation_mode.clone(),
+            });
         }
 
         found_selectable_module.then_some(selected)
@@ -467,10 +555,35 @@ impl DrawModuleDefinition {
     /// Match this one source-authored Draw module using the C++
     /// `SparseMatchFinder` ordering used by `W3DModelDraw`.
     fn select_model_for_conditions(&self, condition_bits: u128) -> AuthoredConditionModelSelection {
+        let Some(state) = self
+            .selected_condition_state_for_conditions(condition_bits)
+            .ok()
+            .flatten()
+        else {
+            return AuthoredConditionModelSelection::Unresolved;
+        };
+
+        match &state.model {
+            AuthoredConditionModel::Named(model) => {
+                AuthoredConditionModelSelection::Model(model.clone())
+            }
+            AuthoredConditionModel::None | AuthoredConditionModel::Unspecified => {
+                AuthoredConditionModelSelection::Suppressed
+            }
+        }
+    }
+
+    /// Select the entire source state so rendering can retain its exact
+    /// `Animation` / `IdleAnimation` records instead of later choosing an
+    /// arbitrary W3D clip from combat-condition heuristics.
+    fn selected_condition_state_for_conditions(
+        &self,
+        condition_bits: u128,
+    ) -> std::result::Result<Option<&DrawConditionStateDefinition>, ()> {
         let Some(ignored_bits) =
             ObjectDefinition::condition_tokens_mask(&self.ignored_condition_tokens)
         else {
-            return AuthoredConditionModelSelection::Unresolved;
+            return Err(());
         };
         let query_bits = condition_bits & !ignored_bits;
 
@@ -489,7 +602,7 @@ impl DrawModuleDefinition {
                     // before it can reach SparseMatchFinder.  A token our
                     // port does not understand must not silently discard a
                     // source-authored state and pick a different model.
-                    return AuthoredConditionModelSelection::Unresolved;
+                    return Err(());
                 };
                 let yes_match = (query_bits & yes_bits).count_ones();
                 let yes_extraneous = ((!query_bits) & yes_bits).count_ones();
@@ -503,15 +616,7 @@ impl DrawModuleDefinition {
             }
         }
 
-        match best_state.map(|state| &state.model) {
-            Some(AuthoredConditionModel::Named(model)) => {
-                AuthoredConditionModelSelection::Model(model.clone())
-            }
-            Some(AuthoredConditionModel::None | AuthoredConditionModel::Unspecified) => {
-                AuthoredConditionModelSelection::Suppressed
-            }
-            None => AuthoredConditionModelSelection::Unresolved,
-        }
+        Ok(best_state)
     }
 }
 
@@ -734,8 +839,8 @@ impl IniParser {
                     // Parse specific fields
                     let lower_key = key.to_lowercase();
 
-                    if let Some(set) = active_weapon_set
-                        .and_then(|index| obj.weapon_sets.get_mut(index))
+                    if let Some(set) =
+                        active_weapon_set.and_then(|index| obj.weapon_sets.get_mut(index))
                     {
                         match lower_key.as_str() {
                             "conditions" => {
@@ -776,6 +881,26 @@ impl IniParser {
                                 value,
                             );
                         }
+                        "animation" => Self::assign_draw_condition_animation(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            false,
+                        ),
+                        "idleanimation" => Self::assign_draw_condition_animation(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            true,
+                        ),
+                        "animationmode" => Self::assign_draw_condition_animation_mode(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                        ),
                         "draw" => {
                             obj.draw_module = Some(value.to_string());
                             obj.draw_modules
@@ -791,7 +916,8 @@ impl IniParser {
                             if let Some(module) = BehaviorModuleDefinition::parse(value) {
                                 obj.behavior_modules.push(module);
                                 active_behavior_module = obj.behavior_modules.len().checked_sub(1);
-                                active_behavior_depth = usize::from(active_behavior_module.is_some());
+                                active_behavior_depth =
+                                    usize::from(active_behavior_module.is_some());
                             } else {
                                 active_behavior_module = None;
                                 active_behavior_depth = 0;
@@ -1004,6 +1130,9 @@ impl IniParser {
                 .find(|candidate| candidate.is_default)
             {
                 state.model = default.model.clone();
+                state.animations = default.animations.clone();
+                state.animation_mode = default.animation_mode.clone();
+                state.animations_copied_from_default = true;
             }
         }
         module.condition_states.push(state);
@@ -1050,6 +1179,75 @@ impl IniParser {
             return;
         };
         state.set_model(value);
+    }
+
+    /// Preserve C++ `parseAnimation`: the first local Animation field clears
+    /// a list inherited from DefaultConditionState, lowercases the source
+    /// identity, and repeats a non-`None` entry at least once.
+    fn assign_draw_condition_animation(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+        is_idle: bool,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+
+        if state.animations_copied_from_default {
+            state.animations.clear();
+            state.animations_copied_from_default = false;
+        }
+
+        let mut tokens = value.split_whitespace();
+        let Some(name) = tokens.next() else {
+            return;
+        };
+        let distance_covered_token = tokens.next().map(str::to_string);
+        let times_to_repeat = tokens
+            .next()
+            .and_then(|token| token.parse::<i64>().ok())
+            .filter(|times| *times >= 1)
+            .and_then(|times| usize::try_from(times).ok())
+            .unwrap_or(1);
+
+        let name = name.to_ascii_lowercase();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            return;
+        }
+        let animation = AuthoredDrawAnimation {
+            name,
+            is_idle,
+            distance_covered_token,
+        };
+        state
+            .animations
+            .extend(std::iter::repeat(animation).take(times_to_repeat));
+    }
+
+    fn assign_draw_condition_animation_mode(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        state.animation_mode = AuthoredDrawAnimationMode::parse(value);
     }
 
     fn assign_model_name(obj: &mut ObjectDefinition, value: &str) {
@@ -1208,7 +1406,11 @@ End
         let module = definition
             .behavior_modules
             .iter()
-            .find(|module| module.class_name.eq_ignore_ascii_case("DeployStyleAIUpdate"))
+            .find(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("DeployStyleAIUpdate")
+            })
             .expect("DeployStyleAIUpdate module");
 
         assert_eq!(module.attribute("TurretTurnRate"), Some("80"));
@@ -1426,10 +1628,12 @@ End
                 AuthoredDrawModel {
                     module_index: 0,
                     model_key: "ProbeBody".to_string(),
+                    ..Default::default()
                 },
                 AuthoredDrawModel {
                     module_index: 2,
                     model_key: "ProbeDoor".to_string(),
+                    ..Default::default()
                 },
             ]),
             "each selected W3D module must remain distinct and preserve source order"
@@ -1442,13 +1646,84 @@ End
                 AuthoredDrawModel {
                     module_index: 0,
                     model_key: "ProbeBodyDamaged".to_string(),
+                    ..Default::default()
                 },
                 AuthoredDrawModel {
                     module_index: 2,
                     model_key: "ProbeDoorOpening".to_string(),
+                    ..Default::default()
                 },
             ]),
             "condition matching is independent for every authored Draw module"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_visibility_draw_states_retain_exact_animation_identity_and_inheritance() {
+        let ini_content = r#"
+Object DrawAnimationProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = ProbePristine
+      Animation = ProbeHier.ProbeIdle 0 2
+      AnimationMode = LOOP
+    End
+    ConditionState = DAMAGED
+      Model = ProbeDamaged
+    End
+    ConditionState = REALLYDAMAGED
+      Model = ProbeReallyDamaged
+      IdleAnimation = ProbeHier.ProbeIdleBackwards
+      AnimationMode = ONCE_BACKWARDS
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "draw_animation_probe.ini")
+            .expect("parse source Draw animation states");
+        let definition = parser
+            .get_definition("DrawAnimationProbe")
+            .expect("parsed Draw animation probe");
+
+        let pristine = definition
+            .select_draw_models_for_conditions(0)
+            .expect("select default draw state");
+        assert_eq!(pristine.len(), 1);
+        assert_eq!(pristine[0].animations.len(), 2);
+        assert!(pristine[0]
+            .animations
+            .iter()
+            .all(|animation| animation.name == "probehier.probeidle"));
+        assert_eq!(pristine[0].animation_mode, AuthoredDrawAnimationMode::Loop);
+
+        let damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
+            .expect("select inherited damaged draw state");
+        assert_eq!(damaged[0].model_key, "ProbeDamaged");
+        assert_eq!(
+            damaged[0].animations, pristine[0].animations,
+            "a ConditionState copies Default animations until it authors one"
+        );
+        assert_eq!(damaged[0].animation_mode, AuthoredDrawAnimationMode::Loop);
+
+        let really_damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("REALLYDAMAGED"))
+            .expect("select local IdleAnimation state");
+        assert_eq!(really_damaged[0].animations.len(), 1);
+        assert_eq!(
+            really_damaged[0].animations[0],
+            AuthoredDrawAnimation {
+                name: "probehier.probeidlebackwards".to_string(),
+                is_idle: true,
+                distance_covered_token: None,
+            },
+            "first local IdleAnimation replaces Default's repeated entries"
+        );
+        assert_eq!(
+            really_damaged[0].animation_mode,
+            AuthoredDrawAnimationMode::OnceBackwards
         );
     }
 
@@ -1631,8 +1906,7 @@ End
             Some("DozerMineDisarmingWeapon")
         );
         assert!(
-            definition.primary_weapon.is_none()
-                && !definition.attributes.contains_key("Weapon"),
+            definition.primary_weapon.is_none() && !definition.attributes.contains_key("Weapon"),
             "nested Weapon rows must not overwrite the legacy top-level view"
         );
     }
