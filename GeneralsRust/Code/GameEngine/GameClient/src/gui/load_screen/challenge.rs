@@ -1,6 +1,6 @@
 // Split from `gui/load_screen.rs` dump. Included by `load_screen/mod.rs`.
 
-fn initialize_challenge_windows(wm: &mut WindowManager) {
+fn initialize_challenge_windows(wm: &mut WindowManager, did_mem_pass: bool) {
     with_challenge_load_screen_state(|state| *state = ChallengeLoadScreenState::default());
     with_window_video_manager(|manager| manager.init());
 
@@ -31,32 +31,62 @@ fn initialize_challenge_windows(wm: &mut WindowManager) {
         hide_window(wm, name, true);
     }
 
-    if let Some((player, opponent)) = current_challenge_persona_text() {
-        let movie_label = current_challenge_movie_label();
+    let Some((player, opponent)) = current_challenge_persona_text() else {
+        return;
+    };
+    let movie_label = current_challenge_movie_label();
+    let voice_length = current_challenge_voice_length();
+    with_challenge_load_screen_state(|state| {
+        state.player = Some(player.clone());
+        state.opponent = Some(opponent.clone());
+        state.current_frame = 0;
+        state.postlude_audio_played = false;
+        state.ambient_loop_handle = 0;
+    });
+    if let Some(image) = player.portrait_large.as_deref() {
+        set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitLeft", 0, image, true);
+    }
+    if let Some(image) = opponent.portrait_large.as_deref() {
+        set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitRight", 0, image, true);
+    }
+
+    // C++ calls VideoPlayer::open even for an empty/missing movie label, then
+    // returns if the stream/buffer cannot be constructed. Do not preserve the
+    // former synthetic min-spec fallback: a missing authored background is a
+    // failed prelude, not a license to reveal portraits or start taunt/ambient.
+    let movie_label = movie_label.unwrap_or_default();
+    if !play_challenge_background_movie(
+        wm,
+        "ChallengeLoadScreen.wnd:ParentChallengeLoadScreen",
+        &movie_label,
+    ) {
+        // Matches C++'s video-buffer/open failure return: do not create a
+        // synthetic min-spec reveal or ambient/taunt audio.
         with_challenge_load_screen_state(|state| {
-            state.player = Some(player.clone());
-            state.opponent = Some(opponent.clone());
-            state.high_spec_prelude_active = movie_label.is_some();
-            state.current_frame = 0;
-            state.postlude_audio_played = false;
-            state.ambient_loop_handle = 0;
+            state.prelude_state = LoadScreenPreludeState::Failed;
         });
-        if let Some(image) = player.portrait_large.as_deref() {
-            set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitLeft", 0, image, true);
-        }
-        if let Some(image) = opponent.portrait_large.as_deref() {
-            set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitRight", 0, image, true);
-        }
-        if let Some(movie_label) = movie_label {
-            play_challenge_movie(
-                wm,
-                "ChallengeLoadScreen.wnd:ParentChallengeLoadScreen",
-                &movie_label,
-            );
+        return;
+    }
+
+    let delay = campaign_voice_delay_duration(voice_length);
+    let deadline = Instant::now().checked_add(delay);
+    with_challenge_load_screen_state(|state| {
+        state.background_movie_label = movie_label;
+        state.high_spec_prelude_active = did_mem_pass;
+        state.prelude_state = if did_mem_pass {
+            LoadScreenPreludeState::Movie
         } else {
-            activate_challenge_pieces_min_spec_windows(wm);
-            finish_challenge_load_screen_audio_postlude();
-        }
+            LoadScreenPreludeState::VoiceDelay
+        };
+        state.prelude_duration = delay;
+        state.prelude_deadline = deadline;
+    });
+
+    if !did_mem_pass {
+        // C++ seeks/renders the final background frame, then reveals the
+        // min-spec portrait composition while its authored VoiceLength delay
+        // continues to pump WindowManager/display.
+        activate_challenge_pieces_min_spec_windows(wm);
     }
 }
 
@@ -77,24 +107,137 @@ pub fn activate_challenge_load_screen_min_spec() {
     with_window_manager(activate_challenge_pieces_min_spec_windows);
 }
 
-fn update_challenge_load_screen_prelude(wm: &mut WindowManager) {
-    let frame = with_challenge_load_screen_state(|state| {
-        if !state.high_spec_prelude_active {
-            return None;
+fn challenge_prelude_outcome(state: LoadScreenPreludeState) -> LoadScreenPreludeOutcome {
+    match state {
+        LoadScreenPreludeState::NotRequired => LoadScreenPreludeOutcome::NotRequired,
+        LoadScreenPreludeState::Complete => LoadScreenPreludeOutcome::Complete,
+        LoadScreenPreludeState::Failed => LoadScreenPreludeOutcome::Failed,
+        LoadScreenPreludeState::Skipped => LoadScreenPreludeOutcome::Skipped,
+        LoadScreenPreludeState::Movie | LoadScreenPreludeState::VoiceDelay => {
+            LoadScreenPreludeOutcome::Complete
         }
-        state.current_frame += 1;
-        Some(state.current_frame)
-    });
+    }
+}
 
-    if let Some(frame) = frame {
+fn complete_challenge_load_screen_prelude(outcome: LoadScreenPreludeOutcome) {
+    let should_play_audio = with_challenge_load_screen_state(|state| {
+        if state.prelude_state == LoadScreenPreludeState::Failed {
+            return false;
+        }
+        state.prelude_state = match outcome {
+            LoadScreenPreludeOutcome::Complete => LoadScreenPreludeState::Complete,
+            LoadScreenPreludeOutcome::Skipped => LoadScreenPreludeState::Skipped,
+            LoadScreenPreludeOutcome::Failed => LoadScreenPreludeState::Failed,
+            LoadScreenPreludeOutcome::NotRequired => LoadScreenPreludeState::NotRequired,
+        };
+        state.high_spec_prelude_active = false;
+        state.background_movie_label.clear();
+        state.prelude_deadline = None;
+        matches!(
+            outcome,
+            LoadScreenPreludeOutcome::Complete | LoadScreenPreludeOutcome::Skipped
+        )
+    });
+    if should_play_audio {
+        finish_challenge_load_screen_audio_postlude();
+    }
+}
+
+fn activate_challenge_pieces_through_windows(
+    wm: &mut WindowManager,
+    previous_frame: i32,
+    frame: i32,
+) {
+    if frame <= previous_frame {
+        return;
+    }
+    for frame in (previous_frame + 1)..=frame {
         activate_challenge_pieces_frame_windows(wm, frame);
-        with_window_video_manager(|manager| manager.update());
+    }
+}
+
+fn advance_challenge_load_screen_prelude(wm: &mut WindowManager) -> LoadScreenPreludeStep {
+    let (prelude_state, movie_label, current_frame, deadline, duration) =
+        with_challenge_load_screen_state(|state| {
+            (
+                state.prelude_state,
+                state.background_movie_label.clone(),
+                state.current_frame,
+                state.prelude_deadline,
+                state.prelude_duration,
+            )
+        });
+
+    match prelude_state {
+        LoadScreenPreludeState::NotRequired
+        | LoadScreenPreludeState::Complete
+        | LoadScreenPreludeState::Failed
+        | LoadScreenPreludeState::Skipped => {
+            LoadScreenPreludeStep::Finished(challenge_prelude_outcome(prelude_state))
+        }
+        LoadScreenPreludeState::Movie => {
+            let advance = advance_challenge_background_movie(&movie_label);
+            let Some(advance) = advance else {
+                // A successfully-opened one-shot disappearing before an
+                // observed frame is still a completed/skipped presentation,
+                // not the open failure handled during initialization.
+                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete);
+                return LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::Complete);
+            };
+
+            let frame = advance.frame_index.max(current_frame);
+            if advance.frame_index > current_frame {
+                activate_challenge_pieces_through_windows(wm, current_frame, frame);
+                with_challenge_load_screen_state(|state| state.current_frame = frame);
+            }
+            if advance.completed {
+                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete);
+                LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::Complete)
+            } else {
+                LoadScreenPreludeStep::Pending(LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL)
+            }
+        }
+        LoadScreenPreludeState::VoiceDelay => {
+            let now = Instant::now();
+            let completed = deadline.map(|deadline| now >= deadline).unwrap_or(true);
+            if !duration.is_zero() {
+                let start = deadline
+                    .and_then(|deadline| deadline.checked_sub(duration))
+                    .unwrap_or(now);
+                let elapsed = now.saturating_duration_since(start);
+                let progress =
+                    (30.0 * elapsed.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 30.0);
+                set_progress_window(wm, "ChallengeLoadScreen.wnd:ProgressLoad", progress);
+            }
+            if completed {
+                complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Complete);
+                LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::Complete)
+            } else {
+                LoadScreenPreludeStep::Pending(LOAD_SCREEN_PRELUDE_MIN_SPEC_UPDATE_INTERVAL)
+            }
+        }
+    }
+}
+
+fn skip_challenge_load_screen_prelude() -> LoadScreenPreludeOutcome {
+    let state = with_challenge_load_screen_state(|state| state.prelude_state);
+    if matches!(
+        state,
+        LoadScreenPreludeState::Movie | LoadScreenPreludeState::VoiceDelay
+    ) {
+        complete_challenge_load_screen_prelude(LoadScreenPreludeOutcome::Skipped);
+        LoadScreenPreludeOutcome::Skipped
+    } else {
+        challenge_prelude_outcome(state)
     }
 }
 
 fn finish_challenge_load_screen_audio_postlude() {
     let postlude = with_challenge_load_screen_state(|state| {
-        if state.postlude_audio_played {
+        // C++ returns from init when the background stream/buffer cannot be
+        // created. A later generic 100% map-progress callback must not turn
+        // that failed screen into a taunt/ambient audio path.
+        if state.postlude_audio_played || state.prelude_state == LoadScreenPreludeState::Failed {
             return None;
         }
         let taunt = {
@@ -102,7 +245,6 @@ fn finish_challenge_load_screen_audio_postlude() {
             challenge_taunt_sound(opponent, challenge_taunt_seed()).map(str::to_string)
         };
         state.postlude_audio_played = true;
-        state.high_spec_prelude_active = false;
         Some(taunt)
     });
 
@@ -118,9 +260,19 @@ fn finish_challenge_load_screen_audio_postlude() {
     });
 }
 
+fn pump_challenge_load_screen_audio() {
+    if let Some(audio) = TheAudio::get() {
+        audio.update();
+    }
+}
+
 fn reset_challenge_load_screen_audio_state() {
     let ambient_handle = with_challenge_load_screen_state(|state| {
         let handle = state.ambient_loop_handle;
+        state.prelude_state = LoadScreenPreludeState::NotRequired;
+        state.prelude_deadline = None;
+        state.prelude_duration = Duration::ZERO;
+        state.background_movie_label.clear();
         state.high_spec_prelude_active = false;
         state.current_frame = 0;
         state.postlude_audio_played = false;
@@ -169,12 +321,12 @@ fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
             }
         }
         FRAME_PORTRAITS_START => {
-            play_challenge_movie(
+            let _ = play_challenge_movie(
                 wm,
                 "ChallengeLoadScreen.wnd:PortraitMovieLeft",
                 &player.portrait_movie_left,
             );
-            play_challenge_movie(
+            let _ = play_challenge_movie(
                 wm,
                 "ChallengeLoadScreen.wnd:PortraitMovieRight",
                 &opponent.portrait_movie_right,
@@ -195,7 +347,7 @@ fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
         FRAME_VS_ANIM_START => {
             hide_window(wm, "ChallengeLoadScreen.wnd:VersusBackdrop", false);
             hide_window(wm, "ChallengeLoadScreen.wnd:OverlayVs", false);
-            play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
+            let _ = play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
             play_audio_event("Taunts_GCAnnouncer12");
         }
         FRAME_RIGHT_VOICE => {
@@ -290,7 +442,7 @@ fn activate_challenge_pieces_min_spec_windows(wm: &mut WindowManager) {
     hide_window(wm, "ChallengeLoadScreen.wnd:CircleAlphaInner", false);
     hide_window(wm, "ChallengeLoadScreen.wnd:VersusBackdrop", false);
     hide_window(wm, "ChallengeLoadScreen.wnd:OverlayVs", false);
-    play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
+    let _ = play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
 }
 
 fn set_challenge_bio_entry_text(
@@ -337,19 +489,4 @@ fn update_teletype_text(
     current.push(next_char);
     let _ = window.set_text(&current);
     current_text_pos + 1
-}
-
-fn play_challenge_movie(wm: &mut WindowManager, window_name: &str, movie_name: &str) {
-    if movie_name.is_empty() {
-        return;
-    }
-    if let Some(window) = wm.find_window_by_name(window_name) {
-        with_window_video_manager(|manager| {
-            manager.play_movie(
-                window,
-                movie_name.to_string(),
-                WindowVideoPlayType::ShowLastFrame,
-            )
-        });
-    }
 }

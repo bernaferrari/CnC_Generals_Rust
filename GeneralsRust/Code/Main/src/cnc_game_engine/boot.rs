@@ -371,6 +371,7 @@ impl CnCGameEngine {
             control_bar: game_client::gui::control_bar::ControlBar::new(),
 
             game_logic,
+            presentation_terrain_cache: PresentationTerrainCache::default(),
             last_presentation_frame: None,
             host_match_game_mode: None,
             host_match_map_name: None,

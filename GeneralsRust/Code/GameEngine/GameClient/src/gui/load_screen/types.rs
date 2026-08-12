@@ -13,6 +13,18 @@ const FRAME_VS_ANIM_START: i32 = 98;
 const FRAME_RIGHT_VOICE: i32 = 140;
 const TELETYPE_UPDATE_FREQ: i32 = 2;
 const SHELL_GAME_LEGAL_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
+// C++ runs the campaign/Challenge prelude synchronously before map work.  Rust
+// must retain a finite escape hatch when a video backend never becomes ready;
+// otherwise this non-event-loop pump could livelock the UI thread forever.
+const LOAD_SCREEN_PRELUDE_MAX_PUMPS: usize = 4_096;
+#[cfg(not(test))]
+const LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL: Duration = Duration::from_millis(1);
+#[cfg(test)]
+const LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL: Duration = Duration::ZERO;
+#[cfg(not(test))]
+const LOAD_SCREEN_PRELUDE_MIN_SPEC_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
+#[cfg(test)]
+const LOAD_SCREEN_PRELUDE_MIN_SPEC_UPDATE_INTERVAL: Duration = Duration::ZERO;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadScreenGameMode {
@@ -84,6 +96,46 @@ pub struct LoadScreenSlotInitContext {
     pub visible: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoadScreenPreludeState {
+    NotRequired,
+    Movie,
+    VoiceDelay,
+    Complete,
+    Failed,
+    Skipped,
+}
+
+impl Default for LoadScreenPreludeState {
+    fn default() -> Self {
+        Self::NotRequired
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadScreenPreludeOutcome {
+    NotRequired,
+    Complete,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoadScreenPreludeStep {
+    Pending(Duration),
+    Finished(LoadScreenPreludeOutcome),
+}
+
+/// One observed advance of the authored Challenge background movie.  The
+/// explicit completion bit preserves the final frame after WindowVideoManager
+/// removes a one-shot movie from its active table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LoadScreenMovieAdvance {
+    frame_index: i32,
+    frame_count: i32,
+    completed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MultiplayerLoadScreenState {
     player_lookup: [i32; MAX_LOAD_SCREEN_SLOTS],
@@ -130,6 +182,9 @@ struct SinglePlayerLoadScreenState {
     current_objective_width_offset: i32,
     current_objective_line_character: usize,
     finished_objective_text: bool,
+    prelude_state: LoadScreenPreludeState,
+    prelude_deadline: Option<Instant>,
+    prelude_duration: Duration,
     movie_prelude_active: bool,
     movie_label: String,
     briefing_voice_played: bool,
@@ -156,6 +211,11 @@ static SINGLE_PLAYER_MOVIE_PLAY_HOOK: OnceLock<Mutex<Option<SinglePlayerMoviePla
 #[cfg(test)]
 static SINGLE_PLAYER_MOVIE_PLAYING_HOOK: OnceLock<Mutex<Option<SinglePlayerMoviePlayHook>>> =
     OnceLock::new();
+#[cfg(test)]
+static CHALLENGE_MOVIE_PLAY_HOOK: OnceLock<Mutex<Option<ChallengeMoviePlayHook>>> = OnceLock::new();
+#[cfg(test)]
+static CHALLENGE_MOVIE_ADVANCE_HOOK: OnceLock<Mutex<Option<ChallengeMovieAdvanceHook>>> =
+    OnceLock::new();
 
 type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
@@ -164,6 +224,11 @@ type LoadScreenPresentationPump = Rc<dyn Fn() + 'static>;
 type LoadScreenFinishUpdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 #[cfg(test)]
 type SinglePlayerMoviePlayHook = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
+#[cfg(test)]
+type ChallengeMoviePlayHook = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
+#[cfg(test)]
+type ChallengeMovieAdvanceHook =
+    Arc<dyn Fn(&str) -> Option<LoadScreenMovieAdvance> + Send + Sync + 'static>;
 
 thread_local! {
     static LOAD_SCREEN_PRESENTATION_PUMP: RefCell<Option<LoadScreenPresentationPump>> =
@@ -187,6 +252,10 @@ struct ChallengePersonaText {
 struct ChallengeLoadScreenState {
     player: Option<ChallengePersonaText>,
     opponent: Option<ChallengePersonaText>,
+    prelude_state: LoadScreenPreludeState,
+    prelude_deadline: Option<Instant>,
+    prelude_duration: Duration,
+    background_movie_label: String,
     high_spec_prelude_active: bool,
     current_frame: i32,
     postlude_audio_played: bool,
@@ -247,7 +316,10 @@ impl Default for LoadScreenInitContext {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 0,
-            shell_game_did_mem_pass: true,
+            // This field predates campaign preload support, but it is the
+            // shared C++ GameLODManager::didMemPass result for every load
+            // screen that needs the high-spec movie gate.
+            shell_game_did_mem_pass: game_engine::common::game_lod::did_mem_pass(),
             map_name: None,
             start_positions: Vec::new(),
             slots: Vec::new(),

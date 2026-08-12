@@ -832,15 +832,11 @@ impl CnCGameEngine {
                 if let Some(team) = team {
                     let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
                         frame
-                                    .objects
-                                    .iter()
-                                    .filter(|o| {
-                                        o.team == team
-                                            && !o.destroyed
-                                            && o.can_toggle_overcharge
-                                    })
-                                    .map(|o| o.id)
-                                    .next()
+                            .objects
+                            .iter()
+                            .filter(|o| o.team == team && !o.destroyed && o.can_toggle_overcharge)
+                            .map(|o| o.id)
+                            .next()
                     } else {
                         // Presentation required (no live get_objects dual-read).
                         None

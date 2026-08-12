@@ -2238,14 +2238,37 @@ impl GameLogic {
     /// map; it is deliberately not an alias for the fallback name.
     #[inline]
     pub fn load_map_or_fallback(&mut self, map_name: &str, fallback: &str) -> Option<String> {
-        if self.load_map(map_name) && self.map_loaded {
+        self.load_map_or_fallback_with_progress(map_name, fallback, |_progress, _phase| {})
+    }
+
+    /// Load a requested map, then an explicit fallback, while exposing the
+    /// real map-load milestones from each attempt. The fallback order and
+    /// successful-tail requirement intentionally match `load_map_or_fallback`.
+    #[inline]
+    pub fn load_map_or_fallback_with_progress<F>(
+        &mut self,
+        map_name: &str,
+        fallback: &str,
+        mut report_progress: F,
+    ) -> Option<String>
+    where
+        F: FnMut(f32, &str),
+    {
+        if self.load_map_with_progress(map_name, |progress, phase| report_progress(progress, phase))
+            && self.map_loaded
+        {
             return Some(self.map_name.clone());
         }
 
         // Do not pretend a second attempt occurred when the requested identity
         // already was the fallback. More importantly, never report a fallback
         // name unless that attempt really reached the successful load tail.
-        if map_name != fallback && self.load_map(fallback) && self.map_loaded {
+        if map_name != fallback
+            && self.load_map_with_progress(fallback, |progress, phase| {
+                report_progress(progress, phase)
+            })
+            && self.map_loaded
+        {
             return Some(self.map_name.clone());
         }
 

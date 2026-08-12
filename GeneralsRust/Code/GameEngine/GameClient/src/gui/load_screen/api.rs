@@ -106,6 +106,72 @@ pub fn init_load_screen(kind: LoadScreenKind, context: &LoadScreenInitContext) -
     })
 }
 
+/// Run the C++ campaign/Challenge `LoadScreen::init` prelude before the map
+/// initializer starts.  This deliberately pumps only the already-installed
+/// WindowManager/display callback and FP mode; it never re-enters winit or the
+/// platform event loop from a synchronous map-start call.
+pub fn run_load_screen_prelude(kind: LoadScreenKind) -> LoadScreenPreludeOutcome {
+    run_load_screen_prelude_with_limit(kind, LOAD_SCREEN_PRELUDE_MAX_PUMPS)
+}
+
+fn run_load_screen_prelude_with_limit(
+    kind: LoadScreenKind,
+    max_pumps: usize,
+) -> LoadScreenPreludeOutcome {
+    if !matches!(
+        kind,
+        LoadScreenKind::SinglePlayer | LoadScreenKind::Challenge
+    ) {
+        return LoadScreenPreludeOutcome::NotRequired;
+    }
+
+    let max_pumps = max_pumps.max(1);
+    for pump_index in 0..max_pumps {
+        clear_load_screen_cursor_tooltip();
+        let mut step = with_window_manager(|wm| match kind {
+            LoadScreenKind::SinglePlayer => advance_single_player_load_screen_prelude(wm),
+            LoadScreenKind::Challenge => advance_challenge_load_screen_prelude(wm),
+            _ => LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::NotRequired),
+        });
+
+        // C++ treats an inactive game window as an immediate movie-loop exit.
+        // The Rust host owns focus outside GameClient, so its bounded guard is
+        // the equivalent safe terminal path when a decoder never completes.
+        if matches!(step, LoadScreenPreludeStep::Pending(_)) && pump_index + 1 == max_pumps {
+            step = with_window_manager(|wm| match kind {
+                LoadScreenKind::SinglePlayer => {
+                    LoadScreenPreludeStep::Finished(skip_single_player_load_screen_prelude(wm))
+                }
+                LoadScreenKind::Challenge => {
+                    LoadScreenPreludeStep::Finished(skip_challenge_load_screen_prelude())
+                }
+                _ => LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::NotRequired),
+            });
+        }
+
+        // This is the exact safe subset of C++ LoadScreen::update ordering:
+        // window update → registered display update/draw → setFPMode.
+        finish_load_screen_update();
+        if kind == LoadScreenKind::Challenge {
+            // C++ ChallengeLoadScreen additionally advances audio after its
+            // display draw during the blocking prelude.
+            pump_challenge_load_screen_audio();
+        }
+
+        match step {
+            LoadScreenPreludeStep::Finished(outcome) => return outcome,
+            LoadScreenPreludeStep::Pending(interval) if !interval.is_zero() => {
+                std::thread::sleep(interval);
+            }
+            LoadScreenPreludeStep::Pending(_) => {}
+        }
+    }
+
+    // `max(1)` plus the forced-skip branch above makes this unreachable, but
+    // retain a fail-closed terminal result if the loop is ever refactored.
+    LoadScreenPreludeOutcome::Skipped
+}
+
 pub fn load_screen_init_context_from_game_info(
     game_info: &crate::game_network::GameInfo,
 ) -> LoadScreenInitContext {
@@ -251,9 +317,9 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
                 "SinglePlayerLoadScreen.wnd:Percent",
                 &format!("{}%", percent as i32),
             );
-            let _ = update_single_player_load_screen_movie_prelude(wm);
+            let _ = advance_single_player_load_screen_prelude(wm);
         } else if kind == LoadScreenKind::Challenge {
-            update_challenge_load_screen_prelude(wm);
+            let _ = advance_challenge_load_screen_prelude(wm);
             if raw_percent >= 100.0 {
                 finish_challenge_load_screen_audio_postlude();
             }

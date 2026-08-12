@@ -231,18 +231,25 @@ impl Snapshotable for Player {
             }
         }
 
-        // AI player data. C++ writes a presence bool, then the AIPlayer/AISkirmishPlayer snapshot.
+        // AI player data.  C++ writes a presence bool, then the
+        // AIPlayer/AISkirmishPlayer snapshot.  The controller belongs to the
+        // already-initialized map/player graph, so a load must never invent a
+        // controller merely to consume bytes.
         {
             let player_id = self.player_index as u32;
-            let mut ai_present = if xfer.get_xfer_mode() == XferMode::Save {
-                crate::ai::integration::with_ai_integration(|manager| {
-                    manager.has_ai_player(player_id)
-                })
-                .unwrap_or(false)
-            } else {
-                false
-            };
+            let runtime_ai_present = crate::ai::integration::with_ai_integration(|manager| {
+                manager.has_ai_player(player_id)
+            })
+            .unwrap_or(false);
+            let mut ai_present = runtime_ai_present;
             xfer.xfer_bool(&mut ai_present).map_err(|e| e.to_string())?;
+
+            if ai_present != runtime_ai_present {
+                return Err(format!(
+                    "Player::xfer - AI presence mismatch for player {}",
+                    player_id
+                ));
+            }
 
             if ai_present {
                 let xfer_result = crate::ai::integration::with_ai_integration_mut(|manager| {
@@ -252,20 +259,6 @@ impl Snapshotable for Player {
                 match xfer_result {
                     Some(Ok(())) => {}
                     Some(Err(err)) => return Err(err),
-                    None if xfer.get_xfer_mode() == XferMode::Load => {
-                        log::warn!(
-                            "Player::xfer - consuming AI snapshot for player {} without integration manager",
-                            player_id
-                        );
-                        if self.is_skirmish_ai {
-                            let mut ai_player =
-                                crate::ai::skirmish_player::AISkirmishPlayer::new(player_id);
-                            ai_player.xfer(xfer);
-                        } else {
-                            let mut ai_player = crate::ai::ai_player::AIPlayer::new(player_id);
-                            ai_player.xfer(xfer);
-                        }
-                    }
                     None => {
                         return Err(format!(
                             "Player::xfer - AI integration manager unavailable for player {}",
@@ -278,16 +271,14 @@ impl Snapshotable for Player {
 
         // Resource gathering manager
         {
-            let has_rgm = self.resource_manager.is_some();
-            let mut rgm_present = has_rgm;
+            let runtime_rgm_present = self.resource_manager.is_some();
+            let mut rgm_present = runtime_rgm_present;
             xfer.xfer_bool(&mut rgm_present)
                 .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Load {
-                self.resource_manager = if rgm_present {
-                    Some(ResourceGatheringManager::new())
-                } else {
-                    None
-                };
+            if rgm_present != runtime_rgm_present {
+                return Err(
+                    "Player::xfer - resource gathering manager presence mismatch".to_string(),
+                );
             }
             if let Some(manager) = self.resource_manager.as_mut() {
                 manager.xfer(xfer)?;
@@ -296,16 +287,12 @@ impl Snapshotable for Player {
 
         // Tunnel tracker
         {
-            let has_tunnel = self.tunnel_tracker.is_some();
-            let mut tunnel_present = has_tunnel;
+            let runtime_tunnel_present = self.tunnel_tracker.is_some();
+            let mut tunnel_present = runtime_tunnel_present;
             xfer.xfer_bool(&mut tunnel_present)
                 .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Load {
-                self.tunnel_tracker = if tunnel_present {
-                    Some(TunnelTracker::new())
-                } else {
-                    None
-                };
+            if tunnel_present != runtime_tunnel_present {
+                return Err("Player::xfer - tunnel tracker presence mismatch".to_string());
             }
             if let Some(tracker) = self.tunnel_tracker.as_mut() {
                 tracker.xfer(xfer)?;

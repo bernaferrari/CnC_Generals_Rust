@@ -1131,7 +1131,8 @@ mod tests {
             Some(-1),
         )
         .expect("ordinary FIRE_WEAPON translates");
-        let HostControlBarGenericTargetAction::Weapon(ordinary_weapon) = spoofed_name_without_option
+        let HostControlBarGenericTargetAction::Weapon(ordinary_weapon) =
+            spoofed_name_without_option
         else {
             panic!("ordinary FIRE_WEAPON remains a weapon command");
         };

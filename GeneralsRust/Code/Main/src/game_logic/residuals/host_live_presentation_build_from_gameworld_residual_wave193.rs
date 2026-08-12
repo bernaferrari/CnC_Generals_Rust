@@ -94,7 +94,10 @@ pub fn honesty_build_from_gameworld_api_source() -> bool {
 pub fn honesty_engine_presentation_from_gameworld_opt_in_source() -> bool {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 195: engine presentation helpers fold rebuild; status still exports rebuilt.
-    (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
+    (src.contains("build_for_engine(")
+        || src.contains("build_with_victory_for_engine(")
+        || src.contains("build_for_engine_with_runtime_heightmap(")
+        || src.contains("build_with_victory_for_engine_with_runtime_heightmap("))
         && src.contains("gameworld_rebuilt")
         && src.contains("gameworld_rebuilt=")
 }

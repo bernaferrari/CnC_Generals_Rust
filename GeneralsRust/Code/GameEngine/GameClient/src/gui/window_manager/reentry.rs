@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 
 use crate::gui::game_window::*;
+use crate::gui::load_screen::{LoadScreenPreludeOutcome, LoadScreenPreludeStep};
 use crate::gui::shell::get_shell;
 use crate::gui::w3d_gadget_draw::{
     w3d_main_menu_button_drop_shadow_draw, w3d_main_menu_random_text_draw,
@@ -213,6 +214,10 @@ impl_reentry_fallback! {
     WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)> => {
         Err(WindowError::GeneralFailure)
     },
+    // A nested campaign/Challenge prelude cannot safely borrow the WindowManager
+    // again. Finish it fail-closed so the synchronous map-start caller neither
+    // fabricates a frame advance nor spins while the outer UI callback owns it.
+    LoadScreenPreludeStep => LoadScreenPreludeStep::Finished(LoadScreenPreludeOutcome::Skipped),
 }
 
 /// Known types that have no safe dummy. Re-entry panics rather than inventing

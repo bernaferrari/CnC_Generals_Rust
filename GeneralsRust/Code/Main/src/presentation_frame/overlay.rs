@@ -195,6 +195,7 @@ impl PresentationFrame {
                 (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
                     module_index: 0,
                     model_key: fallback_model_key.clone(),
+                    ..Default::default()
                 });
             let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
                 &ent.template.name,
@@ -1338,6 +1339,7 @@ impl PresentationFrame {
             (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
                 module_index: 0,
                 model_key: fallback_model_key,
+                ..Default::default()
             });
         let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
             &ent.template.name,
@@ -2076,6 +2078,53 @@ impl PresentationFrame {
         frame
     }
 
+    /// Engine-only GameWorld roster build retaining the revision-frozen terrain
+    /// payload from the host presentation cache.
+    pub(crate) fn build_from_gameworld_with_runtime_heightmap(
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        local_player_id: u32,
+        host: Option<&GameLogic>,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
+        let mut frame = if let Some(logic) = host {
+            Self::build_from_logic_with_runtime_heightmap(
+                logic,
+                local_player_id,
+                runtime_heightmap.clone(),
+            )
+        } else {
+            // A no-host shell frame cannot reuse a host terrain payload.
+            let mut f = Self::build_from_logic_with_runtime_heightmap(
+                &GameLogic::new(),
+                local_player_id,
+                None,
+            );
+            f.objects.clear();
+            f.events.clear();
+            f
+        };
+        let host_n = frame.objects.len();
+        let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+        // Wave 838: keep host objects when shadow yields nothing.
+        if gw_n == 0 && host_n > 0 {
+            if let Some(logic) = host {
+                frame = Self::build_from_logic_with_runtime_heightmap(
+                    logic,
+                    local_player_id,
+                    runtime_heightmap,
+                );
+                let _ = frame.overlay_gameworld_shadow(shadow);
+            }
+        }
+        // Wave 498: host FX residual survives GameWorld object rebuild.
+        if let Some(logic) = host {
+            let _ = frame.overlay_host_fx_residual(logic);
+        }
+        // Wave 500: object FX residual names → particle list after host FX stamp.
+        let _ = frame.append_object_residual_fx_particles();
+        frame
+    }
+
     /// Standard engine presentation build (Wave 195).
     ///
     /// When a live `GameWorldShadow` is present and
@@ -2105,6 +2154,41 @@ impl PresentationFrame {
         }
     }
 
+    /// Engine-only presentation build retaining one cached full terrain payload
+    /// for every frame in a terrain revision.
+    pub(crate) fn build_for_engine_with_runtime_heightmap(
+        logic: &GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
+        match shadow {
+            Some(shadow) if presentation_from_gameworld_enabled() => {
+                Self::build_from_gameworld_with_runtime_heightmap(
+                    shadow,
+                    local_player_id,
+                    Some(logic),
+                    runtime_heightmap,
+                )
+            }
+            Some(shadow) => {
+                let mut frame = Self::build_from_logic_with_runtime_heightmap(
+                    logic,
+                    local_player_id,
+                    runtime_heightmap,
+                );
+                let _ = frame.overlay_gameworld_shadow(shadow);
+                let _ = frame.append_missing_from_gameworld(shadow);
+                frame
+            }
+            None => Self::build_from_logic_with_runtime_heightmap(
+                logic,
+                local_player_id,
+                runtime_heightmap,
+            ),
+        }
+    }
+
     /// Engine tick presentation build with victory residual (Wave 195).
     ///
     /// Freezes victory via [`build_with_victory`], then applies the standard
@@ -2123,6 +2207,46 @@ impl PresentationFrame {
                 // roster (construct/train/map objects) or unit mesh collect stays 0.
                 if gw_n == 0 && host_n > 0 {
                     frame = Self::build_with_victory(logic, local_player_id);
+                    let _ = frame.overlay_gameworld_shadow(shadow);
+                }
+                // Wave 498: host FX residual after GW object rebuild.
+                let _ = frame.overlay_host_fx_residual(logic);
+                // Wave 500: object FX residual names → particle list.
+                let _ = frame.append_object_residual_fx_particles();
+            }
+            Some(shadow) => {
+                let _ = frame.overlay_gameworld_shadow(shadow);
+                let _ = frame.append_missing_from_gameworld(shadow);
+            }
+            None => {}
+        }
+        frame
+    }
+
+    /// Engine-only victory variant carrying the revision-frozen terrain payload.
+    pub(crate) fn build_with_victory_for_engine_with_runtime_heightmap(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
+        let mut frame = Self::build_with_victory_with_runtime_heightmap(
+            logic,
+            local_player_id,
+            runtime_heightmap.clone(),
+        );
+        match shadow {
+            Some(shadow) if presentation_from_gameworld_enabled() => {
+                let host_n = frame.objects.len();
+                let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+                // Wave 838: empty GameWorld shadow must not erase a non-empty host
+                // roster (construct/train/map objects) or unit mesh collect stays 0.
+                if gw_n == 0 && host_n > 0 {
+                    frame = Self::build_with_victory_with_runtime_heightmap(
+                        logic,
+                        local_player_id,
+                        runtime_heightmap,
+                    );
                     let _ = frame.overlay_gameworld_shadow(shadow);
                 }
                 // Wave 498: host FX residual after GW object rebuild.

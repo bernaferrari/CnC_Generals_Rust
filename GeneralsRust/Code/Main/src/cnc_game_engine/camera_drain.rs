@@ -1,5 +1,17 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+
+const REPLAY_FAST_FORWARD_LOGIC_STEPS: usize = 4;
+
+#[inline]
+fn replay_logic_step_count(replay_fast_forward: bool) -> usize {
+    if replay_fast_forward {
+        REPLAY_FAST_FORWARD_LOGIC_STEPS
+    } else {
+        1
+    }
+}
+
 impl CnCGameEngine {
     /// Wave 602: via `host_route_shell_owned_screen_change`.
     pub(super) fn route_shell_owned_screen_change(&mut self, screen: Screen) {
@@ -433,7 +445,7 @@ impl CnCGameEngine {
         }
     }
 
-    /// Wave 602: InGame logic frame residual (host tick → dual-tick policy → shadow →
+    /// Wave 602: InGame logic frame residual (host tick + shadow → dual-tick policy →
     /// presentation finalize → client presentation shell).
     ///
     /// Couples GameWorld shadow when live, advances host logic (with retail FF /
@@ -442,7 +454,7 @@ impl CnCGameEngine {
     pub(super) fn host_run_ingame_logic_presentation_frame(&mut self, dt: f32) {
         // Wave 602: InGame logic+presentation residual.
         // Retail m_TiVOFastMode residual: extra logic steps while armed.
-        let ff_steps = if self.replay_fast_forward { 4 } else { 1 };
+        let ff_steps = replay_logic_step_count(self.replay_fast_forward);
         // Headless residual: cap catch-up (4 logic frames ≈ 133ms) so a slow
         // present/update path cannot freeze the host control loop for seconds.
         let headless_step_budget = if self.runtime_host_headless {
@@ -475,23 +487,38 @@ impl CnCGameEngine {
         } else {
             None
         };
-        // Update game logic first
+        // Each replay fast-forward iteration offers one host update, but a host
+        // update may produce zero, one, or several fixed 30 Hz logic steps.
+        // Advance the coupled GameWorld last-writer boundary for the *actual*
+        // number of completed logic steps: production, exit-delay,
+        // construction, special-power, and movement must not follow render
+        // iteration count. Deferring the boundary until after the four offers
+        // made these shadow-owned channels run at one quarter speed.
         for _ in 0..ff_steps {
             // Wave 584: host logic tick residual via helper.
-            self.host_update_logic_frame(dt, headless_step_budget);
-        }
-        // Consume typed Gather/drop-off observation events immediately after
-        // the authoritative logic step. The evidence helper rejects passive,
-        // untracked, injected, remote, hidden, and non-offline paths.
-        self.host_drain_physical_gather_dropoffs();
-        // Wave 682/925: post-logic host→GameWorld residual batch under coupled shadow tick.
-        // Single authority boundary replaces N eager_apply_* dual-borrows.
-        if couple_shadow {
-            if let Some(ref mut shadow) = self.gameworld_shadow {
-                crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
-                    shadow,
-                    &mut self.game_logic,
-                );
+            let fixed_steps = self
+                .host_update_logic_frame(dt, headless_step_budget)
+                .steps_run;
+            for _ in 0..fixed_steps {
+                // Consume typed Gather/drop-off observation events immediately after
+                // each authoritative logic step. The evidence helper rejects passive,
+                // untracked, injected, remote, hidden, and non-offline paths.
+                self.host_drain_physical_gather_dropoffs();
+                // Wave 682/925: post-logic host→GameWorld residual batch under the
+                // coupled shadow tick. Single authority boundary replaces N eager
+                // apply dual-borrows.
+                if couple_shadow {
+                    if let Some(ref mut shadow) = self.gameworld_shadow {
+                        crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
+                            shadow,
+                            &mut self.game_logic,
+                        );
+                    }
+                }
+                // Wave 597: GameWorld shadow session residual. This stays per
+                // completed fixed logic step even though presentation is coalesced
+                // after the fast-forward batch.
+                self.host_run_gameworld_shadow_after_logic(couple_shadow);
             }
         }
         // Script FPS applied from presentation residual after snapshot build (below).
@@ -533,13 +560,6 @@ impl CnCGameEngine {
             // Hit playback removed with dual CombatSystem step.
             let _ = dt;
         }
-
-        // AI/player commands queued during GameLogic::update_simulation are
-        // flushed in-phase (early commands + post-AI phase 8b). Engine does
-        // not re-drain the command list before shadow.
-
-        // Wave 597: GameWorld shadow session residual via host helper.
-        self.host_run_gameworld_shadow_after_logic(couple_shadow);
 
         // Keep active-shadow access available through host writeback, then
         // release it before building the immutable presentation frame.
@@ -1451,18 +1471,21 @@ impl CnCGameEngine {
         if let Some(ref mut shadow) = self.gameworld_shadow {
             shadow.sync_from_host(&self.game_logic);
         }
+        let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let local_id = self.current_player_id;
         if with_victory {
-            crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
+            crate::presentation_frame::PresentationFrame::build_with_victory_for_engine_with_runtime_heightmap(
                 &mut self.game_logic,
                 local_id,
                 self.gameworld_shadow.as_ref(),
+                runtime_heightmap,
             )
         } else {
-            crate::presentation_frame::PresentationFrame::build_for_engine(
+            crate::presentation_frame::PresentationFrame::build_for_engine_with_runtime_heightmap(
                 &self.game_logic,
                 local_id,
                 self.gameworld_shadow.as_ref(),
+                runtime_heightmap,
             )
         }
     }
@@ -1478,11 +1501,14 @@ impl CnCGameEngine {
         if let Some(ref mut shadow) = self.gameworld_shadow {
             shadow.sync_from_host(&self.game_logic);
         }
-        let mut pres = crate::presentation_frame::PresentationFrame::build_for_engine(
-            &self.game_logic,
-            self.current_player_id,
-            self.gameworld_shadow.as_ref(),
-        );
+        let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
+        let mut pres =
+            crate::presentation_frame::PresentationFrame::build_for_engine_with_runtime_heightmap(
+                &self.game_logic,
+                self.current_player_id,
+                self.gameworld_shadow.as_ref(),
+                runtime_heightmap,
+            );
         pres.apply_to_game_hud(&mut self.game_hud);
         #[cfg(feature = "game_client")]
         {
@@ -1526,10 +1552,12 @@ impl CnCGameEngine {
         if let Some(ref mut shadow) = self.gameworld_shadow {
             shadow.sync_from_host(&self.game_logic);
         }
-        let env_frame = crate::game_logic::seed_presentation_env_frame_from_host_and_shadow(
+        let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
+        let env_frame = crate::game_logic::seed_presentation_env_frame_from_host_and_shadow_with_runtime_heightmap(
             &self.game_logic,
             self.current_player_id,
             self.gameworld_shadow.as_ref(),
+            runtime_heightmap,
         );
         self.render_pipeline.set_presentation_frame(Some(env_frame));
     }
@@ -2132,4 +2160,212 @@ impl CnCGameEngine {
             log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
         }
     }
+}
+
+#[cfg(any(test, feature = "internal"))]
+mod replay_fast_forward_probe {
+    use super::replay_logic_step_count;
+    use crate::cnc_game_engine::CnCGameEngine;
+    use crate::command_line::CommandLineArgs;
+    use crate::game_logic::{
+        BuildingData, BuildingType, GameLogic, KindOf, ObjectId, ProductionItem, ProductionKind,
+        Resources, Team, ThingTemplate,
+    };
+    #[cfg(test)]
+    use crate::gameworld_shadow::authority_env_lock;
+    use crate::gameworld_shadow::{
+        gameworld_production_sole_tick_enabled, refresh_gameworld_authority_env_caches,
+        GameWorldShadow, ShadowCoupleGuard,
+    };
+    use glam::Vec3;
+    use std::sync::Arc;
+    use winit::{event_loop::EventLoop, window::WindowAttributes};
+
+    struct EnvRestore {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvRestore {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+            refresh_gameworld_authority_env_caches();
+        }
+    }
+
+    fn replay_fixture_engine() -> anyhow::Result<(EventLoop<()>, CnCGameEngine)> {
+        let event_loop = EventLoop::new()?;
+        let window = Arc::new(
+            event_loop.create_window(
+                WindowAttributes::default()
+                    .with_title("replay fast-forward regression")
+                    .with_visible(false),
+            )?,
+        );
+        let args = CommandLineArgs::parse_from_args(vec![
+            "replay-fast-forward-test".to_string(),
+            "--runtime_host=headless".to_string(),
+            "--noaudio".to_string(),
+        ])?;
+        let engine = pollster::block_on(CnCGameEngine::new(window, Arc::new(args)))?;
+        Ok((event_loop, engine))
+    }
+
+    fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
+        engine.game_logic = GameLogic::new();
+        engine.gameworld_shadow = Some(GameWorldShadow::new(64));
+        engine.last_frame_timing = None;
+        engine.last_presentation_frame = None;
+        engine.host_match_time_frozen = None;
+        engine.game_paused = false;
+
+        let mut factory = ThingTemplate::new("ReplayFastForwardFactory");
+        factory.set_health(500.0);
+        factory.add_kind_of(KindOf::Structure);
+        factory.add_kind_of(KindOf::FSBarracks);
+        engine
+            .game_logic
+            .templates
+            .insert("ReplayFastForwardFactory".to_string(), factory);
+        let producer_id = engine
+            .game_logic
+            .create_object(
+                "ReplayFastForwardFactory",
+                Team::USA,
+                Vec3::new(8.0, 0.0, 8.0),
+            )
+            .expect("producer");
+        let producer = engine
+            .game_logic
+            .host_object_mut(producer_id)
+            .expect("producer object");
+        let mut building = BuildingData::new(BuildingType::Barracks);
+        building.production_queue.push(ProductionItem {
+            template_name: "ReplayFastForwardRanger".to_string(),
+            progress: 0.0,
+            total_time: 10.0,
+            construction_frames: 0,
+            cost: Resources {
+                supplies: 100,
+                power: 0,
+            },
+            quantity_total: 1,
+            quantity_produced: 0,
+            kind: ProductionKind::Unit,
+        });
+        building.exit_delay_remaining_frames = 9;
+        building.exit_burst_remaining = 0;
+        building.queue_exit_state_initialized = true;
+        building.exit_delay_remaining = 9.0 / 30.0;
+        producer.building_data = Some(building);
+        producer_id
+    }
+
+    fn host_queue_state(engine: &CnCGameEngine, producer_id: ObjectId) -> (u32, u32) {
+        let building = engine
+            .game_logic
+            .host_object(producer_id)
+            .and_then(|producer| producer.building_data.as_ref())
+            .expect("host producer queue");
+        let head = building.production_queue.first().expect("queue head");
+        (
+            head.construction_frames,
+            building.exit_delay_remaining_frames,
+        )
+    }
+
+    fn run_engine_replay_batch(
+        engine: &mut CnCGameEngine,
+        replay_fast_forward: bool,
+        dt: f32,
+        outer_frames: usize,
+    ) -> (u32, u32, u32) {
+        engine.replay_fast_forward = replay_fast_forward;
+        let producer_id = install_replay_factory(engine);
+        let before = host_queue_state(engine, producer_id);
+        for _ in 0..outer_frames {
+            // Exercise the actual engine boundary: it decides fixed-step count,
+            // drains host residuals, runs GameWorld writeback, and finalizes one
+            // presentation frame per outer update.
+            engine.host_run_ingame_logic_presentation_frame(dt);
+        }
+        let after = host_queue_state(engine, producer_id);
+        (
+            after.0 - before.0,
+            before.1 - after.1,
+            engine.game_logic.get_frame(),
+        )
+    }
+
+    pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
+        #[cfg(test)]
+        let _env_guard = authority_env_lock();
+        let _shadow_env = EnvRestore::set("GENERALS_GAMEWORLD_SHADOW", "1");
+        let _production_env = EnvRestore::set("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+        refresh_gameworld_authority_env_caches();
+        let _coupled = ShadowCoupleGuard::enter();
+        assert!(
+            gameworld_production_sole_tick_enabled(),
+            "fixture must take the same coupled production-authority path as the engine"
+        );
+        drop(_coupled);
+
+        let (_event_loop, mut engine) = replay_fixture_engine()?;
+
+        let normal_30 = run_engine_replay_batch(&mut engine, false, 1.0 / 30.0, 1);
+        assert_eq!(
+            normal_30,
+            (1, 1, 1),
+            "normal 30 Hz engine frame must advance one queue/exit/fixed step"
+        );
+
+        let fast_30 = run_engine_replay_batch(&mut engine, true, 1.0 / 30.0, 1);
+        assert_eq!(replay_logic_step_count(true), 4);
+        assert_eq!(
+            fast_30,
+            (4, 4, 4),
+            "TiVO fast-forward at 30 Hz must advance four queue/exit/fixed steps"
+        );
+
+        let normal_60 = run_engine_replay_batch(&mut engine, false, 1.0 / 60.0, 4);
+        assert_eq!(
+            normal_60,
+            (2, 2, 2),
+            "four normal 60 Hz engine frames must complete only two fixed steps"
+        );
+
+        let fast_60 = run_engine_replay_batch(&mut engine, true, 1.0 / 60.0, 1);
+        assert_eq!(
+            fast_60,
+            (2, 2, 2),
+            "four TiVO 60 Hz offers must advance shadow queues only for the two completed fixed steps"
+        );
+        Ok(())
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn replay_fast_forward_runs_shadow_queue_per_actual_fixed_step() {
+        // The full regression runs through the `internal` probe binary because
+        // macOS requires winit event loops on the process main thread, while
+        // Rust's unit-test harness executes tests on worker threads.
+        assert_eq!(replay_logic_step_count(false), 1);
+        assert_eq!(replay_logic_step_count(true), 4);
+    }
+}
+
+#[cfg(feature = "internal")]
+pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
+    replay_fast_forward_probe::run_replay_fast_forward_engine_probe()
 }

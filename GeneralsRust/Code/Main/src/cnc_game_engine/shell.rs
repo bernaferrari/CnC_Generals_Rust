@@ -308,6 +308,21 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ campaign and Challenge load screens finish their movie/min-spec
+    /// prelude before map initialization.  This delegates only to GameClient's
+    /// safe WindowManager/display/FP pump; it must not dispatch the host
+    /// platform event loop while `host_start_game_from_ui` is synchronous.
+    #[cfg(feature = "game_client")]
+    pub(super) fn run_cpp_load_screen_prelude(&mut self) {
+        if !self.loading_overlay_active {
+            return;
+        }
+        let Some(kind) = self.active_load_screen else {
+            return;
+        };
+        let _ = game_client::gui::load_screen::run_load_screen_prelude(kind);
+    }
+
     pub(super) fn hide_shell_loading_overlay(&mut self) {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = "Startup complete".to_string();
@@ -436,6 +451,26 @@ impl CnCGameEngine {
                 game_client::gui::load_screen::update_load_screen(kind, percent);
             }
         }
+    }
+
+    /// Drive the C++ load-screen frame work from a synchronous map-load
+    /// milestone without borrowing the host engine. `host_load_map_or_default`
+    /// holds `self.game_logic` mutably while it invokes this path, so keeping
+    /// this state in the already-existing thread-local presentation bridge is
+    /// what lets every real milestone update the visible .wnd screen.
+    #[cfg(feature = "game_client")]
+    pub(super) fn pump_cpp_load_screen_progress(
+        kind: game_client::gui::load_screen::LoadScreenKind,
+        progress: f32,
+        phase: &str,
+    ) {
+        let progress = progress.clamp(0.0, 1.0);
+        LOADING_PROGRESS.with(|value| value.set(progress));
+        let phase = phase.trim();
+        if !phase.is_empty() {
+            LOADING_PHASE.with(|value| *value.borrow_mut() = phase.to_string());
+        }
+        game_client::gui::load_screen::update_load_screen(kind, progress * 100.0);
     }
 
     pub(super) fn observe_startup_progress(&mut self, progress: f32, phase: &str) {

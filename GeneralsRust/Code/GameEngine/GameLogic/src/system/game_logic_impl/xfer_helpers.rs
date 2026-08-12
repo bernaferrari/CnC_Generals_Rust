@@ -164,8 +164,10 @@ impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
 
     fn begin_block(
         &mut self,
-    ) -> Result<game_engine::common::system::xfer::XferBlockSize, game_engine::common::system::xfer::XferStatus>
-    {
+    ) -> Result<
+        game_engine::common::system::xfer::XferBlockSize,
+        game_engine::common::system::xfer::XferStatus,
+    > {
         self.inner.begin_block().map_err(common_xfer_status)
     }
 
@@ -173,7 +175,10 @@ impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
         self.inner.end_block().map_err(common_xfer_status)
     }
 
-    fn skip(&mut self, data_size: i32) -> Result<(), game_engine::common::system::xfer::XferStatus> {
+    fn skip(
+        &mut self,
+        data_size: i32,
+    ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
         self.inner.skip(data_size).map_err(common_xfer_status)
     }
 
@@ -212,12 +217,67 @@ fn xfer_object_snapshot(obj: &mut Object, xfer: &mut dyn Xfer) {
     crate::common::types::Snapshot::xfer(obj, &mut bridge);
 }
 
-fn xfer_polygon_snapshot(
-    poly: &mut crate::polygon_trigger::PolygonTrigger,
-    xfer: &mut dyn Xfer,
-) {
+fn xfer_polygon_snapshot(poly: &mut crate::polygon_trigger::PolygonTrigger, xfer: &mut dyn Xfer) {
     let mut bridge = CommonXferBridge { inner: xfer };
     crate::common::types::Snapshot::xfer(poly, &mut bridge);
+}
+
+/// C++ Player::xfer keeps these systems owned by the map-created Player.  They
+/// therefore have to agree with the serialized presence bit on load rather
+/// than being fabricated as an empty manager just to consume the payload.
+fn xfer_player_auxiliary_runtime_state(
+    player: &mut Player,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    use game_engine::common::system::snapshot::Snapshotable;
+
+    let player_id = player.get_player_index() as u32;
+    let runtime_ai_present =
+        crate::ai::integration::with_ai_integration(|manager| manager.has_ai_player(player_id))
+            .unwrap_or(false);
+    let mut ai_present = runtime_ai_present;
+    xfer.xfer_bool(&mut ai_present)?;
+    if ai_present != runtime_ai_present {
+        return Err(XferStatus::InvalidData);
+    }
+    if ai_present {
+        let result = crate::ai::integration::with_ai_integration_mut(|manager| {
+            let mut bridge = CommonXferBridge { inner: xfer };
+            manager.xfer_ai_player(player_id, player.is_skirmish_ai(), &mut bridge)
+        })
+        .ok_or(XferStatus::InvalidData)?;
+        result.map_err(|_| XferStatus::InvalidData)?;
+    }
+
+    let runtime_resource_manager_present = player.get_resource_manager().is_some();
+    let mut resource_manager_present = runtime_resource_manager_present;
+    xfer.xfer_bool(&mut resource_manager_present)?;
+    if resource_manager_present != runtime_resource_manager_present {
+        return Err(XferStatus::InvalidData);
+    }
+    if resource_manager_present {
+        let manager = player
+            .get_resource_manager_mut()
+            .ok_or(XferStatus::InvalidData)?;
+        let mut bridge = CommonXferBridge { inner: xfer };
+        Snapshotable::xfer(manager, &mut bridge).map_err(|_| XferStatus::InvalidData)?;
+    }
+
+    let runtime_tunnel_tracker_present = player.get_tunnel_system().is_some();
+    let mut tunnel_tracker_present = runtime_tunnel_tracker_present;
+    xfer.xfer_bool(&mut tunnel_tracker_present)?;
+    if tunnel_tracker_present != runtime_tunnel_tracker_present {
+        return Err(XferStatus::InvalidData);
+    }
+    if tunnel_tracker_present {
+        let tracker = player
+            .get_tunnel_system_mut()
+            .ok_or(XferStatus::InvalidData)?;
+        let mut bridge = CommonXferBridge { inner: xfer };
+        Snapshotable::xfer(tracker, &mut bridge).map_err(|_| XferStatus::InvalidData)?;
+    }
+
+    Ok(())
 }
 
 fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -265,9 +325,7 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
             let mut toc_id: UnsignedShort = 0;
             xfer.xfer_unsigned_short(&mut toc_id)?;
             let block_size = xfer.begin_block()?;
-            let toc_name = logic
-                .find_toc_entry_by_id(toc_id)
-                .map(|e| e.name.clone());
+            let toc_name = logic.find_toc_entry_by_id(toc_id).map(|e| e.name.clone());
             let Some(toc_name) = toc_name else {
                 let _ = xfer.skip(block_size);
                 let _ = xfer.end_block();
@@ -590,24 +648,38 @@ fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<()
 }
 
 fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 1;
+    // Version 2 appends Player::xfer's AI/resource/tunnel state after the
+    // existing v1 record.  Do not move or rewrite the v1 prefix: old saves
+    // must stop exactly where their historical chunk stops.
+    let current_version: XferVersion = 2;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    let player_list = player_list();
-    let list_guard = player_list.write().map_err(|_| XferStatus::InvalidData)?;
-    let mut player_count = list_guard.get_player_count() as i32;
-    xfer.xfer_int(&mut player_count)?;
+    // Take the player handles in the C++ list order, but do not retain the
+    // list lock while restoring individual Player fields.  `set_rank_level`
+    // queries `is_local_player`, which reads this same list; holding a write
+    // lock across that call deadlocks a v1/v2 load.
+    let player_arcs = {
+        let players = player_list();
+        let list_guard = players.read().map_err(|_| XferStatus::InvalidData)?;
+        let mut player_count = list_guard.get_player_count() as i32;
+        xfer.xfer_int(&mut player_count)?;
 
-    if player_count != list_guard.get_player_count() as i32 {
-        return Err(XferStatus::InvalidData);
-    }
+        if player_count != list_guard.get_player_count() as i32 {
+            return Err(XferStatus::InvalidData);
+        }
 
-    for idx in 0..player_count.max(0) {
-        let player_arc = list_guard
-            .get_player(idx)
-            .cloned()
-            .ok_or(XferStatus::InvalidData)?;
+        (0..player_count.max(0))
+            .map(|idx| {
+                list_guard
+                    .get_player(idx)
+                    .cloned()
+                    .ok_or(XferStatus::InvalidData)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    for player_arc in player_arcs {
         let mut player = player_arc.write().map_err(|_| XferStatus::InvalidData)?;
 
         let mut money = player.get_money().get_money();
@@ -659,6 +731,10 @@ fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus>
             if delta != 0 {
                 player.add_science_purchase_points(delta);
             }
+        }
+
+        if version >= 2 {
+            xfer_player_auxiliary_runtime_state(&mut player, xfer)?;
         }
     }
 

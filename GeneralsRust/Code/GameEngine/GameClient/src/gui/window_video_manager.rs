@@ -35,6 +35,16 @@ pub enum WindowVideoState {
     Hidden,
 }
 
+/// Snapshot of an active window movie used by blocking load-screen preludes.
+/// The manager intentionally keeps movie ownership private; callers only need
+/// the authored frame boundary, never a mutable stream handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowMovieProgress {
+    pub frame_index: i32,
+    pub frame_count: i32,
+    pub frame_ready: bool,
+}
+
 pub struct WindowVideo {
     play_type: WindowVideoPlayType,
     window: Option<Weak<RefCell<GameWindow>>>,
@@ -110,6 +120,10 @@ impl WindowVideo {
 
     pub fn video_stream_mut(&mut self) -> Option<&mut (dyn VideoStreamInterface + 'static)> {
         self.video_stream.as_deref_mut()
+    }
+
+    pub fn video_stream(&self) -> Option<&(dyn VideoStreamInterface + 'static)> {
+        self.video_stream.as_deref()
     }
 
     pub fn video_buffer(&self) -> Option<VideoBufferHandle> {
@@ -350,6 +364,31 @@ impl WindowVideoManager {
         self.playing_videos.values().any(|video| {
             video.movie_name().eq_ignore_ascii_case(key)
                 && !matches!(video.state(), WindowVideoState::Stop)
+        })
+    }
+
+    /// Read an active movie's source-frame position without exposing its
+    /// decoder.  A missing result means the one-shot movie has completed (or
+    /// was otherwise stopped/removed), which is the terminal signal used by
+    /// the load-screen prelude driver.
+    pub fn movie_progress(&self, movie_name: &str) -> Option<WindowMovieProgress> {
+        let key = movie_name.trim();
+        if key.is_empty() {
+            return None;
+        }
+
+        self.playing_videos.values().find_map(|video| {
+            if !video.movie_name().eq_ignore_ascii_case(key)
+                || matches!(video.state(), WindowVideoState::Stop)
+            {
+                return None;
+            }
+            let stream = video.video_stream()?;
+            Some(WindowMovieProgress {
+                frame_index: stream.frame_index(),
+                frame_count: stream.frame_count(),
+                frame_ready: stream.is_frame_ready(),
+            })
         })
     }
 }

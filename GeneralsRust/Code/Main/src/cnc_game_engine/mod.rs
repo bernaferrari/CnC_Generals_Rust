@@ -105,9 +105,10 @@ mod hotkeys;
 mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
+mod mouse;
+mod presentation_terrain_cache;
 #[cfg(feature = "game_client")]
 mod quit_menu_bridge;
-mod mouse;
 mod run_loop;
 mod runtime;
 mod runtime_host;
@@ -118,6 +119,11 @@ mod types;
 mod ui_commands;
 
 pub use run_loop::run_cnc_game;
+#[cfg(feature = "internal")]
+pub fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
+    camera_drain::run_replay_fast_forward_engine_probe()
+}
+use presentation_terrain_cache::PresentationTerrainCache;
 use run_loop::{resolve_ui_structure_template_name, SoundType};
 use runtime::{RuntimeHostBridge, RuntimeHostSnapshot};
 #[cfg(feature = "internal")]
@@ -177,6 +183,7 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("input.rs"),
     include_str!("mouse.rs"),
     include_str!("minimap_bridge.rs"),
+    include_str!("presentation_terrain_cache.rs"),
     include_str!("quit_menu_bridge.rs"),
     include_str!("run_loop.rs"),
     include_str!("runtime.rs"),

@@ -286,6 +286,34 @@ fn map_fallback_reports_the_map_that_actually_loaded() {
 }
 
 #[test]
+fn map_fallback_forwards_live_milestones_for_each_real_attempt() {
+    let mut game_logic = GameLogic::new();
+    let mut milestones = Vec::new();
+
+    let loaded = game_logic.load_map_or_fallback_with_progress(
+        "__map_start_missing_requested_map__",
+        "TestMap",
+        |progress, phase| milestones.push((progress, phase.to_string())),
+    );
+
+    assert_eq!(loaded.as_deref(), Some("TestMap"));
+    assert_eq!(
+        milestones
+            .iter()
+            .filter(|(_, phase)| phase == "Preparing map data")
+            .count(),
+        2,
+        "both the requested map and the real fallback must expose their load start"
+    );
+    assert!(
+        milestones
+            .iter()
+            .any(|(progress, phase)| *progress >= 0.96 && phase == "Map load complete"),
+        "the successfully loaded fallback must forward its final real milestone"
+    );
+}
+
+#[test]
 fn corrupt_selected_map_uses_and_reports_the_loaded_fallback() {
     let temp = tempfile::tempdir().expect("temporary map directory");
     let corrupt_map = temp.path().join("corrupt.map");

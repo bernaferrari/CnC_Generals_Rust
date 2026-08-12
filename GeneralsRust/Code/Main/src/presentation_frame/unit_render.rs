@@ -181,6 +181,7 @@ impl UnitRenderInput {
                 draw_models.push(crate::assets::AuthoredDrawModel {
                     module_index: 0,
                     model_key: model_key.to_string(),
+                    ..Default::default()
                 });
             }
         }

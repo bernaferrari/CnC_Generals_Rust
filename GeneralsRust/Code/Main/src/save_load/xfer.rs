@@ -545,6 +545,23 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{read_kind_of_variant, write_kind_of_variant};
+    use crate::game_logic::KindOf;
+
+    #[test]
+    fn authored_supply_kindofs_keep_their_append_only_xfer_ids() {
+        for (kind_of, expected_id) in [
+            (KindOf::SupplySource, 52),
+            (KindOf::CannotBuildNearSupplies, 53),
+        ] {
+            assert_eq!(write_kind_of_variant(kind_of), expected_id);
+            assert_eq!(read_kind_of_variant(expected_id).unwrap(), kind_of);
+        }
+    }
+}
+
 pub struct XferLoad<R: Read + Seek> {
     identifier: String,
     options: XferOptions,

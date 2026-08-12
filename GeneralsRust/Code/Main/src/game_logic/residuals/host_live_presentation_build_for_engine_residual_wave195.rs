@@ -91,8 +91,14 @@ pub fn honesty_build_for_engine_api_source() -> bool {
 /// Source residual: engine seed/tick use helpers (not manual overlay chain).
 pub fn honesty_engine_build_for_engine_call_sites_source() -> bool {
     let src = crate::cnc_game_engine::ENGINE_SRC;
-    let seed_hits = src.matches("build_for_engine(").count();
-    let victory_hits = src.matches("build_with_victory_for_engine(").count();
+    let seed_hits = src.matches("build_for_engine(").count()
+        + src
+            .matches("build_for_engine_with_runtime_heightmap(")
+            .count();
+    let victory_hits = src.matches("build_with_victory_for_engine(").count()
+        + src
+            .matches("build_with_victory_for_engine_with_runtime_heightmap(")
+            .count();
     seed_hits >= 2
         && victory_hits >= 1
         // Production tick must not still open a manual overlay chain after victory build.

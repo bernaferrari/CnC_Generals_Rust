@@ -713,6 +713,7 @@ impl GraphicsSystem {
 
         let mesh = W3DMesh {
             name: "__fallback_cube_mesh__".to_string(),
+            container_name: String::new(),
             vertices,
             indices,
             material,
@@ -747,6 +748,8 @@ impl GraphicsSystem {
             bounding_box_min: Vec3::new(-5.0, -5.0, -5.0),
             bounding_box_max: Vec3::new(5.0, 5.0, 5.0),
             hierarchy: None,
+            hlods: Vec::new(),
+            hlod_parse_failed: false,
             animations: Vec::new(),
         }
     }
